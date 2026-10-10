@@ -1,0 +1,155 @@
+{
+  "schema": "gambit-smp-model-cases.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "cases": [
+    {
+      "id": "lazy_vm_startup", "pr": 988,
+      "head": "be71ec38aaff06d4c310f5b23d916e3a31e31ca7",
+      "source": ["lib/_thread.scm:##ensure-parallelism!", "lib/_thread.scm:##startup-parallelism!", "lib/_repl.scm:startup"],
+      "native": null,
+      "scope": "One VM, target four processors, two sequential startup callers with injected first resize failure; readiness commit after successful resize. Does not implement a repair or prove recursion, concurrent callers, shrink, failure cleanup, or error behavior of every resize implementation; actual worker count required for future native coverage"
+    },
+    {
+      "id": "exec_gc_polling", "pr": 988,
+      "head": "be71ec38aaff06d4c310f5b23d916e3a31e31ca7",
+      "oldInvariants": ["safe", "configSafe"],
+      "oldInitializers": {"configSafe": "initUncheckedPoll"},
+      "source": ["lib/os_io.c:___device_stream_setup_from_process"],
+      "native": null,
+      "scope": "Error-pipe child not ready while GC requested; blocking-read participation failure and separately injected fcntl failure in the unchecked polling candidate. Fixed is a fail-closed configuration obligation, not an applied runtime patch; excludes child cleanup, saved registers, pipe lifetime and scheduling fairness"
+    },
+    {
+      "id": "rehash_lock_ownership", "pr": 988,
+      "head": "be71ec38aaff06d4c310f5b23d916e3a31e31ca7",
+      "oldInvariants": ["lockSafe", "ownershipSafe"],
+      "oldInitializers": {"ownershipSafe": "initUnlockedSource"},
+      "source": ["lib/mem.c:___gc_hash_table_rehash", "lib/_system.scm:##table-resize!", "lib/_system.scm:##table-access"],
+      "native": null,
+      "scope": "Two stripe classes and one completed writer operation; nested source/destination locks can self-deadlock on alias, removing source lock requires exclusive source ownership through private destination publication. Unowned-source control is a conditional counterexample, not a diagnosed PR988 runtime defect; fixed is an ownership obligation, not implemented repair"
+    },
+    {
+      "id": "heap_allocation_headroom", "pr": 1036,
+      "source": ["lib/mem.c:compute_nb_msections_min", "lib/mem.c:compute_free_heap_space_approximately", "lib/mem.c:___heap_limit", "lib/mem.c:resize_heap"],
+      "native": null,
+      "scope": "Observed 9-section small live heap, 131072 words per section and 204808-word reserve; 1/2/4 processors each assign one stack and local heap. Existing processor floor is insufficient for allocation admission. Proposed extra reserve plus one-section headroom; excludes max-heap caps, allocation failure and larger occupied heaps; native cause remains to be tested"
+    },
+    {
+      "id": "sync_wait_handshake", "pr": 989,
+      "source": ["lib/setup.c:SYNC_GET_MSG", "lib/setup.c:SYNC_SEND_MSG"],
+      "native": null,
+      "scope": "One slow-path message; same mutex and POSIX atomic condition wait assumed; old is explicitly split-wait fault injection, NOT an observed source bug. Exhausts sender/receiver scheduling and distinguishes ready-but-not-rescheduled from a lost wake; excludes C weak memory, scheduler fairness and spurious wakes"
+    },
+    {
+      "id": "sync_tree_rounds", "pr": 989,
+      "mode": "characterization", "invariants": ["safe", "channelsDrained"],
+      "source": ["lib/setup.c:barrier_sync_op", "lib/mem.c:garbage_collect_mark_strong_phase"],
+      "native": null,
+      "scope": "Four processors, two consecutive tree barriers, ordered child receives/replies and reusable cleared mailboxes; coherent atomic visibility and fixed population assumed. Checks epoch/overwrite safety and absence of terminal dead ends, not scheduler fairness, condition variables, C races or VM resizing; no repair claim"
+    },
+    {
+      "id": "sync_message_acquire", "pr": 989,
+      "oldInvariants": ["safe", "acquireSafe", "releaseSafe"],
+      "oldInitializers": {"acquireSafe": "initReleaseOnly", "releaseSafe": "initAcquireOnly"},
+      "source": ["lib/setup.c:SYNC_GET_MSG", "lib/setup.c:SYNC_SEND_MSG", "lib/setup.c:barrier_sync_op"],
+      "native": null,
+      "scope": "One barrier message on the spin fast path; separate release-only and acquire-only controls; explicit weak-memory visibility abstraction, not an exhaustive C memory model or attribution of reported failures; PR989 supplies context, not this fence fix"
+    },
+    {
+      "id": "serial_number_transaction", "pr": 989,
+      "source": ["lib/_system.scm:##object->serial-number", "lib/_system.scm:##eq?-hash", "lib/mem.c:___gc_hash_table_ref", "lib/mem.c:___gc_hash_table_set"],
+      "native": "serial_number_transaction.scm",
+      "scope": "Two calls, same or distinct object, no collection/resize/wrap; even atomic counter and per-operation table access require transaction serialization; fixed is a protocol obligation, not an implemented GC-safe lock or attribution of the decoder failure"
+    },
+    {
+      "id": "gc_key_reference", "pr": 1038,
+      "oldInitializers": {"safe": "initMissingScan"},
+      "source": ["lib/mem.c:scan", "lib/mem.c:mark_array", "lib/_system.scm:##table-get-gcht"],
+      "native": null,
+      "scope": "Conditional strong-key slot-update obligation with two worker orders; missing MEM_ALLOC_KEYS is fault injection, not an observed native flag or diagnosed upstream defect; canonical CAS forwarding abstracted"
+    },
+    {
+      "id": "gc_rehash_protocol", "pr": 1038,
+      "oldInvariants": ["safe", "decodeSafe", "uniformSafe", "gcSafe"],
+      "oldInitializers": {"gcSafe": "initDecodedOld"},
+      "source": ["lib/_system.scm:##table-access", "lib/mem.c:gc_hash_table_rehash_in_situ", "lib/mem.c:___gc_hash_table_ref"],
+      "native": null,
+      "scope": "Six hash-consumer/entry-path combinations followed by up to two moving GCs; decoder-only negative control; abstracts collision handling and Scheme rebuilding, not a C algorithm or unbounded proof"
+    },
+    {
+      "id": "gc_stack_lifecycle", "pr": 1019,
+      "source": ["lib/mem.c:___setup_mem_pstate", "lib/mem.c:move_continuation", "lib/mem.c:___stack_limit"],
+      "native": null,
+      "scope": "Three bounded stack-marker lifecycles; old also includes the locally observed wrong-function edit, not an upstream startup allegation"
+    },
+    {
+      "id": "gc_hash_policy", "pr": 989,
+      "source": ["lib/mem.c:gc_hash_table_rehash_in_situ", "lib/_system.scm:##table-access", "gsc/_back.scm:make-prim-proc-table"],
+      "native": "hash_policy.scm",
+      "scope": "Uniformly allocated keys in a Scheme-hash table; pointer rehash must notify the Scheme-level rebuilding path"
+    },
+    {
+      "id": "gc_stack_marker", "pr": 1019,
+      "head": "68b2b00c0c9389c0e0c702c4419311e6248f551e",
+      "source": ["lib/mem.c:alloc_stack_ptr", "lib/mem.c:___stack_limit"],
+      "native": null,
+      "scope": "Nonempty stack copy must clear the actual first break frame marker, not the current frame; fresh-frame branch separately inspected"
+    },
+    {
+      "id": "gc_scan_barrier", "pr": 989,
+      "head": "cdee7acf249e25b63524195cafdee2686acc49c3",
+      "source": ["lib/mem.c:garbage_collect_mark_strong_phase"],
+      "native": null,
+      "scope": "Two root-marking processors, one published incomplete continuation frame; excludes transitive scan publication"
+    },
+    {
+      "id": "gc_rc_roots", "pr": 989,
+      "head": "cdee7acf249e25b63524195cafdee2686acc49c3",
+      "source": ["lib/mem.c:rc_head", "lib/mem.c:mark_rc"],
+      "native": null,
+      "scope": "One live RC root per processor, no other roots; not concurrent RC list mutation"
+    },
+    {
+      "id": "gc_key_tags", "pr": 1038,
+      "source": ["lib/mem.c:gc_hash_table_rehash_in_situ", "lib/mem.c:process_gc_hash_tables"],
+      "native": "table_gc.scm",
+      "scope": "Proposed extension of 1038's mixed-key guard to all in-situ rehash callers; not attribution of every reported forced-GC failure"
+    },
+    {
+      "id": "table_decode",
+      "pr": 1038,
+      "head": "7e1ae2a5b1b65b3d917e9be9565c9cf969ff4b3f",
+      "source": ["lib/_system.scm:##gc-hash-table-rehash!", "lib/mem.c:___gc_hash_table_rehash"],
+      "native": "table_decode.scm",
+      "scope": "Decode publication and mixed-key fallback; not forced-GC correctness"
+    },
+    {
+      "id": "pipe_wait",
+      "pr": 1037,
+      "head": "80ba5a23c684f94a1a0259cde24cac47c943f7a9",
+      "source": ["lib/_io.scm:macro-port-mutex-set!"],
+      "native": "pipe_wait.scm",
+      "scope": "One message, two endpoints, atomic wait registration under the predicate mutex"
+    },
+    {
+      "id": "heap_floor",
+      "pr": 1036,
+      "source": ["lib/mem.c:compute_nb_msections_min", "lib/mem.c:target_nb_sections"],
+      "native": "heap_floor.scm",
+      "scope": "Unlimited max heap, one VM resized to 1/2/4 processors; excludes allocation failure"
+    },
+    {
+      "id": "root_marker",
+      "pr": 1010,
+      "head": "3ba7790045f40ac6eeab3b677cec058cbaf76c93",
+      "source": ["lib/c_intf.c:___make_sfun_stack_marker"],
+      "native": null,
+      "scope": "One movable C argument across an allocating call; native C/FFI adapter pending"
+    }
+  ],
+  "unresolved": [
+    {"pr": 1038, "failure": "forced GC after decoding fails baseline and candidate", "status": "bounded-protocol-modeled-native-p4-denied-root-cause-unresolved"},
+    {"pr": 1038, "failure": "compiled write_shared signal 11", "status": "reported-not-modeled"},
+    {"failure": "local threaded from-scratch heap overflow during mark/scan", "status": "observed-root-cause-unresolved"}
+  ]
+}

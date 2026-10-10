@@ -1,0 +1,12 @@
+;; Compiler-style default tables: all keys are allocated symbols.
+(let ((table (make-table)) (keys (make-vector 1200)))
+  (do ((i 0 (+ i 1))) ((= i 1200))
+    (let ((key (string->symbol (string-append "primitive-" (number->string i)))))
+      (vector-set! keys i key)
+      (table-set! table key i)))
+  (do ((round 0 (+ round 1))) ((= round 5))
+    (##gc)
+    (do ((i 0 (+ i 1))) ((= i 1200))
+      (if (not (equal? i (table-ref table (vector-ref keys i) #f)))
+          (error "uniform-key Scheme hash mismatch" round i)))))
+(display "NATIVE-OK:gc_hash_policy\n")

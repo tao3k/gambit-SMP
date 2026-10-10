@@ -1,0 +1,13 @@
+;; Newly repaired GC entry point, separate from the decoder omission.
+(define (check predicate)
+  (let ((keys (vector 'alpha 123 #f #\a "heap-key" '(1 2) '#(3 4)))
+        (table (make-table test: predicate init: 'missing)))
+    (do ((i 0 (+ i 1))) ((= i 7))
+      (table-set! table (vector-ref keys i) (+ i 100)))
+    (do ((round 0 (+ round 1))) ((= round 10))
+      (##gc)
+      (do ((i 0 (+ i 1))) ((= i 7))
+        (let ((value (table-ref table (vector-ref keys i))))
+          (if (not (equal? (+ i 100) value)) (error "post-GC lookup" round i value)))))))
+(for-each check (list eq? eqv? equal?))
+(display "NATIVE-OK:gc_key_tags\n")
