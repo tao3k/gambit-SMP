@@ -52,6 +52,18 @@ and receipt identities. The new source-bound schedule receipt may document a
 new replay, but must not overwrite an old receipt or relabel its results. The
 eight extracted/mock schedule controls are not full Gambit runtime tests.
 
+The clean-checkout gate passed at source commit
+`428275733bcbb5a1a447ae290caa6dd732a5444f`: all 18 source inputs and 14
+correspondence inputs matched committed bytes, all five source hashes matched,
+and 33 focused tests passed. GNU GCC 16.2.0 replayed the eight diagnostic
+schedules from restored source, preserving both direct-destruction negative
+outcomes. The 288 previously committed model-result files stayed byte-identical.
+The bounded observation is `evidence/source-026-clean-reproduction.json`;
+the new schedule logs and extracted source are hashed under
+`evidence/model-results/sync-retirement-submodule-clean-004/archive.json`.
+This closes this audited slice/correspondence, not all historical model contexts,
+the full configured toolchain or the five pending native gates.
+
 Source inputs and cache outputs are different categories. JSON source bindings
 use repository-relative paths such as `vendor/gambit/lib/mem.c`, backed by the
 fixed Git submodule revision and checked hashes, not a local runtime cache.
