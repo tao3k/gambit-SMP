@@ -5,6 +5,7 @@ import unittest
 
 from gambit_smp.framework import digest
 from gambit_smp import protocol_source_audit as audit
+from unittest.mock import patch
 
 
 class CorrespondenceTests(unittest.TestCase):
@@ -48,6 +49,28 @@ class CorrespondenceTests(unittest.TestCase):
         (self.root / "source/setup.c").write_text("changed\n")
         with self.assertRaisesRegex(ValueError, "stale"):
             audit.facts(self.root)
+
+    def test_cache_source_cannot_be_a_current_correspondence_input(self):
+        self.data["sourceRoot"] = ".data/source"
+        (self.root / ".data/source").mkdir(parents=True)
+        self.save(audit.MANIFEST, self.data)
+        with self.assertRaisesRegex(ValueError, "versioned"):
+            audit.facts(self.root)
+
+    def test_real_locked_correspondence_does_not_access_candidate026_cache(self):
+        from gambit_smp.framework import ROOT
+        original = audit.relative
+        def no_cache(root, name):
+            if ".data" in Path(name).parts:
+                raise AssertionError("cache input accessed: " + name)
+            return original(root, name)
+        with patch.object(audit, "relative", side_effect=no_cache):
+            rows, inputs = audit.facts(ROOT)
+        self.assertEqual({row[0] for row in rows["source_review"]},
+                         {"gc_epoch_work_bridge", "gc_scan_claim_transfer",
+                          "sync_retirement_drain", "vm_configuration_contract"})
+        self.assertTrue(all(".data" not in Path(name).parts for name in inputs))
+        self.assertIn("evidence/runtime-source-026.lock.json", inputs)
 
     def test_missing_model_and_wrong_anchor_rejected(self):
         self.data["observations"].pop()

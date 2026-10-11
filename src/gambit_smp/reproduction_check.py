@@ -3,11 +3,14 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
+import tempfile
 
 from gambit_smp.framework import ROOT
 from gambit_smp.paper_cache import paper_pins
 from gambit_smp.source_provision import validate as validate_capsule
+from gambit_smp.source_materialize import AUDIT_FILES, FILES, materialize
 
 
 def portable(root, name):
@@ -23,6 +26,74 @@ def portable(root, name):
 def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args],
                                    text=True, timeout=10).strip()
+
+
+def verify_committed(root, inputs, submodule, revision):
+    entry = git(root, "ls-tree", "HEAD", "--", submodule).split()
+    if entry[:3] != ["160000", "commit", revision]:
+        raise ValueError("source gitlink is not committed at the locked revision")
+    for name in sorted(inputs):
+        if name.startswith(submodule + "/"):
+            relative = name[len(submodule) + 1:]
+            committed = subprocess.check_output(
+                ["git", "-C", str(root / submodule), "show", revision + ":" + relative],
+                timeout=10)
+        else:
+            try:
+                committed = subprocess.check_output(
+                    ["git", "-C", str(root), "show", "HEAD:" + name],
+                    stderr=subprocess.PIPE, timeout=10)
+            except subprocess.CalledProcessError as error:
+                raise ValueError(f"research input is not committed: {name}") from error
+        if committed != portable(root, name).read_bytes():
+            raise ValueError(f"working input differs from committed bytes: {name}")
+
+
+def check_source(root, lock_name, require_committed=False):
+    """Check an audited candidate slice, independently of any model manifest."""
+    root = root.resolve()
+    lock_path = portable(root, lock_name)
+    lock = json.loads(lock_path.read_text())
+    capsule, _ = validate_capsule(root)
+    if (lock.get("schema") != "gambit-runtime-source-lock.v1" or
+            not set(FILES) <= set(lock.get("files", {})) <= set(AUDIT_FILES) or
+            any(lock.get(key) != capsule[key] for key in ("revision", "submodule", "repository")) or
+            any(lock.get(key) is not False for key in ("configuredToolchainReproduced",
+                "runtimeAdmitted", "releaseAdmitted"))):
+        raise ValueError("candidate source lock does not bind the pinned source capsule")
+    inputs = {lock_name, lock["patch"], ".gitmodules", "models/gambit/cases.json",
+              "evidence/runtime-source-provisioning.json", capsule["sourceLock"], capsule["bundle"]}
+    inputs.update("src/gambit_smp/" + name + ".py" for name in
+        ("__init__", "framework", "source_materialize", "source_provision", "reproduction_check", "paper_cache"))
+    if hashlib.sha256(portable(root, lock["patch"]).read_bytes()).hexdigest() != lock["patchSha256"]:
+        raise ValueError("candidate source overlay digest drift")
+    submodule = lock["submodule"]
+    if git(root / submodule, "rev-parse", "HEAD") != lock["revision"]:
+        raise ValueError("submodule HEAD differs from candidate source lock")
+    for name, row in lock["files"].items():
+        if any(not re.fullmatch(r"[0-9a-f]{64}", row.get(key, ""))
+               for key in ("baseSha256", "candidateSha256")):
+            raise ValueError("invalid candidate source file digest")
+        source = submodule + "/" + name
+        if hashlib.sha256(portable(root, source).read_bytes()).hexdigest() != row["baseSha256"]:
+            raise ValueError("submodule source differs from candidate locked base: " + name)
+        inputs.add(source)
+    for name in inputs:
+        portable(root, name)
+    if require_committed:
+        verify_committed(root, inputs, submodule, lock["revision"])
+    snapshots = {name: hashlib.sha256(portable(root, name).read_bytes()).hexdigest() for name in inputs}
+    with tempfile.TemporaryDirectory(prefix="gambit-source-input-check-") as temporary:
+        receipt = materialize(lock_path, Path(temporary) / "source", root=root)
+    if any(hashlib.sha256(portable(root, name).read_bytes()).hexdigest() != sha
+           for name, sha in snapshots.items()):
+        raise ValueError("source inputs changed during candidate input check")
+    return {"schema": "gambit-candidate-source-input-check.v1", "sourceLock": lock_name,
+            "sourceLockSha256": snapshots[lock_name], "sourceRevision": lock["revision"],
+            "inputs": sorted(inputs), "candidateFiles": receipt["files"],
+            "committedInputsChecked": require_committed, "networkReproductionChecked": False,
+            "configuredToolchainReproduced": False, "runtimeAdmitted": False,
+            "releaseAdmitted": False}
 
 
 def manifest_inputs(root, manifest):
@@ -110,24 +181,7 @@ def check(root, manifest, require_committed=False):
     inputs.update(manifest_inputs(root, manifest))
     # Gitlinks own nested source files; the parent repository owns other inputs.
     if require_committed:
-        entry = git(root, "ls-tree", "HEAD", "--", submodule).split()
-        if entry[:3] != ["160000", "commit", lock["revision"]]:
-            raise ValueError("source gitlink is not committed at the locked revision")
-        for name in sorted(inputs):
-            if name.startswith(submodule + "/"):
-                relative = name[len(submodule) + 1:]
-                committed = subprocess.check_output(
-                    ["git", "-C", str(root / submodule), "show", lock["revision"] + ":" + relative],
-                    timeout=10)
-            else:
-                try:
-                    committed = subprocess.check_output(
-                        ["git", "-C", str(root), "show", "HEAD:" + name],
-                        stderr=subprocess.PIPE, timeout=10)
-                except subprocess.CalledProcessError as error:
-                    raise ValueError(f"research input is not committed: {name}") from error
-            if committed != portable(root, name).read_bytes():
-                raise ValueError(f"working input differs from committed bytes: {name}")
+        verify_committed(root, inputs, submodule, lock["revision"])
     return {"schema": "gambit-research-input-check.v1", "papers": len(pins),
             "sourceRevision": lock["revision"], "inputs": sorted(inputs),
             "committedInputsChecked": require_committed,
@@ -136,13 +190,18 @@ def check(root, manifest, require_committed=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--manifest", default="evidence/gc-recursive-queue-wait.json")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--manifest", default="evidence/gc-recursive-queue-wait.json")
+    selection.add_argument("--source-lock", help="check one candidate source slice without model admission")
     parser.add_argument("--require-committed", action="store_true")
     parser.add_argument("--inventory", action="store_true",
                         help="audit all current context manifests; exit nonzero if any are blocked")
     args = parser.parse_args()
+    if args.source_lock and args.inventory:
+        parser.error("--source-lock and --inventory are distinct checks")
     try:
-        result = (inventory(ROOT, args.require_committed) if args.inventory else
+        result = (check_source(ROOT, args.source_lock, args.require_committed) if args.source_lock else
+                  inventory(ROOT, args.require_committed) if args.inventory else
                   check(ROOT, args.manifest, args.require_committed))
     except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
         parser.exit(1, f"REPRODUCTION-INPUT-DENY: {error}\n")

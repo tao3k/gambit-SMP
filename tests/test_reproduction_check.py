@@ -9,6 +9,54 @@ from gambit_smp import reproduction_check as reproduction
 
 
 class ReproductionCheckTests(unittest.TestCase):
+    def test_026_source_check_keeps_five_original_file_identities(self):
+        result = reproduction.check_source(reproduction.ROOT, "evidence/runtime-source-026.lock.json")
+        self.assertEqual(set(reproduction.AUDIT_FILES), set(result["candidateFiles"]))
+        self.assertEqual("98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f",
+                         result["candidateFiles"]["lib/setup.c"])
+        self.assertFalse(result["committedInputsChecked"])
+        self.assertFalse(result["configuredToolchainReproduced"])
+        self.assertFalse(result["runtimeAdmitted"])
+        self.assertFalse(any(".data" in Path(name).parts for name in result["inputs"]))
+
+    def test_candidate_source_check_uses_its_own_committed_gate(self):
+        with patch.object(reproduction, "verify_committed", side_effect=ValueError(
+                "research input is not committed: evidence/runtime-source-026.lock.json")) as gate, \
+             patch.object(reproduction, "materialize") as materializer:
+            with self.assertRaisesRegex(ValueError, "not committed"):
+                reproduction.check_source(reproduction.ROOT, "evidence/runtime-source-026.lock.json", True)
+        self.assertIn("evidence/runtime-source-026.lock.json", gate.call_args.args[1])
+        self.assertNotIn("evidence/gc-recursive-queue-wait.json", gate.call_args.args[1])
+        materializer.assert_not_called()
+
+    def test_candidate_lock_cannot_substitute_revision_or_admit_runtime(self):
+        name = "evidence/runtime-source-026.lock.json"
+        original = reproduction.portable
+        saved = json.loads(original(reproduction.ROOT, name).read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "lock.json"
+            for field, value in (("revision", "0" * 40), ("runtimeAdmitted", True),
+                                 ("configuredToolchainReproduced", True)):
+                data = {**saved, field: value}
+                lock_path.write_text(json.dumps(data))
+                with self.subTest(field=field), patch.object(reproduction, "portable",
+                        side_effect=lambda root, item: lock_path if item == name else original(root, item)), \
+                     self.assertRaisesRegex(ValueError, "pinned source capsule"):
+                    reproduction.check_source(reproduction.ROOT, name)
+
+    def test_candidate_digest_mismatch_fails_actual_materialization(self):
+        name = "evidence/runtime-source-026.lock.json"
+        original = reproduction.portable
+        saved = json.loads(original(reproduction.ROOT, name).read_text())
+        saved["files"]["lib/setup.c"]["candidateSha256"] = "0" * 64
+        with tempfile.TemporaryDirectory() as directory:
+            lock_path = Path(directory) / "lock.json"
+            lock_path.write_text(json.dumps(saved))
+            with patch.object(reproduction, "portable",
+                    side_effect=lambda root, item: lock_path if item == name else original(root, item)), \
+                 self.assertRaisesRegex(ValueError, "differs from candidate"):
+                reproduction.check_source(reproduction.ROOT, name)
+
     def test_current_inputs_are_cache_independent(self):
         result = reproduction.check(reproduction.ROOT, "evidence/gc-recursive-queue-wait.json")
         self.assertEqual(7, result["papers"])

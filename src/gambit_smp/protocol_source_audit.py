@@ -1,9 +1,9 @@
 """Source-review facts, kept distinct from finite-model and native admission."""
 import json
 
-from gambit_smp.framework import digest
-from gambit_smp.protocol_evidence import relative
+from gambit_smp.framework import digest, relative
 from gambit_smp.sync_retirement_source import expected
+from gambit_smp.source_materialize import locked_source
 
 MANIFEST = "evidence/protocol-source-correspondence.json"
 ARITIES = {"source_review": 3, "source_review_anchor": 2,
@@ -40,12 +40,22 @@ def facts(root):
             or data.get("releaseAdmitted") is not False):
         raise ValueError("source review cannot admit runtime")
     inputs = {MANIFEST: digest(document)}
+    if data.get("sourceLock"):
+        with locked_source(root, data["sourceLock"]) as (source, source_inputs):
+            return source_facts(root, data, source, {**inputs, **source_inputs}, locked=True)
     source = relative(root, data["sourceRoot"])
+    if ".data" in source.relative_to(root).parts:
+        raise ValueError("source correspondence requires versioned source inputs")
+    return source_facts(root, data, source, inputs)
+
+
+def source_facts(root, data, source, inputs, locked=False):
     for name, sha in data["contextInputs"].items():
         path = relative(source, name)
         if digest(path) != sha:
             raise ValueError("source correspondence stale: " + name)
-        inputs[str(path.relative_to(root))] = sha
+        if not locked:
+            inputs[str(path.relative_to(root))] = sha
     receipt_path = relative(root, data["sourceUnitReceipt"])
     if digest(receipt_path) != data["sourceUnitReceiptSha256"]:
         raise ValueError("source-unit receipt differs")
@@ -55,6 +65,13 @@ def facts(root):
             or not all(row.get("matched") is True for row in saved["results"])):
         raise ValueError("incomplete source-unit evidence")
     check_schedule(saved)
+    if locked and (saved.get("sourceLock") != data["sourceLock"] or
+                   saved.get("sourceFileIdentities", {}).get("lib/setup.c") !=
+                   data["contextInputs"].get("lib/setup.c")):
+        raise ValueError("source-unit receipt does not bind locked source")
+    if locked and any(saved.get("inputs", {}).get(name) != sha
+                      for name, sha in inputs.items() if name != MANIFEST):
+        raise ValueError("source-unit receipt omits locked source inputs")
     inputs[data["sourceUnitReceipt"]] = digest(receipt_path)
     for name, sha in saved["inputs"].items():
         if digest(relative(root, name)) != sha:

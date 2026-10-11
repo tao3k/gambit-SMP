@@ -19,6 +19,39 @@ The older failed attempts below remain historical observations.
 
 ## Source Identity
 
+### Candidate 026
+
+The source correspondence uses `evidence/runtime-source-026.lock.json`, not
+the default candidate027 source lock. It binds the same upstream submodule
+revision plus `patches/snapshots/candidate026-audited-source.patch`. The five
+audited inputs are `configure.ac`, `include/gambit.h.in`, `lib/_thread.scm`,
+`lib/mem.c` and `lib/setup.c`. The original 026 setup identity is
+`98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f`;
+substituting candidate027's setup file would invalidate this correspondence.
+
+After initializing the fixed submodule in a fresh checkout, independently check
+this candidate slice and the committed input bytes:
+
+```sh
+PYTHONPATH=src python3 -m gambit_smp.source_provision
+PYTHONPATH=src python3 -m gambit_smp.reproduction_check \
+  --source-lock evidence/runtime-source-026.lock.json --require-committed
+PYTHONPATH=src python3 -m gambit_smp.source_materialize \
+  --lock evidence/runtime-source-026.lock.json --out "$SOURCE_OUT"
+```
+
+`SOURCE_OUT` must name a fresh output directory. These commands require neither
+a previous source cache nor ASCENT. The source-lock check archives the pinned
+commit, applies the versioned overlay and verifies all five candidate hashes;
+its strict gate rejects uncommitted or modified required input bytes. It is
+distinct from the default recursive-model/027 input check. It does not admit
+the full configured 026 toolchain, model refinements or native execution.
+
+Historical schedules and failed native attempts retain their original source
+and receipt identities. The new source-bound schedule receipt may document a
+new replay, but must not overwrite an old receipt or relabel its results. The
+eight extracted/mock schedule controls are not full Gambit runtime tests.
+
 Source inputs and cache outputs are different categories. JSON source bindings
 use repository-relative paths such as `vendor/gambit/lib/mem.c`, backed by the
 fixed Git submodule revision and checked hashes, not a local runtime cache.

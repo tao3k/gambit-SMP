@@ -7,6 +7,7 @@ import shutil
 
 from gambit_smp.framework import ROOT, digest, execute, gnu_compiler
 from gambit_smp.source_unit import sync_resource_functions
+from gambit_smp.source_materialize import locked_source
 
 
 def extract(source):
@@ -33,10 +34,20 @@ def expected(mode, point):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", type=Path, required=True)
+    source_args = parser.add_mutually_exclusive_group(required=True)
+    source_args.add_argument("--source", type=Path)
+    source_args.add_argument("--source-lock", help="versioned submodule/overlay source lock")
     parser.add_argument("--gcc", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    if args.source_lock:
+        with locked_source(ROOT, args.source_lock) as (tree, inputs):
+            args.source = tree / "lib/setup.c"
+            return run(args, inputs)
+    return run(args)
+
+
+def run(args, source_inputs=None):
     source = args.source.resolve(strict=True)
     compiler, env, version = gnu_compiler(args.gcc)
     fixture = ROOT / "models/gambit/native/sync_retirement_schedule.c"
@@ -47,10 +58,17 @@ def main():
     model_receipt = ROOT / "evidence/model-results/protocol-extensions/receipt.json"
     source_hash = digest(source)
     context = json.loads(manifest.read_text())["contextInputs"]
-    if context.get(source.relative_to(ROOT).as_posix()) != source_hash:
+    expected_source = ([sha for name, sha in context.items() if name.endswith("/lib/setup.c")]
+                       if source_inputs is not None else
+                       [context.get(source.relative_to(ROOT).as_posix())])
+    if expected_source != [source_hash]:
         raise ValueError("source differs from model context; audit before execution")
     inputs = {p.relative_to(ROOT).as_posix(): digest(p)
-              for p in (source, fixture, adapter, model, manifest, model_receipt, *helpers)}
+              for p in (fixture, adapter, model, manifest, model_receipt, *helpers)}
+    if source_inputs is None:
+        inputs[source.relative_to(ROOT).as_posix()] = source_hash
+    else:
+        inputs.update(source_inputs)
     function = extract(source.read_text())
     args.out.mkdir(parents=True, exist_ok=False)
     out = args.out.resolve()
@@ -63,6 +81,8 @@ def main():
               "Does not prove C memory ordering, native reachability or whole-runtime quiescence.",
         compiler=version.splitlines()[0], functionSha256=digest(out / "sync-schedule-source.inc"),
         results=[])
+    if source_inputs is not None:
+        receipt.update(sourceLock=args.source_lock, sourceFileIdentities={"lib/setup.c": source_hash})
     code, log, timed_out, seconds = execute([compiler, "-std=c11", "-O1", "-Wall", "-Wextra",
         "-Werror", str(out / fixture.name), "-o", str(out / "schedule")], out, 30, env=env)
     (out / "compile.log").write_text(log)
@@ -82,6 +102,7 @@ def main():
                     expected=expected(mode, point), exit=code, timeout=timed_out, seconds=seconds,
                     matched=code == 0 and not timed_out and actual == expected(mode, point)))
     stable = all(digest(ROOT / p) == sha for p, sha in inputs.items())
+    stable = stable and digest(source) == source_hash
     stable = stable and (out / "sync-schedule-source.inc").read_text() == function
     stable = stable and digest(out / fixture.name) == inputs[fixture.relative_to(ROOT).as_posix()]
     admitted = stable and len(receipt["results"]) == 8 and all(r["matched"] for r in receipt["results"])

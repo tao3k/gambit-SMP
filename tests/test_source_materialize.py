@@ -85,6 +85,28 @@ class SourceMaterializeTests(unittest.TestCase):
         self.assertNotIn("/Users/", overlay.read_text())
         self.assertNotIn(".data/", overlay.read_text())
 
+    def test_candidate026_lock_restores_all_five_audited_files_without_old_cache(self):
+        lock_name = "evidence/runtime-source-026.lock.json"
+        lock = json.loads((source.ROOT / lock_name).read_text())
+        self.assertEqual(set(lock["files"]), set(source.AUDIT_FILES))
+        self.assertEqual(lock["files"]["lib/setup.c"]["candidateSha256"],
+                         "98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f")
+        with source.locked_source(source.ROOT, lock_name) as (tree, inputs):
+            for name, row in lock["files"].items():
+                self.assertEqual(digest(tree / name), row["candidateSha256"])
+            self.assertTrue(all(".data" not in Path(name).parts for name in inputs))
+            self.assertIn(lock["patch"], inputs)
+
+    def test_export_rejects_unreviewed_extra_source_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            checkout, candidate, git = self.fixture(root)
+            with patch.object(source, "ROOT", root), \
+                 patch.object(source, "revision", return_value="a" * 40):
+                with self.assertRaisesRegex(ValueError, "unsupported"):
+                    source.export(checkout, candidate, root / "lock.json", root / "snapshot.patch",
+                                  (*source.FILES, "unknown.c"))
+
 
 if __name__ == "__main__":
     unittest.main()
