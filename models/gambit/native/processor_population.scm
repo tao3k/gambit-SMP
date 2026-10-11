@@ -1,0 +1,5 @@
+(let ((expected (string->number (getenv "GAMBIT_SMP_EXPECTED_PROCESSORS")))
+      (actual (##current-vm-processor-count)))
+  (if (not (equal? expected actual))
+      (error "test child processor population mismatch" expected actual))
+  (println "CHILD-PROCESSORS:" actual))

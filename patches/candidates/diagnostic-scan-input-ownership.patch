@@ -1,0 +1,84 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -3632,6 +3632,44 @@
+ static __thread ___WORD gc_diag_scan_head;
+ static __thread ___SIZE_TS gc_diag_scan_words;
+ static __thread int gc_diag_scan_active;
++static __thread ___WORD gc_diag_scan_input[64];
++static __thread int gc_diag_scan_visits;
++static unsigned char gc_diag_visits_lock;
++static struct {
++  ___WORD body;
++  ___virtual_machine_state vm;
++  ___F64 cycle;
++  int visits;
++} gc_diag_visits[4096];
++
++___HIDDEN int gc_scan_visit_observe
++   (___processor_state ___ps, ___WORD *body)
++{
++  ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
++  unsigned int index = (___CAST(___UWORD,body)>>3) & 4095;
++  int i, visits = -1;
++  while (__atomic_test_and_set(&gc_diag_visits_lock, __ATOMIC_ACQUIRE)) {}
++  for (i=0; i<8; i++, index=(index+1)&4095)
++    {
++      if (gc_diag_visits[index].body == ___CAST(___WORD,body) &&
++          gc_diag_visits[index].vm == vm && gc_diag_visits[index].cycle == nb_gcs)
++        {
++          visits = ++gc_diag_visits[index].visits;
++          break;
++        }
++      if (gc_diag_visits[index].vm == 0 ||
++          (gc_diag_visits[index].vm == vm && gc_diag_visits[index].cycle != nb_gcs))
++        {
++          gc_diag_visits[index].body = ___CAST(___WORD,body);
++          gc_diag_visits[index].vm = vm;
++          gc_diag_visits[index].cycle = nb_gcs;
++          visits = gc_diag_visits[index].visits = 1;
++          break;
++        }
++    }
++  __atomic_clear(&gc_diag_visits_lock, __ATOMIC_RELEASE);
++  return visits;
++}
+ 
+ ___HIDDEN void gc_old_space_reference_observe
+    (___processor_state ___ps, ___WORD *cell, ___WORD obj)
+@@ -3646,12 +3684,24 @@
+       if (address >= start &&
+           address-start < (___MSECTION_SIZE>>1) * sizeof(___WORD))
+         {
++          ___UWORD offset = ___CAST(___UWORD,cell)-___CAST(___UWORD,gc_diag_scan_body);
++          ___WORD before = 0;
++          int captured = gc_diag_scan_active && offset % sizeof(___WORD) == 0 &&
++                         offset / sizeof(___WORD) < 64 &&
++                         offset / sizeof(___WORD) < gc_diag_scan_words;
++          if (captured)
++            before = gc_diag_scan_input[offset / sizeof(___WORD)];
+           fprintf(stderr,
+                   "GC-OLD-SPACE-DENY cell=%lx object=%lx head=%lx scanBody=%lx scanHead=%lx scanWords=%lu scanActive=%d\n",
+                   (unsigned long)cell, (unsigned long)obj,
+                   (unsigned long)*header, (unsigned long)gc_diag_scan_body,
+                   (unsigned long)gc_diag_scan_head,
+                   (unsigned long)gc_diag_scan_words, gc_diag_scan_active);
++          fprintf(stderr,
++                  "GC-SCAN-OWNERSHIP visits=%d inputCaptured=%d inputBefore=%lx processor=%d weakPhase=%d cycle=%.0f\n",
++                  gc_diag_scan_visits, captured, (unsigned long)before,
++                  ___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps)),
++                  traverse_weak_refs, nb_gcs);
+           fflush(stderr);
+           abort();
+         }
+@@ -4277,6 +4327,11 @@
+   gc_diag_scan_head = head;
+   gc_diag_scan_words = words;
+   gc_diag_scan_active = 1;
++  gc_diag_scan_visits = gc_scan_visit_observe(___ps, body);
++  {
++    ___SIZE_TS i;
++    for (i=0; i<words && i<64; i++) gc_diag_scan_input[i] = body[i];
++  }
+ #endif
+ 
+ #ifdef ENABLE_CONSISTENCY_CHECKS

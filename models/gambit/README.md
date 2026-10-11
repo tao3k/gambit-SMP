@@ -118,25 +118,35 @@ also match that initializer, not only the invariant and model digest.
 
 ## Local Model Gate
 
+`vm_resize_rollback` records the source-corresponding failed-setup cleanup
+pointer and target restoration obligations. `source_unit.py` separately tests
+the extracted C function with deterministic stubs; it is not full runtime
+fault injection. A selected native candidate attesting this repair requires
+`--resize-model-receipt` and the current `setup.c` digest plus lexical guard.
+`gc_scan_termination` combines queue work, counted participation and two GC
+phase boundaries. Its detached-publisher negative is a fault control, not an
+observed native bug. See `docs/paper-source-obligations.md` for design sources
+and the exact boundaries of these claims.
+
 PR 988's `exec_gc_polling` and `lazy_vm_startup` cases separately cover failed
 nonblocking configuration and failed resize after premature startup publication.
 Their repairs are abstract obligations, not accepted native patches. Recursive
 startup and process cleanup remain outside their bounds. The complete 36-file
 source/report audit is in `docs/pr988-complete-source-audit.md`; the generic
-`tools/model/upstream_audit.py` refuses incomplete or mismatched inventories.
+`src/gambit_smp/upstream_audit.py` refuses incomplete or mismatched inventories.
 
 Requires Quint **0.33.0**, Java, and the Quint TLC/Apalache backend. Verification
 uses a local checker service. Every invocation needs a fresh output directory:
 
 ```sh
-python3 tools/model/check_gambit.py --out .data/smp-model-check-001
-python3 -m unittest discover -s tools/model -p 'test_*.py' -v
+uv run --locked gambit-smp check --out .data/smp-model-check-001
+uv run --locked python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
 For the wait protocol's optional fail-closed source-layout binding:
 
 ```sh
-python3 tools/model/check_gambit.py --case sync_wait_handshake \
+uv run --locked gambit-smp check --case sync_wait_handshake \
   --sync-source .data/local-threaded/source/src/gambit/lib/setup.c \
   --out .data/sync-wait-handshake-next
 ```
@@ -160,7 +170,7 @@ The gate rejects a binary digest mismatch, revision mismatch, or a receipt
 that does not attest the selected repair. It never applies upstream patches.
 
 ```sh
-python3 tools/model/check_gambit.py --case table_decode \
+uv run --locked gambit-smp check --case table_decode \
   --out .data/smp-native-001 \
   --native-gsi "$TOOLCHAIN/bin/gsi" --native-gsc "$TOOLCHAIN/bin/gsc" \
   --toolchain-receipt "$TOOLCHAIN/identity.json"

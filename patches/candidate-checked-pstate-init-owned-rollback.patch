@@ -1,0 +1,132 @@
+diff --git a/lib/setup.c b/lib/setup.c
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -338,7 +338,7 @@ ___processor_state ___ps;)
+ }
+ 
+ 
+-___HIDDEN void setup_interrupts_pstate
++___HIDDEN ___SCMOBJ setup_interrupts_pstate
+    ___P((___processor_state ___ps),
+         (___ps)
+ ___processor_state ___ps;)
+@@ -358,7 +358,13 @@ ___processor_state ___ps;)
+   /* Initialize empty queue of procedural interrupts */
+   ___ps->procedural_interrupts_head = NULL;
+   ___ps->procedural_interrupts_tail = NULL;
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___ps->procedural_interrupts_mut))
++    return ___FIX(___UNKNOWN_ERR);
++#else
+   ___MUTEX_INIT(___ps->procedural_interrupts_mut);
++#endif
++  return ___FIX(___NO_ERR);
+ }
+ 
+ 
+@@ -4670,7 +4676,7 @@ ___HIDDEN ___SCMOBJ setup_os_and_mem ___PVOID
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-___HIDDEN void setup_sync_op_pstate
++___HIDDEN ___SCMOBJ setup_sync_op_pstate
+    ___P((___processor_state ___ps),
+         (___ps)
+ ___processor_state ___ps;)
+@@ -4679,8 +4685,19 @@ ___processor_state ___ps;)
+   SYNC_INIT_MSG(___ps->sync_id1);
+   SYNC_INIT_MSG(___ps->sync_id2);
+ 
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___ps->sync_mut))
++    return ___FIX(___UNKNOWN_ERR);
++  if (!___CONDVAR_INIT(___ps->sync_cv))
++    {
++      ___MUTEX_DESTROY(___ps->sync_mut);
++      return ___FIX(___UNKNOWN_ERR);
++    }
++#else
+   ___MUTEX_INIT(___ps->sync_mut);
+   ___CONDVAR_INIT(___ps->sync_cv);
++#endif
++  return ___FIX(___NO_ERR);
+ }
+ 
+ #endif
+@@ -4696,6 +4713,29 @@ ___processor_state ___ps;)
+ }
+ 
+ 
++___HIDDEN void cleanup_failed_pstate
++   ___P((___processor_state ___ps,
++         ___virtual_machine_state ___vms,
++         ___BOOL os_mem_ready),
++        (___ps,
++         ___vms,
++         os_mem_ready)
++___processor_state ___ps;
++___virtual_machine_state ___vms;
++___BOOL os_mem_ready;)
++{
++  ___BOOL owned_interrupts =
++    !(___vms == &___GSTATE->vmstate0 && ___PROCESSOR_ID(___ps, ___vms) == 0);
++
++  if (owned_interrupts)
++    cleanup_interrupts_pstate (___ps);
++  if (os_mem_ready)
++    cleanup_os_and_mem_pstate (___ps);
++  if (owned_interrupts)
++    ___MUTEX_DESTROY(___ps->procedural_interrupts_mut);
++}
++
++
+ ___EXP_FUNC(___SCMOBJ,___setup_pstate)
+    ___P((___processor_state ___ps,
+          ___virtual_machine_state ___vms),
+@@ -4720,14 +4760,20 @@ ___virtual_machine_state ___vms;)
+    */
+ 
+   if (!(___vms == &___GSTATE->vmstate0 && ___PROCESSOR_ID(___ps, ___vms) == 0))
+-    setup_interrupts_pstate (___ps);  /* processor 0 of vm 0 has early init */
++    {
++      if ((err = setup_interrupts_pstate (___ps)) != ___FIX(___NO_ERR))
++        return err;
++    }
+ 
+   /*
+    * Setup processor's OS specific structures and memory management.
+    */
+ 
+   if ((err = setup_os_and_mem_pstate (___ps)) != ___FIX(___NO_ERR))
+-    return err;
++    {
++      cleanup_failed_pstate (___ps, ___vms, 0);
++      return err;
++    }
+ 
+   ___ACTLOG_PS(run,green);
+ 
+@@ -4786,7 +4832,11 @@ ___virtual_machine_state ___vms;)
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-  setup_sync_op_pstate (___ps);
++  if ((err = setup_sync_op_pstate (___ps)) != ___FIX(___NO_ERR))
++    {
++      cleanup_failed_pstate (___ps, ___vms, 1);
++      return err;
++    }
+ 
+ #endif
+ 
+@@ -6340,7 +6390,9 @@ ___setup_params_struct *setup_params;)
+ 
+   {
+     ___virtual_machine_state ___vms = &___GSTATE->vmstate0;
+-    setup_interrupts_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms));
++    if ((err = setup_interrupts_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms)))
++        != ___FIX(___NO_ERR))
++      return err;
+   }
+ 
+   /*

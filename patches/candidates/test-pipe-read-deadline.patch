@@ -1,0 +1,41 @@
+diff --git a/tests/unit-tests/09-io/pipe_concurrent.scm b/tests/unit-tests/09-io/pipe_concurrent.scm
+--- a/tests/unit-tests/09-io/pipe_concurrent.scm
++++ b/tests/unit-tests/09-io/pipe_concurrent.scm
+@@ -6,6 +6,10 @@
+ ;; Pinning is only a scheduling aid.  The I/O operations are public APIs.
+ (define (check-pipe open-pipe read-one write-one)
+   (receive (client server) (open-pipe)
++    (define (read-with-timeout port)
++      ;; A relative timeout is converted once to an absolute deadline.
++      (input-port-timeout-set! port 10)
++      (read-one port))
+     (define worker
+       (make-thread
+         (lambda ()
+@@ -13,7 +17,7 @@
+             (if (= i 10000)
+                 #t
+                 (let ((expected (modulo i 251))
+-                      (value (read-one server)))
++                      (value (read-with-timeout server)))
+                   (if (equal? value expected)
+                       (begin
+                         (write-one value server)
+@@ -22,9 +26,6 @@
+                       (list 'server i value))))))))
+ 
+     ;; Bound a lost-wakeup regression instead of waiting forever for a read.
+-    (input-port-timeout-set! client 10)
+-    (input-port-timeout-set! server 10)
+-
+     (if (> (##current-vm-processor-count) 1)
+         (begin
+           (##thread-pin! (current-thread) (##processor 0))
+@@ -38,6 +39,6 @@
+                    (write-one expected client)
+                    (force-output client)
+-                   (let ((value (read-one client)))
++                   (let ((value (read-with-timeout client)))
+                      (if (equal? value expected)
+                          (loop (+ i 1))
+                          (list 'client i value))))))))

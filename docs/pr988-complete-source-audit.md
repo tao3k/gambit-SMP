@@ -7,7 +7,7 @@ Reference: https://github.com/gambit/gambit/pull/988
 Audited head: `be71ec38aaff06d4c310f5b23d916e3a31e31ca7`.
 Base: `920b945890add21a223c806c36862cf9c18dc98b`.
 The complete diff contains 36 files, 106,304 additions and 98,621 deletions
-(17,647,214 bytes). `tools/model/upstream_audit.py` checks every file's numstat
+(17,647,214 bytes). `src/gambit_smp/upstream_audit.py` checks every file's numstat
 against the API inventory and binds the full diff digest and revisions.
 Portable evidence: `evidence/upstream/pr988-inventory.json`. The raw full diff
 remains a local cache artifact; this repository records its digest, not a claim

@@ -1,0 +1,37 @@
+diff --git a/tests/unit-tests/06-thread/thread_interrupt.scm b/tests/unit-tests/06-thread/thread_interrupt.scm
+index 97533bb..18efd5c 100644
+--- a/tests/unit-tests/06-thread/thread_interrupt.scm
++++ b/tests/unit-tests/06-thread/thread_interrupt.scm
+@@ -12,6 +12,7 @@
+         (waste-time (- n 1)))))
+ 
+ (define var #f)
++(define completion-gate (make-mutex))
+ 
+ (define t1 (make-mythread))
+ 
+@@ -22,12 +23,15 @@
+                      (lambda () (set! var (+ var 1)))))
+        (set! var 0)
+        (waste-time 200)
++       (mutex-lock! completion-gate)
++       (mutex-unlock! completion-gate)
+        (set! var (+ var 10))))))
+ 
+ (test-error-tail inactive-thread-exception? (thread-interrupt! t1))
+ 
+ (test-error-tail inactive-thread-exception? (thread-interrupt! t2))
+ 
++(mutex-lock! completion-gate)
+ (thread-start! t2)
+ 
+ (let loop () (or var (loop)))
+@@ -44,6 +48,8 @@
+ 
+ (let loop () (if (<= var save) (loop)))
+ 
++(mutex-unlock! completion-gate)
++(thread-join! t2)
+ (test-equal 11 var)
+ 
+ (test-error-tail type-exception? (thread-interrupt! #f))

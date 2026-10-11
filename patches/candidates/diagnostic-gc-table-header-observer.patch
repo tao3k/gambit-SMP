@@ -1,0 +1,76 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -19,6 +19,9 @@
+ 
+ #include <stdlib.h>
+ #include <string.h>
++#include <stdio.h>
++
++#define ___GC_TABLE_HEADER_DIAGNOSTICS
+ 
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -4149,6 +4152,31 @@
+ (UNMARKED_MOVABLE(obj) || UNMARKED_STILL(obj))
+ 
+ 
++#ifdef ___GC_TABLE_HEADER_DIAGNOSTICS
++___HIDDEN void gc_table_header_observe
++   (const char *stage, ___WORD *body)
++{
++  ___WORD head = __atomic_load_n(body-1, __ATOMIC_RELAXED);
++  ___SIZE_TS words = ___HD_WORDS(head);
++  int typ = ___HD_TYP(head);
++  if ((typ != ___MOVABLE0 && typ != ___STILL && typ != ___PERM) ||
++      ___HD_SUBTYPE(head) != ___sWEAK ||
++      words < ___GCHASHTABLE_KEY0+2 ||
++      ((words-___GCHASHTABLE_KEY0) & 1) != 0)
++    {
++      fprintf(stderr,
++              "GC-TABLE-HEADER-DENY stage=%s body=%lx header=%lx type=%d subtype=%d words=%lu\n",
++              stage, (unsigned long)body, (unsigned long)head, typ,
++              ___HD_SUBTYPE(head), (unsigned long)words);
++      fflush(stderr);
++      abort();
++    }
++}
++#else
++#define gc_table_header_observe(stage, body) ((void)0)
++#endif
++
++
+ ___HIDDEN ___SIZE_TS scan
+    ___P((___PSD
+          ___WORD *body,
+@@ -4218,6 +4246,7 @@
+         {
+           /* Object is a GC hash table */
+ 
++          gc_table_header_observe("scan-enter", body);
+           int flags = ___INT(body[___GCHASHTABLE_FLAGS]);
+           int i;
+ 
+@@ -4234,6 +4263,7 @@
+                 mark_array (___PSP body+i, 1); /* mark objects in value fields */
+             }
+ 
++          gc_table_header_observe("scan-enqueue", body);
+           body[0] = reached_gc_hash_tables;
+           reached_gc_hash_tables = ___CAST(___WORD,body);
+         }
+@@ -5293,6 +5323,7 @@
+ ___SCMOBJ ht;)
+ {
+   ___WORD* body = ___BODY_AS(ht,___tSUBTYPED);
++  gc_table_header_observe("rehash-enter", body);
+   ___SIZE_TS words = ___HD_WORDS(body[-1]);
+   int size2 = words - ___GCHASHTABLE_KEY0;
+   int i;
+@@ -5558,6 +5589,7 @@
+   while (curr != ___TAG(0,0))
+     {
+       ___WORD* body = ___CAST(___WORD*,curr);
++      gc_table_header_observe("cleanup-dequeue", body);
+       ___SIZE_TS words = ___HD_WORDS(body[-1]);
+       int flags = ___INT(body[___GCHASHTABLE_FLAGS]);
+       int i;

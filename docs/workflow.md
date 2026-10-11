@@ -4,9 +4,10 @@
 
 | Domain | Model examples | Cross-protocol boundary |
 | --- | --- | --- |
-| VM lifecycle and capacity | `heap_floor`, `heap_allocation_headroom`, `lazy_vm_startup` | Publication, processor initialization, GC admission and failure rollback |
+| VM lifecycle and capacity | `heap_floor`, `heap_allocation_headroom`, `gc_postcopy_headroom`, `lazy_vm_startup` | Publication, processor initialization, copying assignment, GC admission and failure rollback |
 | GC roots and relocation | `root_marker`, `gc_stack_lifecycle`, `gc_key_reference`, `gc_rc_roots` | Saved registers, stack frame ownership and forwarding |
-| Synchronization | `sync_message_acquire`, `sync_wait_handshake`, `sync_tree_rounds` | Weak visibility, condition wait and reusable barrier population |
+| Synchronization | `sync_message_acquire`, `sync_wait_handshake`, `sync_tree_rounds`, `ticket_queue_handoff`, `sync_resource_retirement`, `sync_resource_users` | Weak visibility, queue ownership, condition wait, reusable barrier population, resource admission/drainage and partial initialization rollback |
+| GC protocol composition | `gc_sync_membership`, `gc_work_closure` | Stop-the-world root admission, nested collection with old membership, startup rendezvous, unfinished local work and phase closure |
 | Shared tables | `gc_rehash_protocol`, `rehash_lock_ownership`, `serial_number_transaction` | Predicate allocation, GC, resize publication and compound transactions |
 | Process and pipe I/O | `pipe_wait`, `exec_gc_polling` | Blocking operations must retain GC participation; configuration failure and cleanup |
 
@@ -28,7 +29,60 @@
    full native suites and Gerbil package build/test correctness.
 8. Only then consider formal patch promotion and the separate performance gates.
 
-## Why Datalog And Markdown Both Remain
+Runtime-edit admission requires an explicit paper/source obligation, an
+inventory of prior coverage, independent fault controls and an exhausted
+bounded positive check. Record unresolved composition and lifetime gaps
+before choosing a source repair. A green local model with an excluded
+source-reachable schedule does not satisfy this gate. See
+[Synchronization Resource Retirement](sync-resource-retirement.md) for a
+current model whose coverage gate is still open; do not promote its abstract
+drain contract into runtime destruction calls yet.
+
+QNT is the current formal-method lane; Lean is not required for this workflow.
+Deepen bounded state exploration, independent fault controls and protocol
+composition before introducing another proof system. Exhausted TLC queues
+establish only the modeled properties within declared bounds and assumptions.
+Source correspondence, native behavior and complete toolchain acceptance remain
+separate obligations, not claims inferred from a green abstract model.
+
+Installed Quint 0.33.0's `dist/src/tlc.js` invokes TLC with `-deadlock`, which
+disables the automatic deadlock check. Existing invariant-only admissions
+therefore do not attest deadlock freedom. New progress claims must explicitly
+check nonterminal action availability and their temporal completion property,
+with declared scheduling/fairness assumptions; do not upgrade old safety
+receipts by inference.
+
+Explicit unchanged-model progress overlays and source/context-bound protocol
+extension checks now have separate Datalog predicates. Their negative
+controls, complete temporal logs and exact generated/model source identities
+are required independently of old safety admissions. See
+[Explicit Model Progress](model-progress.md). The extension registry preserves
+its temporal-capable verifier; it is not flattened into invariant-only cases.
+
+## Python Framework Boundaries
+
+`src/gambit_smp/framework.py` owns bounded process execution, process-group
+termination, child identity, hashing and the clean GNU GCC environment.
+It never decides whether a protocol or native test passed. Model checking,
+source extraction, runtime identity and crash analysis remain separate
+adapters with their own admission rules. Source-unit mocks are not native
+correctness evidence. No per-candidate Python runner is required.
+
+See [Python Verification Framework](python-framework.md) for layer ownership
+and the local validation boundary.
+
+Run the framework regression suite with:
+
+```sh
+uv run --locked python -m unittest discover -s tests -p 'test_*.py'
+uv run --locked gambit-smp evidence --check
+```
+
+Generated binaries, logs and receipts belong under a fresh `--out` directory
+in `.data/`, not beside tracked fixtures. Keep failed receipts and portable
+counterexamples; do not reuse an output directory or silently widen a budget.
+
+## Datalog Evidence
 
 `evidence/relations.json` is a deterministic fact export, not a second manually
 maintained catalog. `evidence/rules.dl` is executable pyDatalog rule syntax.
@@ -40,6 +94,26 @@ Markdown explains assumptions and scope. Datalog does not prove C memory
 ordering or QNT invariants. A native adapter fact indicates only fixture
 availability, not a passed native result. A frozen-negative fact indicates a
 digest-bound trace, not an exhaustive positive check.
+
+The concrete failed-file/mode retry rules are now connected to the upstream
+suite entrypoint before native execution. See
+[Failed Route Execution Gate](suite-retry-preflight.md) for the no-execution
+negative control and remaining scope/review gaps. A changed artifact is a
+review request, not an automatic native admission.
+
+Paper-section facts and named model-contract edges now make the assumptions of
+the two paper-guided compositions queryable. Contract dependencies have their
+own cycle/identity checks, separate from PR dependencies. Missing native
+adapters remain visible through the transitive contract closure. Paper facts
+identify references, not publication authenticity, source refinement or model
+proof. See `docs/gc-sync-membership.md` and `docs/gc-work-closure.md`.
+
+Designated `modelReceipt` inputs are validated against current model bytes,
+the complete required checks and initializers, finite-state-TLC evidence and
+stable-source admission before exporting a `model_receipt` fact. This indexes
+an existing recorded checker admission, not a fresh re-verification. Missing
+designated receipts in contract dependencies are separate from missing native
+adapters. Receipt facts neither attest current C behavior nor admit a release.
 
 Queries accept acyclic PR dependencies only. Cycles are rejected before engine
 execution after a local cyclic negative control stalled. This restriction is

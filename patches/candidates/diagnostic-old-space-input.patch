@@ -1,0 +1,50 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -3633,6 +3633,31 @@
+ static __thread ___SIZE_TS gc_diag_scan_words;
+ static __thread int gc_diag_scan_active;
+ 
++___HIDDEN void gc_old_space_reference_observe
++   (___processor_state ___ps, ___WORD *cell, ___WORD obj)
++{
++  ___WORD *header = ___BODY0(obj)-1;
++  int i = find_msection(the_msections, header);
++  if (i >= 0 && i < the_msections->nb_sections)
++    {
++      ___UWORD start = ___CAST(___UWORD,the_msections->sections[i]->base) +
++                      tospace_offset * sizeof(___WORD);
++      ___UWORD address = ___CAST(___UWORD,header);
++      if (address >= start &&
++          address-start < (___MSECTION_SIZE>>1) * sizeof(___WORD))
++        {
++          fprintf(stderr,
++                  "GC-OLD-SPACE-DENY cell=%lx object=%lx head=%lx scanBody=%lx scanHead=%lx scanWords=%lu scanActive=%d\n",
++                  (unsigned long)cell, (unsigned long)obj,
++                  (unsigned long)*header, (unsigned long)gc_diag_scan_body,
++                  (unsigned long)gc_diag_scan_head,
++                  (unsigned long)gc_diag_scan_words, gc_diag_scan_active);
++          fflush(stderr);
++          abort();
++        }
++    }
++}
++
+ ___HIDDEN void gc_scan_reference_observe
+    (___WORD *cell, ___WORD obj)
+ {
+@@ -3671,6 +3696,7 @@
+ }
+ #else
+ #define gc_scan_reference_observe(cell, obj) ((void)0)
++#define gc_old_space_reference_observe(ps, cell, obj) ((void)0)
+ #endif
+ 
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+@@ -3742,6 +3768,7 @@
+ 
+             if (head_typ == ___MOVABLE0)
+               {
++                gc_old_space_reference_observe(___ps, cell, obj);
+                 ___SIZE_TS words = ___HD_WORDS(head);
+ 
+                 /*TODO: add allocation of handle if using handles*/

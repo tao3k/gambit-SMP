@@ -1,0 +1,93 @@
+--- a/lib/_system.scm
++++ b/lib/_system.scm
+@@ -17,6 +17,7 @@
+ (c-declare #<<c-declare-end
+ 
+ #include "mem.h"
++#include <string.h>
+ 
+ c-declare-end
+ )
+@@ -1661,52 +1662,67 @@
+        flags
+        0)))
+ 
++(define-prim (##gc-hash-table-snapshot gcht)
++  (##declare (not interrupts-enabled))
++  (let ((snapshot (##make-vector (##gc-hash-table-length gcht))))
++    ;; Allocate before acquiring raw bodies; the typed copy cannot trigger GC.
++    (##c-code #<<end-of-code
++memmove(___BODY_AS(___ARG2, ___tVECTOR),
++        ___BODY_AS(___ARG1, ___tSUBTYPED),
++        ___HD_WORDS(___HEADER(___ARG1)) * ___WS);
++___RESULT = ___ARG2;
++end-of-code
++              gcht snapshot)))
++
+ (define-prim (##gc-hash-table-for-each proc gcht)
+   (##declare (not interrupts-enabled))
+   (if (##gc-hash-table? gcht)
+-    (let loop ((i (macro-gc-hash-table-key0)))
+-      (if (##fx< i (##gc-hash-table-length gcht))
+-        (let ((key (##gc-hash-table-field-ref gcht i)))
++    (let ((snapshot (##gc-hash-table-snapshot gcht)))
++     (let loop ((i (macro-gc-hash-table-key0)))
++      (if (##fx< i (##vector-length snapshot))
++        (let ((key (##vector-ref snapshot i)))
+           (if (and (##not (##eq? key (macro-unused-obj)))
+                    (##not (##eq? key (macro-deleted-obj))))
+-            (proc key (##gc-hash-table-field-ref gcht (##fx+ i 1))))
++            (proc key (##vector-ref snapshot (##fx+ i 1))))
+           (let ()
+             (##declare (interrupts-enabled))
+             (loop (##fx+ i 2))))
+-        (##void)))
++        (##void))))
+     (##void)))
+ 
+ (define-prim (##gc-hash-table-search proc gcht)
+   (##declare (not interrupts-enabled))
+   (if (##gc-hash-table? gcht)
+-    (let loop ((i (macro-gc-hash-table-key0)))
+-      (if (##fx< i (##gc-hash-table-length gcht))
+-        (let ((key (##gc-hash-table-field-ref gcht i)))
++    (let ((snapshot (##gc-hash-table-snapshot gcht)))
++     (let loop ((i (macro-gc-hash-table-key0)))
++      (if (##fx< i (##vector-length snapshot))
++        (let ((key (##vector-ref snapshot i)))
+           (or (and (##not (##eq? key (macro-unused-obj)))
+                    (##not (##eq? key (macro-deleted-obj)))
+-                   (proc key (##gc-hash-table-field-ref gcht (##fx+ i 1))))
++                   (proc key (##vector-ref snapshot (##fx+ i 1))))
+               (let ()
+                 (##declare (interrupts-enabled))
+                 (loop (##fx+ i 2)))))
+-        #f))
++        #f)))
+     #f))
+ 
+ (define-prim (##gc-hash-table-foldl f base proc gcht)
+   (##declare (not interrupts-enabled))
+   (if (##gc-hash-table? gcht)
+-    (let loop ((i (macro-gc-hash-table-key0)) (base base))
+-      (if (##fx< i (##gc-hash-table-length gcht))
+-        (let ((key (##gc-hash-table-field-ref gcht i)))
++    (let ((snapshot (##gc-hash-table-snapshot gcht)))
++     (let loop ((i (macro-gc-hash-table-key0)) (base base))
++      (if (##fx< i (##vector-length snapshot))
++        (let ((key (##vector-ref snapshot i)))
+           (if (and (##not (##eq? key (macro-unused-obj)))
+                    (##not (##eq? key (macro-deleted-obj))))
+             (let ((new-base
+-                   (f base (proc key (##gc-hash-table-field-ref gcht (##fx+ i 1))))))
++                   (f base (proc key (##vector-ref snapshot (##fx+ i 1))))))
+               (##declare (interrupts-enabled))
+               (loop (##fx+ i 2) new-base))
+             (let ()
+               (##declare (interrupts-enabled))
+               (loop (##fx+ i 2) base))))
+-        base))
++        base)))
+     base))
+ 
+ (define-prim (##make-table-aux

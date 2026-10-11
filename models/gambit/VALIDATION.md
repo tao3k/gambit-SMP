@@ -1,5 +1,163 @@
 # Initial Model Validation
 
+## Per-Read And Serializer Feedback 2026-10-11
+
+The per-read deadline model freezes an actual stale-deadline control; positive
+TLC exhausts 77 distinct / 110 generated states. The model-bound test variant
+preserves every original loop and assertion. The generic runner now reserves
+its own processor from host-auto capacity in both modes. Runtime022 passes
+the revised pipe fixture in 31.404 s interpreted / 49.264 s compiled, under the
+unchanged 60-second whole-mode budget. Original and intermediate denied
+receipts remain frozen; this is not a runtime speedup or full-suite green.
+
+Native concurrent-GC text roundtrip then fails a key query in 2.642 seconds,
+without timeout or source drift. Source `##explode-gc-hash-table` still allocates
+cons cells while walking live slots. The serializer model freezes a rehash
+counterexample and exhausts 37 distinct / 146 generated positive states.
+The exact snapshot-cursor candidate passes real GNU GCC core rebuild in
+29.894 seconds and the same regression in both modes (3.347 / 8.564 seconds).
+It is not release-admitted. Inventory: 40 models, 26 native observations,
+19 local failures. Framework tests pass 115/115. The later full interpreter
+campaign passes all 375 original files plus four regressions (379/379) in
+240.252 seconds, under the unchanged 300-second whole-mode budget. This adds
+the 27th native observation, not complete compiled/bootstrap admission.
+
+## Shared Pipe Residual 2026-10-11
+
+That initial checkpoint contained 38 models, 22 native observations and 17 local failures.
+PR1037's exact shared endpoint mutex was absent from runtime021 and is applied
+in runtime022 after both predicate and close/wait proofs. The close/wait model
+exhausts 27 distinct / 39 generated states and freezes two negative controls.
+Actual GNU GCC core rebuild passes in 52.718 seconds; neighboring original I/O
+files pass both modes. The exact upstream pipe fixture passes interpreted mode
+in 26.408 seconds but compiled mode is DENY at 60.050 seconds.
+
+Retained-module diagnosis observes EOF and timeout, not a proven lost wakeup.
+Source converts the fixture's once-set relative timeout into one absolute
+deadline. The timeout-contract model distinguishes valid expiry from the
+incorrect no-EOF-on-open-port expectation. No runtime or full-suite repair is
+claimed by that diagnostic model. See `docs/shared-pipe-predicate-lock.md`.
+Framework tests pass 110/110. Complete native/bootstrap admission remains open.
+
+## Scan Input / Model Closure 2026-10-11
+
+Native diagnostics 012 and 013 reject movable to-space inputs before a second
+copy. In 013, the field snapshot at scan entry already contains the rejected
+reference; the bounded visit table was saturated, so duplicate scanning is
+not established. Both failed configurations remain denied, not rerun unchanged.
+See `docs/gc-old-space-input-contract.md` for the actual source/input boundary.
+
+The expanded `gc_forward_publication` model freezes four independent controls:
+publication, producer accounting, repeated slot input and relocated payload
+input. Actual TLC attempt 006 found all four counterexamples. The positive
+input/publication protocol exhausted 39 distinct states, 71 generated, zero
+queue in 14.730 seconds. Attempt 005 was an infrastructure denial: sandbox
+blocked the local Apalache socket; it is retained and not called a model pass.
+
+The unchanged extracted `mark_array` source unit passes five mechanism controls,
+including the new relocated reference in a distinct slot. Mocked allocation,
+representation and CAS are not native ABI acceptance. Python framework tests
+pass 72/72; current native correctness and complete bootstrap remain open.
+
+## Diagnostic 010 / Extent And Layout
+
+An exact, reversible diagnostic-only C delta rebuilt core with GNU GCC 16.2.0.
+The first p4 decoder run passed interpreter/compiler/compiled fixture; repeat 1
+failed compiler SIGBUS and stopped further retries. The new incident binds
+both image UUID and the actual compiler child receipt: `mark_array +96` called
+by `scan +204`. It did not trigger the special-table header probes. This is
+DENY, not stability, a source repair, bootstrap or performance acceptance.
+
+The expanded `gc_table_header_lifetime` freezes four independent controls:
+forwarded header, early retirement, normal-looking wrong extent and wrong
+payload layout. Positive TLC exhausts 9 distinct / 13 generated / 0 queued
+states in 15.703 s. These latter controls are hypotheses, not native causality.
+Attempt 003 was denied by the sandbox's local Apalache socket restriction;
+attempt 004 ran the actual checker with local binding allowed. No failed
+receipt is rewritten as success.
+
+Framework tests: 62/62 passed; Datalog coverage passes. The runner now stops
+after the first unadmitted model and leaves native execution not-run. Existing
+coverage gaps remain 19 report links, 23 native adapters and 13 source reviews.
+See `docs/native-pr793-and-gc-incident.md`. Older counts below are historical.
+
+## Candidate 009 / Special Reader
+
+The PR793 cleanup condition passes 24 extracted-source control outcomes and
+incremental GNU GCC core rebuild. Actual p4 decoder/forced-GC interpreter,
+compiler and compiled fixture pass once; the repeated compiler exits SIGBUS.
+Candidate-wide acceptance is DENY, and no further unchanged compiler retry ran.
+An uninstrumented incident matches the candidate binary UUID and points to
+`gc_hash_table_rehash_in_situ +48`, an indexed key read. Child PID attribution
+was absent from the original receipt and is not retroactively claimed.
+
+Native feedback adds `gc_table_header_lifetime`: two independent hypothetical
+controls, positive 9 distinct / 13 generated / 0 queue, 17.686 seconds. Source
+causality, actual object extent, special-reader ownership and generated-source
+parity remain open. See `docs/native-pr793-and-gc-incident.md`.
+
+At this historical checkpoint: 58/58 tests passed. Coverage: 29 models, 19 reports without
+model links, 23 models without native adapters, 13 adjacent-source reviews.
+All earlier counts below are historical.
+
+## Shutdown Lifecycle
+
+`shutdown_error_handoff` binds issue 792 / PR793 to the current unguarded
+processor-0 error dispatch during cleanup. It independently distinguishes the
+source-ordered failure from an unproved pre-cleanup dispatch hypothesis and an
+injected catcher-only error-loss control. Positive design: 22 distinct / 31
+generated / 0 queue, 22.090 seconds. Native/source repair acceptance remains
+open. See `docs/shutdown-error-handoff.md`.
+
+Current framework: 50/50 tests passed. Coverage now has 28 models, 33 PR
+snapshots and one linked issue snapshot, 19 reports without model links and
+22 models without native adapters. Older counts below are historical snapshots.
+
+## FFI / GC Composition
+
+`ffi_gc_frame_protocol` links the historical PR783 report to publication,
+waiting participation, relocation and generated-host reload obligations.
+Three controls are frozen; positive TLC exhausts 22 distinct / 25 generated /
+0 queued states. Extracted current C passes all 12 expected source-unit cases,
+using mocked macros/GC. Native mock feedback added zero-GC root-clobber safety;
+failed/mixed-version attempts remain DENY. See `docs/ffi-gc-frame-protocol.md`.
+No runtime repair or compiler/bootstrap success is inferred from these checks.
+
+## Expanded Bounty Evidence
+
+The latest coverage extension inventories 127 bounty-era PRs, binds 33 report
+snapshots, and adds mailbox, promise and overflow-undo models with seven frozen
+negative traces. Framework tests: 43/43 passed. The native five-operation macro
+fixture passed; full compiler/bootstrap acceptance remains open. See
+`docs/bounty-evidence-coverage.md` for bounds, exhaustive state counts, source
+classification and the remaining 20 model/20 adapter/13 adjacent-review gaps.
+Earlier test counts below are historical receipts, not the current suite size.
+
+## Forwarding, Publication And Participation
+
+`gc_forward_publication` characterizes CAS forwarding identity before payload
+copy, private destination ownership, ordered completed-chunk publication and
+counted producer lifetime. It independently freezes early-publication and
+uncounted-producer controls (4 and 6 states respectively); these are injected
+faults, not new Gambit defect attributions. The positive protocol exhausts
+39 distinct states, 71 generated, zero queue, 17.709 s.
+
+Attempts 001/002 failed Quint conversion/parsing and remain DENY. Attempt 003
+produced the expected actual TLC counterexamples and positive check, but its
+aggregate admission was DENY because the original scalar decoder did not
+support record values. A strict integer/Boolean/tuple/record decoder now
+rejects unsupported, duplicate, truncated, trailing and structurally drifting
+values. The unchanged 003 logs were redecoded without rerunning the checker;
+original receipt/log digests are retained in
+`evidence/model-results/gc-forward-publication.json`. The initial DENY receipt
+is not overwritten. Framework unit suite: 36/36 passed.
+
+This is bounded characterization only, not a GC patch or performance result.
+Special readers, local tail scans, full graphs, C weak memory and liveness
+remain outside this model. `docs/paper-source-obligations.md` describes the
+source mapping. Primary papers now reside in a bounded ignored local cache;
+manifest/script/tests are tracked, PDF/full-text files are not committed.
+
 ## PR 988 Additional Obligations
 
 The complete 36-file diff is downloaded and inventory-validated; see
@@ -42,11 +200,55 @@ Failure-capture admission is DENY because there was no failure to capture.
 This diagnostic changes scheduling and does not resolve the uninstrumented
 SIGBUS, verify the compiled executable or justify bootstrap acceptance.
 
-Next source-backed lifecycle obligation: in the pinned source's
+Source-backed lifecycle obligation: in the pinned source's
 `___vm_resize_pstate`, the failed-setup cleanup loop decrements `i` but repeatedly
 uses the failed processor's `ps`, and does not reset the target count. This is
-a source audit finding, not yet a frozen model counterexample or native fault
-injection result. No runtime change is promoted from it yet.
+a source audit finding subsequently checked below. No formal runtime patch
+is promoted from it.
+
+## VM Resize Failure Rollback
+
+`vm_resize_rollback` has independent `cleanupSafe` and `targetSafe` negative
+controls. The latter first fixes cleanup to isolate target restoration. Both
+actual TLC traces are frozen. The combined protocol exhausts 14 distinct
+states, 18 generated, zero queued, 25.353 s. Scope is grow 1 to 4, sequential
+processor preparation under the synchronized operation; partial setup cleanup,
+thread-create failure, shrinking, collector semantics and weak memory remain
+outside the model.
+
+`source_unit.py` extracts the unchanged `___vm_resize_pstate` body and compiles
+it with GNU GCC 16.2.0 against deterministic mocked dependencies. Initial
+inherited-environment linker failure is DENY, not a source counterexample.
+With isolated environment, the success path passed, but failures at processor
+1/2/3 retained target=4. Failures at 2/3 also invoked cleanup on the failed
+processor 1/2 times and retained prior prepared states. Receipt:
+`.data/vm-resize-source-old-002/receipt.json`.
+
+The local candidate uses the decremented ID for cleanup and restores the
+initial target before the barrier. All four source-unit paths pass:
+`.data/vm-resize-source-fixed-001/receipt.json`. Patch is explicitly under
+`patches/candidates/`, not an official toolchain patch chain. Reverse application
+check confirms correspondence to the local corrected source.
+
+Incremental GNU GCC `make -j12 core` succeeded. Candidate 008 identity is in
+`.data/gc-native-candidate-008.json`. The actual interpreter's grow 1/2/4
+regression passed with current source/binary identity, processor-count
+assertions and lexical rollback binding, 1.091 s. Compiled test is not run:
+`.data/vm-resize-real-smoke-008/receipt.json`. This does not resolve compiler
+SIGBUS or qualify complete bootstrap. Framework unit suite: 27/27 passed.
+
+## Scan Termination Composition
+
+`gc_scan_termination` composes a producer's unfinished local work, a shared
+chunk, counted active/waiting participation, termination declaration and
+acknowledged strong/weak phase transition. Detached publication after an
+idle declaration is fault injection, not a source defect attribution.
+The source-characterization protocol exhausts 22 distinct states, 35 generated,
+zero queue, 21.502 s. An actual negative trace is frozen. Receipt:
+`.data/gc-scan-termination-001/receipt.json`. No GC patch follows from this
+characterization. Weak memory, graph forwarding and fairness/liveness proofs
+remain open. `docs/paper-source-obligations.md` maps the external publications
+to current source and these exclusions. Framework unit suite: 28/28 passed.
 
 Compiler diagnostic `.data/gc-compiler-failure-007/receipt.json` is DENY:
 the private O1 symbol build exited with a missing-linker environment error,
@@ -346,3 +548,74 @@ is not approved solely from this model. No broad PR988 patch is applied.
 Eighteen framework tests pass, including independent frozen alias/ownership
 controls and headroom source guards. Native compiler SIGBUS and full bootstrap
 remain blockers; the goal is not complete.
+
+## Source Candidate 019 And Test Protocol
+
+Preserve the useful PR988/1038 repairs rather than replacing collector design.
+The new typed GC-table traversal snapshot candidate passes an isolated actual
+GNU GCC core rebuild (28.642 s). Twelve related original/regression files pass
+interpreter mode (5.435 s) and compiled mode (105.352 s), without runtime shims.
+This is not two-pass bootstrap or full-suite admission.
+
+The thread fixture protocol model freezes recipient-lifetime and premature
+assertion failures. Mutex completion gate plus join exhausts 23 distinct states,
+36 generated, zero queued. The corresponding assertion-preserving fixture
+passes interpreter (4.165 s) and compile/execute (19.344 s) modes under their
+20-second budgets. This is test synchronization, not a runtime correctness proof.
+
+The original prim-port file separately times out at 20.014 s on candidate 019.
+Its failure is retained without GC/deadlock attribution. Current Datalog has
+That checkpoint had 33 models, 12 native observations and ten local failures;
+coverage holes were reported, not silently admitted.
+
+## Residual Repair Checkpoint
+
+The inventory now has 36 models, 20 indexed native observations and 16 retained
+local failures. Framework validation passes 106 tests. The complete upstream
+interpreted suite passes 375/375 files in 177.070 seconds with the explicit
+thread completion fixture patch. Complete compiled-suite admission remains open.
+
+The new `checked_negate_return` model records a real compiled fxmul failure,
+not an assumed PR988 defect. Its one-line header repair completes a GNU GCC
+core rebuild and passes the original fxmul test in interpreter (0.070 s) and
+compiled (10.368 s) modes. See `docs/checked-negate-return.md` for proof bounds.
+
+The generic child-population fixture also passes both upstream-runner modes
+on runtime020 (0.144 s / 2.194 s): the test child checks its actual processor
+count against the host-auto selected population, 12 on this run. This checks
+population inheritance, not a global bound on all compiler/runner threads.
+None of these results admits complete bootstrap, Linux or Gerbil acceptance.
+
+PR1047's ended-target propagation lock is now source-audited and modeled.
+The old branch has a frozen counterexample; the fixed protocol exhausts 13
+distinct / 16 generated states with zero queued. The native regression is
+byte-exact to its cached upstream blob. Original runtime020 fails both trylock
+assertions; the real GNU GCC runtime021 rebuild and both interpreted/compiled
+regression modes pass. Full bootstrap/toolchain admission remains open.
+See `docs/ended-interrupt-lock.md`.
+
+The balanced compiled campaign still fails the original 300-second whole-mode
+budget (300.316 s): shard progress is 42/125, 42/125 and 31/125, with no assertion
+failure observed in the completed prefixes. This is a DENY, not 375-file
+coverage or evidence that all reports are repaired. Do not rerun it unchanged
+or enlarge its budget to obtain a green marker.
+
+Runtime021's six neighboring thread tests pass interpretation but fail compiled
+`thread_start.scm` with `var=0`, not a timeout. The source fixture uses relative
+busy-work counts instead of completion. `thread_start_completion.qnt` freezes
+that schedule and exhausts the explicit-join protocol; the test-only patch
+adds one join, deletes nothing and preserves every assertion. The same six-file
+campaign now passes both modes (20.856 s interpreter / 67.780 s compiled) within
+the unchanged 120-second per-mode budget. This does not admit the complete
+compiled suite or bootstrap. See `docs/thread-start-completion.md`.
+
+The original numeric fixture phase probe is diagnostic DENY at 90.384 seconds:
+Scheme-to-C takes 30.818 seconds, then C compilation exhausts the remaining
+budget. No compiled execution or complete-suite coverage is claimed. New
+driver-bound fxmul calibration passes both modes without object reuse, and
+binds the generated driver plus helper hashes. See `docs/compiler-cost-boundaries.md`.
+
+Candidate 019 two-pass bootstrap is DENY at its original 600-second budget
+(600.039 s). It reaches second-core GNU GCC compilation, reports no recursive
+build error, and preserves handwritten source identity. No final artifact set
+is admitted. This is an incomplete build, not a diagnosed collector crash.

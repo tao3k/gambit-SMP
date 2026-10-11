@@ -1,0 +1,131 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -3634,21 +3634,33 @@
+ static __thread int gc_diag_scan_active;
+ static __thread ___WORD gc_diag_scan_input[64];
+ static __thread int gc_diag_scan_visits;
++static __thread int gc_diag_scan_origin;
++static __thread ___WORD gc_diag_scan_chunk;
++static __thread int gc_diag_first_origin;
++static __thread int gc_diag_first_processor;
++static __thread ___WORD gc_diag_first_chunk;
++static __thread ___WORD gc_diag_first_head;
+ static unsigned char gc_diag_visits_lock;
+ static struct {
+   ___WORD body;
+   ___virtual_machine_state vm;
+   ___F64 cycle;
+   int visits;
++  int origin;
++  int processor;
++  ___WORD chunk;
++  ___WORD head;
+ } gc_diag_visits[65536];
+ 
+ ___HIDDEN int gc_scan_visit_observe
+-   (___processor_state ___ps, ___WORD *body)
++   (___processor_state ___ps, ___WORD *body, ___WORD head)
+ {
+   ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
+   ___UWORD hash = ___CAST(___UWORD,body)>>3;
+   unsigned int index;
+   int i, visits = -1;
++  gc_diag_first_origin = gc_diag_first_processor = -1;
++  gc_diag_first_chunk = gc_diag_first_head = 0;
+   hash ^= hash>>17;
+   hash ^= hash>>31;
+   index = hash & 65535;
+@@ -3667,9 +3679,20 @@
+           gc_diag_visits[index].body = ___CAST(___WORD,body);
+           gc_diag_visits[index].vm = vm;
+           gc_diag_visits[index].cycle = nb_gcs;
++          gc_diag_visits[index].origin = gc_diag_scan_origin;
++          gc_diag_visits[index].processor = ___PROCESSOR_ID(___ps,vm);
++          gc_diag_visits[index].chunk = gc_diag_scan_chunk;
++          gc_diag_visits[index].head = head;
+           visits = gc_diag_visits[index].visits = 1;
+           break;
+         }
++    }
++  if (visits != -1)
++    {
++      gc_diag_first_origin = gc_diag_visits[index].origin;
++      gc_diag_first_processor = gc_diag_visits[index].processor;
++      gc_diag_first_chunk = gc_diag_visits[index].chunk;
++      gc_diag_first_head = gc_diag_visits[index].head;
+     }
+   __atomic_clear(&gc_diag_visits_lock, __ATOMIC_RELEASE);
+   return visits;
+@@ -3706,6 +3729,11 @@
+                   gc_diag_scan_visits, captured, (unsigned long)before,
+                   ___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps)),
+                   traverse_weak_refs, nb_gcs);
++          fprintf(stderr,
++                  "GC-SCAN-ORIGINS firstOrigin=%d firstProcessor=%d firstChunk=%lx firstHead=%lx origin=%d chunk=%lx\n",
++                  gc_diag_first_origin, gc_diag_first_processor,
++                  (unsigned long)gc_diag_first_chunk, (unsigned long)gc_diag_first_head,
++                  gc_diag_scan_origin, (unsigned long)gc_diag_scan_chunk);
+           fflush(stderr);
+           abort();
+         }
+@@ -4331,7 +4359,7 @@
+   gc_diag_scan_head = head;
+   gc_diag_scan_words = words;
+   gc_diag_scan_active = 1;
+-  gc_diag_scan_visits = gc_scan_visit_observe(___ps, body);
++  gc_diag_scan_visits = gc_scan_visit_observe(___ps, body, head);
+   {
+     ___SIZE_TS i;
+     for (i=0; i<words && i<64; i++) gc_diag_scan_input[i] = body[i];
+@@ -4568,6 +4596,10 @@
+ ___PSDKR)
+ {
+   ___PSGET
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++  gc_diag_scan_origin = 4;
++  gc_diag_scan_chunk = 0;
++#endif
+   ___WORD *base;
+ 
+   while ((base = ___CAST(___WORD*,still_objs_to_scan)) != 0)
+@@ -4590,6 +4622,9 @@
+   ___PSGET
+   ___WORD *ptr = start;
+   ___WORD head;
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++  gc_diag_scan_chunk = ___CAST(___WORD,start);
++#endif
+ 
+ #ifdef ENABLE_GC_ACTLOG_SCAN_COMPLETE_HEAP_CHUNK
+   ___ACTLOG_BEGIN_PS(scan_complete_heap_chunk,_);
+@@ -4654,6 +4689,10 @@
+   while (ptr != alloc_heap_ptr) /* SITUATION #1 or #2 ? */
+     {
+       ___WORD head;
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++      gc_diag_scan_origin = 1;
++      gc_diag_scan_chunk = ___CAST(___WORD,ptr);
++#endif
+       while (!___TESTTYPE(head = *ptr, ___FORW)) /* not end of complete chunk? */
+         {
+           scan_and_advance(ptr, head); /* note: this advances ptr */
+@@ -4692,6 +4731,9 @@
+           ___SPINLOCK_UNLOCK(heap_chunks_to_scan_lock);
+ #endif
+ 
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++          gc_diag_scan_origin = 2;
++#endif
+           scan_complete_heap_chunk (___PSP ptr+1);
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+@@ -7112,6 +7154,9 @@
+ 
+                   ___SPINLOCK_UNLOCK(ps->mem.heap_chunks_to_scan_lock_);
+ 
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++                  gc_diag_scan_origin = 3;
++#endif
+                   scan_complete_heap_chunk (___PSP ptr+1);
+ 
+                   goto continue_local_scan;

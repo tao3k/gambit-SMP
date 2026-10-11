@@ -1,0 +1,43 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    ".data/vector-increment-runtime-026/source/lib/setup.c": "98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f",
+    ".data/vector-increment-runtime-026/source/lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    ".data/papers/ghc-parallel-gc-2008/paper.txt": "b2d9fbc2d3c9bb21917ef892fa508a1e4ae0952fe129bd8d4787a4c9b5450188",
+    ".data/papers/hotspot-parallel-gc-2001/paper.txt": "df718c6e882c2c6ea5fdcd2c4418183614cb45d8271eb4e04cf57875482d9535"
+  },
+  "cases": [
+    {
+      "id": "gc_epoch_work_bridge",
+      "oldInvariants": ["rootsSafe", "closureSafe", "populationSafe", "epochSafe"],
+      "oldInitializers": {"rootsSafe": "initEarlyRoots", "closureSafe": "initEarlyIdle", "populationSafe": "initEarlyPopulation", "epochSafe": "initStaleAck"},
+      "temporal": "progress",
+      "composes": ["gc_sync_membership", "gc_work_closure"],
+      "source": ["lib/setup.c:___vm_resize_pstate", "lib/setup.c:barrier_sync_op", "lib/mem.c:mark_reachable_from_marked"],
+      "papers": ["ghc-parallel-gc-2008:3.4-3.5", "hotspot-parallel-gc-2001:3.3"],
+      "scope": "Two epochs; population grows one to two or shrinks two to one; two-object graph, parked mutators, private/queued/scanning work, active population, final acknowledgements and new-processor join. Abstract release/acquire, completed root copying and successful setup. No C refinement, arbitrary population proof, weak table phase, allocation failure or real-time performance proof."
+    },
+    {
+      "id": "gc_scan_claim_transfer",
+      "oldInvariants": ["ownershipSafe", "readySafe", "inputSafe", "epochSafe"],
+      "oldInitializers": {"ownershipSafe": "initRetainedOwner", "readySafe": "initEarlyFrontier", "inputSafe": "initRevisitedSlot", "epochSafe": "initStaleClaim"},
+      "temporal": "progress",
+      "composes": ["gc_forward_publication", "ticket_queue_handoff"],
+      "source": ["lib/mem.c:end_heap_chunk", "lib/mem.c:scan_movable_objs_to_scan", "lib/mem.c:scan_complete_heap_chunk", "lib/mem.c:mark_array"],
+      "papers": ["ghc-parallel-gc-2008:3.1-3.4"],
+      "scope": "Two physical slots alias one logical object; local scanned prefix, copy-ready frontier, exported unscanned tail, thief claim and address reuse across two epochs. Queue coherence assumed. Tail transfer is an abstract sufficient contract, not an assertion that Gambit exports partial scanned chunks. No source attribution of injected faults or weak-memory proof."
+    },
+    {
+      "id": "sync_retirement_drain",
+      "oldInvariants": ["admissionSafe", "epochSafe", "reservationSafe", "setupSafe"],
+      "oldInitializers": {"admissionSafe": "initUnsealedAdmission", "epochSafe": "initStaleReference", "reservationSafe": "initUncountedReservation", "setupSafe": "initPartialSetup"},
+      "temporal": "progress",
+      "composes": ["sync_resource_retirement", "sync_resource_users"],
+      "source": ["lib/setup.c:SYNC_SEND_MSG", "lib/setup.c:___sync_wait", "lib/setup.c:setup_sync_op_pstate", "lib/setup.c:___cleanup_pstate", "lib/setup.c:___vm_resize_pstate"],
+      "papers": [],
+      "scope": "Two incarnations of one slot, one sender, one predicate-loop waiter, one separately captured reference with admitted-but-not-locked reservation. Atomic admission/seal, coherent mutex/condition-variable operations, successful signal and explicit second-generation condition-init failure rollback. Weak fairness for nonstuttering protocol steps. No actual generation field proposed; equivalent global quiescence may satisfy the contract. Excludes interrupts, borrowed resources, mutex-init failure, OS errors and unbounded producers."
+    }
+  ]
+}

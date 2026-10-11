@@ -1,0 +1,26 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -3640,16 +3640,20 @@
+   ___virtual_machine_state vm;
+   ___F64 cycle;
+   int visits;
+-} gc_diag_visits[4096];
++} gc_diag_visits[65536];
+ 
+ ___HIDDEN int gc_scan_visit_observe
+    (___processor_state ___ps, ___WORD *body)
+ {
+   ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
+-  unsigned int index = (___CAST(___UWORD,body)>>3) & 4095;
++  ___UWORD hash = ___CAST(___UWORD,body)>>3;
++  unsigned int index;
+   int i, visits = -1;
++  hash ^= hash>>17;
++  hash ^= hash>>31;
++  index = hash & 65535;
+   while (__atomic_test_and_set(&gc_diag_visits_lock, __ATOMIC_ACQUIRE)) {}
+-  for (i=0; i<8; i++, index=(index+1)&4095)
++  for (i=0; i<64; i++, index=(index+1)&65535)
+     {
+       if (gc_diag_visits[index].body == ___CAST(___WORD,body) &&
+           gc_diag_visits[index].vm == vm && gc_diag_visits[index].cycle == nb_gcs)

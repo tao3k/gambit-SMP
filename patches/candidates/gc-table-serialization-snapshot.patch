@@ -1,0 +1,43 @@
+diff --git a/lib/_system.scm b/lib/_system.scm
+--- a/lib/_system.scm
++++ b/lib/_system.scm
+@@ -1478,28 +1478,31 @@
+ (define-prim (##explode-gc-hash-table gcht)
+   (##declare (not interrupts-enabled))
+-  (let ((len (##gc-hash-table-length gcht)))
++  (let* ((snapshot (##gc-hash-table-snapshot gcht))
++         (len (##vector-length snapshot)))
+     (let loop ((i (macro-gc-hash-table-key0))
+                (key-vals '()))
+       (if (##fx< i len)
+-          (let ((key (##gc-hash-table-field-ref gcht i)))
++          (let ((key (##vector-ref snapshot i)))
+             (if (and (##not (##eq? key (macro-unused-obj)))
+                      (##not (##eq? key (macro-deleted-obj))))
+-                (let ((val (##gc-hash-table-field-ref gcht (##fx+ i 1))))
++                (let ((val (##vector-ref snapshot (##fx+ i 1))))
+                   (let ((new-key-vals (##cons (##cons key val) key-vals)))
+                     (##declare (interrupts-enabled))
+                     (loop (##fx+ i 2) new-key-vals)))
+                 (let ()
+                   (##declare (interrupts-enabled))
+                   (loop (##fx+ i 2) key-vals))))
+           (let ((size
+-                 (macro-gc-hash-table-size gcht))
++                 (##fxwraplogical-shift-right
++                  (##fx- len (macro-gc-hash-table-key0))
++                  1))
+                 (flags
+-                 (macro-gc-hash-table-flags gcht))
++                 (##vector-ref snapshot 1))
+                 (count
+-                 (macro-gc-hash-table-count gcht))
++                 (##vector-ref snapshot 2))
+                 (min-count
+-                 (macro-gc-hash-table-min-count gcht))
++                 (##vector-ref snapshot 3))
+                 (free
+-                 (macro-gc-hash-table-free gcht)))
++                 (##vector-ref snapshot 4)))
+             (##declare (interrupts-enabled))
+             (##vector size flags count min-count free key-vals))))))

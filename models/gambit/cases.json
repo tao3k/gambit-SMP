@@ -2,7 +2,288 @@
   "schema": "gambit-smp-model-cases.v1",
   "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
   "quintVersion": "0.33.0",
+  "nativeFailureManifest": "evidence/native-failures.json",
   "cases": [
+    {
+      "id": "pstate_resize_composition", "pr": 988,
+      "modelReceipt": "evidence/model-results/pstate-resize-composition/receipt.json",
+      "mode": "source-guided-setup-failure-and-resize-caller-composition",
+      "oldInvariants": ["localRollbackSafe", "callerRollbackSafe", "targetSafe", "publicationSafe", "existingSafe"],
+      "oldInitializers": {"callerRollbackSafe": "initCaller", "targetSafe": "initTarget", "publicationSafe": "initEarly", "existingSafe": "initExisting"},
+      "source": ["lib/setup.c:___setup_pstate", "lib/setup.c:___vm_resize_pstate"],
+      "contracts": [{"model": "pstate_setup_transaction", "obligation": "failed-owned-slot-self-unwinds-before-error-return"}, {"model": "vm_resize_rollback", "obligation": "caller-cleans-only-successful-new-slots-before-target-restore"}],
+      "native": null,
+      "scope": "Grow 1 to 3 with five atomic owned setup stages per new slot, one failure at any stage/slot or complete success. Existing slot survives, failed slot self-unwinds, caller cleans preceding successful new slots, restores target and only publishes all-ready population. Progress assumes weak fairness. Excludes shrink/reuse, borrowed VM0 constructor, partial OS/memory failures, real synchronization-resource draining, thread-create failure after population commit, C memory ordering and complete VM/GC refinement. PR988 is context, not fault attribution."
+    },
+    {
+      "id": "pstate_setup_transaction", "pr": 988,
+      "modelReceipt": "evidence/model-results/pstate-setup-helper-owned/receipt.json",
+      "sourceUnitFixtures": ["models/gambit/native/pstate_os_mem_transaction.c"],
+      "sourceUnitObservations": [{"kind": "unchanged-os-memory-helpers-mocked-owned-resource-transfer-not-native-heap-or-threads", "receipt": "evidence/model-results/pstate-os-mem-source-observation.json", "log": "evidence/model-results/pstate-os-mem-source-observation.log"}],
+      "mode": "source-guided-unpublished-processor-setup-and-owned-borrowed-rollback",
+      "oldInvariants": ["publicationSafe", "publicationOrderSafe", "rollbackSafe", "borrowedSafe", "destroySafe", "helperRollbackSafe", "cleanupOrderSafe"],
+      "oldInitializers": {"publicationOrderSafe": "initEarlyPublish", "rollbackSafe": "initLeak", "borrowedSafe": "initBorrowed", "destroySafe": "initInvalidDestroy", "helperRollbackSafe": "initHelperDuplicate", "cleanupOrderSafe": "initWrongOrder"},
+      "source": ["lib/setup.c:___setup_pstate", "lib/setup.c:setup_interrupts_pstate", "lib/setup.c:setup_os_and_mem_pstate", "lib/setup.c:setup_sync_op_pstate", "lib/setup.c:___vm_resize_pstate"],
+      "contracts": [{"model": "sync_resource_users", "obligation": "rollback-only-owned-initialized-synchronization-resources"}],
+      "native": null,
+      "scope": "One unpublished processor, owned or borrowed early interrupt mutex, five setup stages and one injected failure. Memory setup error transfers OS cleanup to the helper. Caller release is sequential and reverse-stage, derived from remaining live owned resources; controls cover helper double cleanup and OS-before-memory release. Success/rollback progress assumes weak fairness. Primitive partial allocation internals, OS destructor failure, POSIX/Win32 behavior, real caller/VM teardown, external senders and resource reuse remain separate obligations. No runtime repair admission or native crash attribution."
+    },
+    {
+      "id": "continuation_chunk_publication", "pr": 988,
+      "modelReceipt": "evidence/model-results/continuation-chunk-publication.json",
+      "mode": "source-motivated-local-versus-committed-frontier-publication-policy",
+      "source": ["lib/mem.c:mark_captured_continuation", "lib/mem.c:end_heap_chunk", "lib/mem.c:start_heap_chunk"],
+      "sourceUnitFixtures": ["models/gambit/native/continuation_chunk_frontier.c"],
+      "sourceUnitObservations": [{"kind": "unchanged-chunk-publication-block-stale-committed-frontier-mocked-complete-frames-not-native-gc", "receipt": "evidence/model-results/continuation-chunk-source-observation.json", "log": "evidence/model-results/continuation-chunk-source-observation.log"}],
+      "native": null,
+      "scope": "Two copied frames with local allocation progress and a three-word abstract chunk boundary. Old guard reads stale committed pointer; local-frontier guard closes a complete chunk at the copy checkpoint. Desired publication-granularity policy, not memory safety, object loss, native crash attribution or measured speedup. Original eventually commits at function return. Excludes frame/stack representation, queue ownership, MISC_MEM_LOCK, allocation failure, msection transitions, C weak memory and collector liveness; PR988 is audit context, not attribution."
+    },
+    {
+      "id": "sync_resource_users", "pr": 988,
+      "modelReceipt": "evidence/model-results/sync-resource-users.json",
+      "mode": "source-guided-resource-holder-waiter-signaler-rollback-obligation",
+      "oldInvariants": ["holderSafe", "waiterSafe", "signalSafe", "admissionSafe", "rollbackSafe"],
+      "oldInitializers": {"waiterSafe": "initWaiter", "signalSafe": "initSignal", "admissionSafe": "initAdmission", "rollbackSafe": "initRollback"},
+      "source": ["lib/setup.c:SYNC_SEND_MSG", "lib/setup.c:SYNC_GET_MSG", "lib/setup.c:___sync_wait", "lib/setup.c:setup_sync_op_pstate", "lib/setup.c:___cleanup_pstate", "include/gambit.h:___MUTEX_INIT", "include/gambit.h:___CONDVAR_INIT"],
+      "contracts": [{"model": "sync_message_acquire", "obligation": "published-message-observed-through-acquire"}],
+      "native": null,
+      "scope": "One external sender, one mutex holder/waiter and successful or failed condition initialization after successful owned mutex initialization. Distinguishes publication while locked, unlocked late signal, sleeping waiters and admission sealing. Five independent fault controls and required drain plus owned-resource rollback protocol. No runtime repair, native failure attribution or claim that source already implements sealing. Assumes coherent mutex exclusion, atomic condition wait and predicate loop; excludes borrowed resources, initial mutex failure, interrupt producers, generation reuse, VM-wide composition, real POSIX error semantics, weak memory and fairness/liveness proof."
+    },
+    {
+      "id": "sync_resource_retirement", "pr": 988,
+      "modelReceipt": "evidence/model-results/sync-resource-retirement.json",
+      "mode": "source-motivated-processor-resource-lifetime-obligation",
+      "oldInvariants": ["initializationSafe", "signalSafe", "generationSafe"],
+      "oldInitializers": {"signalSafe": "initEarlyDestroy", "generationSafe": "initEarlyReuse"},
+      "source": ["lib/setup.c:setup_sync_op_pstate", "lib/setup.c:___cleanup_pstate", "lib/setup.c:SYNC_SEND_MSG", "lib/setup.c:___vm_resize_pstate", "include/gambit.h:___MUTEX_INIT", "include/gambit.h:___CONDVAR_INIT"],
+      "sourceUnitFixtures": ["models/gambit/native/sync_resource_retirement.c"],
+      "sourceUnitObservations": [{"kind": "unchanged-setup-cleanup-reuse-two-unpaired-resource-initializations-mocked-not-native-posix", "receipt": "evidence/model-results/sync-resource-source-observation.json", "log": "evidence/model-results/sync-resource-source-observation.log"}],
+      "contracts": [{"model": "sync_message_acquire", "obligation": "flag-observation-with-valid-message-payload"}],
+      "native": null,
+      "scope": "One processor slot, one admitted sender and two generations of sync mutex/condition variable. Current source has setup but no paired sync destruction; retain control exposes reinitialization, independent naive destroy/reuse controls expose late unlock-before-signal lifetime and generation gaps. Positive requires withdrawal from future senders, draining every resource user before destruction/reuse. No source repair or native crash attribution. Excludes waiter population, interrupt producers, setup failures, POSIX implementation, allocation, C weak memory and fairness/liveness proof; PR988 is lifecycle investigation context, not attribution."
+    },
+    {
+      "id": "gc_sync_membership", "pr": 988,
+      "modelReceipt": "evidence/model-results/gc-sync-membership.json",
+      "mode": "paper-guided-fault-controlled-entry-membership-composition",
+      "paperSections": [{"paper": "ghc-parallel-gc-2008", "sections": ["3.5"]}],
+      "contracts": [
+        {"model": "sync_tree_rounds", "obligation": "acknowledged-tree-rounds-fixed-population"},
+        {"model": "sync_message_acquire", "obligation": "message-payload-visible-after-identifier-acquisition"},
+        {"model": "sync_resource_retirement", "obligation": "prepared-processor-slot-has-valid-resource-generation"},
+        {"model": "sync_resource_users", "obligation": "resource-retirement-seals-admission-and-drains-holders-waiters-signalers"},
+        {"model": "gc_work_closure", "obligation": "worker-scan-finish-means-reachable-work-closure"}
+      ],
+      "oldInvariants": ["quiescenceSafe", "rootSafe", "membershipSafe", "startupSafe"],
+      "oldInitializers": {"rootSafe": "initEarlyScan", "membershipSafe": "initTargetPopulation", "startupSafe": "initEarlyResume"},
+      "source": ["lib/setup.c:on_all_processors", "lib/setup.c:execute_sync_op_loop", "lib/setup.c:barrier_sync_op", "lib/setup.c:___vm_resize_pstate", "lib/setup.c:start_processor_execution", "lib/mem.c:___garbage_collect_pstate", "lib/mem.c:garbage_collect_mark_strong_phase"],
+      "native": null,
+      "scope": "Three possible processors, grow2to3 or shrink2to1, nested pre-resize GC over old membership and post-resize GC over new membership. Combines mutator parking, root publication/copy completion, final acknowledgments, prepared/live/participating populations and startup rendezvous. Four injected controls: early root entry, early scanning, target count used as actual GC membership and early thunk resume. Positive is a required abstract protocol, not a source repair or attribution to PR988. Tree barriers and graph closure are contracts checked separately; excludes priority/combining arbitration, resize rollback/failure, shrink OS join failures, exact root representations, C weak memory and fairness/liveness proof."
+    },
+    {
+      "id": "gc_work_closure", "pr": 988,
+      "modelReceipt": "evidence/model-results/gc-work-closure.json",
+      "mode": "paper-guided-fault-controlled-composition",
+      "paperSections": [{"paper": "ghc-parallel-gc-2008", "sections": ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6"]}],
+      "contracts": [
+        {"model": "gc_forward_publication", "obligation": "unique-canonical-forwarding-identity"},
+        {"model": "ticket_queue_handoff", "obligation": "queue-lock-acquisition-observes-prior-owner-writes"},
+        {"model": "sync_tree_rounds", "obligation": "acknowledged-phase-barrier"}
+      ],
+      "oldInvariants": ["publicationSafe", "terminationSafe", "ownershipSafe", "phaseSafe"],
+      "oldInitializers": {"terminationSafe": "initEarlyIdle", "ownershipSafe": "initDuplicateClaim", "phaseSafe": "initEarlyPhase"},
+      "source": ["lib/mem.c:mark_array", "lib/mem.c:end_heap_chunk", "lib/mem.c:scan_movable_objs_to_scan", "lib/mem.c:scan_complete_heap_chunk", "lib/mem.c:mark_reachable_from_marked", "lib/mem.c:garbage_collect_pstate"],
+      "native": null,
+      "scope": "Two workers, two-object cyclic graph and two abstract scan phases; combines private unfinished copying, local scanning, coherent shared work transfer, active/waiting count and acknowledged barriers. Object stands for pending region, not concrete block layout. Four independent injected controls: early publication, early idleness, duplicate queue acquisition and early phase advance. Positive is a protocol obligation, not a new source repair or attribution to PR988. Excludes competing forwarding CAS (separate model), exact weak-reference semantics, object representation, allocation failure, C weak memory, condition-variable implementation and fairness/liveness proof."
+    },
+    {
+      "id": "vector_increment_guard", "pr": 988,
+      "mode": "native-compiled-suite-public-increment-type-guard",
+      "source": ["gsc/_prims.scm:make-ref-set!-cas!-inc!-expander", "include/gambit.h:___VECTORINC", "tests/unit-tests/07-vector/vector_incbang.scm"],
+      "native": null,
+      "nativeObservations": [
+        {"kind": "original-compiled-public-vector-increment-invalid-delta-does-not-raise-type-exception", "receipt": "evidence/model-results/native-upstream-compiled-atomic-023-deny.json", "log": "evidence/model-results/native-upstream-compiled-atomic-023-deny.log"},
+        {"kind": "unchanged-original-vector-increment-and-cas-two-files-both-modes-pass-not-full-suite", "receipt": "evidence/model-results/native-vector-increment-026-pass.json", "log": "evidence/model-results/native-vector-increment-026-pass.log"},
+        {"kind": "three-outstanding-vector-family-files-compiled-pass-not-original-whole-family-budget-admission", "receipt": "evidence/model-results/native-vector-family-tail-026-pass.json", "log": "evidence/model-results/native-vector-family-tail-026-pass.log"}
+      ],
+      "scope": "Optional delta omitted, valid fixnum or invalid explicit value; vector and index already valid. Invalid explicit delta must fall back to a type exception without unsafe mutation. Excludes numeric overflow, invalid stored elements, linearizability, GC and C memory ordering. PR988 is suite investigation context, not attribution of this generic compiler defect."
+    },
+    {
+      "id": "gc_table_serialization", "pr": 1038,
+      "nativeObservations": [{"kind": "original-runtime-concurrent-gc-text-roundtrip-key-query-missing-assertion-denied", "receipt": "evidence/model-results/native-pr1038-serialization-gc-022-deny.json", "log": "evidence/model-results/native-pr1038-serialization-gc-022-deny.log"}, {"kind": "same-concurrent-gc-roundtrip-both-modes-pass-after-real-gnu-core-rebuild-not-bootstrap", "receipt": "evidence/model-results/native-pr1038-serialization-gc-023-pass.json", "log": "evidence/model-results/native-pr1038-serialization-gc-023-pass.log"}, {"kind": "original375-plus4-regressions-full-interpreted379-pass-not-full-compiled-bootstrap", "receipt": "evidence/model-results/native-upstream-all-interpreted-023-pass.json", "log": "evidence/model-results/native-upstream-all-interpreted-023-pass.log"}],
+      "mode": "allocating-serializer-live-slot-cursor-obligation",
+      "source": ["lib/_system.scm:##explode-gc-hash-table", "lib/_io.scm:##wr-serialize", "lib/_system.scm:##gc-hash-table-snapshot"],
+      "native": null,
+      "scope": "Three strongly rooted logical keys, six rehash layouts, cons allocation between slot visits. Snapshot variant assumes atomic typed capture after allocation. Excludes weak-key lifetime, union-find mode, concurrent table mutation, serialized metadata coherence, C representation/weak memory and full GC liveness. Native concurrent-GC roundtrip is a scheduling smoke, not guaranteed reproduction of the modeled schedule. Exact snapshot candidate passes real core rebuild and this native regression in both modes; complete toolchain admission remains open."
+    },
+    {
+      "id": "pipe_read_deadline", "pr": 1037,
+      "nativeObservations": [{"kind": "per-read-deadline-interpreter-pass-compiled-budget-deny-oversubscribed-runner", "receipt": "evidence/model-results/native-pr1037-per-read-022-deny.json", "log": "evidence/model-results/native-pr1037-per-read-022-deny.log"}, {"kind": "per-read-deadline-and-balanced-runner-both-modes-pass-unchanged60budget-not-runtime-speedup", "receipt": "evidence/model-results/native-pr1037-per-read-balanced-022-pass.json", "log": "evidence/model-results/native-pr1037-per-read-balanced-022-pass.log"}],
+      "mode": "native-test-per-read-deadline-obligation",
+      "source": ["tests/unit-tests/09-io/pipe_concurrent.scm", "lib/_io.scm:##input-port-timeout-set!", "lib/_thread.scm:##absrel-timeout->timeout"],
+      "native": null,
+      "scope": "Three reads and a two-tick relative interval converted to an absolute deadline. Once-set deadline can expire with less than one full interval spent in the current read; rearming prevents stale-deadline expiration. True per-read timeouts remain allowed. No fairness, successful-conversation guarantee, GC, clock implementation or performance proof. Test-only repair preserves ten-second per-read intent and whole-mode60 budget; original fixture is retained unchanged."
+    },
+    {
+      "id": "pipe_timeout_contract", "pr": 1037,
+      "mode": "diagnostic-timeout-api-contract-not-runtime-repair",
+      "source": ["lib/_io.scm:##input-port-timeout-set!", "lib/_thread.scm:##absrel-timeout->timeout", "lib/_io.scm:vect-rbuf-fill", "tests/unit-tests/09-io/pipe_concurrent.scm"],
+      "native": null,
+      "nativeObservations": [{"kind": "retained-compiled-module-timeout-and-eof-diagnostic-not-suite-admission", "receipt": "evidence/model-results/native-pr1037-022-module-diagnostic.json", "log": "evidence/model-results/native-pr1037-022-module-diagnostic.log"}],
+      "scope": "Once-set absolute deadline, empty buffer, close or expiration allowing EOF. Old control wrongly treats open-port EOF as impossible; positive specification recognizes expiry. No runtime or fixture repair, no proof of the observed delay cause, no fairness, clock implementation, timeout callback side effects, compiler provenance or real-time performance proof."
+    },
+    {
+      "id": "pipe_close_wait", "pr": 1037,
+      "nativeObservations": [{"kind": "exact-upstream-fixture-interpreter-pass-compiled-budget-deny", "receipt": "evidence/model-results/native-pr1037-022-deny.json", "log": "evidence/model-results/native-pr1037-022-deny.log"}],
+      "mode": "shared-endpoint-publication-wait-close-composition",
+      "oldInvariants": ["waitSafe", "closeWakeSafe"],
+      "source": ["lib/_io.scm:macro-port-mutex-set!", "lib/_io.scm:##mutex-signal-and-condvar-wait!", "lib/_io.scm:force-output", "lib/_io.scm:close"],
+      "native": null,
+      "scope": "One direction, two messages, one buffered item and EOF. Shared predicate lock excludes publish/close between empty-check and atomic wait registration. Includes buffer conservation and EOF drain. Assumes atomic wait registration and coherent mutex/condvar operations. Excludes unbounded FIFO chunks, simultaneous two-direction lock schedules, timeout callbacks, GC and scheduler/weak-memory proofs. Native original PR1037 two-direction regression is separately required."
+    },
+    {
+      "id": "thread_start_completion", "pr": 988,
+      "mode": "native-fixture-join-completion-obligation",
+      "source": ["tests/unit-tests/06-thread/thread_start.scm", "lib/_thread.scm:##thread-join!"],
+      "native": null,
+      "nativeObservations": [{"kind": "six-thread-interpreter-pass-compiled-thread-start-var-zero-denied", "receipt": "evidence/model-results/native-thread-six-021-deny.json", "log": "evidence/model-results/native-thread-six-021-deny.log"}, {"kind": "same-six-thread-tests-both-modes-pass-after-one-additional-join-no-assertions-removed", "receipt": "evidence/model-results/native-thread-six-021-joined-pass.json", "log": "evidence/model-results/native-thread-six-021-joined-pass.log"}],
+      "scope": "One worker unit and two main units; independent SMP scheduling does not establish completion. Explicit join before the unchanged var=1 assertion supplies completion, assuming correct join and visibility semantics. Does not prove scheduler fairness, thread-start state exceptions, GC or weak-memory semantics. PR988 is full-suite investigation context, not patch defect attribution."
+    },
+    {
+      "id": "ended_interrupt_lock", "pr": 1047,
+      "mode": "reported-ended-target-lock-release-obligation",
+      "source": ["lib/_thread.scm:##thread-intr-propagate!", "lib/_thread.scm:##thread-lock-remove-btq-toq!"],
+      "native": "pr1047/thread_interrupt_ended.scm",
+      "nativeObservations": [{"kind": "exact-pr1047-regression-current-runtime-two-trylock-assertions-denied", "receipt": "evidence/model-results/native-ended-interrupt-020-original-deny.json", "log": "evidence/model-results/native-ended-interrupt-020-original-deny.log"}, {"kind": "exact-pr1047-regression-interpreted-and-compiled-pass-after-real-source-core-rebuild-not-bootstrap", "receipt": "evidence/model-results/native-ended-interrupt-021-fixed-pass.json", "log": "evidence/model-results/native-ended-interrupt-021-fixed-pass.log"}],
+      "scope": "One target, successful initial interruptability check, normal/exceptional termination before propagation lock acquisition. Original terminal branch returns holding the lock; PR1047 releases it. Atomic lock/check operations and stable ended state under lock are assumptions. Excludes full scheduler, weak-memory ordering, request-result delivery, nested locks, GC and unbounded liveness. Exact original regression passes both modes after real GNU GCC core rebuild; complete bootstrap/native admission remains open."
+    },
+    {
+      "id": "checked_negate_return", "pr": 988,
+      "mode": "native-compiled-suite-checked-macro-obligation",
+      "source": ["include/gambit.h:___FIXMULPCONSTY_NOTFALSEP", "include/gambit.h:___FIXNEGP_NOTFALSEP", "gsc/_prims.scm:gen-conditional-fold", "tests/unit-tests/01-fixnum/fxmul.scm"],
+      "native": null,
+      "sourceUnitFixtures": ["models/gambit/native/checked_negate_return.c"],
+      "nativeObservations": [{"kind": "original-fxmul-interpreter-pass-compiled-assertion-denied", "receipt": "evidence/model-results/native-fxmul-019-atomic-deny.json", "log": "evidence/model-results/native-fxmul-019-atomic-deny.log"}, {"kind": "original-fxmul-interpreter-and-compiled-pass-after-exact-header-repair-not-full-suite", "receipt": "evidence/model-results/native-fxmul-020-atomic-pass.json", "log": "evidence/model-results/native-fxmul-020-atomic-pass.log"}, {"kind": "generated-driver-and-helper-hash-bound-gnu-no-reuse-original-fxmul-both-mode-calibration", "receipt": "evidence/model-results/native-driver-bound-fxmul-021-pass.json", "log": "evidence/model-results/native-driver-bound-fxmul-021-pass.log"}],
+      "scope": "Checked multiplication by constant -1, abstract fixnum range [-4,3], five boundary representatives and separate/aliased output. Current macro writes a failure sentinel but returns success on minimum fixnum. Fixed branch delegates to the existing checked-negation predicate. Excludes general integer multiplication, C representation/undefined behavior, GC and runtime completeness. PR988 is full-SMP-suite investigation context, not attribution to its patch; this is a generic header logic defect."
+    },
+    {
+      "id": "thread_interrupt_test_protocol", "pr": 988,
+      "mode": "native-fixture-completion-obligation",
+      "oldInvariants": ["assertSafe", "recipientSafe"],
+      "source": ["tests/unit-tests/06-thread/thread_interrupt.scm", "lib/_thread.scm:##thread-interrupt!", "lib/_thread.scm:##thread-join!"],
+      "native": null,
+      "nativeObservations": [{"kind": "test-only-mutex-completion-gate-and-join-interpreted-and-compiled-pass-not-full-suite", "receipt": "evidence/model-results/native-thread-completion-019.json", "log": "evidence/model-results/native-thread-completion-019-gsc.log"}, {"kind": "full-375-file-interpreter-pass-with-explicit-thread-fixture-patch-not-compiled-or-bootstrap", "receipt": "evidence/model-results/native-upstream-all-interpreted-019-pass.json", "log": "evidence/model-results/native-upstream-all-interpreted-019-pass.log"}],
+      "scope": "One worker, two abstract work steps, synchronous current-thread interrupt and one handler increment. Original work loops do not order completion; receiver may retire early or assertion may observe 1 rather than 11. Candidate test-only finish gate plus join assumes runtime honors interrupt delivery and join. Excludes memory model, GC and unbounded progress; PR988 is SMP test context, not runtime defect attribution."
+    },
+    {
+      "id": "gc_table_iteration", "pr": 1038,
+      "mode": "native-motivated-eager-rehash-iteration-obligation",
+      "oldInvariants": ["safe", "encodingSafe"],
+      "oldInitializers": {"encodingSafe": "initWrongTagCopy"},
+      "source": ["lib/_system.scm:##gc-hash-table-for-each", "lib/_system.scm:##gc-hash-table-search", "lib/_system.scm:##gc-hash-table-foldl", "lib/mem.c:process_gc_hash_tables"],
+      "native": null,
+      "nativeObservations": [{"kind": "read-only-callback-gc-iteration-omission-and-duplicate-denied", "receipt": "evidence/model-results/native-table-iteration-018-deny.json", "log": "evidence/model-results/native-table-iteration-018-deny.log"}, {"kind": "rejected-wrong-tag-prototype-native-signal", "receipt": "evidence/model-results/native-table-snapshot-wrong-tag-deny.json", "log": "evidence/model-results/native-table-snapshot-wrong-tag-deny.log"}, {"kind": "typed-ffi-snapshot-explicit-caller-compiled-pass-not-runtime-rebuild", "receipt": "evidence/model-results/native-table-snapshot-typed-ffi-pass.json", "log": "evidence/model-results/native-table-snapshot-typed-ffi-pass.log"}, {"kind": "actual-source-core-rebuild-twelve-related-files-interpreted-and-compiled-pass-not-bootstrap", "receipt": "evidence/model-results/native-snapshot-core-019-twelve-files.json", "log": "evidence/model-results/native-snapshot-core-019-twelve-files-gsc.log"}],
+      "scope": "Three rooted logical keys, all six physical layouts and arbitrary repeated rehash during callbacks. Current raw index traversal can omit and duplicate entries. Native rejected prototype fed back a distinct-tag copy control. Snapshot design assumes atomic non-allocating typed capture after buffer allocation, correct key/value rooting and canonical forwarding. These source obligations and native repaired acceptance remain open. PR1038 is shared-output investigation context, not root-cause attribution for its historical crash."
+    },
+    {
+      "id": "gc_postcopy_headroom", "pr": 1036,
+      "mode": "postcopy-allocation-admission-obligation",
+      "source": ["lib/mem.c:resize_heap", "lib/mem.c:compute_free_heap_space_approximately", "lib/mem.c:prepare_mem_pstate", "lib/mem.c:___heap_limit"],
+      "native": null,
+      "nativeObservations": [{"kind": "candidate-interpreter-compiler-and-executable-pass-bounded-scope", "receipt": "evidence/model-results/native-postcopy-decode-host-pass.json", "log": "evidence/model-results/native-postcopy-decode-host-pass.log"}, {"kind": "upstream-nine-table-files-interpreted-and-compiled-pass", "receipt": "evidence/model-results/native-upstream-tables-018.json", "log": "evidence/model-results/native-upstream-tables-018-gsc.log"}, {"kind": "exact-pr1038-serialization-fixture-interpreted-and-compiled-pass", "receipt": "evidence/model-results/native-upstream-pr1038-serialization-018.json", "log": "evidence/model-results/native-upstream-pr1038-serialization-018-gsc.log"}],
+      "scope": "Processors 1/2/4/12 and zero to two extra assigned sections after copying. Prior headroom floor uses initial processor sections, not actual assigned sections. Proposed uncapped floor keeps overflow reserve and a next section outside actual assignment; finite cap remains respected but need not satisfy allocation headroom. Motivated by repeated native GC progress; three candidate native decode runs, nine upstream table files and exact PR1038 fixture pass, but no whole-bootstrap or stability guarantee. PR1036 is capacity investigation context, not attribution. Excludes full heap graph, copy correctness, max-heap overflow recovery, arithmetic overflow, allocation failure and performance proof."
+    },
+    {
+      "id": "ticket_queue_handoff", "pr": 988,
+      "modelReceipt": "evidence/model-results/ticket-queue-handoff.json",
+      "mode": "native-motivated-handoff-obligation",
+      "source": ["include/gambit.h.in:___TICKETLOCK_LOCK2", "include/gambit.h.in:___TICKETLOCK_UNLOCK2", "lib/mem.c:scan_movable_objs_to_scan", "lib/mem.c:mark_reachable_from_marked"],
+      "native": null,
+      "nativeObservations": [{"kind": "owner-queue-and-steal-same-chunk-context-not-causal-proof", "receipt": "evidence/model-results/native-scan-origins-host-deny.json", "log": "evidence/model-results/native-scan-origins-host-deny.log"}],
+      "scope": "One completed chunk and two ticket-lock holders. Release orders the first dequeue before ticket availability; a cached queue-head read before volatile ticket observation can duplicate a claim without post-wait acquire. Ticket reservation's earlier full fence is modeled separately. Motivated by native owner-queue/steal scan origins, not a proven C/ARM refinement or sole crash cause. Positive is an acquire handoff obligation. Excludes allocation/address reuse, FIFO publication, speculative empty polling, full collector, ticket overflow, fairness and liveness."
+    },
+    {
+      "id": "gc_table_header_lifetime", "pr": 1038,
+      "mode": "special-reader-lifetime-obligation",
+      "source": ["lib/mem.c:mark_array", "lib/mem.c:scan", "lib/mem.c:process_gc_hash_tables", "lib/mem.c:gc_hash_table_rehash_in_situ", "lib/mem.c:garbage_collect_cleanup_phase"],
+      "native": null,
+      "oldInvariants": ["headerSafe", "lifetimeSafe", "extentSafe", "layoutSafe"],
+      "oldInitializers": {"lifetimeSafe": "initEarlyRetirement", "extentSafe": "initWrongExtent", "layoutSafe": "initWrongLayout"},
+      "scope": "One object, one relocation, two possible special readers, worklist body/header representation, abstract allocation extent/payload layout and retirement. Both native faults motivate obligations, not proof of forwarding-header, early-free, wrong extent or wrong layout causality. Normal-looking header controls are injected. Positive canonical worklist and corresponding layout/lifetime are required contracts, not source patches. No real heap bounds, raw header-bit proof, full GC graph, multi-VM or C weak-memory proof."
+    },
+    {
+      "id": "shutdown_error_handoff", "pr": 793,
+      "head": "f3d8ae4c979a802497d8c1926428e838f833ccce",
+      "source": ["lib/setup.c:execute_sync_op_loop", "lib/setup.c:___run", "lib/setup.c:___cleanup"],
+      "native": null,
+      "oldInvariants": ["throwSafe", "guardSafe", "noLossSafe"],
+      "oldInitializers": {"guardSafe": "initSetupGuard", "noLossSafe": "initCatcherGuard"},
+      "scope": "One worker error interleaved with processor-0 catcher removal, cleanup publication, worker stop and reclamation. Current unguarded and PR793 setup-state guard are distinct controls; catcher-only suppression is injected. Positive admission seal/drain is a design candidate not a source patch. Atomic lifecycle transitions, no C weak-memory, general embedding/nested catchers, multiple VMs, error queues, OS join or liveness proof."
+    },
+    {
+      "id": "ffi_gc_frame_protocol", "pr": 783,
+      "head": "e33c4715740acea976ffc759c0e3eb01e811770e",
+      "mode": "historical-protocol-obligation",
+      "source": ["lib/_kernel.scm:##os-condvar-select!", "lib/os_io.c:___os_condvar_select", "include/gambit.h.in:___W_ALL", "include/gambit.h.in:___R_ALL"],
+      "native": null,
+      "oldInvariants": ["rootsSafe", "reloadSafe", "returnSafe"],
+      "oldInitializers": {"reloadSafe": "initNoReload", "returnSafe": "initNoReturnRoot"},
+      "scope": "One generated-code processor in a foreign wait and one GC requester, zero to two moving collections, cached frame/root/return address. Historical #783 report protocol; not the PR's all-mutex patch. Atomic abstract GC and ordered publication, no C weak-memory, full collector, arbitrary callback, stack ownership, fairness or liveness proof. Current pinned source already uses the corrected boundary."
+    },
+    {
+      "id": "stack_undo_ownership", "pr": 1052,
+      "head": "04b661aa1fe8a103a12fe6af1c54932f278e9f6f",
+      "oldInvariants": ["ownershipSafe", "nestedSafe", "metadataSafe"],
+      "oldInitializers": {"nestedSafe": "initWrongTarget", "metadataSafe": "initWipedMetadata"},
+      "source": ["include/gambit.h.in:___INVALIDATE_STACK_OVERFLOW_UNDO", "include/gambit.h.in:___THREAD_SAVE", "include/gambit.h.in:___THREAD_RESTORE", "include/gambit.h.in:___CONTINUATION_CAPTURE", "include/gambit.h.in:___CONTINUATION_GRAFT_NO_WINDING", "include/gambit.h.in:___JUMP_CONTINUATION_RETURN_NO_WINDING2", "lib/mem.c:___stack_overflow_undo_if_possible"],
+      "native": null,
+      "scope": "Five ownership changes and an ordinary private-overflow control, first/nested active breaks, present/absent metadata; undo checked after unwinding to the first break with distinct stack/heap sections. Wrong active-break target and wiped metadata are independent fault controls, not PR1052 allegations. Source correction already exists locally; no new runtime edit. Excludes full frame topology, saved-root GC movement, stack allocation failures, concurrent mutator transitions, generated-code parity and C memory semantics"
+    },
+    {
+      "id": "promise_publication", "pr": 1039,
+      "head": "90b9928f71e440069f6a8248288d648db853b06e",
+      "oldInvariants": ["identitySafe", "callbackSafe"],
+      "oldInitializers": {"callbackSafe": "initRetainedLock"},
+      "source": ["lib/_kernel.scm:##force-out-of-line", "lib/_kernel.scm:chase", "lib/_kernel.scm:macro-lock-promise-states!"],
+      "native": null,
+      "scope": "Two forces of one promise, unique result objects, optional bounded exception retry and one abstract nested force; VM-local serialization of state check/commit, with thunk evaluation outside lock. Duplicate thunk evaluation permitted but returned cache identity must agree. Retained-lock control is anti-regression fault injection, not PR1039 defect attribution. Excludes delay-force multi-state linking, arbitrary recursion, GC, ticket-lock implementation, exceptions inside locked runtime operations, weak memory and fairness/liveness proof"
+    },
+    {
+      "id": "mailbox_publication", "pr": 1023,
+      "head": "6c9670ab4a554dfb66c1685b65e4b18c1efa887d",
+      "oldInvariants": ["publicationSafe", "receiveSafe"],
+      "oldInitializers": {"receiveSafe": "initUnsafeReceive"},
+      "source": ["lib/_thread.scm:##thread-mailbox-get!", "lib/_thread.scm:##thread-mailbox-next-or-receive", "lib/_thread.scm:##thread-send"],
+      "native": null,
+      "scope": "Two sender identities and one recipient; independent lazy mailbox replacement and unlocked receive stale-link controls. Positive protocol requires thread-locked final installation and mailbox-mutex FIFO mutation; allocate candidates before thread lock. Bounded publication and conservation obligations, not a Scheme implementation proof. Excludes GC during allocation, FIFO cursor topology, wait/timeout, termination, exceptions, lock implementation and C weak memory"
+    },
+    {
+      "id": "gc_forward_publication", "pr": 988,
+      "modelReceipt": "evidence/model-results/gc-forward-publication.json",
+      "sourceUnitFixtures": ["models/gambit/native/mark_array_slot_ownership.c"],
+      "mode": "fault-controlled-characterization",
+      "oldInvariants": ["publicationSafe", "terminationSafe", "destinationSafe", "payloadInputSafe"],
+      "oldInitializers": {"terminationSafe": "initUncountedProducer", "destinationSafe": "initDuplicateSlot", "payloadInputSafe": "initRelocatedPayload"},
+      "source": ["lib/mem.c:mark_array", "lib/mem.c:validate_old_obj", "lib/mem.c:end_heap_chunk", "lib/mem.c:scan_complete_heap_chunk", "lib/mem.c:mark_reachable_from_marked"],
+      "nativeObservations": [{"kind": "invalid-tospace-input-origin-open", "receipt": "evidence/model-results/native-old-space-decode-host-deny.json", "log": "evidence/model-results/native-old-space-decode-host-deny.log"}, {"kind": "relocated-input-at-scan-entry-origin-open", "receipt": "evidence/model-results/native-scan-input-host-deny.json", "log": "evidence/model-results/native-scan-input-host-deny.log"}, {"kind": "same-vm-cycle-body-scanned-twice-origin-open", "receipt": "evidence/model-results/native-scan-visits-host-deny.json", "log": "evidence/model-results/native-scan-visits-host-deny.log"}],
+      "native": null,
+      "scope": "One two-word object, two CAS contenders, private destination ownership, chunk visibility, counted producer and valid old-space input through scan completion. Forwarding identity precedes payload; losers redirect without scanning the destination. Four independent injected controls: early chunk publication, uncounted producer, duplicate root-slot visitation and relocated payload at scan entry. Extracted C confirms re-forwarding for both input controls. A native diagnostic observes a relocated input at scan entry but does not establish its producer, duplicate scanning or prior SIGBUS causality. Positive is a required source/input contract, not a runtime patch. Excludes special object readers, general recursive graphs, local tail scanning, C weak memory, allocation rollback, condition variables and fairness/liveness proof"
+    },
+    {
+      "id": "gc_scan_termination", "pr": 988,
+      "mode": "fault-controlled-characterization",
+      "source": ["lib/mem.c:end_heap_chunk", "lib/mem.c:mark_reachable_from_marked", "lib/mem.c:garbage_collect_mark_strong_phase", "lib/mem.c:garbage_collect_mark_weak_phase"],
+      "native": null,
+      "scope": "Two workers and one produced chunk in each of two GC phases; source characterization composed with atomic queue visibility, mutex count/wait and acknowledged phase barrier. Old is detached-publisher fault injection, not observed Gambit defect. Source retains producer participation through local work drain; no patch claim. Excludes full graph forwarding, weak-memory C semantics, spurious wakes, thread loss and fairness/liveness proof"
+    },
+    {
+      "id": "vm_resize_rollback", "pr": 988,
+      "oldInvariants": ["cleanupSafe", "targetSafe"],
+      "oldInitializers": {"targetSafe": "initStaleTarget"},
+      "source": ["lib/setup.c:___vm_resize_pstate", "lib/setup.c:___setup_pstate", "lib/mem.c:target_processor_count"],
+      "native": null,
+      "scope": "Pinned source audit found failed-setup rollback reuses failed ps instead of decremented i. Grow 1 to 4, consecutive prepared processors, injected setup failure, and GC resumes after synchronized operation; target control isolates stale target count. PR988 is investigation context, not attribution. Excludes partial setup cleanup, thread-create fatal path, shrink, weak memory and the collector itself"
+    },
     {
       "id": "lazy_vm_startup", "pr": 988,
       "head": "be71ec38aaff06d4c310f5b23d916e3a31e31ca7",
@@ -42,6 +323,7 @@
     },
     {
       "id": "sync_tree_rounds", "pr": 989,
+      "modelReceipt": "evidence/model-results/sync-tree-rounds.json",
       "mode": "characterization", "invariants": ["safe", "channelsDrained"],
       "source": ["lib/setup.c:barrier_sync_op", "lib/mem.c:garbage_collect_mark_strong_phase"],
       "native": null,
@@ -49,6 +331,7 @@
     },
     {
       "id": "sync_message_acquire", "pr": 989,
+      "modelReceipt": "evidence/model-results/sync-message-acquire.json",
       "oldInvariants": ["safe", "acquireSafe", "releaseSafe"],
       "oldInitializers": {"acquireSafe": "initReleaseOnly", "releaseSafe": "initAcquireOnly"},
       "source": ["lib/setup.c:SYNC_GET_MSG", "lib/setup.c:SYNC_SEND_MSG", "lib/setup.c:barrier_sync_op"],
@@ -148,6 +431,8 @@
     }
   ],
   "unresolved": [
+    {"pr": 1038, "failure": "diagnostic candidate 010 p4 compiler passed once then SIGBUS at mark_array object-header load called by scan; no header observer denial", "status": "native-denied-image-and-child-PID-bound-object-layout-extent-obligation-not-causal-proof"},
+    {"pr": 1038, "failure": "candidate 009 p4 compiler passed once then SIGBUS; matching binary incident faults at gc_hash_table_rehash_in_situ indexed load", "status": "native-intermittent-denied-special-reader-header-lifetime-obligation-image-bound-PID-unbound"},
     {"pr": 1038, "failure": "forced GC after decoding fails baseline and candidate", "status": "bounded-protocol-modeled-native-p4-denied-root-cause-unresolved"},
     {"pr": 1038, "failure": "compiled write_shared signal 11", "status": "reported-not-modeled"},
     {"failure": "local threaded from-scratch heap overflow during mark/scan", "status": "observed-root-cause-unresolved"}

@@ -1,0 +1,100 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -22,6 +22,12 @@
+ #include <stdio.h>
+ 
+ #define ___GC_TABLE_HEADER_DIAGNOSTICS
++
++#if defined(__APPLE__)
++#include <mach/mach.h>
++#include <mach/mach_vm.h>
++#define ___GC_SCAN_REFERENCE_DIAGNOSTICS
++#endif
+ 
+ 
+ /*---------------------------------------------------------------------------*/
+@@ -3621,6 +3627,52 @@
+ 
+ /*---------------------------------------------------------------------------*/
+ 
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++static __thread ___WORD gc_diag_scan_body;
++static __thread ___WORD gc_diag_scan_head;
++static __thread ___SIZE_TS gc_diag_scan_words;
++static __thread int gc_diag_scan_active;
++
++___HIDDEN void gc_scan_reference_observe
++   (___WORD *cell, ___WORD obj)
++{
++  mach_vm_address_t target;
++  mach_vm_address_t address;
++  mach_vm_size_t size = 0;
++  vm_region_basic_info_data_64_t info;
++  mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
++  mach_port_t port = MACH_PORT_NULL;
++  kern_return_t result;
++
++  /* Narrow diagnostic for the recorded high-address malformed reference. */
++  if (___CAST(___UWORD,obj) < (___CAST(___UWORD,1) << 37))
++    return;
++
++  target = ___CAST(mach_vm_address_t,___BODY0(obj)-1);
++  address = target;
++  result = mach_vm_region(mach_task_self(), &address, &size,
++                         VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info,
++                         &count, &port);
++  if (port != MACH_PORT_NULL)
++    mach_port_deallocate(mach_task_self(), port);
++  if (result == KERN_SUCCESS && address <= target &&
++      target-address <= size && sizeof(___WORD) <= size-(target-address) &&
++      (info.protection & VM_PROT_READ) != 0)
++    return;
++
++  fprintf(stderr,
++          "GC-SCAN-REFERENCE-DENY cell=%lx object=%lx scanBody=%lx scanHead=%lx scanWords=%lu scanActive=%d regionResult=%d regionStart=%lx regionSize=%lu\n",
++          (unsigned long)cell, (unsigned long)obj,
++          (unsigned long)gc_diag_scan_body, (unsigned long)gc_diag_scan_head,
++          (unsigned long)gc_diag_scan_words, gc_diag_scan_active, result,
++          (unsigned long)address, (unsigned long)size);
++  fflush(stderr);
++  abort();
++}
++#else
++#define gc_scan_reference_observe(cell, obj) ((void)0)
++#endif
++
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+ 
+ #define mark_array(start,n) mark_array_debug (start,n,__LINE__)
+@@ -3677,6 +3729,7 @@
+             int head_typ;
+             int subtype;
+ 
++            gc_scan_reference_observe(cell, obj);
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+             if (___DEBUG_SETTINGS_LEVEL(___GSTATE->setup_params.debug_settings) >= 1)
+               validate_old_obj (___PSP obj);
+@@ -4192,6 +4245,13 @@
+   ___SIZE_TS words = ___HD_WORDS(head);
+   int subtype = ___HD_SUBTYPE(head);
+ 
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++  gc_diag_scan_body = ___CAST(___WORD,body);
++  gc_diag_scan_head = head;
++  gc_diag_scan_words = words;
++  gc_diag_scan_active = 1;
++#endif
++
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+   reference_location = IN_OBJECT;
+   container_body = body;
+@@ -4358,6 +4418,9 @@
+       break;
+     }
+ 
++#ifdef ___GC_SCAN_REFERENCE_DIAGNOSTICS
++  gc_diag_scan_active = 0;
++#endif
+   return words;
+ }
+ 

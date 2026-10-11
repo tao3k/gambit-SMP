@@ -1,0 +1,64 @@
+{
+  "schema": "gambit-protocol-source-correspondence.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "sourceRoot": ".data/vector-increment-runtime-026/source",
+  "contextInputs": {
+    "lib/setup.c": "98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f",
+    "lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    "include/gambit.h.in": "7f1a3abdd1323c504ab79269bb6a9625f38abc4c3a8d1f773313142d05497a58",
+    "configure.ac": "c7a8121eec407a7b03a3d9ca5f2df5fc367c1609d855dc7f47401f3d1981234d",
+    "lib/_thread.scm": "bc8d1edd93081c2b7a9692ccfc8c1f619d38aa31e77e6d1e60eeec243dbe2dc3"
+  },
+  "observations": [
+    {
+      "id": "old-population-and-root-barriers",
+      "model": "gc_epoch_work_bridge",
+      "status": "implemented-local",
+      "anchors": ["lib/setup.c:870", "lib/setup.c:658", "lib/mem.c:3609", "lib/mem.c:7083", "lib/mem.c:7223"],
+      "finding": "Resize-triggered GC precedes population commit; scan counts use actual population; unconditional phase and post-root barriers exist. This is local source correspondence, not an end-to-end refinement proof.",
+      "next": "Retain these guards. Bind future epoch/resize atomic tests to actual participants, including setup rollback and retired processors; do not replace counts with target capacity.",
+      "avoid": ["rerun-unchanged-forced-gc", "replace-actual-count-with-target-count"]
+    },
+    {
+      "id": "scan-claim-origin",
+      "model": "gc_scan_claim_transfer",
+      "status": "unresolved-origin",
+      "anchors": ["lib/mem.c:3402", "lib/mem.c:3897", "lib/mem.c:4248", "lib/mem.c:4411", "lib/mem.c:4439", "lib/mem.c:4497", "lib/mem.c:6927", "lib/mem.c:7083", "include/gambit.h.in:6314", "include/gambit.h.in:6377"],
+      "finding": "end_heap_chunk already excludes the locally scanned allocation chunk. Both queue consumers acquire after ticket ownership. Root copying is barrier-protected; recursive continuation scanning and section rollover require a distinct pending-link origin contract. continuation_export_origin characterizes these guards but assumes an uncopied saved frame is reachable during traversal. Historical duplicate relocated-body visits still do not identify the violated cursor/claim transition in candidate026.",
+      "next": "For continuation exposure, establish a legal saved-stack history and eligible section rollover during traversal before proposing a repair. Independently, a compiler-specific duplicate-slot fix needs allocation generation, GC cycle, phase, chunk owner and scan interval at the first duplicate physical slot. Do not equate these two symptoms or add another identical queue fence.",
+      "avoid": ["arbitrary-tospace-acceptance", "duplicate-existing-scan-exclusion", "static-stack-as-deadlock-proof", "unchanged-compiled-num-route"]
+    },
+    {
+      "id": "sync-slot-resource-lifetime",
+      "model": "sync_retirement_drain",
+      "status": "repair-required",
+      "anchors": ["lib/setup.c:498", "lib/setup.c:518", "lib/setup.c:934", "lib/setup.c:979", "lib/setup.c:4673", "lib/setup.c:4689", "lib/setup.c:4797"],
+      "finding": "Setup/cleanup/reuse reinitializes live synchronization objects. Fast receive can finish before foreign sender unlock/signal. Direct child destruction is unsafe; deferred cleanup requires proven sender and reference drain.",
+      "next": "Separate slot reset from synchronization-resource ownership. Either retain once-initialized resources until VM-wide quiescence, or establish retirement admission seal and drain before destruction/reuse. Join of only the victim is insufficient.",
+      "avoid": ["destroy-in-child-cleanup", "signal-under-lock-alone", "victim-join-as-global-drain"]
+    },
+    {
+      "id": "sync-setup-failure-rollback",
+      "model": "sync_retirement_drain",
+      "status": "repair-required",
+      "anchors": ["lib/setup.c:4673", "lib/setup.c:4789", "include/gambit.h.in:10913", "include/gambit.h.in:10921", "include/gambit.h.in:10936", "include/gambit.h.in:10946"],
+      "finding": "The void setup helper ignores POSIX mutex/condition init failure, continues after mutex failure and does not roll back an owned mutex on condition failure. Windows macros do not share boolean return semantics.",
+      "next": "Introduce a checked platform-aware setup result and explicit ownership rollback. Propagate failure through setup_pstate and resize preparation before population publication. Cover both init-failure positions and first-processor setup cleanup.",
+      "avoid": ["assume-all-platform-init-macros-return-bool", "publish-partially-initialized-slot"]
+    },
+    {
+      "id": "independent-three-flag-contract",
+      "model": "vm_configuration_contract",
+      "status": "implemented-local",
+      "anchors": ["configure.ac:1246", "configure.ac:1272", "configure.ac:1290", "configure.ac:1316", "lib/_thread.scm:9", "lib/mem.c:6883"],
+      "finding": "Multiple VMs selects VM multiplicity, threaded VMs selects processor capacity and parallel GC, SMP selects Scheme scheduler. Disabling SMP does not remove threaded-VM GC obligations. Candidate026 records all three enabled.",
+      "next": "Require the same built candidate to bind generated header macros, Scheme features, GC regressions, compiler/bootstrap and real Gerbil package tests. Eight model configurations do not imply eight native qualified builds.",
+      "avoid": ["smp-off-as-gc-fix", "single-vm-evidence-as-multiple-vm-acceptance"]
+    }
+  ],
+  "sourceUnitReceipt": "evidence/model-results/sync-retirement-source-schedule-uv-001.json",
+  "sourceUnitReceiptSha256": "9e0cd8d558db3364339b408e587f0929570a6e7e77839e4b8ab206243c0d6879",
+  "nativeGates": ["three-flags-artifact-identity", "gc-regressions", "multi-vm-resize-and-shutdown", "compiler-and-bootstrap", "gerbil-build-and-full-tests"],
+  "runtimeAdmitted": false,
+  "releaseAdmitted": false
+}
