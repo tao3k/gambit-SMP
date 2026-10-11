@@ -1,4 +1,4 @@
-"""Strict parser for scalar/tuple/record and finite integer-set TLC values."""
+"""Strict parser for scalar/tuple/record and homogeneous scalar-set TLC values."""
 import json
 import re
 
@@ -7,12 +7,29 @@ TOKEN = re.compile(r'\s*("(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"|
 
 def shape(data):
     if isinstance(data, dict):
-        if set(data) in ({"$integerSet"}, {"$integerRange"}):
-            return ("integer-set",)
+        if set(data) == {"$integerRange"}:
+            return ("set", int)
+        if set(data) in ({"$integerSet"}, {"$stringSet"}):
+            members = next(iter(data.values()))
+            return ("set", type(members[0]) if members else None)
         return tuple((key, shape(item)) for key, item in sorted(data.items()))
     if isinstance(data, list):
         return (list, tuple(shape(item) for item in data))
     return type(data)
+
+
+def merge_shapes(left, right):
+    """Infer an empty set's element type without forgetting earlier states."""
+    if left == right:
+        return left
+    if isinstance(left, tuple) and isinstance(right, tuple) and len(left) == len(right):
+        if len(left) == 2 and left[0] == right[0] == "set":
+            if left[1] is None:
+                return right
+            if right[1] is None:
+                return left
+        return tuple(merge_shapes(a, b) for a, b in zip(left, right))
+    raise ValueError("inconsistent TLC state types")
 
 
 def value(text):
@@ -55,15 +72,22 @@ def value(text):
                 take("}")
                 return {"$integerSet": members}
             while True:
-                member = take()
-                if not re.fullmatch(r"-?\d+", member) or int(member) in members:
-                    raise ValueError("invalid or duplicate integer-set member")
-                members.append(int(member))
+                token = take()
+                if token.startswith('"'):
+                    member = json.loads(token)
+                elif re.fullmatch(r"-?\d+", token):
+                    member = int(token)
+                else:
+                    raise ValueError("unsupported scalar-set member")
+                if member in members or (members and type(member) is not type(members[0])):
+                    raise ValueError("duplicate or mixed-type set member")
+                members.append(member)
                 separator = take()
                 if separator == "}":
-                    return {"$integerSet": sorted(members)}
+                    tag = "$integerSet" if type(member) is int else "$stringSet"
+                    return {tag: sorted(members)}
                 if separator != ",":
-                    raise ValueError("malformed integer-set separator")
+                    raise ValueError("malformed scalar-set separator")
         if token not in ("[", "<<"):
             raise ValueError("unsupported TLC value")
         close = "]" if token == "[" else ">>"

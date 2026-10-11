@@ -3,7 +3,7 @@ import re
 import socket
 
 from gambit_smp.framework import execute
-from gambit_smp.tlc_values import shape, value
+from gambit_smp.tlc_values import merge_shapes, shape, value
 
 
 def admitted_model(code, output, timed_out, old):
@@ -30,8 +30,11 @@ def counterexample(output):
             end = assignments[i + 1].start() if i + 1 < len(assignments) else len(block)
             state[name] = value(block[match.end():end])
         states.append(state)
-    if len(states) < 2 or any(shape(s) != shape(states[0]) for s in states):
+    if len(states) < 2:
         raise ValueError("missing or inconsistent TLC states")
+    inferred = shape(states[0])
+    for state in states[1:]:
+        inferred = merge_shapes(inferred, shape(state))
     return {"schema": "gambit-smp-counterexample.v1", "states": states}
 
 

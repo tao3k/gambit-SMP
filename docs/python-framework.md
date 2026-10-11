@@ -75,6 +75,14 @@ native runtime rerun and does not admit GC or bootstrap.
 
 ## Shared Model Backend
 
+The post-migration decoder also supports homogeneous string sets. Empty sets
+infer an element type from the trace without erasing a type already observed;
+integer-to-empty-to-string transitions, mixed sets and decoded duplicates are
+rejected. This is shared value handling, not a VM-model exception. Re-parsing
+the original `vm-mem-setup-model-001` log recovered its seven-state negative
+trace without running TLC again. The current model has since changed, so this
+recovery belongs only to the frozen original model, not a new campaign pass.
+
 `quint_backend.py` is a library, not another case runner. `check_gambit.py`,
 `verify_protocols.py` and `model_progress.py` now use one backend for command
 construction, isolated converter endpoints, bounded execution, strict negative
