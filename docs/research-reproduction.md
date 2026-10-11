@@ -1,5 +1,22 @@
 # Reproducing Research Inputs
 
+## Offline Closure
+
+The offline source-input gate passed at source commit
+`86e9145b8d3b57c63905145a4d3694fde986e06f`. A fresh clone using
+`--no-local --no-hardlinks`, with neither `.data` nor `.venv`, initialized the
+fixed submodule from the versioned capsule and passed full source-tree fsck.
+The strict committed-input check verified 24 inputs and seven paper pins;
+materialization matched all three audited candidate source hashes. All 32
+focused source/paper/input tests passed in that clean checkout. The observation
+summary is `evidence/research-source-closure.json`; it explicitly does not
+archive raw command logs or admit model/native execution.
+
+This closes offline reproduction of this source slice and portable manifest,
+not upstream network health, the historical manifest migration backlog,
+ASCENT installation, complete toolchain generation or native/runtime gates.
+The older failed attempts below remain historical observations.
+
 ## Source Identity
 
 Source inputs and cache outputs are different categories. JSON source bindings
