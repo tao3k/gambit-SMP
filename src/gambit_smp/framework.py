@@ -52,6 +52,14 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def relative(root, name):
+    if not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts:
+        raise ValueError("relative evidence path required")
+    path = (root / name).resolve()
+    path.relative_to(root.resolve())
+    return path
+
+
 def parallel_jobs(items, worker, jobs, timeout):
     if jobs <= 0 or timeout <= 0:
         raise ValueError("positive parallel capacity and whole budget required")

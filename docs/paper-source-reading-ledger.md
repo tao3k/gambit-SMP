@@ -79,6 +79,92 @@ alone do not establish that producers are finished. Do not equate one observed
 wait stack with deadlock. Remaining: source refinement of producer admission,
 population resize and all potential pending-work sources.
 
+### Section 3.5 / HotSpot Section 3.3: Resize Retirement Follow-Up
+
+Re-read both cached sections against candidate027 `mem.c:6883-6987` and
+`setup.c:650-717,930-980`. Source and paper hashes still match the new
+`gc-resize-resource-retirement.json` context. Status: sections read and source
+checked; a concurrent Working Session owns the new composition model; no native
+acceptance follows from this review.
+
+The papers count active scanners, including resumed/stealing workers, rather
+than using queue emptiness as termination. Gambit exhausts local still/movable
+work, releases a stolen queue lock before scanning the chunk, and only then
+decrements `workers_count` under the termination mutex (`mem.c:6955`). A waiting
+worker observing nonzero count increments before returning to the steal loop
+(`mem.c:6982`). The zero-count conclusion depends on that closed work-producing
+population; it does not prove unrelated synchronization senders have returned.
+The source's later downward resize messages at `setup.c:700,707` and joins at
+`setup.c:979` have a different lifetime obligation. Neither paper licenses
+destroying their mutexes/conditions merely because GC work has terminated.
+
+Audit of the initial `gc_resize_resource_retirement` model found a role-coverage
+restriction: `arriveGC` assigns the only outstanding scanner to processor 0,
+while `queueOwner` is always the last processor. Varying population and retained
+prefix does not vary those roles. The actual source runs the scan protocol on
+each processor. Requested correction: parameterize scanner and queue owner over
+the declared finite population, or supply and state a valid symmetry reduction;
+include retained-nonroot and retired scanner roles. This is a model coverage
+obligation, not an observed runtime counterexample or evidence of a native fix.
+
+Expected benefit is preventing an overbroad reclamation proof. Additional model
+roles increase finite exploration cost; no speedup is claimed. Preserve separate
+queue-operation completion, sender unlock/signal completion and processor-storage
+retirement predicates. Native gates remain source-bound GC exit/resize schedules,
+join-error ownership and all-three-flags artifact/bootstrap/full-test acceptance.
+No unchanged failed native route was rerun; this audit was sent to Working before
+editing its owned model or accepting any new model receipt.
+
+### Section 3.5 / HotSpot Section 3.3: Outer-Round Source Refinement
+
+Re-read both cached termination sections and candidate027 `setup.c:526-535,
+550-717,878-1008,1059-1125`. Status: sections read, source checked, bounded
+source-shaped model checked; no native acceptance. The preceding role-coverage
+request is now implemented by Working: its separate campaign002 explores every
+scanner/owner pair within populations 2..5 (94,386 distinct states). That result
+does not itself refine the abstract retained-next-round admission to source.
+
+The new `sync_retirement_round_closure` follows each old downward send through
+publish/unlock/signal, retired exits/joins, and the actual retained-tree upward
+aggregation in the next outer `barrier_sync_op` call. Root receives a child's
+aggregate only after that child received its descendants' aggregates. Thus the
+model derives old retained-sender completion from source-shaped convergence;
+it does not assume all retained senders are already drained. The old-root
+inner-barrier return and successful joins alone are insufficient.
+
+Campaign002: ten population/prefix initial configurations, 4,695 distinct
+states, 14,872 generated, zero queued; safety and weak-fair progress pass in
+24.830 seconds. Joins-only reclamation produces a 16-state counterexample.
+Campaign001 had a map-domain evaluation error, preserved as a rejected model
+run, not presented as a protocol defect. Receipt/source context is bound in
+`evidence/model-results/sync-retirement-round-closure/`.
+
+The candidate repair point is root convergence in the next outer round, before
+downward propagation, with explicitly tracked pending-retirement ownership.
+Expected benefit is a justified location for cleanup, not a claimed speedup.
+Cost includes pending state, round identity and failed-join handling. The papers
+do not supply those engineering details. Repeated resize, failed initialization,
+nested GC and C memory ordering remain unproved and must constrain any runtime
+edit. See `sync-retirement-round-closure.md`; no unmatched barrier or unconditional
+destruction hook is authorized, and no unchanged native failure was rerun.
+
+### Sections 3.4-3.5: Saved-Thread Root Coverage Follow-Up
+
+Re-read against candidate027 (same memory/header bytes as candidate026).
+`THREAD_SAVE:6314` and `THREAD_RESTORE:6377` preserve a suspended thread's saved
+frame while changing the currently rooted break chain. `mem.c:4049` scans that
+current chain; `mark_array:3753` does not eagerly chase a CONTINUATION frame,
+whose subtype differs from BOXVALUES (`gambit.h.in:2923,2929`). The dedicated
+frame traversal occurs at `mem.c:4247`, potentially after the strong-root barrier.
+
+Source-correlated characterization `continuation_saved_stack_origin` passes
+42 distinct states with progress. It models a retained-stack save/restore slice,
+not full scheduler/physical-stack refinement. Native acceptance is **not run**.
+Remaining: prove preserved physical stack range and actual rollover/nonlocal
+consumer overlap, then select a minimal source repair. See
+`continuation-saved-stack-origin.md`. GHC's root discussion is design context,
+not proof that Gambit's saved continuations were all handled before the barrier.
+
 ### Sections 3.6-3.7: Scarce Work And Prototype Lessons
 
 Read; not a qualified optimization. Smaller exported batches are a hypothesis
@@ -101,7 +187,52 @@ work and 7-7.2 conclusions/future work still require systematic chapter-to-sourc
 review; prior spot reads are not recorded as completed. Prioritize section 5's
 measurement controls before any performance claim from a new publication policy.
 
+### Section 3.6: Scarce Work And Partial-Block Export
+
+Read in the cached text (lines 294-326), then checked against candidate027
+`mem.c:end_heap_chunk:3402`, both chunk consumers (`4496`, `6926`) and captured
+continuation copying (`3898`, `3948`). Status: chapter read and relevant source
+checked; existing models cover component obligations only; no new model run or
+native performance acceptance.
+
+The paper's motivation is delayed parallel work exposure for narrow object
+graphs. Its partial-block policy depends on pending-work availability, enough
+useful exported work, and enough work retained by the exporting scanner. A
+thread-local partly-free list recovers remaining capacity after those blocks
+have been scanned. These are coupled scheduling/allocation decisions, not a
+portable numeric threshold or an unconditional instruction to export earlier.
+
+Gambit's FIFO export writes an end marker, excludes the currently scanned
+allocation range, publishes the tail with barriers, then wakes an idle scanner.
+Consumers release the queue lock before traversing a complete chunk; the local
+scanner subsequently resumes its incomplete allocation chunk. Captured-frame
+copying additionally retains a producer-owned continuation-link rewrite across
+iterations. Physical capacity, bytes copied, scan ownership and link readiness
+therefore are distinct frontiers. Lowering `alloc_heap_chunk_limit` or adding an
+idle-triggered export without preserving those frontiers is not admitted by this
+paper or by an empty-queue observation.
+
+Reuse `gc_scan_claim_transfer`, `gc_work_closure`, `continuation_link_handoff`
+and the saved-stack/export-origin audits rather than recreating their negative
+controls. Any future partial-export experiment must establish an actual
+source-eligible handoff, transferred scan interval, producer-link readiness,
+allocation-generation identity and the retained local-work invariant first.
+Possible benefit is reduced idle time for scarce-work graphs; extra publications,
+synchronization and fragmentation are explicit costs. No local workload evidence
+currently establishes that benefit or connects it to the compiler residual.
+Current source-fix priority remains ownership/rollback, not threshold tuning.
+
 ## HotSpot Parallel GC (2001)
+
+### Cross-Paper Lock-Placement Follow-Up
+
+Re-read GHC 3.4-3.5 against `mem.c` copier, frame scanner, queue dequeue and
+termination accounting. Added `continuation_scan_lock_order`: a three-state
+counterexample rejects taking MISC while retaining a queue lock; the bounded
+release-before-MISC candidate has 17 distinct states with safety/progress.
+This is not a native repair. Default allocation paths were inspected, but
+custom allocator reentrancy and the ticket lock's post-wait memory ordering
+remain open. See `continuation-scan-lock-order.md` for source identity and gates.
 
 ### Sections 3.1-3.4: Work And Termination
 
@@ -119,6 +250,39 @@ by CAS and winner copying is closer to Gambit's sequence than GHC section 3.1.
 This does not prove that every Gambit consumer waits for ready contents. Local
 allocation rollback and shared scan publication must remain separate obligations.
 Avoid adding redundant copying or treating a forwarding address as a ready bit.
+
+### Section 4: Eager Field Ownership Refinement
+
+Re-read the cached semispace/LAB/CAS discussion, then inspected candidate027
+`mem.c:3720-3803,4323-4356,5180-5185,7090-7125,7239-7247`. Status: chapter
+read, these source paths checked, bounded partition model checked; native
+acceptance remains absent. Other forwarding consumers remain unaudited.
+
+`mark_array` copies the full body, can export its chunk, then eagerly marks
+field zero for nonempty movable default subtypes through BOXVALUES. Both the
+ordinary scanner and pair fast path skip that field. Producer work overlapping
+an exported object's scan is therefore not itself a duplicate ownership defect:
+ownership belongs to disjoint field intervals. Whole-object exclusion is too
+strong for this source path. The producer must remain active until its eager
+work, including any recursive allocations, completes. Forwarding CAS losers
+only redirect references; weak-phase will consumers dereference payloads under
+a separate strong-closure/barrier premise. These distinctions are not supplied
+by a generic forwarding-ready Boolean.
+
+New `eager_tail_scan_partition` covers 1..4 fields and legal overlapping work.
+Campaign002 passes safety/progress: 74 distinct states, 114 generated, zero
+queued in 28.396 seconds. Six- and seven-state controls reject scanning field
+zero twice and retiring the eager producer on export. A first-run builtin-name
+parse error is retained as rejected tooling/model input, not protocol evidence.
+Source/paper identity and receipts are in
+`evidence/model-results/eager-tail-scan-partition/`.
+
+This closes a local abstraction gap, not diagnostic014's duplicate vector-body
+origin. Do not add a to-space skip, global lock or unconditional export delay.
+Next obligations: recursive eager-chain allocation/termination composition,
+allocation-generation/claim identity for the observed repeated body, and actual
+C release/acquire. No measured speedup, runtime repair or native retry follows
+from this result. Details: `eager-tail-scan-partition.md`.
 
 ### Remaining Chapters
 
@@ -149,9 +313,28 @@ lineage. Compare current `setup_still_objs_to_scan`, `mark_continuation`,
 `mark_registers`, `scan_still_objs_to_scan` and strong-phase root scanning.
 Historical sizes/tag widths are not current runtime constants. The incremental
 collector and its mutator barriers are not a drop-in parallel-GC repair.
-Sections 4-4.5 and 5 onward are not yet systematically read; do not attribute
-their algorithms or measurements to the selected source. The local PDF is a
-revised version noting a measurement correction, which matters for later review.
+Sections 4-4.6 are now read in cached extracted text and compared with
+candidate027 `mem.c` (SHA-256
+`c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750`).
+Extraction interleaves columns and damages equations; no numeric scheduling
+formula is admitted from this reading. Section 5 and later still require
+systematic review. The local PDF is a revised version noting a measurement
+correction, which matters for later review.
+
+| Section | Protocol, Source Difference And Engineering Obligation |
+| --- | --- |
+| 4 / 4.1 | Historical incremental mark/slide uses nonmoving handles and whole movable sections. Handle storage retains historical peak capacity. Current representation branches are at `mem.c:520,533`; GNU GCC preprocessing of the actual configured header leaves `___USE_HANDLES` undefined. This is not an implemented current collector switch. |
+| 4.2 / 4.3 | Gray-list metadata, backpointers and stable indirection support the historical compactor. Current copying paths still contain handle-allocation TODOs at `3691,3905`. Enabling a macro is not a correct representation migration; roots, FFI references and every allocation/copy path would need qualification. No such rewrite is proposed. |
+| 4.4 | Atomic roots and precompaction rescans close mutations made between incremental parcels. Current `___garbage_collect_pstate:7159` instead sequences setup, strong, weak, cleanup and resize with barriers (`7223-7264`). Reuse phase/closure models; do not assume a mutator interleaving absent from this implementation. |
+| 4.5 | Gray-source rescanning deliberately revisits a mutated vector prefix; repeated mutation can prevent progress without workload assumptions. This does not justify duplicate relocated-body scanning in the current copying protocol. Diagnostic012-015 retain their input/ownership failures; reuse scan-claim and eager-tail-partition models instead of masking them with a to-space skip. |
+| 4.6 | Allocation-driven word-bank progress assumes a live-space bound and controlled mutation. Current `compute_free_heap_space_approximately:494`, `resize_heap:6525-6546` and `___heap_limit:7653` use section ownership, reserve and post-copy headroom. Reuse the source-bound headroom model/receipts; do not substitute historical parcel constants, increase test deadlines, or claim modern Darwin throughput from the old results. |
+
+Status: textual chapter reading and scoped source check, not a new model proof
+or native acceptance. Representation migration would add indirection/metadata
+and write-barrier costs; no local evidence predicts a worthwhile gain. The
+actionable conclusion is an applicability boundary, not another failed-route
+rerun. Next: verify damaged equations visually only if a concrete incremental
+collector proposal requires them, then audit section 5's measurement controls.
 
 ## Boehm: Benign Races (2011)
 
@@ -162,6 +345,75 @@ GNU CAS/barrier definitions. A fence or `volatile` declaration alone does not
 establish portable exclusion. Same-value writes and disjoint-bit assumptions
 also need an actual protocol. This is not proof that GCC16 miscompiled Gambit;
 inspect its selected primitives and generated code before such a claim.
+
+### Shared Allocation Cursor Follow-Up
+
+Source/code-generation follow-up to the already-read race/publication material:
+candidate027 `mem.c:327-328,383,3217-3278,3533-3535` and
+`gambit.h.in:6222-6227,11025-11037`. No new paper chapter is marked read here.
+The queue consumers' added post-wait acquire is not present in ALLOC, which
+protects the VM-shared next-msection cursor and assignment count. Reservation
+before a previous holder finishes cannot supply acquisition of that holder's
+later updates. MISC has a related but separately scoped obligation.
+
+Inspected actual configured-header code generation with GNU GCC 16.2: the
+unmodified fixture uses `ldaddal` reservation followed by an `ldr/cmp/bne` wait
+and an ordinary protected-data `ldr`; adding the existing barrier macro inserts
+`dmb ish` after the wait. Compilation exited zero. The standalone fixture is
+not the whole optimized runtime and did not execute a race or reproduce GC.
+Identity-bound receipt/assembly: `evidence/codegen/ticket-acquire/`.
+
+Reuse `ticket_queue_handoff` for the ordering obligation rather than repeating
+its known negative search. Current GCC volatile/sync documentation was checked
+as language/compiler guidance; it is not a C memory proof for the legacy lock.
+The proposed scoped acquire versus shared-primitive repair must still account
+for ownership, initialization, callbacks and all native gates. Potential
+duplicate assignment is a hypothesis, not an attribution of diagnostic014/015;
+candidate018's later source-bound progress must remain visible. Expected benefit
+is correctness, with barrier cost unmeasured. See `allocator-ticket-acquire.md`.
+
+### Retirement Error-Path Source Refinement
+
+Reviewed Working's new two-generation retirement model against candidate027
+`os_thread.c:462-554`, `os_base.c:1063-1076` and
+`setup.c:974-1015,1111-1116`. No additional paper chapter is marked read.
+The model's failed-join ownership contract remains necessary, but source
+semantics distinguish error identity from successful retirement: pthread's
+returned error is discarded, yet zero ambient errno yields UNKNOWN_ERR, not
+NO_ERR. The ignored join result in the resize caller is the independent
+admission failure. `thread_init_common` currently cannot fail after creation.
+Creation failure is post-population-publication and fatal; replacing it with
+unilateral local return would require a new participant/rollback proof.
+
+These are now hash-bound research-audit obligations, together with the allocator
+acquire observation; the existing Datalog audit query lists eight blockers and
+all five native gate categories pending in
+`.data/allocator-pthread-audit-001/receipt.json`. This query result is not a QNT
+run or native acceptance. No retirement model was edited during Working's
+verification. See `pthread-error-source-audit.md` for the concrete correction
+boundaries and `research-audit.json` for inputs that must remain current.
+
+### GHC 3.4-3.5 / HotSpot 3.3: Recursive Progress Follow-Up
+
+Re-read these cached sections against the locked candidate027 overlay; both PDF
+pins, extracted-text hashes, overlay and all three source-slice hashes match.
+Status: sections read and exact source checked; enabledness, unbounded fairness
+and source refinement remain open; no native acceptance. No additional paper
+chapter is marked read and no unchanged failed route was repeated.
+
+Both papers revisit shared work while other scanners remain active. Candidate
+`mem.c:3455-3456,6910-6918,6955-6984` instead has finite repeated steal probes,
+Q-unlock/signal without M, and a count-decrement/condition-wait protocol without
+the model's combined M-held queue recheck. The bounded rank also consumes a
+once-per-worker spurious-wakeup allowance absent from the source contract.
+
+Next obligations are original-action feasibility, repeated-probe stuttering,
+wait/notification correspondence and explicit per-worker/lock/environment
+fairness. Aggregate fairness of the action disjunction cannot alone justify
+the unbounded-wakeup abstraction. This is an audit argument, not a decoded
+counterexample or a native failure. See
+`gc-recursive-progress-source-obligations.md` for precise locations, assumptions,
+controls, repair costs and the unchanged same-candidate native gate list.
 
 ## Gambit Parallel VM (1990)
 

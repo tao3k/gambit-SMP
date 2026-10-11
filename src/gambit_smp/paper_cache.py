@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 
 from gambit_smp.framework import ROOT
 MAX_BYTES = 16 * 1024 * 1024
+LOCK = ROOT / "evidence/papers.lock.json"
 
 
 class EmptyText(ValueError):
@@ -20,6 +21,36 @@ class EmptyText(ValueError):
 
 def sha(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def paper_pins(path, papers, root=ROOT):
+    saved = json.loads(path.read_text())
+    if saved.get("schema") != "gambit-smp-paper-lock.v1":
+        raise ValueError("unsupported paper lock")
+    pins = {}
+    for pin in saved["papers"]:
+        identifier = pin["id"]
+        if identifier in pins or not re.fullmatch(r"[0-9a-f]{64}", pin["pdfSha256"]):
+            raise ValueError("duplicate or invalid PDF pin")
+        notes = Path(pin["notes"])
+        target = (root / notes).resolve()
+        if (notes.is_absolute() or not notes.parts or notes.parts[0] != "docs" or
+                ".." in notes.parts or notes.suffix not in (".md", ".org") or
+                not target.is_relative_to(root.resolve() / "docs") or not target.is_file()):
+            raise ValueError("tracked Markdown/Org paper notes required")
+        pins[identifier] = pin
+    for paper in papers:
+        pin = pins.get(paper["id"])
+        if not pin or pin["url"] != paper["url"]:
+            raise ValueError("paper source is missing or differs from lock")
+    return pins
+
+
+def markdown(paper, text):
+    # This derived full-text search aid stays ignored; reviewed notes live in Git.
+    return (f"# {paper['title']}\n\nSource: {paper['url']}\n\n"
+            "Derived PDF extraction, not reviewed research notes.\n\n" +
+            text.decode("utf-8").replace("\f", "\n\n---\n\n")).encode("utf-8")
 
 
 def download(url):
@@ -66,26 +97,34 @@ def ocr_scanned(pdf):
     return "".join(text).encode("utf-8")
 
 
-def cache(paper, directory, refresh=False, allow_ocr=False):
+def cache(paper, directory, refresh=False, allow_ocr=False, expected_pdf=None):
     identifier, url = paper["id"], paper["url"]
     if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", identifier):
         raise ValueError("invalid paper identifier")
     if urlparse(url).scheme != "https":
         raise ValueError("paper source must be HTTPS")
+    if expected_pdf is not None and not re.fullmatch(r"[0-9a-f]{64}", expected_pdf):
+        raise ValueError("invalid PDF pin")
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / identifier
     if target.exists() and not refresh:
         receipt = json.loads((target / "receipt.json").read_text())
-        if receipt["schema"] != "gambit-smp-paper-cache.v1" or receipt["source"] != paper or any(
+        schema = receipt.get("schema")
+        derived = "paper.txt" if schema == "gambit-smp-paper-cache.v1" else "paper.md"
+        if schema not in ("gambit-smp-paper-cache.v1", "gambit-smp-paper-cache.v2") or receipt["source"] != paper or any(
             sha((target / name).read_bytes()) != receipt["sha256"][name]
-            for name in ("paper.pdf", "paper.txt")
+            for name in ("paper.pdf", derived)
         ):
             raise ValueError("paper cache identity/integrity mismatch; explicit refresh required")
+        if expected_pdf is not None and receipt["sha256"]["paper.pdf"] != expected_pdf:
+            raise ValueError("cached PDF differs from tracked pin")
         return receipt, "cached"
     # Validate PDF and extraction before publishing either file or receipt.
     with tempfile.TemporaryDirectory(prefix="paper-", dir=directory) as temporary:
         staging = Path(temporary)
         data = download(url)
+        if expected_pdf is not None and sha(data) != expected_pdf:
+            raise ValueError("downloaded PDF differs from tracked pin; refresh cannot change identity")
         (staging / "paper.pdf").write_bytes(data)
         extractor = "pdftotext -layout"
         try:
@@ -95,14 +134,15 @@ def cache(paper, directory, refresh=False, allow_ocr=False):
                 raise
             text = ocr_scanned(staging / "paper.pdf")
             extractor = "pdftoppm 150dpi + tesseract eng; OCR needs visual verification"
-        (staging / "paper.txt").write_bytes(text)
-        receipt = {"schema": "gambit-smp-paper-cache.v1", "source": paper,
-                   "sha256": {"paper.pdf": sha(data), "paper.txt": sha(text)},
+        derived = markdown(paper, text)
+        (staging / "paper.md").write_bytes(derived)
+        receipt = {"schema": "gambit-smp-paper-cache.v2", "source": paper,
+                   "sha256": {"paper.pdf": sha(data), "paper.md": sha(derived)},
                    "pdfBytes": len(data), "textBytes": len(text),
                    "extractor": extractor, "pages": text.count(b"\f")}
         (staging / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
         target.mkdir(exist_ok=True)
-        for name in ("paper.pdf", "paper.txt", "receipt.json"):
+        for name in ("paper.pdf", "paper.md", "receipt.json"):
             (staging / name).replace(target / name)
     return receipt, "downloaded"
 
@@ -111,6 +151,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "evidence/papers.json")
     parser.add_argument("--cache", type=Path, default=ROOT / ".data/papers")
+    parser.add_argument("--lock", type=Path, default=LOCK,
+                        help="tracked source URL/PDF hash and Markdown/Org notes")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--ocr-scanned", action="store_true",
                         help="explicit OCR fallback for scanned PDFs of at most 16 pages")
@@ -121,8 +163,10 @@ def main():
     identifiers = [p["id"] for p in manifest["papers"]]
     if len(set(identifiers)) != len(identifiers):
         parser.error("duplicate paper identifiers")
+    pins = paper_pins(args.lock, manifest["papers"])
     for paper in manifest["papers"]:
-        receipt, status = cache(paper, args.cache, args.refresh, args.ocr_scanned)
+        receipt, status = cache(paper, args.cache, args.refresh, args.ocr_scanned,
+                                pins[paper["id"]]["pdfSha256"])
         print(f"{paper['id']}: {status}, {receipt['pages']} pages, "
               f"{receipt['pdfBytes']} bytes, SHA256 {receipt['sha256']['paper.pdf']}", flush=True)
 

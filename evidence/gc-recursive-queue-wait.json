@@ -1,0 +1,27 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/runtime-source.lock.json": "fa00f77aea93baf89b2f3ff20fdeadf5786e617f5f82ec41c38423be99e18250",
+    "patches/snapshots/candidate027-audited-source-slice.patch": "79b031cafa001d81fe241f3150002d86989fe646b3c403a349ec86accc7b22ac",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "evidence/papers.lock.json": "e9f071661e6259d91b5a0c0f3f2acfa7127e237a7d09d59ed1e2fa425072e03d",
+    "docs/papers/ghc-parallel-gc-2008.md": "987e73639f7e26c344528cab41b65e54fd645d890cabd62d8347d5b25a7ece26",
+    "docs/papers/hotspot-parallel-gc-2001.md": "fc38cdbe7b33bae17df881b69d440ed7bfe10c09d421544f4e5a4fbe3d0b32fb"
+  },
+  "cases": [{
+    "id": "gc_recursive_queue_wait",
+    "mode": "characterization",
+    "invariants": ["sourceSafe", "combinedSafe"],
+    "protocolInitializers": {"sourceSafe": "initSource", "combinedSafe": "initCombined"},
+    "temporal": "progress",
+    "oldInvariants": ["payloadSafe", "ownershipSafe", "producerLifetimeSafe", "restoreSafe", "localExportSafe", "queueTopologySafe", "fieldPartitionSafe", "localDrainSafe", "eagerOwnerSafe"],
+    "oldInitializers": {"payloadSafe": "initEarlyPublish", "ownershipSafe": "initDuplicateClaim", "producerLifetimeSafe": "initEarlyIdle", "restoreSafe": "initNoRestore", "localExportSafe": "initLocalReexport", "queueTopologySafe": "initWrongQueue", "fieldPartitionSafe": "initScanHead", "localDrainSafe": "initSkipLocalDrain", "eagerOwnerSafe": "initEarlyOwnerRelease"},
+    "composes": ["gc_work_closure", "gc_forward_publication", "gc_queue_wait_composition", "gc_wait_count_restore", "gc_notification_lock_order"],
+    "openObligations": ["gc_recursive_wait_source_refinement", "gc_recursive_wait_steal_loop_source_refinement", "gc_processor_local_queue_topology", "gc_local_unexported_scan_composition", "gc_recursive_copy_stack_frontier", "gc_arbitrary_queue_graph_composition", "gc_copy_queue_memory_order", "gc_queue_wait_resize_composition", "gc_recursive_wait_phase_composition", "gc_condition_error_handling", "gc_unbounded_spurious_wake_fairness", "gc_notification_source_repair"],
+    "source": ["lib/mem.c:mark_array", "lib/mem.c:end_heap_chunk", "lib/mem.c:scan_complete_heap_chunk", "lib/mem.c:mark_reachable_from_marked", "lib/mem.c:scan_workers_count"],
+    "papers": ["ghc-parallel-gc-2008", "hotspot-parallel-gc-2001"],
+    "scope": "Model-first recursive copy/wait composition, not a source repair. Four finite roles, four processor-owned queues and two two-object cyclic graphs. Every object has a copier-owned eager head and a disjoint scanner-owned tail; both fields reference the same child in this finite graph. Either field can win canonical child discovery. A scanner discovers private child copy work and remains counted while the parent scan awaits nested marking work. Canonical discovery, two copy units, coherent payload visibility, publication, unbuffered signal, eager head marking, tail marking, scan return and POSIX-style wait/count restoration are separate transitions. Own queued and unexported work is drained before a sequential steal/probe pass. Negative queue hints are unlocked individual reads; ending the pass does not require an atomic global empty snapshot. One compact first-visit pass uses the np=4 source index order; repeated unsuccessful probes are projected out and successful steals may choose any queued region. Exact loop/fairness refinement remains open. A complete private region may be scanned locally without export; currently local-scanned regions cannot be exported. Publication selects the copier's processor queue, including helper-discovered children. Copy owner identity is retained after tail completion until the eager head and publication notification settle, then history is normalized. Current-source signalling and proposed combined policies are checked separately. Nine independent faults are model injections, not native findings. Single phase, no mutators, one optional spurious wake per worker; excludes arbitrary graphs/populations, ordered nested copy stacks and multi-object allocation-chunk frontiers, actual C memory ordering, failed OS operations, resize, strong/weak phase composition, bootstrap, native acceptance and speedup."
+  }]
+}

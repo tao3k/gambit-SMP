@@ -1,0 +1,794 @@
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -508,6 +508,11 @@
+ #define compute_nb_msections_min(processor_count) \
+ (___MIN_NB_MSECTIONS_PER_PROCESSOR * processor_count)
+ 
++/* Assigned per-processor sections cannot satisfy the next allocation or
++   the overflow reserve; keep that space outside the occupied-section floor. */
++#define compute_nb_msections_allocation_headroom() \
++(___CEILING_DIV(normal_overflow_reserve, ___MSECTION_SIZE) + 1)
++
+ /*---------------------------------------------------------------------------*/
+ 
+ /* Constants related to representation of permanent and still objects: */
+@@ -1240,13 +1245,147 @@
+ }
+ 
+ 
+-void ___glo_list_add
++#ifndef ___SINGLE_VM
++
++___HIDDEN void free_glo_tables
++   ___P((___virtual_machine_state vms),
++        (vms)
++___virtual_machine_state vms;)
++{
++  ___glo_table *table = vms->glos;
++  ___glo_table *previous;
++  ___SIZE_T i;
++
++  if (table == 0)
++    return;
++
++  for (i=0; i<table->capacity; i++)
++    if (table->segments[i] != 0)
++      ___FREE_MEM(table->segments[i]);
++
++  while (table != 0)
++    {
++      previous = table->previous;
++      ___FREE_MEM(table);
++      table = previous;
++    }
++
++  vms->glos = 0;
++}
++
++
++___HIDDEN ___SCMOBJ ensure_glo_segment
++   ___P((___virtual_machine_state vms,
++         ___SIZE_T index),
++        (vms, index)
++___virtual_machine_state vms;
++___SIZE_T index;)
++{
++  ___SIZE_T segment_index = index >> ___GLO_SEGMENT_SHIFT;
++  ___glo_table *old = vms->glos;
++  ___glo_table *table = old;
++  ___SCMOBJ *segment;
++  ___SIZE_T i;
++
++  if (old != 0 && segment_index < old->capacity &&
++      old->segments[segment_index] != 0)
++    return ___FIX(___NO_ERR);
++
++  segment = ___CAST(___SCMOBJ*,
++                    ___ALLOC_MEM(___GLO_SEGMENT_SIZE * sizeof (___SCMOBJ)));
++  if (segment == 0)
++    return ___FIX(___HEAP_OVERFLOW_ERR);
++
++  for (i=0; i<___GLO_SEGMENT_SIZE; i++)
++    segment[i] = ___UNB1;
++
++  if (old == 0 || segment_index >= old->capacity)
++    {
++      ___SIZE_T capacity = old == 0 ? 1 : old->capacity;
++      ___SIZE_T max_extra = (___SIZE_T)-1 - sizeof (___glo_table);
++
++      while (capacity <= segment_index)
++        {
++          if (capacity > (___SIZE_T)-1 / 2)
++            goto allocation_failed;
++          capacity *= 2;
++        }
++
++      if (capacity-1 > max_extra / sizeof (___SCMOBJ*))
++        goto allocation_failed;
++
++      table = ___CAST(___glo_table*,
++                      ___ALLOC_MEM(sizeof (___glo_table) +
++                                   (capacity-1) * sizeof (___SCMOBJ*)));
++      if (table == 0)
++        goto allocation_failed;
++
++      table->previous = old;
++      table->capacity = capacity;
++      for (i=0; i<capacity; i++)
++        table->segments[i] = old != 0 && i < old->capacity
++                             ? old->segments[i] : 0;
++      table->segments[segment_index] = segment;
++      __atomic_store_n (&vms->glos, table, __ATOMIC_RELEASE);
++    }
++  else
++    __atomic_store_n (&table->segments[segment_index], segment,
++                      __ATOMIC_RELEASE);
++
++  return ___FIX(___NO_ERR);
++
++allocation_failed:
++  ___FREE_MEM(segment);
++  return ___FIX(___HEAP_OVERFLOW_ERR);
++}
++
++#endif
++
++
++___SCMOBJ ___glo_list_add
+    ___P((___glo_struct *glo),
+         (glo)
+ ___glo_struct *glo;)
+ {
+-  int i = ___GSTATE->mem.glo_list.count++ % ___GLO_SUBLIST_COUNT;
+-  ___glo_sublist_struct *sl = &___GSTATE->mem.glo_list.sublist[i];
++  ___SIZE_T count;
++  int i;
++  ___glo_sublist_struct *sl;
++
++#ifndef ___SINGLE_VM
++  ___virtual_machine_state vms;
++  ___SCMOBJ err = ___FIX(___NO_ERR);
++
++  ___MUTEX_LOCK(___GSTATE->vm_list_mut);
++#endif
++
++  count = ___GSTATE->mem.glo_list.count;
++  if (count == (___SIZE_T)-1)
++    {
++#ifndef ___SINGLE_VM
++      ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++#endif
++      return ___FIX(___HEAP_OVERFLOW_ERR);
++    }
++
++#ifndef ___SINGLE_VM
++  vms = &___GSTATE->vmstate0;
++  do
++    {
++      if (vms->processor_count != 0 &&
++          (err = ensure_glo_segment (vms, count)) != ___FIX(___NO_ERR))
++        {
++          ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++          return err;
++        }
++      vms = vms->next;
++    }
++  while (vms != &___GSTATE->vmstate0);
++
++  glo->val = count;
++#endif
++
++  i = count % ___GLO_SUBLIST_COUNT;
++  sl = &___GSTATE->mem.glo_list.sublist[i];
+ 
+   glo->next = 0;
+ 
+@@ -1256,6 +1395,16 @@
+     sl->tail->next = glo;
+ 
+   sl->tail = glo;
++
++#ifndef ___SINGLE_VM
++  __atomic_store_n (&___GSTATE->mem.glo_list.count, count+1,
++                    __ATOMIC_RELEASE);
++  ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++#else
++  ___GSTATE->mem.glo_list.count = count+1;
++#endif
++
++  return ___FIX(___NO_ERR);
+ }
+ 
+ 
+@@ -1387,11 +1536,13 @@
+ 
+ #ifdef ___SINGLE_VM
+       glo->val = ___UNB1;
+-#else
+-      glo->val = ___GSTATE->mem.glo_list.count;
+-#endif
+-
+-      ___glo_list_add (glo);
++#endif
++
++      {
++        ___SCMOBJ err = ___glo_list_add (glo);
++        if (err != ___FIX(___NO_ERR))
++          return err;
++      }
+ 
+       ___PRMCELL(glo->prm) = ___FAL;
+ 
+@@ -4343,6 +4494,7 @@
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+       ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
++      ___SHARED_MEMORY_BARRIER(); /* acquire after waiting for the ticket */
+ #endif
+ 
+       while ((hcsh=heap_chunks_to_scan_head) != heap_chunks_to_scan_tail)
+@@ -4366,6 +4518,7 @@
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+           ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
++          ___SHARED_MEMORY_BARRIER();
+ #endif
+         }
+ 
+@@ -4752,10 +4905,30 @@
+ #ifndef ___SINGLE_VM
+ 
+   /*
+-   * Add to tail of virtual machine circular list.
++   * Allocate roots before publishing this VM to the global VM list.
+    */
+ 
+   ___MUTEX_LOCK(___GSTATE->vm_list_mut);
++
++  {
++    ___SIZE_T count = ___GSTATE->mem.glo_list.count;
++    ___SIZE_T segments = (count >> ___GLO_SEGMENT_SHIFT) +
++                         ((count & ___GLO_SEGMENT_MASK) != 0);
++    ___SIZE_T i;
++
++    ___vms->glos = 0;
++    for (i=0; i<segments; i++)
++      {
++        ___SCMOBJ err = ensure_glo_segment
++                          (___vms, i << ___GLO_SEGMENT_SHIFT);
++        if (err != ___FIX(___NO_ERR))
++          {
++            free_glo_tables (___vms);
++            ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++            return err;
++          }
++      }
++  }
+ 
+   {
+     ___virtual_machine_state head = &___GSTATE->vmstate0;
+@@ -4769,13 +4942,6 @@
+ 
+   ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
+ 
+-  /* TODO: implement expansion of glos array when number of globals grows beyond 20000 */
+-
+-  { int n = 20000;
+-    ___vms->glos = ___CAST(___SCMOBJ*,___ALLOC_MEM(n * sizeof (___SCMOBJ)));
+-    while (--n>=0) { ___vms->glos[n] = ___UNB1; }
+-  }
+-
+ #endif
+ 
+   /*
+@@ -4828,7 +4994,8 @@
+   init_nb_sections = compute_nb_msections_needed(init_heap_size >> ___LWS);
+ 
+   SET_MAX(init_nb_sections,
+-          compute_nb_msections_min(___vms->processor_count));
++          (compute_nb_msections_min(___vms->processor_count) +
++           compute_nb_msections_allocation_headroom()));
+ 
+   adjust_msections (&the_msections, init_nb_sections);
+ 
+@@ -4980,6 +5147,8 @@
+     next->prev = prev;
+     prev->next = next;
+   }
++
++  free_glo_tables (___vms);
+ 
+ #endif
+ 
+@@ -5130,9 +5299,28 @@
+   int size2 = words - ___GCHASHTABLE_KEY0;
+   int i;
+ 
++  /* Allocation tags are scratch markers only for a uniform key kind. */
++  for (i=size2-2; i>=0; i-=2)
++    {
++      ___WORD key = body[i+___GCHASHTABLE_KEY0];
++      if (key != ___UNUSED && key != ___DELETED &&
++          (!!___MEM_ALLOCATED(key) !=
++           !!___INT(___FIXAND(body[___GCHASHTABLE_FLAGS],
++                             ___FIX(___GCHASHTABLE_FLAG_MEM_ALLOC_KEYS)))))
++        {
++          body[___GCHASHTABLE_FLAGS] =
++            ___FIXIOR(___FIXAND(body[___GCHASHTABLE_FLAGS],
++                              ___FIXNOT(___FIX(___GCHASHTABLE_FLAG_KEY_MOVED))),
++                     ___FIX(___GCHASHTABLE_FLAG_NEED_REHASH));
++          return;
++        }
++    }
++
++  /* Scheme tables may use a hash other than the collector's pointer hash. */
+   body[___GCHASHTABLE_FLAGS] =
+-    ___FIXAND(body[___GCHASHTABLE_FLAGS],
+-              ___FIXNOT(___FIX(___GCHASHTABLE_FLAG_KEY_MOVED)));
++    ___FIXIOR(___FIXAND(body[___GCHASHTABLE_FLAGS],
++                       ___FIXNOT(___FIX(___GCHASHTABLE_FLAG_KEY_MOVED))),
++              ___FIX(___GCHASHTABLE_FLAG_NEED_REHASH));
+ 
+   if (!___FIXZEROP(___FIXAND(body[___GCHASHTABLE_FLAGS],
+                              ___FIX(___GCHASHTABLE_FLAG_UNION_FIND))))
+@@ -6184,6 +6372,13 @@
+   int size2 = words - ___GCHASHTABLE_KEY0;
+   int i;
+ 
++  if (___EQP(ht_src, ht_dst))
++    {
++      /* Central guard preserves mixed keys and the Scheme hash policy. */
++      gc_hash_table_rehash_in_situ (ht_src);
++      return ht_dst;
++    }
++
+   if (___FIXZEROP(___FIXAND(body_src[___GCHASHTABLE_FLAGS],
+                             ___FIX(___GCHASHTABLE_FLAG_UNION_FIND))))
+     {
+@@ -6246,7 +6441,7 @@
+ 
+   alloc_stack_ptr = p2;
+ 
+-  ___FP_SET_STK(alloc_stack_ptr,
++  ___FP_SET_STK(___ps->stack_break,
+                 -___FIRST_BREAK_FRAME_STACK_MSECTION,
+                 ___CAST(___WORD,
+                         ___CAST(___msection*,NULL))) /* not a stack section overflow */
+@@ -6338,6 +6533,13 @@
+           (compute_nb_msections_needed(occupied_words_movable) +
+            nb_msections_stacks));
+ 
++  lower_bound_nb_sections += compute_nb_msections_allocation_headroom();
++
++  /* Copying can assign sections beyond the initial processor floor. */
++  SET_MAX(lower_bound_nb_sections,
++          nb_msections_assigned +
++          compute_nb_msections_allocation_headroom());
++
+   /*
+    * Use the recent target heap space history to avoid shrinking the
+    * heap size abruptly.
+@@ -6392,13 +6594,14 @@
+ 
+       upper_bound_nb_sections = target_nb_sections;
+ 
++      SET_MAX(target_nb_sections, lower_bound_nb_sections);
++
+       if (___GSTATE->setup_params.max_heap > 0)
+         {
+           upper_bound_nb_sections =
+             ((___GSTATE->setup_params.max_heap >> ___LWS) -
+              occupied_words_still) / ___MSECTION_SIZE;
+ 
+-          SET_MAX(target_nb_sections, lower_bound_nb_sections);
+           SET_MIN(target_nb_sections, upper_bound_nb_sections);
+         }
+ 
+@@ -6634,14 +6837,27 @@
+ #else
+ 
+   {
+-    int n = ___GSTATE->mem.glo_list.count;
++    ___SIZE_T n = __atomic_load_n (&___GSTATE->mem.glo_list.count,
++                                    __ATOMIC_ACQUIRE);
+     int np = ___vms->processor_count;
+-    int lo = (id * n) / np;
+-    int hi = ((id+1) * n) / np;
+-
+-    mark_array (___PSP
+-                ___VMSTATE_FROM_PSTATE(___ps)->glos+lo,
+-                hi-lo);
++    ___SIZE_T lo = (id * n) / np;
++    ___SIZE_T hi = ((id+1) * n) / np;
++    ___glo_table *table = __atomic_load_n (&___vms->glos,
++                                            __ATOMIC_ACQUIRE);
++
++    while (lo < hi)
++      {
++        ___SIZE_T offset = lo & ___GLO_SEGMENT_MASK;
++        ___SIZE_T length = ___GLO_SEGMENT_SIZE - offset;
++        ___SCMOBJ *segment = __atomic_load_n
++                              (&table->segments[lo >> ___GLO_SEGMENT_SHIFT],
++                               __ATOMIC_ACQUIRE);
++
++        if (length > hi-lo)
++          length = hi-lo;
++        mark_array (___PSP segment+offset, length);
++        lo += length;
++      }
+   }
+ 
+ #endif
+@@ -6708,6 +6924,7 @@
+               /* only try stealing when chunk FIFO is non-empty */
+ 
+               ___SPINLOCK_LOCK(ps->mem.heap_chunks_to_scan_lock_);
++              ___SHARED_MEMORY_BARRIER();
+ 
+               if ((hcsh=ps->mem.heap_chunks_to_scan_head_) !=
+                   ps->mem.heap_chunks_to_scan_tail_)
+@@ -6846,8 +7063,9 @@
+     {
+       mark_vm_scmobj (___PSPNC);
+       mark_symkey_tables (___PSPNC);
+-      mark_rc (___PSPNC);
+-    }
++    }
++
++  mark_rc (___PSPNC); /* rc_head is per processor */
+ 
+   mark_global_variables (___PSPNC);
+ 
+@@ -6860,6 +7078,9 @@
+   mark_type_cache (___PSPNC);
+ 
+   mark_processor_scmobj (___PSPNC);
++
++  /* Complete root-phase frame copying before another processor scans it. */
++  BARRIER();
+ 
+   mark_reachable_from_marked (___PSPNC);
+ 
+@@ -7235,6 +7456,10 @@
+        */
+ 
+       ___FP_ADJFP(alloc_stack_ptr,___FIRST_BREAK_FRAME_SPACE)
++
++      ___FP_SET_STK(alloc_stack_ptr,
++                    -___FIRST_BREAK_FRAME_STACK_MSECTION,
++                    ___CAST(___WORD,___CAST(___msection*,NULL)))
+ 
+       /*
+        * Because ___stack_limit is only called by the stack-limit
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -338,7 +338,7 @@
+ }
+ 
+ 
+-___HIDDEN void setup_interrupts_pstate
++___HIDDEN ___SCMOBJ setup_interrupts_pstate
+    ___P((___processor_state ___ps),
+         (___ps)
+ ___processor_state ___ps;)
+@@ -358,7 +358,13 @@
+   /* Initialize empty queue of procedural interrupts */
+   ___ps->procedural_interrupts_head = NULL;
+   ___ps->procedural_interrupts_tail = NULL;
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___ps->procedural_interrupts_mut))
++    return ___FIX(___UNKNOWN_ERR);
++#else
+   ___MUTEX_INIT(___ps->procedural_interrupts_mut);
++#endif
++  return ___FIX(___NO_ERR);
+ }
+ 
+ 
+@@ -512,11 +518,13 @@
+              ___MUTEX_UNLOCK(___ps->sync_mut); \
+            } \
+        } \
++     ___SHARED_MEMORY_BARRIER(); /* acquire payload after observing message */ \
+    } while (0)
+ 
+ #define SYNC_SEND_MSG(ps,field,val) \
+ do { \
+      ___MUTEX_LOCK(ps->sync_mut); \
++     ___SHARED_MEMORY_BARRIER(); /* publish payload before message flag */ \
+      ps->field = val; \
+      ___SHARED_MEMORY_BARRIER(); /* make sure write happens promptly */  \
+      ___MUTEX_UNLOCK(ps->sync_mut); \
+@@ -947,7 +955,9 @@
+               != ___FIX(___NO_ERR))
+             {
+               while (--i >= initial)
+-                ___cleanup_pstate (ps);
++                ___cleanup_pstate (___PSTATE_FROM_PROCESSOR_ID(i,___vms));
++
++              ___vms->mem.target_processor_count_ = initial;
+ 
+               BARRIER();
+ 
+@@ -1109,7 +1119,7 @@
+       first_iter = 0;
+     }
+ 
+-  if (id == 0 && ___err != ___FIX(___NO_ERR))
++  if (id == 0 && ___err != ___FIX(___NO_ERR) && ___GSTATE->setup_state != 2)
+     ___throw_error (___PSP ___err);
+ }
+ 
+@@ -1475,15 +1485,28 @@
+ }
+ 
+ 
++#if !defined(___SINGLE_VM)
++#define ___MAKE_GLOBAL_PSD ___processor_state ___ps,
++#define ___MAKE_GLOBAL_PSV ___ps,
++#define ___MAKE_GLOBAL_PSDKR ___processor_state ___ps;
++#else
++#define ___MAKE_GLOBAL_PSD
++#define ___MAKE_GLOBAL_PSV
++#define ___MAKE_GLOBAL_PSDKR
++#endif
++
+ ___HIDDEN ___SCMOBJ make_global
+-   ___P((___BOOL collect_undef_glo,
++   ___P((___MAKE_GLOBAL_PSD
++         ___BOOL collect_undef_glo,
+          ___UTF_8STRING str,
+          int supply,
+          ___glo_struct **glo),
+-        (collect_undef_glo,
++        (___MAKE_GLOBAL_PSV
++         collect_undef_glo,
+          str,
+          supply,
+          glo)
++___MAKE_GLOBAL_PSDKR
+ ___BOOL collect_undef_glo;
+ ___UTF_8STRING str;
+ int supply;
+@@ -1649,7 +1672,8 @@
+       while (i-- > 0)
+         {
+           ___glo_struct *glo = 0;
+-          ___SCMOBJ e = make_global (ctx->collect_undef_glo,
++          ___SCMOBJ e = make_global (___MAKE_GLOBAL_PSV
++                                     ctx->collect_undef_glo,
+                                      glo_names[i],
+                                      i<supcount,
+                                      &glo);
+@@ -3128,7 +3152,7 @@
+ }
+ 
+ 
+-___HIDDEN void init_symkey_glo2
++___HIDDEN ___SCMOBJ init_symkey_glo2
+    ___P((___mod_or_lnk mol),
+         (mol)
+ ___mod_or_lnk mol;)
+@@ -3141,7 +3165,9 @@
+ 
+       while (p1->mol != 0)
+         {
+-          init_symkey_glo2 (p1->mol);
++          ___SCMOBJ err = init_symkey_glo2 (p1->mol);
++          if (err != ___FIX(___NO_ERR))
++            return err;
+           p1++;
+         }
+ 
+@@ -3158,13 +3184,11 @@
+           str = align_subtyped (___CAST(___SCMOBJ*,sym_ptr[___SUBTYPED_BODY+___SYMKEY_NAME]));
+           glo = ___CAST(___glo_struct*,sym_ptr[___SUBTYPED_BODY+___SYMBOL_GLOBAL]);
+ 
+-#ifndef ___SINGLE_VM
+-
+-          glo->val = ___GSTATE->mem.glo_list.count;
+-
+-#endif
+-
+-          ___glo_list_add (glo);
++          {
++            ___SCMOBJ err = ___glo_list_add (glo);
++            if (err != ___FIX(___NO_ERR))
++              return err;
++          }
+ 
+           sym_ptr[0] = ___MAKE_HD((___SYMBOL_SIZE<<___LWS),___sSYMBOL,___PERM);
+ 
+@@ -3196,6 +3220,8 @@
+           ___intern_symkey (key);
+         }
+     }
++
++  return ___FIX(___NO_ERR);
+ }
+ 
+ 
+@@ -4127,12 +4153,16 @@
+             case 3:
+               val = ___VECTORREF(fixup_objs, ___FIX(arg));
+               val = ___make_global_var (val);
++              if (___FIXNUMP(val))
++                return val;
+               val = ___CAST(___WORD, &___GLOBALVARREF(val));
+               break;
+ 
+             case 4:
+               val = ___VECTORREF(fixup_objs, ___FIX(arg));
+               val = ___make_global_var (val);
++              if (___FIXNUMP(val))
++                return val;
+               val = ___CAST(___WORD, &___GLOBALVARPRIMREF(val));
+               break;
+ 
+@@ -4646,7 +4676,7 @@
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-___HIDDEN void setup_sync_op_pstate
++___HIDDEN ___SCMOBJ setup_sync_op_pstate
+    ___P((___processor_state ___ps),
+         (___ps)
+ ___processor_state ___ps;)
+@@ -4655,8 +4685,19 @@
+   SYNC_INIT_MSG(___ps->sync_id1);
+   SYNC_INIT_MSG(___ps->sync_id2);
+ 
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___ps->sync_mut))
++    return ___FIX(___UNKNOWN_ERR);
++  if (!___CONDVAR_INIT(___ps->sync_cv))
++    {
++      ___MUTEX_DESTROY(___ps->sync_mut);
++      return ___FIX(___UNKNOWN_ERR);
++    }
++#else
+   ___MUTEX_INIT(___ps->sync_mut);
+   ___CONDVAR_INIT(___ps->sync_cv);
++#endif
++  return ___FIX(___NO_ERR);
+ }
+ 
+ #endif
+@@ -4669,6 +4710,29 @@
+ {
+   cleanup_interrupts_pstate (___ps);
+   cleanup_os_and_mem_pstate (___ps);
++}
++
++
++___HIDDEN void cleanup_failed_pstate
++   ___P((___processor_state ___ps,
++         ___virtual_machine_state ___vms,
++         ___BOOL os_mem_ready),
++        (___ps,
++         ___vms,
++         os_mem_ready)
++___processor_state ___ps;
++___virtual_machine_state ___vms;
++___BOOL os_mem_ready;)
++{
++  ___BOOL owned_interrupts =
++    !(___vms == &___GSTATE->vmstate0 && ___PROCESSOR_ID(___ps, ___vms) == 0);
++
++  if (owned_interrupts)
++    cleanup_interrupts_pstate (___ps);
++  if (os_mem_ready)
++    cleanup_os_and_mem_pstate (___ps);
++  if (owned_interrupts)
++    ___MUTEX_DESTROY(___ps->procedural_interrupts_mut);
+ }
+ 
+ 
+@@ -4696,14 +4760,20 @@
+    */
+ 
+   if (!(___vms == &___GSTATE->vmstate0 && ___PROCESSOR_ID(___ps, ___vms) == 0))
+-    setup_interrupts_pstate (___ps);  /* processor 0 of vm 0 has early init */
++    {
++      if ((err = setup_interrupts_pstate (___ps)) != ___FIX(___NO_ERR))
++        return err;
++    }
+ 
+   /*
+    * Setup processor's OS specific structures and memory management.
+    */
+ 
+   if ((err = setup_os_and_mem_pstate (___ps)) != ___FIX(___NO_ERR))
+-    return err;
++    {
++      cleanup_failed_pstate (___ps, ___vms, 0);
++      return err;
++    }
+ 
+   ___ACTLOG_PS(run,green);
+ 
+@@ -4762,7 +4832,11 @@
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+ 
+-  setup_sync_op_pstate (___ps);
++  if ((err = setup_sync_op_pstate (___ps)) != ___FIX(___NO_ERR))
++    {
++      cleanup_failed_pstate (___ps, ___vms, 1);
++      return err;
++    }
+ 
+ #endif
+ 
+@@ -4821,7 +4895,11 @@
+    * Setup virtual machine's OS specific structures and memory management.
+    */
+ 
+-  setup_os_and_mem_vmstate (___vms);
++  if ((err = setup_os_and_mem_vmstate (___vms)) != ___FIX(___NO_ERR))
++    {
++      ___vms->processor_count = 0;
++      return err;
++    }
+ 
+   /*
+    * Setup the main processor of the virtual machine.
+@@ -6312,7 +6390,9 @@
+ 
+   {
+     ___virtual_machine_state ___vms = &___GSTATE->vmstate0;
+-    setup_interrupts_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms));
++    if ((err = setup_interrupts_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms)))
++        != ___FIX(___NO_ERR))
++      return err;
+   }
+ 
+   /*
+@@ -6346,7 +6426,8 @@
+    */
+ 
+   init_symkey_glo1 (mol);
+-  init_symkey_glo2 (mol);
++  if ((err = init_symkey_glo2 (mol)) != ___FIX(___NO_ERR))
++    return err;
+ 
+   do
+     {
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -6758,7 +6758,7 @@
+ #define ___GLOCELL_IN_VM(vm,x)x
+ #define ___GLOCELL(x)x
+ #else
+-#define ___GLOCELL_IN_VM(vm,x)vm->glos[x]
++#define ___GLOCELL_IN_VM(vm,x)(*___glo_cell_in_vm((vm),(x)))
+ #define ___GLOCELL(x)___GLOCELL_IN_VM(___VMSTATE_FROM_PSTATE(___ps),x)
+ #endif
+ 
+@@ -10866,6 +10866,17 @@
+     ___glo_sublist_struct sublist[___GLO_SUBLIST_COUNT];
+   } ___glo_list_struct;
+ 
++#define ___GLO_SEGMENT_SHIFT 12
++#define ___GLO_SEGMENT_SIZE (((___SIZE_T)1) << ___GLO_SEGMENT_SHIFT)
++#define ___GLO_SEGMENT_MASK (___GLO_SEGMENT_SIZE-1)
++
++typedef struct ___glo_table_struct
++  {
++    struct ___glo_table_struct *previous;
++    ___SIZE_T capacity; /* number of segment pointers */
++    ___SCMOBJ *segments[1];
++  } ___glo_table;
++
+ /*---------------------------------------------------------------------------*/
+ 
+ /*
+@@ -11972,11 +11983,27 @@
+     ___VOLATILE ___virtual_machine_state prev; /* circular list links */
+     ___VOLATILE ___virtual_machine_state next;
+ 
+-    ___SCMOBJ *glos; /* Scheme global variables */
++    ___glo_table *glos; /* stable segments of Scheme global variables */
+ 
+ #endif
+ 
+   } ___virtual_machine_state_struct;
++
++#ifndef ___SINGLE_VM
++static inline ___SCMOBJ *___glo_cell_in_vm
++   ___P((___virtual_machine_state vm,
++         ___SIZE_T index),
++        (vm, index)
++___virtual_machine_state vm;
++___SIZE_T index;)
++{
++  ___glo_table *table = __atomic_load_n (&vm->glos, __ATOMIC_ACQUIRE);
++  ___SCMOBJ *segment =
++    __atomic_load_n (&table->segments[index >> ___GLO_SEGMENT_SHIFT],
++                     __ATOMIC_ACQUIRE);
++  return &segment[index & ___GLO_SEGMENT_MASK];
++}
++#endif
+ 
+ #define ___PROCESSOR_ID(ps,vms) \
+ (___CAST(___aligned_processor_state_struct*,ps) - \
