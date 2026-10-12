@@ -1,0 +1,421 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "resize-result-startup-commit-tree-loop",
+  "scope": "Locked complete barrier tree, operation dispatcher, loop and startup function with real pthread peers; injected resize work and atomic message flag shim. Parent actual non-P0 error loss control. Not C weak-memory refinement, actual full resize/join failure recovery, GC or bootstrap admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/resize-result-startup-commit/source.lock.json",
+    "patches/fixtures/resize-result-startup-commit.patch",
+    "evidence/fixtures/pthread-returned-error-identity/source.lock.json",
+    "patches/fixtures/pthread-returned-error-identity.patch",
+    "models/gambit/native/resize_result_startup.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/resize-result-startup-commit/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate-source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "resize_result_startup.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/resize_result_startup.c"
+            },
+            "sha256": "6f5b73d36abdcaff6318b30a8fe43de91752124cf96c0bb285fb489cc47442e9"
+          },
+          {
+            "target": "tree-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 11821,
+                "end": 17799,
+                "sha256": "a4a72d44402235b993718071d194717cf52fbf357711c4571419faef93e99ae2"
+              }
+            ]
+          },
+          {
+            "target": "execute-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 24398,
+                "end": 25615,
+                "sha256": "75f32ad6a52ad7114b96516a2dfcd3263003fd368eed82f622c39639aa8eda35"
+              }
+            ]
+          },
+          {
+            "target": "loop-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 25615,
+                "end": 27353,
+                "sha256": "58444076f4ced6e6adeb1e39cc606aca1ce5f6f7a71eb54cefe6a201b6b19218"
+              }
+            ]
+          },
+          {
+            "target": "startup-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 19439,
+                "end": 20257,
+                "sha256": "14a0f92fbdef148aab5a9f986330caf7ccadde61218a45fd402665a9e2ba0a38"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "resize_result_startup.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "stable",
+            "integers": [
+              0
+            ],
+            "stdout": "{\"result\":0,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          },
+          {
+            "id": "setup-error",
+            "integers": [
+              1
+            ],
+            "stdout": "{\"result\":11,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          },
+          {
+            "id": "growth-startup",
+            "integers": [
+              2
+            ],
+            "stdout": "{\"result\":0,\"population\":3,\"bodies\":1,\"invalid\":0}\n"
+          },
+          {
+            "id": "shrink",
+            "integers": [
+              3
+            ],
+            "stdout": "{\"result\":0,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "parent-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/pthread-returned-error-identity/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "parent-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "parent-source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "parent-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "resize_result_startup.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/resize_result_startup.c"
+            },
+            "sha256": "6f5b73d36abdcaff6318b30a8fe43de91752124cf96c0bb285fb489cc47442e9"
+          },
+          {
+            "target": "tree-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 11821,
+                "end": 17750,
+                "sha256": "709a72cb7099bfc8d996f4cdfa42b0d47e8bb3066cc6d2ca21763a658a268fef"
+              }
+            ]
+          },
+          {
+            "target": "execute-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 24349,
+                "end": 25073,
+                "sha256": "b85979d3952b2f705e102dcaac4b0ccdfd0821af92b9cfc9c0cb72dfa9f86d2c"
+              }
+            ]
+          },
+          {
+            "target": "loop-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 25073,
+                "end": 26811,
+                "sha256": "58444076f4ced6e6adeb1e39cc606aca1ce5f6f7a71eb54cefe6a201b6b19218"
+              }
+            ]
+          },
+          {
+            "target": "startup-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 19390,
+                "end": 20208,
+                "sha256": "14a0f92fbdef148aab5a9f986330caf7ccadde61218a45fd402665a9e2ba0a38"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "parent-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "parent-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "parent-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "parent-workspace",
+        "parent-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "parent-binding",
+          "output": "binding"
+        },
+        "translationUnit": "resize_result_startup.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "parent-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "parent-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "parent-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "setup-error",
+            "integers": [
+              1
+            ],
+            "stdout": "{\"result\":0,\"population\":2,\"bodies\":0,\"invalid\":1}\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate-source",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-build",
+        "candidate-test",
+        "parent-source",
+        "parent-workspace",
+        "parent-binding",
+        "parent-build",
+        "parent-test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "candidate-source"
+            ],
+            [
+              "parent-binding",
+              "parent-source"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-test",
+              "stable",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "setup-error",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "growth-startup",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "shrink",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "parent-test",
+              "setup-error",
+              true,
+              "parent-binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

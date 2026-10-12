@@ -10,6 +10,27 @@ before implementing the complete repair. Extracted-source checks, rebuilt native
 binaries, bootstrap and Gerbil acceptance follow in that order. A local model or
 fixture result cannot admit an incomplete composition or replace native green.
 
+Before a runtime edit, print a source-bound review answering four questions:
+is the protocol path supported by evidence, was this route already explored,
+what unresolved obligation makes it worth repairing, and what benefit is
+expected? A correctness repair has no measured speedup until native timings
+exist; do not invent a performance estimate to justify it.
+
+Model-first means more than checking a local lock. Separate forwarding identity
+from copy readiness, queued work from producer completion, and Scheme
+reachability from stack/storage lifetime. Compose those GC obligations with
+VM/processor setup, failure rollback, publication and reader retirement. State
+the memory-order, scheduling, fairness and resource assumptions explicitly.
+The paper-to-source ledger records the correspondence and its unresolved parts.
+
+Admission requires independent known-failure controls and rejected partial
+repairs, followed by composed safety and progress checks. A missing source
+correspondence or an open lifetime obligation is REVIEW_REQUIRED, not runtime
+permission. Preserve failed campaigns, bind every result to model/source hashes,
+and never label an abstract release/acquire result as a native repair. After
+this gate, implement the smallest corresponding source repair and validate it
+with rebuilt binaries; feed any native counterexample back into the model.
+
 `patches/candidate-checked-pstate-init-owned-rollback.patch` is an isolated candidate
 over runtime026, not an admitted release patch. It modifies `lib/setup.c` only.
 The seven-control, 91-state setup model precedes this implementation; the unchanged

@@ -1,10 +1,12 @@
 from pathlib import Path
 from io import StringIO
+from contextlib import nullcontext
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
 
-from gambit_smp.bootstrap_runtime import generated_c, compiler_binding, build_errors, generated_stamp, main, apply_source_patch, repair_artifacts_rebuilt, archive_members
+from gambit_smp.bootstrap_runtime import generated_c, compiler_binding, build_errors, generated_stamp, main, apply_source_patch, repair_artifacts_rebuilt, archive_members, seed_source_binding
 from gambit_smp.source_binding import gc_table_snapshot, ended_interrupt_source_hash, shared_pipe_source_hash, serialization_snapshot_source_hash, vector_increment_source_hash
 from gambit_smp.framework import apply_untracked_patch, digest
 
@@ -25,6 +27,34 @@ SNAPSHOT_SOURCE += "(define-prim (next-procedure x) x)\n"
 
 
 class BootstrapRuntimeTests(unittest.TestCase):
+    def test_missing_seed_revision_requires_explicit_source_authority(self):
+        with self.assertRaisesRegex(ValueError, "explicit versioned source lock"):
+            seed_source_binding(Path("unused"), {"sourceFiles": {}})
+        self.assertEqual(seed_source_binding(Path("unused"), {"sourceRevision": "old-bound-revision"}),
+                         ("old-bound-revision", {}))
+
+    def test_explicit_source_lock_rejects_candidate_and_revision_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            runtime, source = root / "runtime", root / "source"
+            for base in (runtime, source):
+                (base / "lib").mkdir(parents=True)
+                (base / "lib/mem.c").write_text("locked source\n")
+            lock = root / "lock.json"
+            revision = "f" * 40
+            lock.write_text(json.dumps({"revision": revision,
+                "files": {"lib/mem.c": {"candidateSha256": digest(source / "lib/mem.c")}}}))
+            inputs = {"lock.json": digest(lock)}
+            with patch("gambit_smp.bootstrap_runtime.ROOT", root), patch(
+                    "gambit_smp.source_materialize.locked_source",
+                    side_effect=lambda *args: nullcontext((source, inputs))):
+                self.assertEqual(seed_source_binding(runtime, {}, lock), (revision, inputs))
+                with self.assertRaisesRegex(ValueError, "revision conflicts"):
+                    seed_source_binding(runtime, {"sourceRevision": "e" * 40}, lock)
+                (runtime / "lib/mem.c").write_text("different candidate\n")
+                with self.assertRaisesRegex(ValueError, "differs from locked candidate"):
+                    seed_source_binding(runtime, {}, lock)
+
     def test_vector_delta_guard_patch_is_exact_and_rejects_source_drift(self):
         candidate = Path(__file__).resolve().parents[1] / "patches/candidates/vector-increment-type-guard.patch"
         lines = candidate.read_text().splitlines()[3:]

@@ -1,0 +1,16 @@
+;; Called from the real host embedding API, with host-selected VM population.
+(c-define (embedding-gc-round processors) (int) int "embedding_gc_round" ""
+  (##cvmr processors)
+  (let ((worker (make-thread
+                 (lambda ()
+                   (let ((payload (vector 'worker processors)))
+                     (##gc)
+                     payload)))))
+    (thread-start! worker)
+    (let ((payload (vector 'host processors)))
+      (##gc)
+      (if (not (equal? (thread-join! worker) (vector 'worker processors)))
+          (error "embedding worker root survival"))
+      (if (not (equal? payload (vector 'host processors)))
+          (error "embedding host root survival"))))
+  (##current-vm-processor-count))

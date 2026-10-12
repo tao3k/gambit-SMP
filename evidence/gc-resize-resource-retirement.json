@@ -1,0 +1,23 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    ".data/pstate-init-runtime-027/source/lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    ".data/pstate-init-runtime-027/source/lib/setup.c": "94d70dc650f16f120131a8755dbd6d857cc6054d792c213d9c682a72f9f0f453",
+    ".data/pstate-init-runtime-027/source/include/gambit.h.in": "7f1a3abdd1323c504ab79269bb6a9625f38abc4c3a8d1f773313142d05497a58",
+    ".data/papers/ghc-parallel-gc-2008/paper.txt": "b2d9fbc2d3c9bb21917ef892fa508a1e4ae0952fe129bd8d4787a4c9b5450188",
+    ".data/papers/hotspot-parallel-gc-2001/paper.txt": "df718c6e882c2c6ea5fdcd2c4418183614cb45d8271eb4e04cf57875482d9535"
+  },
+  "cases": [{
+    "id": "gc_resize_resource_retirement",
+    "temporal": "progress",
+    "oldInvariants": ["syncSafe", "queueSafe", "storageSafe"],
+    "oldInitializers": {"queueSafe": "initQueueOnly", "storageSafe": "initJoinOnly"},
+    "composes": ["gc_work_closure", "sync_tree_retirement", "pstate_spinlock_initialization"],
+    "openObligations": ["gc_resize_outer_round_source", "gc_resize_nested_gc_admission", "gc_resize_join_error_ownership", "gc_resize_c_memory_order"],
+    "source": ["lib/mem.c:mark_reachable_from_marked", "lib/mem.c:___garbage_collect_pstate", "lib/setup.c:execute_sync_op_loop", "lib/setup.c:barrier_sync_op", "lib/setup.c:___vm_resize_pstate", "lib/setup.c:___cleanup_pstate"],
+    "papers": ["ghc-parallel-gc-2008", "hotspot-parallel-gc-2001"],
+    "scope": "Executable bounded composition of one scan-queue operation, acknowledged GC exit and the source-shaped downward resize tree (populations 2..5, every legal retained prefix and every scanner/queue-owner pair in that population, including self/local and remote accesses). Separates queue lock lifetime, synchronization mutex/condition lifetime and processor storage. Queue-empty control permits early GC arrival while a popped operation still must unlock. All-at-exit control destroys sync resources after fast receipt but before sender completion. Join-only control reclaims storage while a retained parent can still signal a joined retired child. Positive requires completed GC queue work before resize, child queue cleanup, retired joins and retained next-round admission before sync/storage reclamation. Whole GC discovery/closure and checked initialization are delegated premises, not imported model transitions. Assumes correct operation-round alignment, coherent release/acquire, successful joins, no new GC queue accesses after the GC-exit admission and weak-fair completion. Excludes simultaneous multiple scanner operations, complete GC, nested GC on resize allocation, failed joins, C memory refinement, signals, VM list retirement, arbitrary population and native acceptance. Controls are proposed unsafe repairs, not an attribution of observed source defects."
+  }]
+}

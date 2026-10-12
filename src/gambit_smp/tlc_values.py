@@ -1,12 +1,18 @@
-"""Strict parser for scalar/tuple/record and homogeneous scalar-set TLC values."""
+"""Strict TLC values, scalar sets and nonempty integer-keyed function maps."""
 import json
 import re
 
-TOKEN = re.compile(r'\s*("(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"|\|->|<<|>>|\.\.|\[|\]|\{|\}|,|TRUE\b|FALSE\b|-?\d+\b|[A-Za-z_]\w*)')
+TOKEN = re.compile(r'\s*("(?:[^"\\\x00-\x1f]|\\["\\/bfnrt]|\\u[0-9a-fA-F]{4})*"|\|->|:>|@@|<<|>>|\.\.|\(|\)|\[|\]|\{|\}|,|TRUE\b|FALSE\b|-?\d+\b|[A-Za-z_]\w*)')
 
 
 def shape(data):
     if isinstance(data, dict):
+        if set(data) == {"$integerMap"}:
+            entries = data["$integerMap"]
+            item_shape = shape(entries[0][1])
+            for _, item in entries[1:]:
+                item_shape = merge_shapes(item_shape, shape(item))
+            return ("map", int, item_shape)
         if set(data) == {"$integerRange"}:
             return ("set", int)
         if set(data) in ({"$integerSet"}, {"$stringSet"}):
@@ -66,6 +72,21 @@ def value(text):
                 # Preserve compact range syntax, without allocating its members.
                 return {"$integerRange": [int(token), int(end)]}
             return int(token)
+        if token == "(":
+            entries = {}
+            while True:
+                key = take()
+                if not re.fullmatch(r"-?\d+", key) or int(key) in entries:
+                    raise ValueError("invalid or duplicate integer map key")
+                take(":>")
+                entries[int(key)] = parse()
+                separator = take()
+                if separator == ")":
+                    result = {"$integerMap": sorted(entries.items())}
+                    shape(result)  # Reject heterogeneous values, including nested ones.
+                    return result
+                if separator != "@@":
+                    raise ValueError("malformed integer map separator")
         if token == "{":
             members = []
             if cursor < len(tokens) and tokens[cursor] == "}":

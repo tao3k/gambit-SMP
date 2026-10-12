@@ -1,0 +1,129 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "resize-result-startup-commit-objects",
+  "scope": "GNU GCC complete objects for resize result commit with parent lifecycle fixes. Three flags enabled; no linked runtime, full GC/bootstrap/Gerbil admission.",
+  "budgetSeconds": 150,
+  "inputs": [
+    "evidence/fixtures/resize-result-startup-commit/source.lock.json",
+    "patches/fixtures/resize-result-startup-commit.patch",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/resize-result-startup-commit/source.lock.json"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "cOptimization": 0,
+        "rtsOptimization": 0
+      }
+    },
+    {
+      "id": "memory",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/mem.c"
+      }
+    },
+    {
+      "id": "constructor",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/setup.c"
+      }
+    },
+    {
+      "id": "memory-mutex",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/mem.c",
+        "defines": [
+          "___USE_MUTEX_FOR_SPINLOCK"
+        ]
+      }
+    },
+    {
+      "id": "thread",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/os_thread.c"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "memory",
+        "constructor",
+        "memory-mutex",
+        "thread"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [],
+          "controls": []
+        }
+      }
+    }
+  ]
+}

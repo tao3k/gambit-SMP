@@ -1,0 +1,527 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "vm-private-memory-constructor-callee",
+  "scope": "Locked actual VM memory constructor, unpublished abort and publication bodies. Injected returning allocation/synchronization primitives; root/non-root, POSIX mutex/ticket/void, single-thread/single-VM matrix; concurrent registration represented between preparation/publication. Missing scan-mutex-release negative control. Not actual allocator/free_msections, asynchronous native schedule, C weak-memory refinement, lifecycle, full runtime/GC/bootstrap admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/vm-constructor-owned-rollback/source.lock.json",
+    "patches/fixtures/vm-constructor-owned-rollback.patch",
+    "patches/fixtures/vm-memory-missing-scan-mutex-release-control.patch",
+    "models/gambit/native/vm_private_memory_constructor.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-constructor-owned-rollback/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "control",
+      "capability": "source.overlay",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "patch": "patches/fixtures/vm-memory-missing-scan-mutex-release-control.patch",
+        "role": "negative-control",
+        "files": {
+          "lib/mem.c": {
+            "before": "bed920045bc700cb5bfab032b626287cc632b7c99a8edd2797ceca1f66f58099",
+            "after": "bc1ad6d46ad8bce09350110049e4fc688c5156da65c1aec006a8c3af5b0cdd03"
+          }
+        }
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "vm_private_memory_constructor.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/vm_private_memory_constructor.c"
+            },
+            "sha256": "4c53547a98bf283a5f76dbb307f86faf1850c4516dd366de03a80344849dbc48"
+          },
+          {
+            "target": "vm-memory-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/mem.c"
+            },
+            "sha256": "bed920045bc700cb5bfab032b626287cc632b7c99a8edd2797ceca1f66f58099",
+            "ranges": [
+              {
+                "start": 131823,
+                "end": 138023,
+                "sha256": "49981f924a1c9a0591c4945d3bd4bde20f77b508e8216cc3b280db47dfe4b549"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-mutex-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_private_memory_constructor.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "MODE_MUTEX"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-mutex-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-mutex-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-mutex-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "mutex",
+            "integers": [],
+            "stdout": "{\"checks\":22,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-ticket-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_private_memory_constructor.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-ticket-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-ticket-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-ticket-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "ticket",
+            "integers": [],
+            "stdout": "{\"checks\":22,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-void-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_private_memory_constructor.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "MODE_VOID"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-void-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-void-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-void-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "void",
+            "integers": [],
+            "stdout": "{\"checks\":22,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-single-thread-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_private_memory_constructor.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "___SINGLE_THREADED_VMS"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-single-thread-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-single-thread-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-single-thread-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "single-thread",
+            "integers": [],
+            "stdout": "{\"checks\":22,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-single-vm-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_private_memory_constructor.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "MODE_MUTEX",
+          "___SINGLE_VM"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-single-vm-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-single-vm-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-single-vm-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "single-vm",
+            "integers": [],
+            "stdout": "{\"checks\":18,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "negative-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "control"
+      ],
+      "arguments": {
+        "source": {
+          "step": "control",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "vm_private_memory_constructor.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/vm_private_memory_constructor.c"
+            },
+            "sha256": "4c53547a98bf283a5f76dbb307f86faf1850c4516dd366de03a80344849dbc48"
+          },
+          {
+            "target": "vm-memory-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/mem.c"
+            },
+            "sha256": "bc1ad6d46ad8bce09350110049e4fc688c5156da65c1aec006a8c3af5b0cdd03",
+            "ranges": [
+              {
+                "start": 131823,
+                "end": 137953,
+                "sha256": "eb09d63e7f839a300623508db61f463bb29d0f8d3c69a2371ce9a2068a1900a7"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "negative-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "negative-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "negative-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "negative-mutex-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "negative-workspace",
+        "negative-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "negative-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "negative-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_private_memory_constructor.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "MODE_MUTEX"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "negative-mutex-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "negative-mutex-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "negative-mutex-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "mutex",
+            "integers": [],
+            "stdout": "{\"checks\":22,\"invalid\":10}\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "control",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-mutex-build",
+        "candidate-mutex-test",
+        "candidate-ticket-build",
+        "candidate-ticket-test",
+        "candidate-void-build",
+        "candidate-void-test",
+        "candidate-single-thread-build",
+        "candidate-single-thread-test",
+        "candidate-single-vm-build",
+        "candidate-single-vm-test",
+        "negative-workspace",
+        "negative-binding",
+        "negative-mutex-build",
+        "negative-mutex-test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "source"
+            ],
+            [
+              "negative-binding",
+              "control"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-mutex-test",
+              "mutex",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-ticket-test",
+              "ticket",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-void-test",
+              "void",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-single-thread-test",
+              "single-thread",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-single-vm-test",
+              "single-vm",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "negative-mutex-test",
+              "mutex",
+              true,
+              "negative-binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

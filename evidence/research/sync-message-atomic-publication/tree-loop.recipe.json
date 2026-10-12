@@ -1,0 +1,490 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "sync-message-atomic-publication-tree-loop",
+  "scope": "Locked flag field declarations and complete tree/dispatcher/loop/startup on real pthread peers, injected resize work only. GNU atomic accesses instrumented without replacing their memory operations; single-thread parent contract control avoids concurrent volatile parent execution. Not full VM ABI, C compiler proof, GC/bootstrap/Gerbil or failed-join admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/sync-message-atomic-publication/source.lock.json",
+    "patches/fixtures/sync-message-atomic-publication.patch",
+    "evidence/fixtures/resize-result-startup-commit/source.lock.json",
+    "patches/fixtures/resize-result-startup-commit.patch",
+    "models/gambit/native/sync_atomic_tree.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/sync-message-atomic-publication/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate-source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "sync_atomic_tree.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/sync_atomic_tree.c"
+            },
+            "sha256": "9183bcc5aa746932d30d5eb092fc0c42c16180d5d2c2aa8297992c42c45ccad1"
+          },
+          {
+            "target": "tree-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "ccc0e6bbcfcda0681277a1ecdefba5ec6e5c623bccb354ea003d70b782519a5c",
+            "ranges": [
+              {
+                "start": 11821,
+                "end": 17992,
+                "sha256": "8a59bb6da79799d55203929aabac6195286d439fb628a06568884bce5de3ba37"
+              }
+            ]
+          },
+          {
+            "target": "execute-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "ccc0e6bbcfcda0681277a1ecdefba5ec6e5c623bccb354ea003d70b782519a5c",
+            "ranges": [
+              {
+                "start": 24591,
+                "end": 25808,
+                "sha256": "75f32ad6a52ad7114b96516a2dfcd3263003fd368eed82f622c39639aa8eda35"
+              }
+            ]
+          },
+          {
+            "target": "loop-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "ccc0e6bbcfcda0681277a1ecdefba5ec6e5c623bccb354ea003d70b782519a5c",
+            "ranges": [
+              {
+                "start": 25808,
+                "end": 27546,
+                "sha256": "58444076f4ced6e6adeb1e39cc606aca1ce5f6f7a71eb54cefe6a201b6b19218"
+              }
+            ]
+          },
+          {
+            "target": "startup-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "ccc0e6bbcfcda0681277a1ecdefba5ec6e5c623bccb354ea003d70b782519a5c",
+            "ranges": [
+              {
+                "start": 19632,
+                "end": 20450,
+                "sha256": "14a0f92fbdef148aab5a9f986330caf7ccadde61218a45fd402665a9e2ba0a38"
+              }
+            ]
+          },
+          {
+            "target": "flag-fields-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "include/gambit.h.in"
+            },
+            "sha256": "e5e662aa8b05f5f288876670e1b6ca5341f56d6e4cd323ed6861972da3488269",
+            "ranges": [
+              {
+                "start": 393401,
+                "end": 393587,
+                "sha256": "0468b476c1ba8533d9e4c80cab94e8126b08857c1f657cb816635eed18bc9982"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_atomic_tree.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "stable",
+            "integers": [
+              0
+            ],
+            "stdout": "{\"result\":0,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          },
+          {
+            "id": "setup-error",
+            "integers": [
+              1
+            ],
+            "stdout": "{\"result\":11,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          },
+          {
+            "id": "growth-startup",
+            "integers": [
+              2
+            ],
+            "stdout": "{\"result\":0,\"population\":3,\"bodies\":1,\"invalid\":0}\n"
+          },
+          {
+            "id": "shrink",
+            "integers": [
+              3
+            ],
+            "stdout": "{\"result\":0,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          },
+          {
+            "id": "atomic-access-contract",
+            "integers": [
+              4
+            ],
+            "stdout": "{\"reads\":1,\"writes\":2,\"invalid\":0}\n"
+          },
+          {
+            "id": "stable-1000-rounds",
+            "integers": [
+              5
+            ],
+            "stdout": "{\"result\":0,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          },
+          {
+            "id": "alternating-status-1000-rounds",
+            "integers": [
+              6
+            ],
+            "stdout": "{\"result\":11,\"population\":2,\"bodies\":0,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "parent-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/resize-result-startup-commit/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "parent-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "parent-source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "parent-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "sync_atomic_tree.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/sync_atomic_tree.c"
+            },
+            "sha256": "9183bcc5aa746932d30d5eb092fc0c42c16180d5d2c2aa8297992c42c45ccad1"
+          },
+          {
+            "target": "tree-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 11821,
+                "end": 17799,
+                "sha256": "a4a72d44402235b993718071d194717cf52fbf357711c4571419faef93e99ae2"
+              }
+            ]
+          },
+          {
+            "target": "execute-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 24398,
+                "end": 25615,
+                "sha256": "75f32ad6a52ad7114b96516a2dfcd3263003fd368eed82f622c39639aa8eda35"
+              }
+            ]
+          },
+          {
+            "target": "loop-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 25615,
+                "end": 27353,
+                "sha256": "58444076f4ced6e6adeb1e39cc606aca1ce5f6f7a71eb54cefe6a201b6b19218"
+              }
+            ]
+          },
+          {
+            "target": "startup-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "59102d283f03ae632be42b1757056362a717f671cc31832edebc8fa401ac23a0",
+            "ranges": [
+              {
+                "start": 19439,
+                "end": 20257,
+                "sha256": "14a0f92fbdef148aab5a9f986330caf7ccadde61218a45fd402665a9e2ba0a38"
+              }
+            ]
+          },
+          {
+            "target": "flag-fields-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "include/gambit.h.in"
+            },
+            "sha256": "e5e662aa8b05f5f288876670e1b6ca5341f56d6e4cd323ed6861972da3488269",
+            "ranges": [
+              {
+                "start": 393401,
+                "end": 393587,
+                "sha256": "0468b476c1ba8533d9e4c80cab94e8126b08857c1f657cb816635eed18bc9982"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "parent-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "parent-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "parent-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "parent-workspace",
+        "parent-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "parent-binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_atomic_tree.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "parent-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "parent-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "parent-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "atomic-access-contract",
+            "integers": [
+              4
+            ],
+            "stdout": "{\"reads\":0,\"writes\":0,\"invalid\":1}\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate-source",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-build",
+        "candidate-test",
+        "parent-source",
+        "parent-workspace",
+        "parent-binding",
+        "parent-build",
+        "parent-test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "candidate-source"
+            ],
+            [
+              "parent-binding",
+              "parent-source"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-test",
+              "stable",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "setup-error",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "growth-startup",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "shrink",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "atomic-access-contract",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "parent-test",
+              "atomic-access-contract",
+              true,
+              "parent-binding"
+            ],
+            [
+              "candidate-test",
+              "stable-1000-rounds",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-test",
+              "alternating-status-1000-rounds",
+              false,
+              "candidate-binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

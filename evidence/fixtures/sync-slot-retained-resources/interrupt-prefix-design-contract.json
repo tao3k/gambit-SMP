@@ -1,0 +1,32 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/fixtures/sync-slot-retained-resources/source.lock.json": "7dd84510fb1f0e69c26b5b2b8b2cbf6ade0041f222b84bbf281ba09418c7a3e2",
+    "patches/fixtures/sync-slot-retained-resources.patch": "c78e58ca91db4a8b2c0220b78c6daa46f75a4d87b46d40e4ccbb018cea06d9ac",
+    "models/gambit/sync_slot_retained_resources.qnt": "dad954671731833df73195b4f291141a8aa698f764b29b22c965cb8aaf256fc7"
+  },
+  "cases": [
+    {
+      "id": "interrupt_prefix_retained_composition",
+      "dependencies": ["sync_slot_retained_resources.qnt"],
+      "mode": "characterization",
+      "oldInvariants": ["bitmapSafe", "reuseSafe", "borrowedSafe", "cleanupSafe"],
+      "oldInitializers": {
+        "bitmapSafe": "initEraseBorrowed",
+        "reuseSafe": "initReuseInterrupt",
+        "borrowedSafe": "initDestroyBorrowed",
+        "cleanupSafe": "initLostEarlyGlobal"
+      },
+      "invariants": ["safe"],
+      "protocolInitializers": {"safe": "initFixed"},
+      "temporal": "progress",
+      "composes": ["sync_slot_retained_resources", "pstate_setup_transaction"],
+      "source": ["lib/setup.c:setup_interrupts_pstate", "lib/setup.c:cleanup_interrupts_pstate", "lib/setup.c:___setup_pstate", "lib/setup.c:cleanup_failed_pstate", "lib/setup.c:___setup_vmstate", "lib/setup.c:___cleanup_vmstate", "lib/setup.c:___cleanup"],
+      "papers": [],
+      "openObligations": ["interrupt_ownership_source_repair", "early_global_prefix_failure_cleanup", "interrupt_admission_closed_before_queue_reset", "actual_failed_join_quarantine", "native_caller_resource_matrix", "full_gc_foreign_callback_composition"],
+      "scope": "Design before interrupt C repair. Directly imports retained sync-slot transitions, coupling P1 interrupt ownership to old/new message reuse and sender drain. P0 is borrowed global-prefix or private; private initialization and after-prefix failure retain outer ownership. VM cleanup preserves borrowed P0 until global cleanup. Early global OS failure before setup-state cleanup admission still releases its independently owned prefix. Four controls reject erased borrowed metadata, live P1 reinit, borrowed P0 destruction and forgotten early global cleanup. External interrupt admission closure and global/VM quiescence remain premises; join errors and every early-global stage are not proved. The pstate transaction edge is contextual, not a full five-stage proof. No actual C interrupt repair, arbitrary population/generations, queue payload semantics, full GC/bootstrap/Gerbil admission."
+    }
+  ]
+}

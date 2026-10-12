@@ -1,0 +1,356 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "vm-constructor-owned-rollback-caller",
+  "scope": "Actual VM caller projected from immutable source; injected returning VM/P0 allocation and publication primitives, fresh root and non-root contexts. Tests log/memory/P0/publication failures plus success; missing log-abort negative control. Does not qualify full callees, GC/retirement, linked runtime, bootstrap or semantic C weak-memory refinement.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/vm-constructor-owned-rollback/source.lock.json",
+    "patches/fixtures/vm-constructor-owned-rollback.patch",
+    "patches/fixtures/vm-constructor-missing-log-abort-control.patch",
+    "models/gambit/native/vm_constructor_owned_rollback.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-constructor-owned-rollback/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "control",
+      "capability": "source.overlay",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "patch": "patches/fixtures/vm-constructor-missing-log-abort-control.patch",
+        "role": "negative-control",
+        "files": {
+          "lib/setup.c": {
+            "before": "d92cbdbac6b72c294d2aae6ef326f8729ad44114d5e173e56b600a8793696a7a",
+            "after": "0f80bd3139fae50870d0c0af991504149a474ccd8a564e6b39fe5c14f0b5c5d5"
+          }
+        }
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "vm_constructor_owned_rollback.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/vm_constructor_owned_rollback.c"
+            },
+            "sha256": "1e9c933453d7e86f2f5b3bbf4c8c26fb29a5cfe4d6e9fb11e3273a020beb97a3"
+          },
+          {
+            "target": "vm-constructor-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "d92cbdbac6b72c294d2aae6ef326f8729ad44114d5e173e56b600a8793696a7a",
+            "ranges": [
+              {
+                "start": 105248,
+                "end": 106870,
+                "sha256": "7f38ea0d5b04af368d60a53c80dc5e74477a1cae562d1d6cf4c9d069801dc482"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-threaded-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_constructor_owned_rollback.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-threaded-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-threaded-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-threaded-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "threaded",
+            "integers": [],
+            "stdout": "{\"checks\":10,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-single-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_constructor_owned_rollback.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "___SINGLE_THREADED_VMS"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-single-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-single-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-single-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "single",
+            "integers": [],
+            "stdout": "{\"checks\":10,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "negative-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "control"
+      ],
+      "arguments": {
+        "source": {
+          "step": "control",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "vm_constructor_owned_rollback.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/vm_constructor_owned_rollback.c"
+            },
+            "sha256": "1e9c933453d7e86f2f5b3bbf4c8c26fb29a5cfe4d6e9fb11e3273a020beb97a3"
+          },
+          {
+            "target": "vm-constructor-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "0f80bd3139fae50870d0c0af991504149a474ccd8a564e6b39fe5c14f0b5c5d5",
+            "ranges": [
+              {
+                "start": 105248,
+                "end": 106830,
+                "sha256": "d1f2388ef7354beda66510d50543c346dd16101907792038b3ef25e5deade1c8"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "negative-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "negative-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "negative-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "negative-threaded-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "negative-workspace",
+        "negative-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "negative-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "negative-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_constructor_owned_rollback.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "negative-threaded-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "negative-threaded-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "negative-threaded-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "threaded",
+            "integers": [],
+            "stdout": "{\"checks\":10,\"invalid\":2}\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "control",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-threaded-build",
+        "candidate-threaded-test",
+        "candidate-single-build",
+        "candidate-single-test",
+        "negative-workspace",
+        "negative-binding",
+        "negative-threaded-build",
+        "negative-threaded-test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "source"
+            ],
+            [
+              "negative-binding",
+              "control"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-threaded-test",
+              "threaded",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-single-test",
+              "single",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "negative-threaded-test",
+              "threaded",
+              true,
+              "negative-binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

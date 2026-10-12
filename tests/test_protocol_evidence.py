@@ -13,6 +13,217 @@ from tests.support import protocol_fixture
 
 
 class ProtocolEvidenceTests(unittest.TestCase):
+    def test_log_processor_composition_has_real_control_and_complete_check(self):
+        manifest = json.loads((ROOT / "evidence/fixtures/pstate-log-owned-rollback/processor-log-contract.json").read_text())
+        receipt = ROOT / "evidence/model-results/fixtures/pstate-log-owned-rollback/processor-log-contract/receipt.json"
+        rows = evidence.checked_rows(ROOT, manifest, receipt)[0][1]
+        old = next(row for row in rows if row["variant"] == "old")
+        positive = next(row for row in rows if row["variant"] == "protocol")
+        self.assertEqual(1, old["exit"])
+        self.assertEqual(0, positive["exit"])
+        self.assertEqual(428, positive["states"]["distinct"])
+        self.assertEqual(0, positive["states"]["queued"])
+        self.assertEqual(3, len(rows))
+
+    def test_vm_constructor_composition_has_complete_state_and_source_closure(self):
+        manifest_name = "evidence/vm-constructor-rollback-composition.json"
+        receipt_name = "evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
+        manifest = json.loads((ROOT / manifest_name).read_text())
+        rows = evidence.checked_rows(ROOT, manifest, ROOT / receipt_name)[0][1]
+        self.assertEqual(4, len(rows))
+        positive = next(row for row in rows if row["variant"] == "protocol")
+        self.assertEqual("initConstructor", positive["initializer"])
+        self.assertEqual("constructorStep", positive["step"])
+        self.assertEqual("constructorSafe", positive["invariant"])
+        self.assertEqual(282122, positive["states"]["distinct"])
+        self.assertEqual(0, positive["states"]["queued"])
+        text = (ROOT / Path(receipt_name).parent / positive["log"]).read_text()
+        self.assertIn("15360 distinct states generated", text)
+        saved = json.loads((ROOT / receipt_name).read_text())
+        self.assertEqual(5, len(saved["modelSources"]))
+        _, bound = evidence.bundle_facts(ROOT, manifest_name, receipt_name)
+        for name, sha in saved["modelSources"].items():
+            self.assertEqual(sha, bound[(Path(receipt_name).parent / name).as_posix()])
+
+    def test_model_source_inventory_rejects_drift_and_basename_collisions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            model = source / "member.qnt"
+            model.write_text("module member {}\n")
+            sha = digest(model)
+            self.assertEqual({"source/member.qnt": model.resolve()},
+                evidence.model_snapshot_files(source, {"models/gambit/member.qnt": sha}))
+            with self.assertRaisesRegex(ValueError, "collision"):
+                evidence.model_snapshot_files(source, {"models/gambit/member.qnt": sha,
+                    "models/gambit/other/member.qnt": sha})
+            model.write_text("module changed {}\n")
+            with self.assertRaisesRegex(ValueError, "differs"):
+                evidence.model_snapshot_files(source, {"models/gambit/member.qnt": sha})
+
+    def test_portable_proof_rejects_changed_dependency_snapshot(self):
+        import shutil
+        name = "evidence/model-results/fixtures/pstate-log-owned-rollback/vm-constructor-contract/receipt.json"
+        manifest = json.loads((ROOT / "evidence/vm-constructor-rollback-composition.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "proof"
+            shutil.copytree((ROOT / name).parent, target)
+            (target / "source/pstate_setup_transaction.qnt").write_text("changed\n")
+            with self.assertRaisesRegex(ValueError, "inventory"):
+                evidence.checked_rows(ROOT, manifest, target / "receipt.json")
+
+    def test_delayed_log_cleanup_violates_return_even_before_final_leak(self):
+        directory = ROOT / "evidence/model-results/pstate-log-return-handoff-source032"
+        trace = json.loads((directory /
+            "pstate_log_rollback_composition-old-returnOwnershipSafe.trace.json").read_text())
+        state = trace["states"][-1]
+        self.assertEqual(2, state["phase"])
+        self.assertEqual(7, state["P_s"]["phase"])
+        self.assertFalse(state["innerCleanup"])
+        self.assertFalse(state["vmOnly"])
+        self.assertTrue({2, 3}.issubset(state["L_logState"]["owned"]["$integerSet"]))
+
+    def test_previous_log_composition_receipt_does_not_prove_stronger_model(self):
+        manifest = json.loads((ROOT / "evidence/pstate-log-rollback-composition.json").read_text())
+        receipt = ROOT / "evidence/model-results/pstate-log-rollback-composition/receipt.json"
+        with self.assertRaises(ValueError):
+            evidence.checked_rows(ROOT, manifest, receipt)
+
+    def test_declarative_bundle_registry_rejects_duplicates_and_cache_paths(self):
+        for rows in ([["a", "b"], ["a", "c"]], [[".data/a", "b"]],
+                     [["../a", "b"]], [["a"]]):
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                path = root / evidence.BUNDLE_REGISTRY
+                path.parent.mkdir()
+                path.write_text(json.dumps({"schema": "gambit-protocol-bundles.v1", "bundles": rows}))
+                with self.subTest(rows=rows), self.assertRaises(ValueError):
+                    evidence.load_bundles(root)
+
+    def test_pstate_composition_binds_import_and_selected_transition(self):
+        manifest = json.loads((ROOT / "evidence/pstate-failure-composition.json").read_text())
+        path = ROOT / "evidence/model-results/pstate-failure-composition/receipt.json"
+        rows = evidence.checked_rows(ROOT, manifest, path)
+        self.assertEqual(4, len(rows[0][1]))
+        positive = next(row for row in rows[0][1] if row["variant"] == "protocol")
+        self.assertEqual("composedStep", positive["step"])
+        self.assertEqual(0, positive["states"]["queued"])
+        self.assertEqual(125, positive["states"]["distinct"])
+        self.assertIn("models/gambit/pstate_setup_transaction.qnt", manifest["contextInputs"])
+        with tempfile.TemporaryDirectory() as directory:
+            changed = Path(directory) / "receipt.json"
+            saved = json.loads(path.read_text())
+            for row in saved["results"]:
+                row["step"] = "step"
+            changed.write_text(json.dumps(saved))
+            from gambit_smp.check_gambit import reuse_model_receipt
+            with self.assertRaisesRegex(ValueError, "another model"):
+                reuse_model_receipt(changed, manifest["cases"][0])
+
+    def test_protocol_manifest_rejects_escaping_import_and_invalid_step(self):
+        data = json.loads((ROOT / "evidence/pstate-failure-composition.json").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "manifest.json"
+            for delta in ({"dependencies": ["../outside.qnt"]}, {"step": "composedStep;ignore"}):
+                changed = copy.deepcopy(data)
+                changed["cases"][0].update(delta)
+                path.write_text(json.dumps(changed))
+                with self.assertRaisesRegex(ValueError, "protocol"):
+                    verify.load_manifest(path)
+
+    def test_matrix_archive_retains_public_ir_and_rejects_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "raw"
+            source.mkdir()
+            irs = []
+            for name in ("proof-ir.json", "protocol-ir.json"):
+                path = source / name
+                path.write_text(json.dumps({"stage": "parsing", "errors": [], "modules": []}))
+                irs.append(path)
+            saved = {"schema": "gambit-induction-matrix-result.v1", "accepted": False,
+                "native": {"status": "not-run"}, "results": [],
+                "protocolIrSha256": digest(irs[1]), "generatorContract": {"proofIrSha256": digest(irs[0])}}
+            (source / "receipt.json").write_text(json.dumps(saved))
+            with patch.object(evidence, "ROOT", root):
+                evidence.archive_attempt(source, root / "archive")
+                for artifact in irs:
+                    self.assertEqual(artifact.read_bytes(), (root / "archive" / artifact.name).read_bytes())
+                irs[0].write_text("changed")
+                with self.assertRaisesRegex(ValueError, "public IR differs"):
+                    evidence.archive_attempt(source, root / "bad")
+                self.assertFalse((root / "bad").exists())
+
+    def test_legacy_symbolic_archive_preserves_receipt_and_checks_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "raw"
+            source.mkdir()
+            model = source / "gc_recursive_queue_induction.qnt"
+            model.write_text("module gc_recursive_queue_induction {}\n")
+            log = source / "closure.log"
+            log.write_text("diagnostic\n")
+            saved = {"schema": "gc-induction-obligation.v1", "accepted": False,
+                "scope": "safety-candidate-one-step-closure-only-not-complete-proof",
+                "runtimeAdmitted": False, "releaseAdmitted": False, "temporalProved": False,
+                "modelInputs": {model.name: digest(model)}, "log": log.name,
+                "logSha256": digest(log)}
+            receipt = source / "receipt.json"
+            receipt.write_text(json.dumps(saved))
+            with patch.object(evidence, "ROOT", root):
+                evidence.archive_attempt(source, root / "archive")
+                self.assertEqual(receipt.read_bytes(), (root / "archive/receipt.json").read_bytes())
+                log.write_text("changed\n")
+                with self.assertRaisesRegex(ValueError, "log differs"):
+                    evidence.archive_attempt(source, root / "bad")
+                self.assertFalse((root / "bad").exists())
+
+    def test_diagnostic_archive_retains_imported_model_and_rejects_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            source = root / "raw"
+            source.mkdir()
+            parent, child = source / "parent.qnt", source / "child.qnt"
+            parent.write_text('module parent { import child.* from "./child" }\n')
+            child.write_text("module child {}\n")
+            (source / "check.log").write_text("diagnostic only\n")
+            saved = {"accepted": False, "native": {"status": "not-run"},
+                "modelInputs": {child.name: digest(child)}, "results": [
+                    {"case": "parent", "variant": "diagnostic", "modelSha256": digest(parent),
+                     "log": "check.log"}]}
+            (source / "receipt.json").write_text(json.dumps(saved))
+            with patch.object(evidence, "ROOT", root):
+                evidence.archive_attempt(source, root / "archive")
+                self.assertEqual(child.read_bytes(), (root / "archive/child.qnt").read_bytes())
+                self.assertFalse(json.loads((root / "archive/archive.json").read_text())["accepted"])
+                child.write_text("changed\n")
+                with self.assertRaisesRegex(ValueError, "additional model snapshot differs"):
+                    evidence.archive_attempt(source, root / "bad-archive")
+                self.assertFalse((root / "bad-archive").exists())
+
+    def test_compiled_checker_artifacts_retain_hashes_and_temporal_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tla, cfg = root / "model.tla", root / "model.cfg"
+            tla.write_text("---- MODULE model ----\n====\n")
+            expected = "INIT q_init\nNEXT q_step\nINVARIANT q_inv\nPROPERTY q_temporalProps\n"
+            cfg.write_text(expected)
+            row = {"modelSha256": "identity", "temporal": "progress", "checker": {
+                "backend": "quint-compile-tlc", "livenessSchedule": "final",
+                "inputsStable": True, "phase": "tlc", "modelSha256": "identity",
+                "artifacts": {tla.name: digest(tla), cfg.name: digest(cfg)}}}
+            self.assertEqual(2, len(evidence.checked_artifacts(root, row)))
+            cfg.write_text(expected.replace("PROPERTY q_temporalProps\n", ""))
+            with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                evidence.checked_artifacts(root, row)
+            row["checker"]["artifacts"][cfg.name] = digest(cfg)
+            with self.assertRaisesRegex(ValueError, "omitted or changed properties"):
+                evidence.checked_artifacts(root, row)
+            cfg.write_text(expected)
+            row["checker"]["artifacts"][cfg.name] = digest(cfg)
+            tla.unlink()
+            with self.assertRaises(OSError):
+                evidence.checked_artifacts(root, row)
+
     def test_shared_backend_keeps_admission_classes_and_cli_options(self):
         success = ("Finished checking temporal properties\n"
                    "Model checking completed. No error has been found.\n"
@@ -68,6 +279,11 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertEqual({"generated": 1234, "distinct": 245, "queued": 0},
                          verify.summarize("1,234 states generated, 245 distinct states found, 0 states left on queue."))
         self.assertEqual({}, verify.summarize("timeout"))
+        progress = ("Progress(29): 9,431,403 states generated (9,073,808 s/min), "
+                    "2,271,137 distinct states found (2,168,572 ds/min), 469,341 states left on queue.")
+        self.assertEqual({"generated": 9431403, "distinct": 2271137, "queued": 469341},
+                         verify.summarize(progress))
+        self.assertFalse(backend.admitted_model(0, progress, False, False))
         self.assertEqual(0, verify.summarize(
             "10 states generated, 8 distinct states found, 2 states left on queue.\n"
             "20 states generated, 12 distinct states found, 0 states left on queue.")["queued"])

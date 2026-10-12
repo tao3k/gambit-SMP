@@ -7,11 +7,14 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import time
 
 from gambit_smp.check_gambit import admitted_model, counterexample, model_checks, model_stable, snapshot_model
 from gambit_smp.framework import ROOT, available_processors, digest, execute
 from gambit_smp.quint_backend import check as check_model, isolated_endpoint, summarize
 from gambit_smp.research_audit import local
+from gambit_smp.model_schedule import batches, physical_memory, resources, run_batch
+from gambit_smp.framework import positive_int
 
 
 def load_manifest(path):
@@ -24,6 +27,13 @@ def load_manifest(path):
     for case in manifest["cases"]:
         if not re.fullmatch(r"[a-z][a-z0-9_]*", case["id"]):
             raise ValueError("invalid case name")
+        if not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]*", case.get("step", "step")):
+            raise ValueError("invalid protocol step")
+        dependencies = case.get("dependencies", [])
+        if (len(dependencies) != len(set(dependencies)) or any(
+                Path(name).name != name or not name.endswith(".qnt")
+                or name == case["id"] + ".qnt" for name in dependencies)):
+            raise ValueError("protocol dependencies must be unique sibling models")
         checks = model_checks(case)
         if len(set(checks)) != len(checks) or not case.get("temporal"):
             raise ValueError("unique checks and explicit progress property required")
@@ -48,6 +58,7 @@ def reusable_check(directory, manifest, case, variant, invariant, initializer, s
     if recovering and variant != "old":
         return None
     if (row["modelSha256"] != sha or row.get("initializer") != initializer
+            or row.get("step", "step") != case.get("step", "step")
             or row.get("sourceStable") is not True):
         raise ValueError("resume model/initializer differs")
     log = local(directory, row["log"])
@@ -77,9 +88,20 @@ def main():
     parser.add_argument("--resume-from", type=Path,
                         help="reuse same-model checks; reparse valid negative-control logs without rerunning TLC")
     parser.add_argument("--timeout", type=float, default=90)
+    parser.add_argument("--jobs", type=positive_int,
+                        help="independent control jobs; default CPU/memory auto; positives stay serial")
+    parser.add_argument("--controls-only", action="store_true",
+                        help="diagnostic control timing only; never an admitted whole-model receipt")
+    parser.add_argument("--tlc-liveness", choices=("default", "final"), default="default",
+                        help="final defers intermediate checks, retaining final temporal validation")
+    parser.add_argument("--tlc-jar", type=Path,
+                        help="explicit bundled TLC artifact required for final scheduling")
     args = parser.parse_args()
     if not 0 < args.timeout < float("inf"):
         parser.error("finite positive timeout required")
+    if (args.tlc_liveness == "final") != (args.tlc_jar is not None):
+        parser.error("--tlc-liveness final requires --tlc-jar; default uses Quint's backend")
+    jar_hash = digest(args.tlc_jar) if args.tlc_jar else None
     manifest = load_manifest(args.manifest)
     cases = [case for case in manifest["cases"] if args.case is None or case["id"] == args.case]
     if not cases:
@@ -87,6 +109,7 @@ def main():
     version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != manifest["quintVersion"]:
         raise ValueError("Quint version differs from reviewed version")
+    plan = resources(available_processors(), physical_memory(), args.jobs)
     inputs = {str(args.manifest.resolve().relative_to(ROOT)): digest(args.manifest)}
     if args.resume_from:
         args.resume_from = args.resume_from.resolve()
@@ -96,22 +119,44 @@ def main():
         if digest(local(ROOT, name)) != expected:
             raise ValueError("reviewed context changed: " + name)
         inputs[name] = expected
-    for name in ("verify_protocols.py", "check_gambit.py", "framework.py", "tlc_values.py", "quint_backend.py"):
+    for name in ("verify_protocols.py", "check_gambit.py", "framework.py", "tlc_values.py", "quint_backend.py", "model_schedule.py"):
         inputs["src/gambit_smp/" + name] = digest(ROOT / "src/gambit_smp" / name)
+    if args.tlc_liveness == "final":
+        inputs["src/gambit_smp/tlc_execution.py"] = digest(ROOT / "src/gambit_smp/tlc_execution.py")
     args.out.mkdir(parents=True, exist_ok=False)
-    config = args.out.resolve() / "tlc-config.json"
-    config.write_text(json.dumps({"workers": available_processors()}) + "\n")
+    configs = {}
+    for kind, workers in (("old", plan["controlTlcWorkers"]), ("protocol", plan["positiveTlcWorkers"])):
+        config = args.out.resolve() / ("tlc-config-" + kind + ".json")
+        config.write_text(json.dumps({"workers": workers, "maxHeap": plan["perCheckTlcHeap"]}) + "\n")
+        configs[kind] = config
+        inputs[str(config.relative_to(ROOT))] = digest(config)
     receipt = {"schema": "gambit-smp-model-receipt.v1", "quintVersion": version,
                "scope": "bounded-protocol-extensions-not-source-refinement",
-               "workers": available_processors(), "inputs": inputs, "results": [],
+               "workers": plan["availableProcessors"], "scheduling": plan,
+               "livenessSchedule": args.tlc_liveness, "tlcJarSha256": jar_hash,
+               "controlsOnly": args.controls_only, "inputs": inputs, "results": [],
                "native": {"status": "not-run"}, "runtimeAdmitted": False,
                "releaseAdmitted": False}
     ok = True
+    started = time.monotonic()
     for case in cases:
         source = ROOT / "models/gambit" / (case["id"] + ".qnt")
+        for name in case.get("dependencies", []):
+            dependency = ROOT / "models/gambit" / name
+            key = str(dependency.relative_to(ROOT))
+            if manifest["contextInputs"].get(key) != digest(dependency):
+                raise ValueError("imported model must be explicitly context-bound")
+            target = args.out.resolve() / name
+            if target.exists() and digest(target) != digest(dependency):
+                raise ValueError("imported model snapshot collision")
+            target.write_bytes(dependency.read_bytes())
         snapshot, sha = snapshot_model(source, args.out.resolve())
         inputs[str(source.relative_to(ROOT))] = sha
-        for variant, invariant, initializer in model_checks(case):
+        checks = [check for check in model_checks(case) if not args.controls_only or check[0] == "old"]
+        if args.controls_only and not checks:
+            raise ValueError("controls-only requires actual negative controls")
+        def worker(check):
+            variant, invariant, initializer = check
             old = variant == "old"
             name = f"{case['id']}-{variant}-{invariant}"
             reused = (reusable_check(args.resume_from, manifest, case, variant, invariant, initializer, sha)
@@ -124,30 +169,48 @@ def main():
                 row.update(log=name + ".log", reusedFromReceiptSha256=digest(args.resume_from / "receipt.json"))
                 if trace:
                     (args.out / (name + ".trace.json")).write_text(json.dumps(trace, indent=2) + "\n")
-                receipt["results"].append(row)
-                print(f"{name}: REUSED", flush=True)
-                continue
+                return row, f"{name}: REUSED"
+            directory = args.out.resolve() / "checks" / name
+            directory.mkdir(parents=True, exist_ok=False)
             result, output, trace = check_model(snapshot, initializer=initializer,
-                invariant=invariant, negative=old, cwd=args.out.resolve(), timeout=args.timeout,
-                config=config, temporal=None if old else case["temporal"])
+                invariant=invariant, negative=old, cwd=directory, timeout=args.timeout,
+                config=configs["old" if old else "protocol"], temporal=None if old else case["temporal"],
+                step=case.get("step"),
+                liveness_schedule=args.tlc_liveness, tlc_jar=args.tlc_jar)
+            artifacts = {}
+            for artifact_name, expected in result.get("checker", {}).get("artifacts", {}).items():
+                artifact = local(directory, artifact_name)
+                inputs[str(artifact.relative_to(ROOT))] = expected
+                artifacts[str(artifact.relative_to(args.out.resolve()))] = expected
+            if "checker" in result:
+                result["checker"]["artifacts"] = artifacts
             (args.out / (name + ".log")).write_text(output)
             stable = model_stable(source, snapshot, sha)
             accepted = result["accepted"] and stable
             if trace is not None:
                 trace.update({"case": case["id"], "invariant": invariant, "modelSha256": sha})
                 (args.out / (name + ".trace.json")).write_text(json.dumps(trace, indent=2) + "\n")
-            receipt["results"].append({**result, "case": case["id"], "variant": variant,
+            row = {**result, "case": case["id"], "variant": variant,
                 "initializer": initializer, "invariant": invariant,
+                "step": case.get("step", "step"),
                 "modelSha256": sha, "sourceStable": stable, "accepted": accepted,
-                "evidence": "finite-state-TLC", "log": name + ".log"})
-            print(f"{name}: {'OK' if accepted else 'DENY'} ({result['seconds']:.3f}s)", flush=True)
-            if not accepted:
+                "evidence": "finite-state-TLC", "log": name + ".log",
+                "tlcWorkers": plan["controlTlcWorkers"] if old else plan["positiveTlcWorkers"]}
+            return row, f"{name}: {'OK' if accepted else 'DENY'} ({result['seconds']:.3f}s)"
+        for batch in batches(checks, plan["parallelControls"]):
+            for row, message in run_batch(batch, worker):
+                receipt["results"].append(row)
+                print(message, flush=True)
+            if not all(row["accepted"] for row in receipt["results"]):
                 ok = False
                 break
         if not ok:
             break
-    stable = all(digest(local(ROOT, name)) == expected for name, expected in inputs.items())
-    receipt.update({"contextStable": stable, "accepted": ok and stable})
+    stable = all(digest(local(ROOT, name)) == expected for name, expected in inputs.items()) and (
+        args.tlc_jar is None or digest(args.tlc_jar) == jar_hash)
+    receipt.update({"contextStable": stable, "accepted": ok and stable and not args.controls_only,
+                    "controlChecksPassed": ok and stable if args.controls_only else None,
+                    "campaignSeconds": round(time.monotonic() - started, 3)})
     (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return 0 if ok and stable else 1
 

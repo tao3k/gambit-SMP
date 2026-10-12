@@ -11,7 +11,10 @@ from gambit_smp import reproduction_check as reproduction
 class ReproductionCheckTests(unittest.TestCase):
     def test_026_source_check_keeps_five_original_file_identities(self):
         result = reproduction.check_source(reproduction.ROOT, "evidence/runtime-source-026.lock.json")
-        self.assertEqual(set(reproduction.AUDIT_FILES), set(result["candidateFiles"]))
+        lock = json.loads((reproduction.ROOT / "evidence/runtime-source-026.lock.json").read_text())
+        self.assertEqual(set(lock["files"]), set(result["candidateFiles"]))
+        self.assertEqual(5, len(result["candidateFiles"]))
+        self.assertNotIn("lib/mem.h", result["candidateFiles"])
         self.assertEqual("98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f",
                          result["candidateFiles"]["lib/setup.c"])
         self.assertFalse(result["committedInputsChecked"])

@@ -58,6 +58,69 @@ def check(runtime, identity):
             raise ValueError("candidate artifact changed: " + name)
 
 
+def create_from_source_build(runtime, receipt_path, root):
+    """Bind regenerated core artifacts, without claiming bootstrap or model admission."""
+    receipt = json.loads(receipt_path.read_text())
+    regenerated = receipt.get("sourceRegeneration", {})
+    if (receipt.get("schema") != "gambit-locked-object.v1"
+            or receipt.get("status") != "source-core-rebuilt"
+            or receipt.get("contextStable") is not True
+            or regenerated.get("scmRegenerationEstablished") is not True
+            or regenerated.get("schemeInputsStable") is not True
+            or regenerated.get("missingGeneratedSources")
+            or regenerated.get("recursiveBuildErrors")
+            or receipt.get("recursiveBuildErrors")):
+        raise ValueError("stable regenerated source-core receipt required")
+    stages = receipt.get("results", [])
+    if ([row.get("stage") for row in stages] !=
+            ["autoconf", "configure", "seed-core", "bootclean", "source-core"]
+            or any(row.get("exit") != 0 or row.get("timeout") for row in stages)):
+        raise ValueError("complete successful source-build stages required")
+    flags = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
+    if not flags.issubset(stages[1]["argv"]):
+        raise ValueError("all three concurrency configuration flags required")
+    def bound(base, name, expected):
+        path = Path(name)
+        resolved = (base / path).resolve()
+        if path.is_absolute() or ".." in path.parts or not resolved.is_relative_to(base.resolve()):
+            raise ValueError("source-build binding escapes root")
+        if digest(resolved) != expected:
+            raise ValueError("source-build input drift: " + name)
+    for name, expected in receipt["inputs"].items():
+        bound(root, name, expected)
+    lock = json.loads((root / receipt["sourceLock"]).read_text())
+    bound(root, lock["patch"], lock["patchSha256"])
+    for name, row in lock["files"].items():
+        bound(runtime, name, row["candidateSha256"])
+    for key in ("schemeInputs", "generatedHashes"):
+        if not regenerated.get(key):
+            raise ValueError("generated-source inventories required")
+        for name, expected in regenerated[key].items():
+            bound(runtime, name, expected)
+    bound(runtime, "include/gambit.h", receipt["generatedHeaderSha256"])
+    bound(runtime, "lib/makefile", receipt["configuredMakefileSha256"])
+    artifacts = regenerated["artifacts"]
+    if set(artifacts) != {"gsi/gsi", "gsc/gsc", "lib/libgambit.a"}:
+        raise ValueError("all final linked artifacts required")
+    for name, expected in artifacts.items():
+        bound(runtime, name, expected)
+    files = [p for folder in ("lib", "include", "gsi", "gsc")
+             for p in (runtime / folder).iterdir() if p.is_file()
+             and (p.suffix in (".c", ".h", ".scm") or p.name.endswith(".h.in")
+                  or p.name.lower() == "makefile")]
+    files.append(runtime / "configure.ac")
+    return {"schema": "gambit-runtime-source-identity.v1",
+            "sourceRevision": lock["revision"], "sourceLockSha256": digest(root / receipt["sourceLock"]),
+            "sourceBuildReceiptSha256": digest(receipt_path),
+            "sourceFiles": {p.relative_to(runtime).as_posix(): digest(p) for p in sorted(files)},
+            "binarySha256": artifacts["gsi/gsi"], "gscSha256": artifacts["gsc/gsc"],
+            "librarySha256": artifacts["lib/libgambit.a"],
+            "multipleThreadedVms": True, "patches": [lock["patch"]], "modeledCases": [],
+            "scmRegenerationEstablished": True, "fullTwoPassBootstrapEstablished": False,
+            "runtimeAdmitted": False, "releaseAdmitted": False,
+            "admission": "source-core identity only; native, composed-model and full bootstrap acceptance pending"}
+
+
 def create_delta(runtime, prior, patch, repair_model=None, repair_case="ticket_queue_handoff"):
     """Reverse an exact source delta in isolation; reject all other input drift."""
     identity = json.loads(prior.read_text())
@@ -174,6 +237,8 @@ def main():
     parser.add_argument("--source-unit", type=Path)
     parser.add_argument("--patch", type=Path)
     parser.add_argument("--check", type=Path)
+    parser.add_argument("--source-build", type=Path,
+                        help="bind final regenerated core from a locked-source build receipt")
     parser.add_argument("--diagnostic-delta", action="store_true")
     parser.add_argument("--repair-model", type=Path,
                         help="explicit repair delta with admitted TLC receipt")
@@ -182,7 +247,13 @@ def main():
     parser.add_argument("--export-source-delta")
     parser.add_argument("--baseline-source", type=Path)
     args = parser.parse_args()
-    if args.export_source_delta:
+    if args.source_build:
+        if not args.out or args.out.exists():
+            parser.error("fresh identity output required")
+        identity = create_from_source_build(args.runtime, args.source_build, Path(__file__).resolve().parents[2])
+        check(args.runtime, identity)
+        args.out.write_text(json.dumps(identity, indent=2) + "\n")
+    elif args.export_source_delta:
         if not all((args.prior, args.patch, args.baseline_source)):
             parser.error("prior, new patch and admitted baseline source required")
         export_source_delta(args.runtime, args.prior, args.patch,

@@ -1,0 +1,169 @@
+"""Lossless positive-program transport into the existing native proof store.
+
+No rule is authored or evaluated here. Unsupported wire clauses remain gaps;
+the Scheme store admits, computes and checks every published support fragment.
+"""
+from copy import deepcopy
+from contextlib import contextmanager
+
+from gambit_smp.ascent_program import assemble
+
+
+def candidate_transport(program, relation):
+    declarations = {row["name"]: row for row in program["relations"]}
+    candidate = ["candidate"]
+    candidate.extend(["relation", row["name"], len(row["columns"])]
+                     for row in program["relations"] if not row["source"])
+
+    def atom(value):
+        if value.get("not") or "mode" in value:
+            raise ValueError("positive atom support only; negation/operators require upstream proof capability")
+        return [value["relation"], *["?" + term["var"] if "var" in term else term["const"]
+                                     for term in value["terms"]]]
+
+    for rule in program["rules"]:
+        if len(rule["head"]) != 1:
+            raise ValueError("multi-head support transport is unsupported")
+        candidate.append(["rule", atom(rule["head"][0]), *map(atom, rule["body"])])
+    candidate.extend([["query", relation, *["?q" + str(index) for index in
+                         range(len(declarations[relation]["columns"]))]],
+                      ["limits", 1024, 4096, 4096]])
+    return candidate
+
+
+def close_support(engine):
+    store = getattr(engine, "_gambit_support_store", None)
+    if store is not None:
+        store.close()
+        engine._gambit_support_store = None
+
+
+@contextmanager
+def retained_support(engine):
+    from ascent_engine.evidence import ComputationalEvidence
+    store = getattr(engine, "_gambit_support_store", None)
+    if store is None:
+        store = engine._gambit_support_store = ComputationalEvidence(engine)
+    try:
+        yield store
+    except Exception:
+        close_support(engine)
+        raise
+
+
+def observe(engine, facts, catalog, requests, *, generation=0):
+    """Observe requested native conclusions; never turn unsupported into proof."""
+    from ascent_engine.datalog_symbols import encode
+    from ascent_engine.evidence import identity
+    packets = []
+    if not isinstance(requests, dict) or not requests:
+        return packets
+    with retained_support(engine) as store:
+        for relation, requested in sorted(requests.items()):
+            if not requested:
+                continue
+            if (any(key in catalog for key in ("sourceTexts", "nativeModule", "nativeEvidence", "nativeComponents"))
+                    and catalog.get("projection", {}).get("status") != "supported"):
+                packets.append({"schema": "native-computational-observation.v1", "relation": relation,
+                    "requested": [list(row) for row in requested], "status": "unsupported",
+                    "reason": "native DSL lacks a lossless finite proof projection",
+                    "ruleSourceInputs": catalog["sourceInputs"], "observations": [], "supportNodes": [],
+                    "executionAuthorized": False, "runtimeAdmitted": False})
+                continue
+            raw = assemble(facts, catalog, {relation: relation})
+            program, symbols = encode(raw)
+            source = {"identity": identity([row for row in program["relations"] if row["source"]]),
+                      "generation": generation,
+                      "relations": [[row["name"], len(row["columns"]), row["rows"]]
+                                    for row in program["relations"] if row["source"]]}
+            entry = {"schema": "native-computational-observation.v1", "relation": relation,
+                     "requested": [list(row) for row in requested], "programSha256": identity(raw),
+                     "source": source, "ruleSourceInputs": catalog.get("sourceInputs", {}),
+                     "executionAuthorized": False, "runtimeAdmitted": False}
+            try:
+                candidate = candidate_transport(program, relation)
+            except ValueError as error:
+                entry.update(status="unsupported", reason=str(error), observations=[], supportNodes=[])
+                packets.append(entry)
+                continue
+            entry["candidate"] = candidate
+            resolved = store.resolve(source, candidate)
+            entry["nativeResolution"] = resolved
+            if resolved["status"] != "verified":
+                entry.update(status="unknown", observations=[], supportNodes=[])
+                packets.append(entry)
+                continue
+            entry.update(status="observed", observations=[], supportNodes=[])
+            nodes = {}
+            inverse = {value: token for token, value in symbols.items()}
+            atoms = [[relation, *[inverse[value] if isinstance(value, str) else value for value in row]]
+                     for row in requested]
+            for offset in range(0, len(atoms), 32):
+                packet = store.observe(source, candidate, resolved["handle"], atoms[offset:offset + 32], support=True)
+                if "scope" in entry and entry["scope"] != packet.get("scope"):
+                    raise ValueError("mixed computational observation scopes")
+                entry["scope"] = packet.get("scope")
+                entry["observations"].extend(packet["observations"])
+                for node in packet.get("supportNodes", []):
+                    if node["id"] in nodes and nodes[node["id"]] != node:
+                        raise ValueError("conflicting native support node")
+                    nodes[node["id"]] = node
+            entry["supportNodes"] = list(nodes.values())
+            entry["symbols"] = deepcopy(symbols)
+            # The encoded source/candidate and native packet are retained verbatim.
+            # Display labels are a separate lossless symbol decoding, not proof replay.
+            for observation in entry["observations"]:
+                native_atom = observation["conclusion"].get("atom")
+                if native_atom:
+                    observation["displayAtom"] = [native_atom[0], *[
+                        symbols.get(value, value) if isinstance(value, str) else value for value in native_atom[1:]]]
+            packets.append(entry)
+    return packets
+
+
+def validate(packet):
+    """Validate packet shape and ancestor closure, not source authenticity."""
+    if (packet.get("schema") != "native-computational-observation.v1"
+            or packet.get("runtimeAdmitted") is not False
+            or packet.get("executionAuthorized") is not False):
+        raise ValueError("invalid computational observation boundary")
+    nodes = {row["id"]: row for row in packet["supportNodes"]}
+    if len(nodes) != len(packet["supportNodes"]):
+        raise ValueError("duplicate native support node")
+    if packet["status"] != "observed":
+        if nodes or packet["observations"]:
+            raise ValueError("unsupported observation cannot contain native proof")
+        return
+    scope = packet["scope"]
+    if (not isinstance(scope, dict) or scope["source-identity"] != packet["source"]["identity"]
+            or scope["generation"] != packet["source"]["generation"]
+            or dict(packet["nativeResolution"]["scope"]) != scope):
+        raise ValueError("native observation scope mismatch")
+    for node in nodes.values():
+        if not set(node["parents"]) <= set(nodes):
+            raise ValueError("native support is not ancestor-closed")
+    visiting, visited = set(), set()
+    def visit(key):
+        if key in visiting:
+            raise ValueError("cyclic native support")
+        if key in visited:
+            return
+        visiting.add(key)
+        for parent in nodes[key]["parents"]:
+            visit(parent)
+        visiting.remove(key)
+        visited.add(key)
+    for key in nodes:
+        visit(key)
+    for observation in packet["observations"]:
+        conclusion = observation["conclusion"]
+        roots = observation.get("support", {}).get("roots", [])
+        if conclusion["status"] == "verified":
+            if not roots or not set(roots) <= set(nodes) or roots != conclusion["support-nodes"]:
+                raise ValueError("verified conclusion has no matching native roots")
+            if any(nodes[key]["atom"] != conclusion["atom"] for key in roots):
+                raise ValueError("native root does not prove its conclusion")
+        elif roots:
+            raise ValueError("unknown or absent conclusion cannot contain positive proof")
+    if [row["displayAtom"][1:] for row in packet["observations"]] != packet["requested"]:
+        raise ValueError("native observations differ from requested conclusions")

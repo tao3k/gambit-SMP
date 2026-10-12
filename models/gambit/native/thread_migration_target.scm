@@ -1,0 +1,22 @@
+;; Exercise the internal migration used by the C-return processor hook.
+;; No pinning, resize or sleep is used to enforce the requested destination.
+(define population (##current-vm-processor-count))
+(if (< population 2) (error "requires parallel processors"))
+(define (migrate-and-observe target)
+  (declare (not interrupts-enabled))
+  (##thread-migrate-to! target)
+  (##current-processor-id))
+(do ((round 0 (+ round 1))) ((= round population))
+  (let ((target (modulo (+ (##current-processor-id) 1) population)))
+    (display (list 'migration-enter round 'target target
+                   'caller (##current-processor-id)))
+    (newline)
+    (force-output)
+    (let ((observed (migrate-and-observe target)))
+      (if (not (= target observed))
+          (error "migration returned on wrong processor" target observed)))
+    (##gc)
+    (display (list 'migration-return round))
+    (newline)
+    (force-output)))
+(display "NATIVE-OK:thread_migration_target\n")

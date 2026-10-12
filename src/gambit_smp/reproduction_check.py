@@ -53,18 +53,21 @@ def check_source(root, lock_name, require_committed=False):
     """Check an audited candidate slice, independently of any model manifest."""
     root = root.resolve()
     lock_path = portable(root, lock_name)
-    lock = json.loads(lock_path.read_text())
+    from gambit_smp.recipes import read_json
+    lock = read_json(lock_path)
+    from gambit_smp.source_capabilities import validate_source_lock
     capsule, _ = validate_capsule(root)
     if (lock.get("schema") != "gambit-runtime-source-lock.v1" or
-            not set(FILES) <= set(lock.get("files", {})) <= set(AUDIT_FILES) or
             any(lock.get(key) != capsule[key] for key in ("revision", "submodule", "repository")) or
             any(lock.get(key) is not False for key in ("configuredToolchainReproduced",
                 "runtimeAdmitted", "releaseAdmitted"))):
         raise ValueError("candidate source lock does not bind the pinned source capsule")
+    validate_source_lock(lock)
     inputs = {lock_name, lock["patch"], ".gitmodules", "models/gambit/cases.json",
               "evidence/runtime-source-provisioning.json", capsule["sourceLock"], capsule["bundle"]}
     inputs.update("src/gambit_smp/" + name + ".py" for name in
-        ("__init__", "framework", "source_materialize", "source_provision", "reproduction_check", "paper_cache"))
+        ("__init__", "framework", "source_materialize", "source_capabilities", "recipes",
+         "source_provision", "reproduction_check", "paper_cache"))
     if hashlib.sha256(portable(root, lock["patch"]).read_bytes()).hexdigest() != lock["patchSha256"]:
         raise ValueError("candidate source overlay digest drift")
     submodule = lock["submodule"]

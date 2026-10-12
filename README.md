@@ -19,6 +19,13 @@ repair work. This repository is not an accepted replacement runtime.
 
 ## Local Checks
 
+Evidence inference requires the ASCENT CFFI API build; there is no Python
+Datalog fallback. Point a local binding path at the selected ASCENT checkout's
+`python` project and set `PYTHONPATH` to its receipt-bound native API directory.
+See [native setup](integrations/ascent/README.md).
+`gambit-smp agent-context` validates the evidence pipeline and emits an
+identity-bound Agent handoff linking Catalog entries, receipts and open gates.
+
 ```sh
 uv sync --locked
 uv run --locked python -m unittest discover -s tests
@@ -40,9 +47,15 @@ Do not use a global installed runtime to validate a build-tree candidate.
 Primary-source papers can be downloaded once with
 `uv run --locked gambit-smp papers`; later runs check hashes offline.
 See `docs/paper-cache.md` for local text search and cache boundaries.
+Pinned Gambit source, versioned Markdown paper notes and cache-independent input
+checks are documented in [research reproduction](docs/research-reproduction.md).
+Use `PYTHONPATH=src python3 -m gambit_smp.reproduction_check --require-committed`
+before claiming research inputs are reproducible from Git.
 
 Python and dependencies are declared in `pyproject.toml`, `.python-version`, and
-`uv.lock`; CI uses the same locked commands. `gambit-smp --help` lists adapters,
+`uv.lock`. Clean CI additionally needs matching ASCENT source and native
+artifact provisioning; the previous Python-only workflow is not sufficient.
+`gambit-smp --help` lists adapters,
 and `gambit-smp COMMAND --help` describes each adapter. A wheel installed outside
 the checkout uses `gambit-smp --root PATH COMMAND` to locate research data.
 See [the framework guide](docs/python-framework.md) for module boundaries and

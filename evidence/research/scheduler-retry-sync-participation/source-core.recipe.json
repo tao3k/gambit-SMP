@@ -1,0 +1,42 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "scheduler-retry-sync-participation-source-core",
+  "scope": "Fresh GNU GCC seed and full source regeneration from the pinned18-file cumulative source lock; all concurrency flags enabled. Local compiled and atomic-observer diagnostics do not transfer to the new binary. No complete native suite, two-pass bootstrap, Gerbil, arbitrary thread drain, full GC or release admission.",
+  "budgetSeconds": 420,
+  "inputs": [
+    "evidence/fixtures/scheduler-retry-sync-participation/source.lock.json",
+    "patches/fixtures/scheduler-retry-sync-participation.patch",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source", "capability": "gambit.materialize", "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/scheduler-retry-sync-participation/source.lock.json"}
+    },
+    {
+      "id": "configure", "capability": "gambit.configure", "dependsOn": ["source"],
+      "budgetSeconds": 90,
+      "arguments": {"source": {"step": "source", "output": "source"}, "cOptimization": 0, "rtsOptimization": 0}
+    },
+    {
+      "id": "seed", "capability": "gambit.seed-core", "dependsOn": ["configure"],
+      "budgetSeconds": 180,
+      "arguments": {"source": {"step": "configure", "output": "source"}}
+    },
+    {
+      "id": "core", "capability": "gambit.source-core", "dependsOn": ["seed"],
+      "budgetSeconds": 180,
+      "arguments": {"runtime": {"step": "seed", "output": "runtime"}}
+    },
+    {
+      "id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "configure", "seed", "core"],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step", "bindings": "bound_source", "controls": "bound_control"},
+        "expected": {"missing": [], "bindings": [], "controls": []}
+      }
+    }
+  ]
+}

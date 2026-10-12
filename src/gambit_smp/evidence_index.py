@@ -9,34 +9,178 @@ from pathlib import Path
 from gambit_smp.framework import ROOT, digest
 
 QUERIES = {
-    "reports_without_snapshots": "needs_snapshot(P)",
-    "model_contexts_without_report_snapshot": "context_needs_report(M, P)",
-    "reports_without_models": "needs_model(P)",
-    "models_without_native_adapters": "needs_native(M)",
-    "dependency_closure": "dependency_path(P, D)",
-    "shared_obligations": "shared_obligation(P, D, M)",
-    "source_overlap_review_open": "triage_open(P)",
-    "reported_failure_records": "reported_failure(P, F, S)",
-    "local_assertions_without_models": "local_needs_model(F)",
-    "local_environment_failures": "local_environment(F)",
-    "local_budget_denials": "local_budget(F)",
-    "local_passing_controls": "local_control_pass(F, K, M, D)",
-    "local_budget_without_passing_controls": "local_budget_uncontrolled(F)",
-    "local_signal_denials": "local_signal(F)",
-    "paper_guided_models": "model_paper(M, P, S)",
-    "model_contract_dependencies": "contract_path(M, D)",
-    "paper_guided_models_without_native_adapters": "paper_needs_native(M)",
-    "contract_dependencies_without_native_adapters": "contract_needs_native(M, D)",
-    "recorded_model_admissions": "model_receipt(M, H, E)",
-    "contract_dependencies_without_model_receipts": "contract_needs_receipt(M, D)",
-    "recorded_source_unit_observations": "source_unit_observation(M, K, R, L)",
-    "explicit_progress_obligations": "model_progress_obligation(M, H, S)",
-    "recorded_progress_checks": "model_progress_checked(M, R)",
-    "progress_obligations_without_checks": "progress_needs_check(M)",
-    "protocol_extensions": "protocol_model(M, H)",
-    "recorded_protocol_checks": "protocol_checked(M, R)",
-    "protocol_extensions_without_checks": "protocol_needs_check(M)",
+    "reports_without_snapshots": "needs_snapshot",
+    "model_contexts_without_report_snapshot": "context_needs_report",
+    "reports_without_models": "needs_model",
+    "models_without_native_adapters": "needs_native",
+    "dependency_closure": "dependency_path",
+    "shared_obligations": "shared_obligation",
+    "source_overlap_review_open": "triage_open",
+    "reported_failure_records": "reported_failure",
+    "local_assertions_without_models": "local_needs_model",
+    "local_environment_failures": "local_environment",
+    "local_budget_denials": "local_budget",
+    "local_passing_controls": "local_control_pass",
+    "local_budget_without_passing_controls": "local_budget_uncontrolled",
+    "local_signal_denials": "local_signal",
+    "paper_guided_models": "model_paper",
+    "model_contract_dependencies": "contract_path",
+    "paper_guided_models_without_native_adapters": "paper_needs_native",
+    "contract_dependencies_without_native_adapters": "contract_needs_native",
+    "recorded_model_admissions": "model_receipt",
+    "contract_dependencies_without_model_receipts": "contract_needs_receipt",
+    "recorded_source_unit_observations": "source_unit_observation",
+    "explicit_progress_obligations": "model_progress_obligation",
+    "recorded_progress_checks": "model_progress_checked",
+    "progress_obligations_without_checks": "progress_needs_check",
+    "protocol_extensions": "protocol_model",
+    "recorded_protocol_checks": "protocol_checked",
+    "protocol_extensions_without_checks": "protocol_needs_check",
+    "protocol_open_obligations": "protocol_obligation",
+    "contract_dependencies_with_open_obligations": "contract_open_obligation",
+    "protocol_report_links": "protocol_report",
+    "protocol_reports_without_checks": "protocol_report_needs_check",
+    "local_failure_records": "local_failure_record",
+    "recorded_failure_bindings": "observed_field",
+    "recorded_failure_gaps": "observed_gap",
+    "recorded_failure_category_mismatches": "observed_unmatched",
+    "recorded_control_references": "observed_control_reference",
+    "recorded_failure_model_references": "observed_model_reference",
+    "recorded_failure_unregistered_models": "observed_model_unregistered",
+    "recorded_failure_log_attachments": "observed_log_attachment",
 }
+
+
+def observation_bindings(root, inventory_path, rows, bind):
+    """Transport explicit hash/pointer bindings, without admitting observations."""
+    from gambit_smp.native_review import pointer
+    from gambit_smp.recipes import fields, read_json, source_path
+    import re
+
+    def resolve(document, location):
+        if location == "":
+            return document
+        try:
+            return pointer(document, location)
+        except (KeyError, IndexError, TypeError) as error:
+            raise ValueError("missing or invalid observation JSON pointer") from error
+
+    path = root / "evidence/native-observation-bindings.json"
+    if not path.is_file():
+        return {}
+    document = read_json(path)
+    fields(document, ("schema", "inventorySha256", "bindings"))
+    if (document["schema"] != "gambit-native-observation-bindings.v1"
+            or document["inventorySha256"] != digest(inventory_path)):
+        raise ValueError("stale native observation inventory binding")
+    if not isinstance(document["bindings"], dict):
+        raise ValueError("observation bindings must be an identity map")
+    known = {row["id"]: row for row in rows}
+    if set(document["bindings"]) - known.keys():
+        raise ValueError("unknown native observation identity")
+    bind(path)
+    result = {}
+    kinds = {"exit": int, "timeout": bool, "accepted": bool,
+             "fixture": str, "fixture-sha": str, "source-lock-sha": str,
+             "runtime-identity-sha": str, "binary-sha": str,
+             "operation": str, "original-budget": (int, float),
+             "whole-budget": (int, float), "argv": list,
+             "teardown": bool, "stdout": str, "stderr": str}
+    for name, entry in document["bindings"].items():
+        fields(entry, ("receiptSha256", "recordPointer", "eventPointer", "scope", "fields"), ("logSha256Pointer",))
+        row = known[name]
+        receipt_path = source_path(root, row["receipt"])
+        if entry["receiptSha256"] != digest(receipt_path):
+            raise ValueError("stale native observation receipt binding")
+        receipt = read_json(receipt_path)
+        if receipt.get("status") == "DENY":
+            raise ValueError("normalized suite receipts must retain their strict admission path")
+        record, event = entry["recordPointer"], entry["eventPointer"]
+        if (not isinstance(record, str) or not isinstance(event, str)
+                or not (event == record or event.startswith(record + "/"))):
+            raise ValueError("process event is outside bound record")
+        if record:
+            resolve(receipt, record)
+        if not isinstance(resolve(receipt, event), dict) or entry["scope"] not in ("fixture", "build"):
+            raise ValueError("invalid native observation process scope")
+        mappings = entry["fields"]
+        if not isinstance(mappings, dict) or set(mappings) - kinds.keys():
+            raise ValueError("unsupported typed observation field")
+        expected = {"exit": event + "/exit", "timeout": event + "/timeout"}
+        if (any(mappings.get(key) != value for key, value in expected.items())
+                or mappings.get("accepted") not in (record + "/accepted", "/accepted")):
+            raise ValueError("failure process fields must share one event and record")
+        if entry["scope"] == "fixture" and (mappings.get("fixture") != record + "/fixture"
+                or mappings.get("fixture-sha") != record + "/fixtureSha256"):
+            raise ValueError("fixture identity must belong to bound failure record")
+        values = {}
+        origins = []
+        for key, location in mappings.items():
+            value = resolve(receipt, location)
+            types = kinds[key] if isinstance(kinds[key], tuple) else (kinds[key],)
+            if type(value) not in types:
+                raise ValueError("invalid typed observation value: " + key)
+            if key.endswith("-sha") and not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError("invalid observation digest")
+            if key in ("original-budget", "whole-budget") and value <= 0:
+                raise ValueError("invalid original observation budget")
+            original_names = {"source-lock-sha": ("sourceLockSha256",),
+                              "runtime-identity-sha": ("identitySha256", "runtimeIdentitySha256"),
+                              "binary-sha": ("binarySha256",), "whole-budget": ("wholeBudgetSeconds",)}
+            if key in original_names and not any(location.endswith("/" + name) for name in original_names[key]):
+                raise ValueError("observation identity is not its original named field")
+            # A duration or inventory label cannot supply a missing original cap/stage.
+            if key in ("original-budget", "operation", "argv", "teardown", "stdout", "stderr"):
+                suffix = {"original-budget": "budgetSeconds", "operation": "stage",
+                          "teardown": "group_quiescent"}.get(key, key)
+                allowed = {event + "/" + suffix}
+                if key == "original-budget":
+                    allowed.add("/processBudgetSeconds")
+                if location not in allowed:
+                    raise ValueError("observation field is not an original event field: " + key)
+            values[key] = value
+            origins.append([name, key, entry["receiptSha256"], location,
+                            json.dumps(value, sort_keys=True, separators=(",", ":"))])
+        if entry["scope"] == "fixture" and values["fixture"] != row["file"]:
+            raise ValueError("observation fixture does not match failure inventory")
+        if digest(receipt_path) != entry["receiptSha256"]:
+            raise ValueError("native observation receipt changed during projection")
+        signal = row.get("signal")
+        if signal is not None and (type(signal) is not int or not 0 < signal < 128):
+            raise ValueError("invalid declared observation signal")
+        controls = []
+        for control in row.get("controls", []):
+            control_path = source_path(root, control["receipt"])
+            read_json(control_path)
+            bind(root / control["receipt"])
+            controls.append([name, control["kind"], control["mode"], digest(control_path)])
+        models = []
+        for model in row["models"]:
+            model_path = source_path(root, "models/gambit/" + model + ".qnt")
+            bind(root / "models/gambit" / (model + ".qnt"))
+            models.append([name, model, digest(model_path)])
+        attachments = []
+        if "logSha256Pointer" in entry:
+            location = entry["logSha256Pointer"]
+            if location not in (event + "/rawLogSha256", event + "/portableLogSha256"):
+                raise ValueError("log must bind an original process log digest")
+            log_path = source_path(root, row["log"])
+            sha = resolve(receipt, location)
+            if sha != digest(log_path):
+                raise ValueError("original observation log digest mismatch")
+            bind(root / row["log"])
+            attachments.append([name, row["log"], sha, location])
+        bind(root / row["receipt"])
+        result[name] = {"observed_failure": [[name, row["category"], row["status"], entry["receiptSha256"], entry["scope"]]],
+                        "observed_process": [[name, values["exit"], values["timeout"], values["accepted"]]],
+                        "observed_field": origins,
+                        "observed_signal": [] if signal is None else [[name, signal]],
+                        "observed_control_reference": controls,
+                        "observed_model_reference": models,
+                        "observed_log_attachment": attachments}
+    if digest(inventory_path) != document["inventorySha256"]:
+        raise ValueError("native observation inventory changed during projection")
+    return result
 
 
 def admitted_control(denied, control, file, mode, output):
@@ -68,7 +212,8 @@ def export(root=ROOT):
     facts = {name: [] for name in ("pr", "pr_model", "dependency", "model",
              "source_obligation", "native_adapter", "frozen_negative", "unresolved", "model_context_pr",
              "report_kind", "report_snapshot", "window_disposition", "reported_failure", "source_unit_fixture", "source_unit_observation", "native_observation", "local_native_failure", "local_failure_model", "local_control_pass", "paper", "model_paper", "model_contract", "model_receipt",
-             "model_progress_obligation", "model_progress_checked", "protocol_model", "protocol_composes", "protocol_source", "protocol_paper", "protocol_control", "protocol_checked")}
+             "model_progress_obligation", "model_progress_checked", "protocol_model", "protocol_composes", "protocol_source", "protocol_paper", "protocol_control", "protocol_checked", "protocol_obligation", "protocol_report",
+             "observed_failure", "observed_process", "observed_field", "observed_signal", "observed_control_reference", "observed_model_reference", "observed_log_attachment")}
     inputs = {}
     def bind(path):
         inputs[str(path.relative_to(root))] = digest(path)
@@ -97,10 +242,16 @@ def export(root=ROOT):
         path.relative_to(root.resolve())
         bind(root / manifest["nativeFailureManifest"])
         local_seen = set()
-        for row in json.loads(path.read_text())["failures"]:
+        rows = json.loads(path.read_text())["failures"]
+        observations = observation_bindings(root, path, rows, bind)
+        for row in rows:
             if row["id"] in local_seen or row["category"] not in ("assertion", "environment", "budget", "signal"):
                 raise ValueError("invalid or duplicate local native failure")
             local_seen.add(row["id"])
+            if row["id"] in observations:
+                for relation, values in observations[row["id"]].items():
+                    facts[relation].extend(values)
+                continue
             receipt_path = (root / row["receipt"]).resolve()
             receipt_path.relative_to(root.resolve())
             receipt = json.loads(receipt_path.read_text())
@@ -293,16 +444,38 @@ def export(root=ROOT):
         known = set(cases) | {row[0] for row in extra["protocol_model"]}
         if any(parent not in known for _, parent in extra["protocol_composes"]):
             raise ValueError("protocol composition refers to an unknown model")
+        report_heads = {row[0]: row[1] for row in facts["pr"]}
+        if any(report_heads.get(report) != head for _, report, head, _ in extra["protocol_report"]):
+            raise ValueError("protocol report link differs from catalog head")
         for name, rows in extra.items():
             facts[name].extend(rows)
         inputs.update(bound)
+    if (root / "evidence/source-observations.json").is_file():
+        from gambit_smp.source_evidence import facts as source_facts
+        rows, bound = source_facts(root, {row[0] for row in facts["protocol_checked"]})
+        facts["source_unit_observation"].extend(rows)
+        inputs.update(bound)
+    validate_contract_graph(facts)
     return {"schema": "gambit-smp-relations.v1", "sourceRevision": manifest["sourceRevision"],
             "evidenceBoundary": "coverage-index-only-not-correctness-or-release-admission",
             "inputs": dict(sorted(inputs.items())),
             "facts": {name: sorted({tuple(row) for row in rows}) for name, rows in facts.items()}}
 
 
-def query(facts, rules):
+def validate_contract_graph(facts):
+    graph = {}
+    edges = [(parent, child) for parent, child, _ in facts["model_contract"]]
+    edges.extend(facts["protocol_composes"])
+    for parent, child in edges:
+        graph.setdefault(parent, set()).add(child)
+    try:
+        tuple(TopologicalSorter(graph).static_order())
+    except CycleError as error:
+        raise ValueError("cyclic model/protocol contracts; circular premises cannot admit a repair") from error
+
+
+def validate_graphs(facts):
+    validate_contract_graph(facts)
     graph = {}
     for parent, child in facts["dependency"]:
         graph.setdefault(parent, set()).add(child)
@@ -310,31 +483,12 @@ def query(facts, rules):
         tuple(TopologicalSorter(graph).static_order())
     except CycleError as error:
         raise ValueError("cyclic PR dependency; audit before querying") from error
-    from pyDatalog import pyDatalog
-    pyDatalog.clear()
-    # Register empty predicates too, so missing evidence queries remain defined.
-    arities = {"pr": 3, "pr_model": 2, "dependency": 2, "model": 3,
-               "source_obligation": 2, "native_adapter": 2, "frozen_negative": 3, "unresolved": 3,
-               "model_context_pr": 2, "source_unit_fixture": 3, "native_observation": 4,
-               "local_native_failure": 4, "local_failure_model": 2, "local_control_pass": 4}
-    arities.update(report_kind=2, report_snapshot=4, window_disposition=2, reported_failure=3)
-    arities.update(paper=2, model_paper=3, model_contract=3, model_receipt=3)
-    arities.update(source_unit_observation=4)
-    arities.update(model_progress_obligation=3, model_progress_checked=2,
-                   protocol_model=2, protocol_composes=2, protocol_source=2,
-                   protocol_paper=2, protocol_control=3, protocol_checked=2)
-    for name, arity in arities.items():
-        sentinel = tuple("__empty_relation__" for _ in range(arity))
-        pyDatalog.assert_fact(name, *sentinel)
-        pyDatalog.retract_fact(name, *sentinel)
-        for row in facts[name]:
-            pyDatalog.assert_fact(name, *row)
-    pyDatalog.load(rules)
-    results = {}
-    for name, expression in QUERIES.items():
-        result = pyDatalog.ask(expression)
-        results[name] = sorted(result.answers) if result else []
-    return results
+
+
+def query(facts, rules, *, engine=None, metrics=None):
+    from gambit_smp.ascent_program import query as native_query
+    validate_graphs(facts)
+    return native_query(facts, rules, QUERIES, engine=engine, metrics=metrics)
 
 
 def main():
@@ -344,7 +498,7 @@ def main():
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--validate", action="store_true",
                       help="validate current available inputs; missing local context stays pending")
-    mode.add_argument("--out", type=Path)
+    parser.add_argument("--out", type=Path)
     args = parser.parse_args()
     current = export()
     path = ROOT / "evidence/relations.json"
@@ -355,11 +509,23 @@ def main():
         return
     if not args.validate and (not path.is_file() or path.read_text() != serialized):
         raise ValueError("stale fact export; audit inputs before --refresh")
-    rules = ROOT / "evidence/rules.dl"
-    results = query(current["facts"], rules.read_text())
+    rules = ROOT / "evidence/dsl/catalog.ss"
+    backend = {}
+    from gambit_smp.ascent_program import load_component_catalog
+    catalog = load_component_catalog(ROOT / "evidence/dsl/components.json", entry="catalog",
+                                  constructor="make-catalog", trusted=True)
+    results = query(current["facts"], catalog, metrics=backend)
     receipt = {"schema": "gambit-smp-query.v1", "diagnosticOnly": True,
                "factsSha256": hashlib.sha256(serialized.encode()).hexdigest(),
-               "rulesSha256": digest(rules), "queries": results}
+               "rulesSha256": digest(rules), "queries": results, "backend": backend}
+    inputs = {**current["inputs"], **{str(Path(path).relative_to(ROOT.resolve())): sha
+              for path, sha in catalog["sourceInputs"].items()}}
+    if any(digest(ROOT / name) != sha for name, sha in inputs.items()):
+        raise ValueError("evidence inputs changed during query")
+    from gambit_smp.reasoning_history import record
+    receipt["history"] = record(ROOT, "evidence:catalog", inputs, results, backend)
+    if any(digest(ROOT / name) != sha for name, sha in inputs.items()):
+        raise ValueError("evidence inputs changed during history recording")
     if args.out:
         args.out.mkdir(parents=True, exist_ok=False)
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")

@@ -1,0 +1,43 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "current-producer-native-chain",
+  "scope": "Fresh all-three-flags GNU source producer, finite lock protocol check, native ASCENT causal review and one real upstream gsi file. Exact selected-interface qualification only, not full SMP suites/bootstrap/Gerbil acceptance.",
+  "budgetSeconds": 420,
+  "inputs": [
+    "evidence/fixtures/thread-completion-contract/source.lock.json",
+    "patches/fixtures/thread-completion-contract.patch",
+    "models/gambit/exit_drain_mutex_lock_order.qnt",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "evidence/research/current-producer-native-chain/intent.json"
+  ],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+     "arguments":{"sourceLock":"evidence/fixtures/thread-completion-contract/source.lock.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/exit_drain_mutex_lock_order.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/exit_drain_mutex_lock_order.qnt","parsed":"parse"}},
+    {"id":"protocol","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/exit_drain_mutex_lock_order.qnt","parsed":"parse",
+                  "initializer":"initFixed","step":"step","invariant":"checked","negative":false,"temporal":"progress"}},
+    {"id":"configure","capability":"gambit.configure","dependsOn":["source","protocol"],"budgetSeconds":90,
+     "arguments":{"source":{"step":"source","output":"source"},"cOptimization":0,"rtsOptimization":0}},
+    {"id":"seed","capability":"gambit.seed-core","dependsOn":["configure"],"budgetSeconds":180,
+     "arguments":{"source":{"step":"configure","output":"source"}}},
+    {"id":"core","capability":"gambit.source-core","dependsOn":["seed"],"budgetSeconds":180,
+     "arguments":{"runtime":{"step":"seed","output":"runtime"}}},
+    {"id":"review","capability":"gambit.review","dependsOn":["core","protocol"],"budgetSeconds":15,
+     "arguments":{"runtime":{"step":"core","output":"runtime"},"identity":{"step":"core","output":"identity"},
+                  "intent":"evidence/research/current-producer-native-chain/intent.json","target":"native"}},
+    {"id":"native","capability":"gambit.suite","dependsOn":["core","review"],"budgetSeconds":30,
+     "arguments":{"runtime":{"step":"core","output":"runtime"},"identity":{"step":"core","output":"identity"},
+                  "retryReview":{"step":"review","output":"review"},"mode":"gsi","regime":"whole-parallel",
+                  "selection":["01-fixnum/fxadd.scm"],"expectedFiles":["01-fixnum/fxadd.scm"],
+                  "failures":"evidence/native-failures.json","reviewRules":"evidence/research/suite-review-rules.ss"}},
+    {"id":"verdict","capability":"evidence.evaluate",
+     "dependsOn":["source","parse","typecheck","protocol","configure","seed","core","review","native"],"budgetSeconds":10,
+     "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

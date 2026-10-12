@@ -39,7 +39,8 @@ def counterexample(output):
 
 
 def summarize(output):
-    matches = list(re.finditer(r"([\d,]+) states generated, ([\d,]+) distinct states found, ([\d,]+) states left on queue", output))
+    matches = list(re.finditer(r"([\d,]+) states generated(?: \([^)]*\))?, "
+        r"([\d,]+) distinct states found(?: \([^)]*\))?, ([\d,]+) states left on queue", output))
     return ({key: int(number.replace(",", "")) for key, number in
              zip(("generated", "distinct", "queued"), matches[-1].groups())} if matches else {})
 
@@ -65,8 +66,27 @@ def interpret(code, output, timed_out, *, negative, temporal=None):
 
 
 def check(snapshot, *, initializer, invariant, negative, timeout, cwd,
-          temporal=None, step=None, config=None, executable="quint"):
+          temporal=None, step=None, config=None, executable="quint",
+          liveness_schedule="default", tlc_jar=None):
     endpoint = isolated_endpoint()
+    if liveness_schedule not in ("default", "final"):
+        raise ValueError("unsupported liveness schedule")
+    if liveness_schedule == "final":
+        if tlc_jar is None:
+            raise ValueError("explicit TLC jar required for final schedule")
+        from gambit_smp.tlc_execution import compiled_check
+        code, output, timed_out, seconds, identity = compiled_check(snapshot,
+            initializer=initializer, invariant=invariant, timeout=timeout, cwd=cwd,
+            endpoint=endpoint, jar=tlc_jar, temporal=temporal, step=step,
+            config=config, executable=executable)
+        accepted, trace = interpret(code, output, timed_out, negative=negative, temporal=temporal)
+        accepted = accepted and identity["inputsStable"] and identity["phase"] == "tlc"
+        row = dict(accepted=accepted, exit=code, timeout=timed_out,
+                   seconds=round(seconds, 3), temporal=temporal, serverEndpoint=endpoint,
+                   states=summarize(output), checker=identity)
+        return row, output, trace
+    if tlc_jar is not None:
+        raise ValueError("explicit jar requires final liveness schedule")
     command = [executable, "verify", str(snapshot), "--init", initializer,
                "--invariant", invariant, "--backend", "tlc", "--server-endpoint", endpoint]
     for option, setting in (("--step", step), ("--tlc-config", config), ("--temporal", temporal)):

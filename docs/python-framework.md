@@ -1,5 +1,11 @@
 # Python Verification Framework
 
+The active research architecture is the
+[closed, sealed v2 kernel](research-kernel.md). The adapter checkpoints below
+describe historical migrations and receipts; they do not authorize adding new
+feature-specific producers. Historical producer execution requires explicit
+`--historical-reproduction` and is unavailable in the sealed lane.
+
 ## Project And Commands
 
 This is an installable `uv` project, not a directory of directly executed
@@ -18,7 +24,9 @@ uv run --locked gambit-smp evidence --validate
 CI executes these same locked checks. Add reusable behavior to package modules
 and tests, not a new standalone script. The CLI dispatches to existing adapters;
 it does not change their timeouts, source identities or acceptance boundaries.
-Case-specific protocol assertions remain in the corresponding adapter/fixture.
+New protocol assertions live in QNT/native research assets and native ASCENT
+rules, not new Python adapter branches. Python owns mechanical typed transport,
+identity and process observation.
 
 Quint, Java, GNU GCC, Git and native Gambit build trees are external tools, not
 Python dependencies. A wheel installation needs a research checkout selected
@@ -47,8 +55,10 @@ The portable `evidence --validate` command queries available inputs without
 rewriting a saved index; missing local source context remains pending. The
 separate `--check` mode still rejects any stale saved index. Validator unit
 tests use temporary synthetic context to test receipt admission, not an
-unchecked assumption that a local candidate cache exists. Actual candidate C
-extraction and fault injection remain explicit `source-unit` operations.
+unchecked assumption that a local candidate cache exists. Historical candidate C
+extraction and fault injection remain reproducible `source-unit` observations.
+New research uses sealed typed source projection and binding, not that dedicated
+producer.
 
 ### Migration Validation
 
@@ -335,3 +345,20 @@ observations, independently of the four temporal protocol extensions and the
 explicit unchanged-model progress check. Native, bootstrap and source-refinement
 gaps remain open. See `continuation-chunk-publication.md`; no measured speedup
 or runtime repair is admitted from this source-unit observation.
+# Aggregate Budget Failure Reviews
+
+`native_suite --scope-review` accepts an exact-input
+`gambit-aggregate-retry-review.v1` review for a smaller diagnostic campaign.
+The review binds the candidate receipt digest, selected fixture digests, modes,
+budget, historical failure receipt digests, causal explanation, expected
+observation and durable source/model reference digests. Both interpreter and
+compiler must differ from the historical candidate and match the current
+inventory. The selected file count must decrease and the budget cannot exceed
+the historical budget.
+
+This mechanism handles only aggregate failures classified as `budget`. Concrete
+assertion failures, unchanged candidates and expanded budgets are not waived.
+The native Datalog query exposes the verified contextual review as
+`reviewed_aggregate_scopes`; the preflight labels execution `SCOPED_REVIEWED`,
+not a previously unfailed route. Historical DENY receipts remain unchanged.
+This permits diagnosis, not whole-suite, model, bootstrap or runtime admission.

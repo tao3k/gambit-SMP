@@ -1,0 +1,20 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    ".data/pstate-init-runtime-027/source/lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    ".data/papers/hotspot-parallel-gc-2001/paper.txt": "df718c6e882c2c6ea5fdcd2c4418183614cb45d8271eb4e04cf57875482d9535"
+  },
+  "cases": [{
+    "id": "eager_tail_scan_partition",
+    "temporal": "progress",
+    "oldInvariants": ["inputSafe", "completionSafe"],
+    "oldInitializers": {"completionSafe": "initEarlyIdle"},
+    "composes": ["gc_forward_publication", "gc_scan_claim_transfer", "gc_work_closure"],
+    "openObligations": ["gc_eager_chain_allocation_closure", "gc_body_rescan_origin", "gc_copy_queue_memory_order"],
+    "source": ["lib/mem.c:mark_array", "lib/mem.c:scan", "lib/mem.c:scan_and_advance", "lib/mem.c:mark_reachable_from_marked"],
+    "papers": ["hotspot-parallel-gc-2001"],
+    "scope": "One fully copied movable default-subtype object with 1..4 reference fields. Models mark_array's eager slot-zero ownership and scanner ownership of slots 1..size-1, including queue publication before eager marking completes. Both producers remain counted until their work completes. Negative controls add slot zero to scanner ownership or prematurely deactivate the eager producer. Field values abstract old-space references becoming relocated; no package or test selects success. Source enforces the partition for movable subtypes at/below BOXVALUES, with a separate pair fast path. Assumes exclusive single queue claim, coherent copy/queue publication and valid initial old-space payloads. Excludes still objects, continuations, weak objects, zero-length objects, recursive tail-chain allocations, multiple chunks/epochs, C weak memory and native acceptance. The observed repeated vector-body scans remain unexplained; this model must not be used as their diagnosis or a runtime repair."
+  }]
+}

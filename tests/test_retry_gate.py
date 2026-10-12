@@ -20,7 +20,7 @@ class RetryGateTests(unittest.TestCase):
         self.root = Path(temporary.name)
         evidence = self.root / "evidence"
         evidence.mkdir()
-        for name in ("rules.dl", "research-rules.dl"):
+        for name in ("catalog.ss", "research-rules.ss"):
             shutil.copyfile(retry_gate.audit.ROOT / "evidence" / name, evidence / name)
         self.runtime = self.root / "runtime"
         for name in ("gsi/gsi", "gsc/gsc", "bin/gambuild-C",
@@ -44,11 +44,58 @@ class RetryGateTests(unittest.TestCase):
         (evidence / "native-failures.json").write_text(json.dumps({"failures": [
             {"id": "failure", "file": "case.scm", "receipt": "old.json"}]}))
 
-    def check(self, files=None, modes=None, budget=30, hypotheses=None):
+    def check(self, files=None, modes=None, budget=30, hypotheses=None, scope_review=None):
         with patch.object(retry_gate.audit.index, "export",
                           return_value={"facts": self.empty, "inputs": {}}):
             return retry_gate.preflight(self.root, self.runtime, self.receipt,
-                files or [Path("case.scm")], modes or ["gsc"], budget, hypotheses)
+                files or [Path("case.scm")], modes or ["gsc"], budget, hypotheses,
+                scope_review=scope_review)
+
+    def aggregate_review(self):
+        manifest = self.root / "evidence/native-failures.json"
+        manifest.write_text(json.dumps({"failures": [{"id": "aggregate", "category": "budget",
+            "file": "tests/run-unit-tests.scm", "receipt": "old.json"}]}))
+        old_path = self.root / "old.json"
+        old = json.loads(old_path.read_text())
+        old["selectedFiles"] = ["case.scm", "other.scm"]
+        old_path.write_text(json.dumps(old))
+        for field, name in (("binarySha256", "gsi/gsi"), ("gscSha256", "gsc/gsc")):
+            (self.runtime / name).write_text("regenerated " + name)
+            self.candidate[field] = digest(self.runtime / name)
+        self.receipt.write_text(json.dumps(self.candidate))
+        context = self.root / "review.md"
+        context.write_text("Aggregate budget failure is not a per-file assertion; changed source audit.")
+        review = self.root / "review.json"
+        review.write_text(json.dumps({"schema": "gambit-aggregate-retry-review.v1",
+            "candidateReceiptSha256": digest(self.receipt), "modes": ["gsc"], "budgetSeconds": 30,
+            "selectedFiles": {"case.scm": digest(self.runtime / "tests/unit-tests/case.scm")},
+            "references": {context.name: digest(context)}, "failures": {"aggregate": {
+                "receiptSha256": digest(old_path), "cause": "whole-suite compilation budget",
+                "expectedObservation": "one-file diagnostic completes; old denial remains"}}}))
+        return review
+
+    def test_exact_aggregate_review_permits_only_smaller_diagnostic_scope(self):
+        result = self.check(scope_review=self.aggregate_review())
+        self.assertEqual("SCOPED_REVIEWED", result["decision"])
+        self.assertEqual(["aggregate"], result["reviewedAggregateScopes"])
+        self.assertFalse(result["runtimeAdmitted"])
+
+    def test_aggregate_review_rejects_stale_candidate_and_expanded_budget(self):
+        review = self.aggregate_review()
+        with self.assertRaisesRegex(ValueError, "exact candidate"):
+            self.check(budget=31, scope_review=review)
+        self.receipt.write_text("{}")
+        with self.assertRaisesRegex(ValueError, "exact candidate"):
+            self.check(scope_review=review)
+
+    def test_aggregate_review_cannot_waive_non_budget_failure(self):
+        review = self.aggregate_review()
+        manifest = self.root / "evidence/native-failures.json"
+        record = json.loads(manifest.read_text())
+        record["failures"][0]["category"] = "assertion"
+        manifest.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError, "non-budget"):
+            self.check(scope_review=review)
 
     def test_unchanged_failure_is_denied_without_launching_a_candidate(self):
         result = self.check()
@@ -86,6 +133,25 @@ class RetryGateTests(unittest.TestCase):
         old_path.write_text(json.dumps(old))
         result = self.check(modes=["gsi", "gsc"])
         self.assertEqual({"failure:gsi", "failure:gsc"}, {row["route"] for row in result["routes"]})
+
+    def test_directory_and_suite_failures_require_review_not_silent_bypass(self):
+        manifest = self.root / "evidence/native-failures.json"
+        for scope, selected in (("family", "family/case.scm"),
+                                ("tests/run-unit-tests.scm", "case.scm")):
+            manifest.write_text(json.dumps({"failures": [
+                {"id": "aggregate", "file": scope, "receipt": "old.json"}]}))
+            result = self.check(files=[Path(selected)])
+            self.assertEqual("REVIEW_REQUIRED", result["decision"])
+            self.assertEqual(["aggregate"], result["unsupportedSelectedFailures"])
+            self.assertFalse(result["runtimeAdmitted"])
+            self.assertEqual("NOT_REQUIRED", self.check(files=[Path(selected)], modes=["gsi"])["decision"])
+
+    def test_directory_matching_respects_path_boundaries(self):
+        self.assertTrue(retry_gate.selected_failure("family", {"family/nested/case.scm"}))
+        self.assertFalse(retry_gate.selected_failure("family", {"family-other/case.scm"}))
+        self.assertFalse(retry_gate.selected_failure("Makefile:from-scratch", {"case.scm"}))
+        with self.assertRaises(ValueError):
+            retry_gate.selected_failure("../outside", {"case.scm"})
 
     def test_tested_patched_snapshot_not_original_is_compared(self):
         snapshot = self.root / "snapshot"

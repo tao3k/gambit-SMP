@@ -1,0 +1,302 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "vm-log-source-derived-controls",
+  "scope": "Byte-origin bound VM array/mutex component observations using mock primitives; no P0 integration, concurrency, source refinement or native runtime admission.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/runtime-source-031.lock.json",
+    "patches/snapshots/candidate031-composed-source.patch",
+    "patches/research/vm-log-array-mutex-overlay.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/native/vm_activity_log_abort.c"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/runtime-source-031.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "candidate",
+      "capability": "source.overlay",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "patch": "patches/research/vm-log-array-mutex-overlay.patch",
+        "role": "candidate",
+        "files": {
+          "lib/actlog.c": {
+            "before": "283a169c37b43fe34d423804bf5df0fe230aea8b7b727e4be75cfa34a6202592",
+            "after": "93b01bcfe574c1b298af7245e404a0acfe20a15cded4b2b8d88b21d83dd70ae3"
+          },
+          "lib/actlog.h": {
+            "before": "17a6b8a9be32c084229ede176ab2a28bcbba957fe41b7a020bc6aa3e0d528da1",
+            "after": "dbbaa0d8b51b829714ec4b401629743ec1ba5fed8c82249c7df47b72077864ee"
+          }
+        }
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "vm_activity_log_abort.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/vm_activity_log_abort.c"
+            },
+            "sha256": "7d83a0cec4c3ed52bea799eba62077bb9888a05b35173c1bdb5fda34e875d91f"
+          },
+          {
+            "target": "vm-actlog-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/actlog.c"
+            },
+            "sha256": "93b01bcfe574c1b298af7245e404a0acfe20a15cded4b2b8d88b21d83dd70ae3",
+            "ranges": [
+              {
+                "start": 1667,
+                "end": 2947,
+                "sha256": "2482edc995d5bcee4007c1cd0a7f29c57bf74ae765c16fcd2618f648dc62de24"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "build-posix",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "workspace",
+        "binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_activity_log_abort.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "TEST_ENABLED",
+          "TEST_POSIX"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "test-posix",
+      "capability": "native.test",
+      "dependsOn": [
+        "build-posix"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "build-posix",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "posix",
+            "integers": [],
+            "stdout": "{\"checks\":3,\"arrayLive\":0,\"mutexLive\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "build-void",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "workspace",
+        "binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_activity_log_abort.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": [
+          "TEST_ENABLED"
+        ]
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "test-void",
+      "capability": "native.test",
+      "dependsOn": [
+        "build-void"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "build-void",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "void",
+            "integers": [],
+            "stdout": "{\"checks\":2,\"arrayLive\":0,\"mutexLive\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "build-disabled",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "workspace",
+        "binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_activity_log_abort.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "test-disabled",
+      "capability": "native.test",
+      "dependsOn": [
+        "build-disabled"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "build-disabled",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "disabled",
+            "integers": [],
+            "stdout": "{\"checks\":1,\"arrayLive\":0,\"mutexLive\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "candidate",
+        "workspace",
+        "binding",
+        "build-posix",
+        "test-posix",
+        "build-void",
+        "test-void",
+        "build-disabled",
+        "test-disabled"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "binding",
+              "candidate"
+            ]
+          ],
+          "controls": [
+            [
+              "test-posix",
+              "posix",
+              false,
+              "binding"
+            ],
+            [
+              "test-void",
+              "void",
+              false,
+              "binding"
+            ],
+            [
+              "test-disabled",
+              "disabled",
+              false,
+              "binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json": "7281af1a177753e719de411c8867dae463280c77d1b321ad877120ea3af5285c",
+    "patches/fixtures/interrupt-prefix-owned-lifecycle.patch": "626ceb6364e8891282421dad54e1437d495758107334217727b18231a82757f9",
+    "evidence/source-results/fixtures/interrupt-prefix-owned-lifecycle/observation.json": "72d8927ee73f6fdb89f382e5c80a9d41d658b9f353fbef852ad611a1992f4fe4",
+    "models/gambit/sync_slot_retained_resources.qnt": "dad954671731833df73195b4f291141a8aa698f764b29b22c965cb8aaf256fc7",
+    "models/gambit/pstate_retirement_generation.qnt": "d3379b10f012aec12538d6c0d127951a34148bd73b388547d7f5fb945bffb9d5",
+    "models/gambit/gc_resize_resource_retirement.qnt": "65954307d23071e285892b4d6e2c3b86d4c5d8f63ccc38b7fdb990180e1fb12c"
+  },
+  "cases": [
+    {
+      "id": "vm_retirement_join_composition",
+      "dependencies": [
+        "sync_slot_retained_resources.qnt",
+        "pstate_retirement_generation.qnt",
+        "gc_resize_resource_retirement.qnt"
+      ],
+      "mode": "characterization",
+      "oldInvariants": [
+        "populationSafe",
+        "reuseSafe",
+        "cleanupSafe"
+      ],
+      "oldInitializers": {
+        "populationSafe": "initIgnoredJoinGc",
+        "reuseSafe": "initIgnoredJoinReuse",
+        "cleanupSafe": "initJoinOnlyCleanup"
+      },
+      "invariants": [
+        "safe"
+      ],
+      "protocolInitializers": {
+        "safe": "initFixed"
+      },
+      "temporal": "progress",
+      "composes": [
+        "sync_slot_retained_resources",
+        "pstate_retirement_generation",
+        "gc_resize_resource_retirement"
+      ],
+      "source": [
+        "lib/setup.c:___vm_resize_pstate",
+        "lib/setup.c:___cleanup_vmstate",
+        "lib/setup.c:___cleanup",
+        "lib/os_thread.c:___thread_join"
+      ],
+      "papers": [],
+      "openObligations": [
+        "actual_join_error_propagation_and_vm_failure_protocol",
+        "successful_join_recovery_or_explicit_noncompletion",
+        "external_vm_admission_and_remote_user_drain",
+        "arbitrary_population_and_repeated_generations",
+        "native_retirement_gc_shutdown_matrix",
+        "full_gc_foreign_callback_composition",
+        "c_memory_order_refinement"
+      ],
+      "scope": "Design-only integration, not existing C repair. Executes imported sync sender, receiver, reuse and destruction transitions while tracking population publication, receiver OS exit, failed join, next GC and VM cleanup. The positive requires eventual successful join after at most one failure and weak fairness; permanent failure and POSIX/native recovery are not established. Unlike the earlier local quarantine model, quarantine is not a successful terminal. GC condition concerns unfinished receiver cleanup, not mere OS thread existence. Source-model counterexamples do not claim actual failing valid pthread joins. Existing retirement and GC/resize models are contextual comparisons, not imported executable dependencies. No complete C refinement, native GC/resize/shutdown, bootstrap, Gerbil or release admission."
+    }
+  ]
+}

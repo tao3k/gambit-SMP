@@ -9,7 +9,7 @@ import subprocess
 import shlex
 import hashlib
 
-from gambit_smp.framework import available_processors, digest, execute, gnu_compiler
+from gambit_smp.framework import ROOT, available_processors, digest, execute, gnu_compiler
 from gambit_smp.runtime_identity import check
 from gambit_smp.source_binding import gc_table_snapshot, checked_negate_header_hash, ended_interrupt_source_hash, shared_pipe_source_hash, serialization_snapshot_source_hash, vector_increment_source_hash
 
@@ -23,6 +23,25 @@ GENERATED_REPAIR_SOURCE = {"gc_table_iteration": "lib/_system.c",
 def generated_c(name):
     path = Path(name)
     return len(path.parts) == 2 and path.parts[0] in ("lib", "gsi", "gsc") and path.name.startswith("_") and path.suffix == ".c"
+
+
+def seed_source_binding(runtime, identity, source_lock=None):
+    if source_lock is None:
+        if not identity.get("sourceRevision"):
+            raise ValueError("seed identity has no revision; explicit versioned source lock required")
+        return identity["sourceRevision"], {}
+    from gambit_smp.source_materialize import locked_source
+    lock_path = source_lock.resolve(strict=True)
+    name = lock_path.relative_to(ROOT).as_posix()
+    lock = json.loads(lock_path.read_text())
+    with locked_source(ROOT, name) as (source, inputs):
+        for path, row in lock["files"].items():
+            if (digest(source / path) != row["candidateSha256"]
+                    or digest(runtime / path) != row["candidateSha256"]):
+                raise ValueError("bootstrap seed differs from locked candidate: " + path)
+        if identity.get("sourceRevision", lock["revision"]) != lock["revision"]:
+            raise ValueError("bootstrap seed revision conflicts with source lock")
+    return lock["revision"], inputs
 
 
 def compiler_binding(runtime, compiler):
@@ -124,6 +143,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--toolchain-receipt", type=Path, required=True)
+    parser.add_argument("--source-lock", type=Path,
+                        help="versioned source authority for sealed seed identities without revision")
     parser.add_argument("--gcc", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--timeout", type=float, required=True,
@@ -147,6 +168,7 @@ def main():
     runtime, out = args.runtime.resolve(), args.out.resolve()
     identity = json.loads(args.toolchain_receipt.read_text())
     check(runtime, identity)
+    source_revision, seed_inputs = seed_source_binding(runtime, identity, args.source_lock)
     compiler, environment, version = gnu_compiler(args.gcc)
     compiler_binding(runtime, compiler)
     environment.pop("GAMBOPT", None)
@@ -154,7 +176,7 @@ def main():
     copy = out / "source"
     shutil.copytree(runtime, copy, symlinks=True, ignore=shutil.ignore_patterns(".git", ".hg"))
     check(copy, identity)
-    patched_hashes, binding, proof_inputs, support = {}, None, [], {}
+    patched_hashes, binding, proof_inputs, support = {}, None, [(ROOT / name, sha) for name, sha in seed_inputs.items()], {}
     if args.patch:
         from gambit_smp.check_gambit import MODELS, reuse_model_receipt
         case = next(c for c in json.loads((MODELS / "cases.json").read_text())["cases"]
@@ -178,7 +200,8 @@ def main():
     jobs = available_processors()
     receipt = {"schema": "gambit-two-pass-bootstrap.v1" if args.target == "from-scratch" else "gambit-source-core-candidate.v1", "status": "RUNNING",
                "seedReceiptSha256": digest(args.toolchain_receipt),
-               "seedGscSha256": identity["gscSha256"], "sourceRevision": identity["sourceRevision"],
+               "seedGscSha256": identity["gscSha256"], "sourceRevision": source_revision,
+               "seedSourceInputs": seed_inputs,
                "processors": jobs, "processorSelection": "host-auto",
                "compiler": version.splitlines()[0], "wholeBootstrapBudget": args.timeout,
                "scope": "upstream two-pass bootstrap" if args.target == "from-scratch" else "isolated patched source core rebuild; not a complete bootstrap or native acceptance",

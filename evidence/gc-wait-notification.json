@@ -1,0 +1,24 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    ".data/pstate-init-runtime-027/source/lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    ".data/pstate-init-runtime-027/source/include/gambit.h": "8684d6c18599d55f8577ee4490f72078c0189886e5bfa4ca0bb52a354bbb285e",
+    ".data/papers/ghc-parallel-gc-2008/paper.txt": "b2d9fbc2d3c9bb21917ef892fa508a1e4ae0952fe129bd8d4787a4c9b5450188",
+    ".data/papers/hotspot-parallel-gc-2001/paper.txt": "df718c6e882c2c6ea5fdcd2c4418183614cb45d8271eb4e04cf57875482d9535"
+  },
+  "cases": [{
+    "id": "gc_wait_notification",
+    "mode": "characterization",
+    "invariants": ["guardSound"],
+    "temporal": "progress",
+    "oldInvariants": ["notificationSafe", "signalOnlyWakeSafe", "recheckOnlyWakeSafe"],
+    "oldInitializers": {"signalOnlyWakeSafe": "initSignalOnly", "recheckOnlyWakeSafe": "initRecheckOnly"},
+    "composes": ["eager_chain_work_closure", "gc_work_closure"],
+    "openObligations": ["gc_notification_source_repair", "gc_notification_queue_recheck_lock_order", "gc_condition_error_handling", "gc_unbounded_spurious_wake_fairness", "gc_multiple_producer_notification", "gc_copy_queue_memory_order", "gc_scan_sync_resource_initialization"],
+    "source": ["lib/mem.c:end_heap_chunk", "lib/mem.c:scan_movable_objs_to_scan", "lib/mem.c:mark_reachable_from_marked", "lib/mem.c:scan_workers_count", "include/gambit.h:___CONDVAR_WAIT", "include/gambit.h:___CONDVAR_SIGNAL"],
+    "papers": ["ghc-parallel-gc-2008", "hotspot-parallel-gc-2001"],
+    "scope": "Source-shaped POSIX wait/notification characterization: one active producer/helper, one fully published coherent chunk, one optional spurious helper wake, one strong phase. Distinguishes final empty probe, mutex acquisition, count decrement, atomic waiter registration/unlock, unbuffered work notification, mutex reacquisition, producer local drain and protected termination signaling. Source negative control demonstrates a missed work-wake opportunity, not GC deadlock; single-sided proposed repairs also fail. Positive initializes source and all three proposal policies, proves finite count/closure/progress for each and notification reliability only for the combined under-mutex recheck plus protected-signal contract. Assumes producer can locally drain its own exported queue and remains counted through marking return. Folded producer count/wait step is valid here because it publishes no further work. Excludes arbitrary graphs/producers/cardinalities/phases, actual queue-lock nesting, unbounded spurious wakes, condition errors/destruction, C weak memory, native acceptance and measured speedup. No runtime repair is implemented."
+  }]
+}

@@ -1,0 +1,50 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "models/gambit/pstate_setup_transaction.qnt": "7be58564e0e53b14dd1e058dabc6cdfd0a595101589b5ef1689d0d72a3c28561",
+    "models/gambit/vm_activity_log_abort.qnt": "57216f83d91279f5d557fc353af55112316d7d669e4dafc71f2d263f92212d62",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "vendor/gambit/lib/setup.c": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46",
+    "evidence/fixtures/pstate-log-owned-rollback/source.lock.json": "1630117e736b3b0c0f7c84813754ab756ce6a56d32ce8404aa54e3d4d7e8a7ce",
+    "patches/fixtures/pstate-log-owned-rollback.patch": "2b938edf56d4f835c6c21adea2e4cdc00be0a578f6c1303f42a6e74d1add5a44",
+    "patches/candidate-pstate-log-owned-rollback.patch": "ef2f1cad94ed3f7d3f479a0c1f960a53445f9e56ce84c8763a6960d27005c69d"
+  },
+  "cases": [
+    {
+      "id": "pstate_log_rollback_composition",
+      "mode": "characterization",
+      "dependencies": [
+        "pstate_setup_transaction.qnt",
+        "vm_activity_log_abort.qnt"
+      ],
+      "oldInvariants": [
+        "failureOwnershipSafe",
+        "returnOwnershipSafe"
+      ],
+      "oldInitializers": {
+        "failureOwnershipSafe": "initVMOnly",
+        "returnOwnershipSafe": "initDelayed"
+      },
+      "invariants": [
+        "safe"
+      ],
+      "protocolInitializers": {
+        "safe": "initFixed"
+      },
+      "temporal": "progress",
+      "composes": [
+        "pstate_setup_transaction",
+        "vm_activity_log_abort"
+      ],
+      "source": [
+        "lib/mem.c:___setup_mem_pstate",
+        "lib/mem.c:___cleanup_mem_pstate",
+        "lib/setup.c:___setup_pstate"
+      ],
+      "papers": [],
+      "scope": "Expands activity-log initialization inside processor memory setup. VM log failure, P0 temporary-allocation failure and later sync failure compose with processor rollback. The inner caller releases initialized P0 log buffers before failure handoff; outer rollback owns only VM log resources. VM-only abort leaks buffers; delayed outer cleanup violates error-return ownership even if final cleanup empties resources. Fresh exclusive P0, successful returning destructors and POSIX boolean initializer assumed; disabled logging included. The pstate-log-owned-rollback Fixture binds the proposed owned-memory-ready log cleanup in setup.c. Excludes general VM constructor, concurrent readers, live-slot retirement, semantic C refinement, bootstrap and native admission."
+    }
+  ]
+}

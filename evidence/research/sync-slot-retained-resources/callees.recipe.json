@@ -1,0 +1,417 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "sync-slot-retained-resources-callees",
+  "scope": "Actual locked sync setup/cleanup with returning init failure matrix, two VM lifetimes and three slot reuses. Real POSIX sender holds mutex across message reset, then unlocks/signals and joins before cleanup. Parent setup-only injected control uses a no-op destructor and exits 1; it is not a full parent runtime. No VM caller/drain, failed join, arbitrary GC/bootstrap/Gerbil admission.",
+  "budgetSeconds": 150,
+  "inputs": [
+    "evidence/fixtures/sync-slot-retained-resources/source.lock.json",
+    "patches/fixtures/sync-slot-retained-resources.patch",
+    "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json",
+    "patches/fixtures/pstate-scan-lock-owned-lifecycle.patch",
+    "models/gambit/native/sync_slot_retained_resources.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/sync-slot-retained-resources/source.lock.json"
+      }
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate-source"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "source": {
+          "step": "candidate-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "sync_slot_retained_resources.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/sync_slot_retained_resources.c"
+            },
+            "sha256": "eb3776dc1a8c586c5d672cfa2d82801e1349a71e80bb329318ddb3b9921542c9"
+          },
+          {
+            "target": "sync-setup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "17ed9ce50a66e17228e4ce54417e5c32439d0e0506396a838813a8c7341c6793",
+            "ranges": [
+              {
+                "start": 100875,
+                "end": 101551,
+                "sha256": "6f0d84d0b76719d3782dc491309adcd8d8c004c57088b45eae7210dc7a1c3660"
+              }
+            ]
+          },
+          {
+            "target": "sync-cleanup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "17ed9ce50a66e17228e4ce54417e5c32439d0e0506396a838813a8c7341c6793",
+            "ranges": [
+              {
+                "start": 101552,
+                "end": 101842,
+                "sha256": "20aaf2988859f566f7d493e2886ca3712022fbdf1e112520deab094f81a8af9b"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "candidate-injected-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_slot_retained_resources.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": []
+      }
+    },
+    {
+      "id": "candidate-injected-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-injected-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "candidate-injected-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "injected",
+            "integers": [],
+            "stdout": "sync_slot_retained_resources checks=14 invalid=0\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-void-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_slot_retained_resources.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "MODE_VOID"
+        ]
+      }
+    },
+    {
+      "id": "candidate-void-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-void-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "candidate-void-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "void",
+            "integers": [],
+            "stdout": "sync_slot_retained_resources checks=10 invalid=0\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-posix-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_slot_retained_resources.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "MODE_REAL_POSIX"
+        ]
+      }
+    },
+    {
+      "id": "candidate-posix-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-posix-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "candidate-posix-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "posix",
+            "integers": [],
+            "stdout": "sync_slot_retained_resources checks=14 invalid=0\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "parent-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json"
+      }
+    },
+    {
+      "id": "parent-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "parent-source"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "source": {
+          "step": "parent-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "sync_slot_retained_resources.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/sync_slot_retained_resources.c"
+            },
+            "sha256": "eb3776dc1a8c586c5d672cfa2d82801e1349a71e80bb329318ddb3b9921542c9"
+          },
+          {
+            "target": "sync-setup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "d92cbdbac6b72c294d2aae6ef326f8729ad44114d5e173e56b600a8793696a7a",
+            "ranges": [
+              {
+                "start": 100875,
+                "end": 101450,
+                "sha256": "bd432a551c46ae9c53f21814a039eb5f221fdff65664eef97391c728674ef26c"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "parent-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "parent-workspace"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "parent-injected-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "parent-workspace",
+        "parent-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "parent-binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_slot_retained_resources.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "PARENT_SETUP"
+        ]
+      }
+    },
+    {
+      "id": "parent-injected-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "parent-injected-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "parent-injected-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "injected",
+            "integers": [],
+            "stdout": "sync_slot_retained_resources checks=14 invalid=1\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate-source",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-injected-build",
+        "candidate-injected-test",
+        "candidate-void-build",
+        "candidate-void-test",
+        "candidate-posix-build",
+        "candidate-posix-test",
+        "parent-source",
+        "parent-workspace",
+        "parent-binding",
+        "parent-injected-build",
+        "parent-injected-test"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "candidate-source"
+            ],
+            [
+              "parent-binding",
+              "parent-source"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-injected-test",
+              "injected",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-void-test",
+              "void",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-posix-test",
+              "posix",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "parent-injected-test",
+              "injected",
+              true,
+              "parent-binding"
+            ]
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "schema": "evidence-recipe.v1",
+  "id": "recursive-gc-wait-recheck-controls",
+  "scope": "Type/effect checks and five deterministic local controls; no whole-state-space, source refinement, runtime or release admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "models/gambit/gc_recursive_queue_wait.qnt",
+    "models/gambit/gc_recursive_wait_recheck.qnt",
+    "tests/fixtures/gc_wait_recheck.qnt",
+    "evidence/runtime-source-029.lock.json",
+    "patches/snapshots/candidate029-notification-source.patch",
+    "evidence/papers.lock.json",
+    "docs/gc-recursive-wait-recheck.md"
+  ],
+  "steps": [
+    {
+      "id": "parse-model",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "arguments": {"source": "models/gambit/gc_recursive_wait_recheck.qnt"},
+      "budgetSeconds": 30
+    },
+    {
+      "id": "parse-controls",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "arguments": {"source": "tests/fixtures/gc_wait_recheck.qnt"},
+      "budgetSeconds": 30
+    },
+    {
+      "id": "typecheck-model",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse-model"],
+      "arguments": {"source": "models/gambit/gc_recursive_wait_recheck.qnt", "parsed": "parse-model"},
+      "budgetSeconds": 30
+    },
+    {
+      "id": "typecheck-controls",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse-controls"],
+      "arguments": {"source": "tests/fixtures/gc_wait_recheck.qnt", "parsed": "parse-controls"},
+      "budgetSeconds": 30
+    },
+    {
+      "id": "mechanism-controls",
+      "capability": "quint.test",
+      "dependsOn": ["parse-controls", "typecheck-controls"],
+      "arguments": {
+        "source": "tests/fixtures/gc_wait_recheck.qnt",
+        "parsed": "parse-controls",
+        "main": "gc_wait_recheck",
+        "seed": "0x29",
+        "maxSamples": 1,
+        "expectedTests": ["pendingReleasesMutexTest", "emptyKeepsMutexTest", "lowerQueueCannotJumpTest", "busyQueueCannotBeReadTest", "repeatedWakeAllowedTest"]
+      },
+      "budgetSeconds": 30
+    }
+  ]
+}

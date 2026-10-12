@@ -8,6 +8,58 @@ from gambit_smp.check_gambit import digest
 
 
 class RuntimeIdentityTests(unittest.TestCase):
+    def test_source_build_uses_final_not_seed_artifacts_and_rejects_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runtime = root / "runtime"
+            names = ("configure.ac", "include/gambit.h", "lib/makefile", "lib/_test.scm",
+                     "lib/_test.c", "gsi/gsi", "gsc/gsc", "lib/libgambit.a")
+            for name in names:
+                path = runtime / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name)
+            patch = root / "overlay.patch"
+            patch.write_text("locked overlay")
+            lock = root / "lock.json"
+            lock.write_text(json.dumps({"revision": "pinned", "patch": patch.name,
+                "patchSha256": digest(patch), "files": {"configure.ac": {
+                    "candidateSha256": digest(runtime / "configure.ac")}}}))
+            receipt = root / "receipt.json"
+            record = {"schema": "gambit-locked-object.v1", "status": "source-core-rebuilt",
+                "contextStable": True, "inputs": {lock.name: digest(lock)}, "sourceLock": lock.name,
+                "artifacts": {"gsi/gsi": "seed-not-final"},
+                "generatedHeaderSha256": digest(runtime / "include/gambit.h"),
+                "configuredMakefileSha256": digest(runtime / "lib/makefile"),
+                "results": [{"stage": name, "exit": 0, "timeout": False, "argv": [
+                    "--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"]}
+                    for name in ("autoconf", "configure", "seed-core", "bootclean", "source-core")],
+                "sourceRegeneration": {"scmRegenerationEstablished": True, "schemeInputsStable": True,
+                    "schemeInputs": {"lib/_test.scm": digest(runtime / "lib/_test.scm")},
+                    "generatedHashes": {"lib/_test.c": digest(runtime / "lib/_test.c")},
+                    "artifacts": {name: digest(runtime / name) for name in
+                        ("gsi/gsi", "gsc/gsc", "lib/libgambit.a")}}}
+            receipt.write_text(json.dumps(record))
+            result = identity.create_from_source_build(runtime, receipt, root)
+            identity.check(runtime, result)
+            self.assertEqual(digest(runtime / "gsi/gsi"), result["binarySha256"])
+            self.assertFalse(result["runtimeAdmitted"])
+            self.assertFalse(result["fullTwoPassBootstrapEstablished"])
+            self.assertEqual([], result["modeledCases"])
+            (runtime / "lib/_test.c").write_text("stale generated source")
+            with self.assertRaisesRegex(ValueError, "input drift"):
+                identity.create_from_source_build(runtime, receipt, root)
+
+    def test_source_build_rejects_seed_or_unstable_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            receipt = root / "receipt.json"
+            for fields in ({}, {"schema": "gambit-locked-object.v1", "status": "seed-core-built"},
+                           {"schema": "gambit-locked-object.v1", "status": "source-core-rebuilt",
+                            "contextStable": False}):
+                receipt.write_text(json.dumps(fields))
+                with self.assertRaisesRegex(ValueError, "stable regenerated"):
+                    identity.create_from_source_build(root, receipt, root)
+
     def test_export_source_delta_requires_exact_baseline_and_unique_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

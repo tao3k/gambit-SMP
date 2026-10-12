@@ -72,6 +72,106 @@ def source_fixture_run(out, fixture, compiler, environment, flags, label):
     return row, None
 
 
+def vm_actlog_abort_unit(args, compiler, environment, version):
+    from gambit_smp.protocol_evidence import checked_rows
+    from gambit_smp.source_materialize import locked_source
+    manifest_path = ROOT / "evidence/vm-activity-log-abort-source031.json"
+    manifest = json.loads(manifest_path.read_text())
+    checked_rows(ROOT, manifest, args.model_receipt)
+    if args.source_lock != "evidence/runtime-source-031.lock.json":
+        raise ValueError("activity log source review requires its exact source lock")
+    patch = ROOT / "patches/candidate-vm-actlog-abort.patch"
+    if digest(patch) != manifest["contextInputs"].get(str(patch.relative_to(ROOT))):
+        raise ValueError("activity log patch differs from reviewed context")
+    fixture = ROOT / "models/gambit/native/vm_activity_log_abort.c"
+    inputs = {p.relative_to(ROOT).as_posix(): digest(p)
+              for p in (manifest_path, patch, fixture, args.model_receipt.resolve(), Path(__file__).resolve())}
+    with locked_source(ROOT, args.source_lock) as (source, source_inputs):
+        inputs.update(source_inputs)
+        before = source / "lib/actlog.c"
+        if digest(before) != manifest["contextInputs"]["vendor/gambit/lib/actlog.c"]:
+            raise ValueError("activity log baseline is not the reviewed submodule source")
+        apply_untracked_patch(source, patch.read_bytes(), {"lib/actlog.c", "lib/actlog.h"})
+        text = before.read_text()
+        start, end = "___SCMOBJ ___setup_actlog_vmstate\n", "void ___cleanup_actlog_vmstate\n"
+        if text.count(start) != 1 or text.count(end) != 1:
+            raise ValueError("activity log source boundaries changed")
+        block = text[text.index(start):text.index(end)]
+        abort = block[block.index("void ___abort_actlog_vmstate\n"):]
+        if any(token in abort for token in ("___actlog_stop_pstate", "___actlog_dump", "___PSTATE_FROM_PROCESSOR_ID")):
+            raise ValueError("constructor abort must not visit P0 or dump")
+        args.out.mkdir(parents=True, exist_ok=False)
+        out = args.out.resolve()
+        include = out / "vm-actlog-source.inc"
+        include.write_text(block)
+        shutil.copyfile(fixture, out / fixture.name)
+        for name in ("actlog.c", "actlog.h"):
+            shutil.copyfile(source / "lib" / name, out / name)
+        receipt = dict(schema="gambit-actlog-abort-source-unit.v1", inputs=inputs,
+            sourceFunctionsSha256=digest(include), candidateSourceSha256=digest(before),
+            compiler=version.splitlines()[0], runtimeAdmitted=False, releaseAdmitted=False,
+            scope="VM log array/mutex only, fresh exclusive successful init; no P0 buffers, native threads or constructor integration",
+            results=[])
+        for label, flags, count in (("posix", ["-DTEST_ENABLED", "-DTEST_POSIX"], 3),
+                                    ("void-init", ["-DTEST_ENABLED"], 2),
+                                    ("disabled", ["-Wno-unused-parameter"], 1)):
+            row, output = source_fixture_run(out, fixture, compiler, environment, flags, label)
+            try:
+                actual = json.loads(output) if output is not None else None
+            except ValueError:
+                actual = None
+            observed = row.get("observation", {})
+            row.update(actual=actual, accepted=observed.get("exit") == 0 and observed.get("timeout") is False
+                       and actual == {"checks": count, "arrayLive": 0, "mutexLive": 0})
+            receipt["results"].append(row)
+        checked = ("  if (!___MUTEX_INIT(___vms->actlog.mut))\n"
+                   "    {\n      ___FREE_MEM(ptr);\n      return ___FIX(___UNKNOWN_ERR);\n    }")
+        if block.count(checked) != 1:
+            raise ValueError("activity log negative control no longer targets the exact init check")
+        include.write_text(block.replace(checked, "  ___MUTEX_INIT(___vms->actlog.mut);"))
+        row, output = source_fixture_run(out, fixture, compiler, environment,
+                                        ["-DTEST_ENABLED", "-DTEST_POSIX"], "ignored-mutex-error-control")
+        observed = row.get("observation", {})
+        row.update(accepted=row["compile"]["exit"] == 0 and observed.get("exit", 0) != 0
+                   and observed.get("timeout") is False and output is not None
+                   and "EXPECTED-MUTEX-ERROR" in output,
+                   scope="Named injected rejection control, not candidate code")
+        receipt["results"].append(row)
+        include.write_text(block)
+        if args.native_runtime_root:
+            from gambit_smp.runtime_identity import check
+            identity_path = ROOT / "evidence/source-results/source031-native-gc-fixtures/identity.json"
+            identity = json.loads(identity_path.read_text())
+            runtime = args.native_runtime_root.resolve()
+            check(runtime, identity)
+            inputs[identity_path.relative_to(ROOT).as_posix()] = digest(identity_path)
+            receipt["nativeHeaderSha256"] = digest(runtime / "include/gambit.h")
+            receipt["nativeConfigSha256"] = digest(runtime / "include/config.h")
+            receipt["candidateFiles"] = {name: digest(out / name) for name in ("actlog.c", "actlog.h")}
+            for label, extra in (("object-enabled", ["-D___ACTIVITY_LOG"]), ("object-disabled", [])):
+                command = [compiler, "-O0", "-fPIC", "-fwrapv", "-fno-strict-aliasing",
+                    "-DHAVE_CONFIG_H", "-D___LIBRARY", *extra,
+                    "-I" + str(runtime / "include"), "-I" + str(runtime / "lib"),
+                    "-c", str(out / "actlog.c"), "-o", str(out / (label + ".o"))]
+                code, log, timed_out, seconds = execute(command, out, 30, env=environment)
+                (out / (label + ".log")).write_text(log)
+                row = dict(label=label, exit=code, timeout=timed_out, seconds=seconds,
+                           accepted=code == 0 and not timed_out,
+                           scope="Complete actual C translation unit, diagnostic O0, not linked-runtime acceptance")
+                if row["accepted"]:
+                    row["objectSha256"] = digest(out / (label + ".o"))
+                receipt["results"].append(row)
+            check(runtime, identity)
+        stable = all(digest(ROOT / name) == sha for name, sha in inputs.items())
+        receipt.update(sourceStable=stable, status="source-unit-pass" if stable and all(
+            row["accepted"] for row in receipt["results"]) else "DENY")
+        artifacts = [*out.glob("*.log"), include, out / fixture.name, out / "actlog.c", out / "actlog.h"]
+        receipt["artifacts"] = {path.name: digest(path) for path in sorted(artifacts)}
+    (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    print("ACTLOG-ABORT-SOURCE-" + receipt["status"])
+    return 0 if receipt["status"] == "source-unit-pass" else 1
+
+
 def pstate_setup_unit(args, compiler, environment, version):
     from gambit_smp.protocol_evidence import checked_rows
     manifest = json.loads((ROOT / "evidence/pstate-setup-protocol.json").read_text())
@@ -519,15 +619,23 @@ def checked_negate_unit(args, compiler, environment, version):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--setup-source", type=Path)
+    parser.add_argument("--source-lock")
+    parser.add_argument("--native-runtime-root", type=Path,
+                        help="optional exact source031 configured headers for actual activity-log object compilation")
     parser.add_argument("--mem-source", type=Path)
     parser.add_argument("--runtime-header", type=Path)
     parser.add_argument("--gcc", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--case", choices=("vm_resize_rollback", "shutdown_error_handoff", "mark_array_slot_ownership", "checked_negate_return", "sync_resource_retirement", "continuation_chunk_frontier", "pstate_os_mem_transaction", "pstate_setup_transaction"), default="vm_resize_rollback")
+    parser.add_argument("--case", choices=("vm_activity_log_abort", "vm_resize_rollback", "shutdown_error_handoff", "mark_array_slot_ownership", "checked_negate_return", "sync_resource_retirement", "continuation_chunk_frontier", "pstate_os_mem_transaction", "pstate_setup_transaction"), default="vm_resize_rollback")
     parser.add_argument("--patch", type=Path)
     parser.add_argument("--model-receipt", type=Path)
     parser.add_argument("--candidate-receipt", type=Path)
     args = parser.parse_args()
+    if args.case == "vm_activity_log_abort":
+        if not args.source_lock or not args.model_receipt:
+            parser.error("activity log abort requires source lock and complete model receipt")
+        compiler, environment, version = gnu_compiler(args.gcc)
+        return vm_actlog_abort_unit(args, compiler, environment, version)
     if args.case == "mark_array_slot_ownership" and not all((args.mem_source, args.runtime_header)):
         parser.error("mark-array source-unit requires --mem-source and --runtime-header")
     if args.case == "checked_negate_return" and not args.runtime_header:

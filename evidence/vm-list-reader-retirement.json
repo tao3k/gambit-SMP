@@ -1,0 +1,25 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    ".data/pstate-init-runtime-027/source/lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    ".data/pstate-init-runtime-027/source/lib/setup.c": "94d70dc650f16f120131a8755dbd6d857cc6054d792c213d9c682a72f9f0f453",
+    ".data/pstate-init-runtime-027/source/lib/os_time.c": "3cfc31cc5a3c27101c925a67315e76b8f02180fb2cb39b85e1a44757b6ad2bc0",
+    ".data/pstate-init-runtime-027/source/lib/os_base.c": "10fb1465cbdc7fdf00ebb9d528e80bb978b4044c39f4f139fe7fbd6ebea2c2a1",
+    ".data/pstate-init-runtime-027/source/include/gambit.h.in": "7f1a3abdd1323c504ab79269bb6a9625f38abc4c3a8d1f773313142d05497a58"
+  },
+  "cases": [{
+    "id": "vm_list_reader_retirement",
+    "temporal": "progress",
+    "composes": ["vm_list_c_memory_order"],
+    "openObligations": ["vm_list_callback_admission_source", "vm_list_callback_drain_source", "vm_list_all_interrupt_producers", "vm_list_same_thread_cleanup_reentry"],
+    "oldInvariants": ["readSafe", "writerLockSafe", "atomicPointerSafe", "snapshotDrainSafe"],
+    "oldInitializers": {
+      "writerLockSafe": "initWriterLock", "atomicPointerSafe": "initAtomic", "snapshotDrainSafe": "initSnapshot"
+    },
+    "source": ["lib/setup.c:___raise_interrupt", "lib/setup.c:___cleanup", "lib/setup.c:___cleanup_vmstate", "lib/mem.c:___cleanup_mem_vmstate", "lib/os_time.c:___cleanup_heartbeat_interrupt_handling", "lib/os_base.c:___set_signal_handler"],
+    "papers": [],
+    "scope": "One initialized VM node, one already-running independent callback participant and one cleanup participant under sequential consistency. Publication visibility is an assumed premise delegated to vm_list_c_memory_order, not implemented here. All policies stop new callback admission before unlink/reclaim. Fault controls permit a previously admitted callback to retain a pointer across reclamation; a writer-only lock and atomic pointer loads do not give reader lifetime protection. Late-registration control checks only registered holders and misses a loaded but not-yet-registered pointer. Positive requires atomic close/admit correspondence and draining every admitted callback before reclamation. Assumes callback completion under weak fairness and no cleanup reentry from that callback. Does not establish actual OS signal drain, all producers, C atomics, full list traversal, freeing VM struct versus its owned resources, arbitrary participant cardinality, native crash cause or native acceptance."
+  }]
+}

@@ -1,0 +1,24 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    ".data/pstate-init-runtime-027/source/lib/mem.c": "c84658583ec03c77b30c3ec5d3ac9d85999ab7e3ede7081ba0ae676b131ba750",
+    ".data/papers/ghc-parallel-gc-2008/paper.txt": "b2d9fbc2d3c9bb21917ef892fa508a1e4ae0952fe129bd8d4787a4c9b5450188",
+    ".data/papers/hotspot-parallel-gc-2001/paper.txt": "df718c6e882c2c6ea5fdcd2c4418183614cb45d8271eb4e04cf57875482d9535"
+  },
+  "cases": [{
+    "id": "gc_queue_wait_composition",
+    "mode": "characterization",
+    "invariants": ["sourceSafe", "combinedSafe"],
+    "protocolInitializers": {"sourceSafe": "initSource", "combinedSafe": "initCombined"},
+    "temporal": "progress",
+    "oldInvariants": ["notificationSafe", "restoreSafe", "producerLifetimeSafe"],
+    "oldInitializers": {"restoreSafe": "initNoRestore", "producerLifetimeSafe": "initEarlyIdle"},
+    "composes": ["gc_wait_notification", "gc_wait_count_restore", "gc_notification_lock_order", "eager_tail_scan_partition", "eager_chain_work_closure"],
+    "openObligations": ["gc_notification_source_repair", "gc_condition_error_handling", "gc_unbounded_spurious_wake_fairness", "gc_arbitrary_queue_graph_composition", "gc_copy_queue_memory_order", "gc_scan_sync_resource_initialization", "gc_queue_wait_resize_composition", "gc_queue_wait_source_refinement"],
+    "source": ["lib/mem.c:end_heap_chunk", "lib/mem.c:scan_movable_objs_to_scan", "lib/mem.c:scan_complete_heap_chunk", "lib/mem.c:mark_reachable_from_marked", "lib/mem.c:scan_workers_count"],
+    "papers": ["ghc-parallel-gc-2008", "hotspot-parallel-gc-2001"],
+    "scope": "Composed coherent single-phase protocol with two independent producer queues and two additional waiters. One completed tail per producer, producer-owned unfinished eager head, queue-locked pop, scan outside locks, termination mutex, sequential locked predicate probes, decrement, atomic wait registration/unlock, one-waiter signal, zero/nonzero wake recheck and one optional spurious wake per worker. All workers including producers can wait, resume, scan either queue and be last to terminate. Role labels are symmetric within their classes; no identity-dependent arithmetic exists. Positive explores source and proposed combined queue-recheck/protected-signal policies; both must preserve count, unique scan and complete heads/tails before termination. Only combined must avoid registering against queued work whose notifications have already completed. Source lost-notification control is a missed helper opportunity, not deadlock. Omitted restoration and premature producer idleness are independently injected controls, not source findings. Producer signal takes M only after releasing Q. Excludes arbitrary graphs/publication counts/populations, generational/weak phases, resize, allocation failures, C weak memory, condition errors, actual source repair, native acceptance and measured speedup."
+  }]
+}

@@ -45,22 +45,11 @@ class ResearchAuditTests(unittest.TestCase):
         (self.root / path).write_text(json.dumps(value))
 
     def decisions(self, proposal=None):
-        from pyDatalog import pyDatalog
+        from gambit_smp.ascent_program import load_catalog, query
         facts, _, _ = audit.retry_facts(self.root, proposal or self.proposal)
-        pyDatalog.clear()
-        # Seed base predicates referenced by the standalone research rules.
-        arities = {**audit.ARITIES, "source_obligation": 2,
-                   "has_model_receipt": 1, "contract_path": 2}
-        for name, arity in arities.items():
-            sentinel = ("__empty__",) * arity
-            pyDatalog.assert_fact(name, *sentinel)
-            pyDatalog.retract_fact(name, *sentinel)
-            for row in facts.get(name, []):
-                pyDatalog.assert_fact(name, *row)
-        pyDatalog.load((audit.ROOT / "evidence/research-rules.dl").read_text())
-        result = pyDatalog.ask("retry_denied(R, Reason)")
-        review = pyDatalog.ask("retry_review_required(R)")
-        return {r[1] for r in result.answers} if result else set(), bool(review)
+        result = query(facts, load_catalog(audit.ROOT / "evidence/research-rules.ss"),
+                       {"denied": "retry_denied", "review": "retry_review_required"})
+        return {r[1] for r in result["denied"]}, bool(result["review"])
 
     def change_compiler(self):
         (self.runtime / "gsc/gsc").write_text("changed compiler")
@@ -78,6 +67,13 @@ class ResearchAuditTests(unittest.TestCase):
     def test_changed_driver_requires_review(self):
         (self.runtime / "bin/gambuild-C").write_text("changed GNU compiler flags")
         self.assertEqual((set(), True), self.decisions())
+
+    def test_missing_historical_driver_helper_is_unbound_not_a_crash(self):
+        self.old["buildDriver"]["helperSha256"] = {"missing-cache-helper": "0" * 64}
+        self.save("old.json", self.old)
+        facts, inputs, _ = audit.retry_facts(self.root, self.proposal)
+        self.assertIn(("num",), facts["retry_unbound"])
+        self.assertFalse(any("missing-cache-helper" in name for name in inputs))
 
     def test_unbound_binary_fails_closed(self):
         (self.runtime / "gsc/gsc").write_text("unrecorded compiler")
@@ -141,11 +137,53 @@ class ResearchAuditTests(unittest.TestCase):
         facts, inputs = audit.load_audit(audit.ROOT, base)
         audit.reusable_receipts(audit.ROOT, base, facts, inputs)
         results = audit.query(base, facts, audit.ROOT)
-        self.assertEqual(6, len(results["blockers"]))
+        manifest = json.loads((audit.ROOT / "evidence/research-audit.json").read_text())
+        expected = {(issue["id"], issue["barrier"]) for issue in manifest["issues"]}
+        self.assertEqual(expected, {tuple(row) for row in results["blockers"]})
         self.assertTrue(results["pr_model_source_paths"])
         self.assertTrue(results["paper_model_paths"])
         self.assertNotIn("runtimeAdmitted", results)
         self.assertTrue(all(not Path(path).is_absolute() for path in inputs))
+
+    def test_gc_requirements_remain_unclosed_with_all_references_present(self):
+        base = audit.index.export()
+        facts, inputs = audit.load_audit(audit.ROOT, base)
+        results = audit.query(base, facts, audit.ROOT)
+        issue = "notification-component-source-refinement"
+        manifest = json.loads((audit.ROOT / "evidence/research-audit.json").read_text())
+        reflections = {row["id"]: row["reflection"] for row in manifest["issues"]
+                       if "reflection" in row}
+        self.assertIn(issue, reflections)
+        expected = {(name, row["id"], row["status"], row["gap"])
+                    for name, reflection in reflections.items()
+                    for row in reflection["requirements"]}
+        self.assertEqual(expected, set(results["unclosed_requirements"]))
+        conditions = {(name, row["id"], number, text)
+                      for name, reflection in reflections.items()
+                      for row in reflection["requirements"]
+                      for number, text in enumerate(row["conditions"])}
+        self.assertEqual(conditions, set(results["pending_acceptance_conditions"]))
+        references = {name: {row["id"]: row for row in reflection["references"]}
+                      for name, reflection in reflections.items()}
+        paths = {(name, row["id"], ref, references[name][ref]["kind"], references[name][ref]["path"],
+                  references[name][ref]["locator"], references[name][ref]["scope"])
+                 for name, reflection in reflections.items()
+                 for row in reflection["requirements"] for ref in row["references"]}
+        self.assertEqual(paths, set(results["requirement_reference_paths"]))
+        self.assertTrue(all(row["path"] in inputs
+                            for rows in references.values() for row in rows.values()))
+        self.assertNotIn("runtimeAdmitted", results)
+
+    def test_reference_missing_from_issue_cannot_cross_join_another_issue(self):
+        facts = {name: [] for name in audit.ARITIES}
+        facts["reflection_requirement"].append(("first", "payload", "open", "untraced"))
+        facts["reflection_condition"].append(("first", "payload", 0, "real tracing"))
+        facts["reflection_requirement_reference"].append(("first", "payload", "same-id"))
+        facts["reflection_reference"].append(
+            ("second", "same-id", "observation", "receipt.json", "result", "component"))
+        results = audit.query(audit.index.export(), facts, audit.ROOT)
+        self.assertFalse(results["requirement_reference_paths"])
+        self.assertEqual(1, len(results["pending_acceptance_conditions"]))
 
     def test_reusable_receipts_do_not_need_another_model_run(self):
         base = audit.index.export()

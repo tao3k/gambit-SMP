@@ -1,0 +1,61 @@
+diff --git a/lib/actlog.c b/lib/actlog.c
+--- a/lib/actlog.c
++++ b/lib/actlog.c
+@@ -100,7 +100,15 @@ ___virtual_machine_state ___vms;)
+   if (ptr == NULL)
+     return ___FIX(___HEAP_OVERFLOW_ERR);
+ 
++#ifdef ___USE_POSIX_THREAD_SYSTEM
++  if (!___MUTEX_INIT(___vms->actlog.mut))
++    {
++      ___FREE_MEM(ptr);
++      return ___FIX(___UNKNOWN_ERR);
++    }
++#else
+   ___MUTEX_INIT(___vms->actlog.mut);
++#endif
+   ___vms->actlog.activities = ptr;
+   ___vms->actlog.nb_activities = 0;
+   ___vms->actlog.auto_dump = 1;
+@@ -111,6 +119,27 @@ ___virtual_machine_state ___vms;)
+ }
+ 
+ 
++void ___abort_actlog_vmstate
++   ___P((___virtual_machine_state ___vms),
++        (___vms)
++___virtual_machine_state ___vms;)
++{
++#ifdef ___ACTIVITY_LOG
++
++  /* Only successfully initialized, quiescent VM log resources are owned. */
++  if (___vms->actlog.activities != NULL)
++    {
++      ___FREE_MEM(___vms->actlog.activities);
++      ___vms->actlog.activities = NULL;
++    }
++  ___MUTEX_DESTROY(___vms->actlog.mut);
++  ___vms->actlog.nb_activities = 0;
++  ___vms->actlog.auto_dump = 0;
++
++#endif
++}
++
++
+ void ___cleanup_actlog_vmstate
+    ___P((___virtual_machine_state ___vms),
+         (___vms)
+diff --git a/lib/actlog.h b/lib/actlog.h
+--- a/lib/actlog.h
++++ b/lib/actlog.h
+@@ -20,6 +20,10 @@ extern ___SCMOBJ ___setup_actlog_vmstate
+    ___P((___virtual_machine_state ___vms),
+         ());
+ 
++extern void ___abort_actlog_vmstate
++   ___P((___virtual_machine_state ___vms),
++        ());
++
+ extern void ___cleanup_actlog_vmstate
+    ___P((___virtual_machine_state ___vms),
+         ());

@@ -197,6 +197,8 @@ def main():
                         help="model-bound test-only patch applied to the isolated snapshot")
     parser.add_argument("--retry-hypotheses", type=Path,
                         help="failure-ID to causal hypothesis mapping; changed routes still require review, not automatic execution")
+    parser.add_argument("--scope-review", type=Path,
+                        help="exact-input review of aggregate budget failures for a smaller diagnostic scope")
     parser.add_argument("selection", nargs="+")
     args = parser.parse_args()
     if args.timeout <= 0:
@@ -226,7 +228,8 @@ def main():
               for source, destination in args.extra_fixture}
     patchable_sources = {**sources, **{"unit-tests/" + name: row["sha256"] for name, row in extras.items()}}
     adapter_names = ["native_suite.py", "framework.py", "runtime_identity.py",
-                     "retry_gate.py", "research_audit.py", "evidence_index.py"]
+                     "retry_gate.py", "research_audit.py", "evidence_index.py",
+                     "ascent_program.py", "reasoning_history.py"]
     if args.fixture_patch:
         adapter_names.append("check_gambit.py")
     adapter_sources = {name: digest(Path(__file__).with_name(name)) for name in adapter_names}
@@ -258,9 +261,9 @@ def main():
     if not isinstance(hypotheses, dict):
         raise ValueError("retry hypotheses must be an object keyed by failure ID")
     retry = preflight(root, runtime, args.toolchain_receipt, files, modes,
-                      args.timeout, hypotheses, copied / "unit-tests")
+                      args.timeout, hypotheses, copied / "unit-tests", args.scope_review)
     (out / "retry-preflight.json").write_text(json.dumps(retry, indent=2) + "\n")
-    if retry["decision"] != "NOT_REQUIRED":
+    if retry["decision"] not in {"NOT_REQUIRED", "SCOPED_REVIEWED"}:
         (out / "receipt.json").write_text(json.dumps({
             "schema": "gambit-upstream-suite-preflight.v1",
             "status": retry["decision"], "runtimeExecuted": False,

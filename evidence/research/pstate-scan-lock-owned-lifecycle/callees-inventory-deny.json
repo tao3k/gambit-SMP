@@ -1,0 +1,469 @@
+{
+  "schema": "experiment-declaration-denial.v1",
+  "runtimeAdmitted": false,
+  "originalRecipeSha256": "f54552cbab00f6e0e116870dd7089678d96bf4354b3f1de2cefb6bb277edd991",
+  "originalRecipe": {
+    "schema": "evidence-recipe.v2",
+    "id": "pstate-scan-lock-owned-lifecycle-callees",
+    "scope": "Byte-locked complete setup_mem_pstate and cleanup_mem_pstate callees; injected returning log/lock/msection/reference-count primitives. Two generations, two cleanup entries, log/lock failures and four backends. Parent source is exit-1 negative control. Not actual allocator/OS, concurrent caller quiescence, C weak memory, full GC/bootstrap/runtime admission.",
+    "budgetSeconds": 120,
+    "inputs": [
+      "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json",
+      "patches/fixtures/pstate-scan-lock-owned-lifecycle.patch",
+      "evidence/fixtures/vm-constructor-owned-rollback/source.lock.json",
+      "patches/fixtures/vm-constructor-owned-rollback.patch",
+      "models/gambit/native/pstate_scan_lock_owned.c",
+      "evidence/research/execution-rules.ss"
+    ],
+    "steps": [
+      {
+        "id": "candidate-source",
+        "capability": "gambit.materialize",
+        "dependsOn": [],
+        "budgetSeconds": 30,
+        "arguments": {
+          "sourceLock": "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json"
+        }
+      },
+      {
+        "id": "candidate-workspace",
+        "capability": "source.project",
+        "dependsOn": [
+          "candidate-source"
+        ],
+        "budgetSeconds": 10,
+        "arguments": {
+          "source": {
+            "step": "candidate-source",
+            "output": "source"
+          },
+          "files": [
+            {
+              "target": "pstate_scan_lock_owned.c",
+              "origin": {
+                "kind": "research-asset",
+                "path": "models/gambit/native/pstate_scan_lock_owned.c"
+              },
+              "sha256": "568ece1579c16e820a5a3bb451e1b11d543ba16a00f67e8728e94b9ab1832162"
+            },
+            {
+              "target": "pstate-memory-setup.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/mem.c"
+              },
+              "sha256": "2b8c98a6e7af00714a54937875a823fbbf86c1345303dd11f2351226ac7fa66f",
+              "ranges": [
+                {
+                  "start": 129022,
+                  "end": 132193,
+                  "sha256": "d1a751f7d3d0f3a759eac8d6218bc736c4aea1a809d2483b30fdbb64c4e0150e"
+                }
+              ]
+            },
+            {
+              "target": "pstate-memory-cleanup.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/mem.c"
+              },
+              "sha256": "2b8c98a6e7af00714a54937875a823fbbf86c1345303dd11f2351226ac7fa66f",
+              "ranges": [
+                {
+                  "start": 139598,
+                  "end": 140045,
+                  "sha256": "a38dc99bdf168612b23ac9ec1454fadbfaf4f804e6865aadc970546a62ea6fc2"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "candidate-binding",
+        "capability": "source.bind",
+        "dependsOn": [
+          "candidate-workspace"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "workspace": {
+            "step": "candidate-workspace",
+            "output": "workspace"
+          }
+        }
+      },
+      {
+        "id": "candidate-mutex-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "candidate-workspace",
+          "candidate-binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "candidate-workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "candidate-binding",
+            "output": "binding"
+          },
+          "translationUnit": "pstate_scan_lock_owned.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": false,
+          "target": "executable",
+          "defines": [
+            "MODE_MUTEX"
+          ]
+        }
+      },
+      {
+        "id": "candidate-mutex-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "candidate-mutex-build"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "executable": {
+            "step": "candidate-mutex-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "mutex",
+              "integers": [],
+              "stdout": "pstate_scan_lock_owned checks=8 invalid=0\n"
+            }
+          ]
+        }
+      },
+      {
+        "id": "candidate-ticket-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "candidate-workspace",
+          "candidate-binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "candidate-workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "candidate-binding",
+            "output": "binding"
+          },
+          "translationUnit": "pstate_scan_lock_owned.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": false,
+          "target": "executable",
+          "defines": []
+        }
+      },
+      {
+        "id": "candidate-ticket-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "candidate-ticket-build"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "executable": {
+            "step": "candidate-ticket-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "ticket",
+              "integers": [],
+              "stdout": "pstate_scan_lock_owned checks=8 invalid=0\n"
+            }
+          ]
+        }
+      },
+      {
+        "id": "candidate-void-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "candidate-workspace",
+          "candidate-binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "candidate-workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "candidate-binding",
+            "output": "binding"
+          },
+          "translationUnit": "pstate_scan_lock_owned.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": false,
+          "target": "executable",
+          "defines": [
+            "MODE_VOID"
+          ]
+        }
+      },
+      {
+        "id": "candidate-void-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "candidate-void-build"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "executable": {
+            "step": "candidate-void-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "void",
+              "integers": [],
+              "stdout": "pstate_scan_lock_owned checks=8 invalid=0\n"
+            }
+          ]
+        }
+      },
+      {
+        "id": "candidate-single-thread-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "candidate-workspace",
+          "candidate-binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "candidate-workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "candidate-binding",
+            "output": "binding"
+          },
+          "translationUnit": "pstate_scan_lock_owned.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": false,
+          "target": "executable",
+          "defines": [
+            "___SINGLE_THREADED_VMS"
+          ]
+        }
+      },
+      {
+        "id": "candidate-single-thread-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "candidate-single-thread-build"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "executable": {
+            "step": "candidate-single-thread-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "single-thread",
+              "integers": [],
+              "stdout": "pstate_scan_lock_owned checks=8 invalid=0\n"
+            }
+          ]
+        }
+      },
+      {
+        "id": "negative-source",
+        "capability": "gambit.materialize",
+        "dependsOn": [],
+        "budgetSeconds": 30,
+        "arguments": {
+          "sourceLock": "evidence/fixtures/vm-constructor-owned-rollback/source.lock.json"
+        }
+      },
+      {
+        "id": "negative-workspace",
+        "capability": "source.project",
+        "dependsOn": [
+          "negative-source"
+        ],
+        "budgetSeconds": 10,
+        "arguments": {
+          "source": {
+            "step": "negative-source",
+            "output": "source"
+          },
+          "files": [
+            {
+              "target": "pstate_scan_lock_owned.c",
+              "origin": {
+                "kind": "research-asset",
+                "path": "models/gambit/native/pstate_scan_lock_owned.c"
+              },
+              "sha256": "568ece1579c16e820a5a3bb451e1b11d543ba16a00f67e8728e94b9ab1832162"
+            },
+            {
+              "target": "pstate-memory-setup.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/mem.c"
+              },
+              "sha256": "bed920045bc700cb5bfab032b626287cc632b7c99a8edd2797ceca1f66f58099",
+              "ranges": [
+                {
+                  "start": 129022,
+                  "end": 131823,
+                  "sha256": "b8aa8efd045b448255699354e2c61b5c6224481a6f88633eab05130226c742fb"
+                }
+              ]
+            },
+            {
+              "target": "pstate-memory-cleanup.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/mem.c"
+              },
+              "sha256": "bed920045bc700cb5bfab032b626287cc632b7c99a8edd2797ceca1f66f58099",
+              "ranges": [
+                {
+                  "start": 139228,
+                  "end": 139389,
+                  "sha256": "f6845db54c139f15bc359d2ea4c68bbe4a1b5256faae69d4bf206a84d69a2524"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "negative-binding",
+        "capability": "source.bind",
+        "dependsOn": [
+          "negative-workspace"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "workspace": {
+            "step": "negative-workspace",
+            "output": "workspace"
+          }
+        }
+      },
+      {
+        "id": "negative-mutex-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "negative-workspace",
+          "negative-binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "negative-workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "negative-binding",
+            "output": "binding"
+          },
+          "translationUnit": "pstate_scan_lock_owned.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": false,
+          "target": "executable",
+          "defines": [
+            "MODE_MUTEX"
+          ]
+        }
+      },
+      {
+        "id": "negative-mutex-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "negative-mutex-build"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "executable": {
+            "step": "negative-mutex-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "mutex",
+              "integers": [],
+              "stdout": "pstate_scan_lock_owned checks=8 invalid=1\n",
+              "expectedExit": 1,
+              "negativeControl": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "verdict",
+        "capability": "evidence.evaluate",
+        "dependsOn": [
+          "candidate-source",
+          "candidate-workspace",
+          "candidate-binding",
+          "candidate-mutex-build",
+          "candidate-mutex-test",
+          "candidate-ticket-build",
+          "candidate-ticket-test",
+          "candidate-void-build",
+          "candidate-void-test",
+          "candidate-single-thread-build",
+          "candidate-single-thread-test",
+          "negative-source",
+          "negative-workspace",
+          "negative-binding",
+          "negative-mutex-build",
+          "negative-mutex-test"
+        ],
+        "budgetSeconds": 10,
+        "arguments": {
+          "rules": [
+            "evidence/research/execution-rules.ss"
+          ],
+          "queries": {
+            "missing": "missing_step",
+            "bindings": "bound_source",
+            "controls": "bound_control"
+          },
+          "expected": {
+            "missing": [],
+            "bindings": [
+              [
+                "candidate-binding",
+                "candidate-source"
+              ],
+              [
+                "negative-binding",
+                "negative-source"
+              ]
+            ],
+            "controls": [
+              [
+                "negative-mutex-test",
+                "mutex"
+              ]
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "scope": "Original exact rejected Recipe data, reconstructed byte-for-byte and verified against producer input digest. Not a passing Recipe registration. Actual C steps passed; terminal native ASCENT inventory rejected wrong relation arity and missing positive tuples.",
+  "recovery": "Current semantic callee Recipe declares exact four-column tuples for all five tests, same rules/source/C and budgets."
+}

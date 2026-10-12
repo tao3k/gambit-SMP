@@ -1,0 +1,53 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "source-schedule-revalidation",
+  "scope": "Same locked026 bytes and eight mocked resource schedules, freshly compiled through the sealed generic source/controls lane. Includes observed invalid-resource policies, not a runtime lifecycle or source-refinement pass. Original compile30s and per-control5s retained; the complete eight-case batch is capped at5s and the new sealed campaign at90s. The old receipt has no recorded whole-campaign budget; none is invented for it.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/runtime-source-026.lock.json",
+    "patches/snapshots/candidate026-audited-source.patch",
+    "models/gambit/native/sync_retirement_schedule.c",
+    "evidence/research/source-schedule-revalidation/entry.json",
+    "evidence/research/source-schedule-revalidation/execution.ss"
+  ],
+  "steps": [
+    {"id":"candidate","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":10,
+     "arguments":{"sourceLock":"evidence/runtime-source-026.lock.json"}},
+    {"id":"workspace","capability":"source.project","dependsOn":["candidate"],"budgetSeconds":10,
+     "arguments":{"source":{"step":"candidate","output":"source"},"files":[
+       {"target":"sync_retirement_schedule.c","origin":{"kind":"research-asset","path":"models/gambit/native/sync_retirement_schedule.c"},
+        "sha256":"362a036906410d38d35c465da5f02b14f3537c74c43a25017d20a19610b3a106"},
+       {"target":"sync-schedule-source.inc","origin":{"kind":"source-artifact","path":"lib/setup.c"},
+        "sha256":"98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f","ranges":[
+          {"start":11774,"end":12801,"sha256":"c67ce906dfd74f4c1474c9123b5d76c3ad976a2fda5f45e2d97330aa8a417b1b"},
+          {"start":100704,"end":100994,"sha256":"0cf313e41f5ed476fe86afbfb9e439aa507d478a23578ffb82589c3384d0d6fb"},
+          {"start":101005,"end":101198,"sha256":"8097777f07774528585ae99c161decf4142707db919508d3c50dd08aefe9177b"}
+        ]}
+     ]}},
+    {"id":"binding","capability":"source.bind","dependsOn":["workspace"],"budgetSeconds":5,
+     "arguments":{"workspace":{"step":"workspace","output":"workspace"}}},
+    {"id":"build","capability":"native.workspace-build","dependsOn":["workspace","binding"],"budgetSeconds":30,
+     "arguments":{"workspace":{"step":"workspace","output":"workspace"},"binding":{"step":"binding","output":"binding"},
+       "translationUnit":"sync_retirement_schedule.c","standard":"c11","optimization":1,"pthread":false,"target":"executable","defines":[]}},
+    {"id":"test","capability":"native.test","dependsOn":["build"],"budgetSeconds":5,
+     "arguments":{"executable":{"step":"build","output":"executable"},"cases":[
+       {"id":"existing-no-destroy-1","integers":[0,1],"stdout":"{\"invalid\":0,\"busyDestroy\":0,\"signals\":1,\"receiverDone\":1,\"receiverLocks\":0,\"destroyed\":0,\"mutexLive\":1,\"cvLive\":1,\"attempts\":2}\n"},
+       {"id":"existing-no-destroy-2","integers":[0,2],"stdout":"{\"invalid\":0,\"busyDestroy\":0,\"signals\":1,\"receiverDone\":1,\"receiverLocks\":0,\"destroyed\":0,\"mutexLive\":1,\"cvLive\":1,\"attempts\":2}\n"},
+       {"id":"naive-child-destroy-1","integers":[1,1],"stdout":"{\"invalid\":2,\"busyDestroy\":1,\"signals\":1,\"receiverDone\":1,\"receiverLocks\":0,\"destroyed\":2,\"mutexLive\":0,\"cvLive\":0,\"attempts\":2}\n"},
+       {"id":"naive-child-destroy-2","integers":[1,2],"stdout":"{\"invalid\":1,\"busyDestroy\":0,\"signals\":1,\"receiverDone\":1,\"receiverLocks\":0,\"destroyed\":2,\"mutexLive\":0,\"cvLive\":0,\"attempts\":2}\n"},
+       {"id":"deferred-drain-contract-1","integers":[2,1],"stdout":"{\"invalid\":0,\"busyDestroy\":0,\"signals\":1,\"receiverDone\":1,\"receiverLocks\":0,\"destroyed\":2,\"mutexLive\":0,\"cvLive\":0,\"attempts\":2}\n"},
+       {"id":"deferred-drain-contract-2","integers":[2,2],"stdout":"{\"invalid\":0,\"busyDestroy\":0,\"signals\":1,\"receiverDone\":1,\"receiverLocks\":0,\"destroyed\":2,\"mutexLive\":0,\"cvLive\":0,\"attempts\":2}\n"},
+       {"id":"initialization-failure-1","integers":[3,1],"stdout":"{\"invalid\":0,\"busyDestroy\":0,\"signals\":0,\"receiverDone\":0,\"receiverLocks\":0,\"destroyed\":0,\"mutexLive\":0,\"cvLive\":1,\"attempts\":2}\n"},
+       {"id":"initialization-failure-2","integers":[3,2],"stdout":"{\"invalid\":0,\"busyDestroy\":0,\"signals\":0,\"receiverDone\":0,\"receiverLocks\":0,\"destroyed\":0,\"mutexLive\":1,\"cvLive\":0,\"attempts\":2}\n"}
+     ]}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["candidate","workspace","binding","build","test"],"budgetSeconds":10,
+     "arguments":{"dsl":"evidence/research/source-schedule-revalidation/entry.json",
+       "queries":{"missing":"missing_step","bindings":"bound_source","controls":"bound_control"},
+       "expected":{"missing":[],"bindings":[["binding","candidate"]],"controls":[
+         ["test","existing-no-destroy-1",false,"binding"],["test","existing-no-destroy-2",false,"binding"],
+         ["test","naive-child-destroy-1",false,"binding"],["test","naive-child-destroy-2",false,"binding"],
+         ["test","deferred-drain-contract-1",false,"binding"],["test","deferred-drain-contract-2",false,"binding"],
+         ["test","initialization-failure-1",false,"binding"],["test","initialization-failure-2",false,"binding"]
+       ]}}}
+  ]
+}

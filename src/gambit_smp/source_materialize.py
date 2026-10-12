@@ -12,10 +12,13 @@ import tarfile
 import tempfile
 
 from gambit_smp.framework import ROOT, apply_untracked_patch, digest, relative
+from gambit_smp.source_capabilities import source_name, source_file, validate_source_lock
 
 LOCK = ROOT / "evidence/runtime-source.lock.json"
 FILES = ("lib/mem.c", "lib/setup.c", "include/gambit.h.in")
-AUDIT_FILES = (*FILES, "configure.ac", "lib/_thread.scm")
+AUDIT_FILES = (*FILES, "configure.ac", "lib/_thread.scm", "lib/mem.h")
+COMPOSED_FILES = (*AUDIT_FILES, "lib/_system.scm", "lib/_io.scm", "gsc/_prims.scm",
+                  "lib/c_intf.c", "lib/os_io.c")
 
 
 def revision(checkout):
@@ -26,15 +29,29 @@ def revision(checkout):
 def export(checkout, candidate, lock_path, patch_path, files=FILES):
     if lock_path.exists() or patch_path.exists():
         raise ValueError("refusing to overwrite source lock or snapshot overlay")
+    if checkout.resolve() != ROOT.resolve() / "vendor/gambit":
+        raise ValueError("canonical Gambit submodule source required")
     commit = revision(checkout)
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        raise ValueError("fixed Git revision required")
     selected = set(files)
-    if not set(FILES) <= selected <= set(AUDIT_FILES):
-        raise ValueError("unsupported source snapshot files")
+    if not selected or len(selected) != len(files):
+        raise ValueError("nonempty unique source snapshot files required")
+    for name in selected:
+        source_name(name)
     patches, files = [], {}
     for name in sorted(selected):
+        entry = subprocess.check_output(["git", "-C", str(checkout), "ls-tree", "-z", commit,
+                                         "--", name], timeout=10)
+        rows = entry.rstrip(b"\0").split(b"\0")
+        if (len(rows) != 1 or b"\t" not in rows[0]
+                or rows[0].split(b"\t", 1)[0].split()[:2] not in
+                   ([b"100644", b"blob"], [b"100755", b"blob"])
+                or rows[0].split(b"\t", 1)[1] != name.encode()):
+            raise ValueError("existing regular tracked source file required")
         base = subprocess.check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
                                        timeout=10)
-        current = (candidate / name).read_bytes()
+        current = source_file(candidate, name).read_bytes()
         patches.extend(difflib.unified_diff(base.decode().splitlines(True),
             current.decode().splitlines(True), "a/" + name, "b/" + name))
         files[name] = {"baseSha256": hashlib.sha256(base).hexdigest(),
@@ -72,15 +89,16 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES):
 def materialize(lock_path, out, *, root=None):
     root = ROOT if root is None else Path(root).resolve()
     lock_hash = digest(lock_path)
-    lock = json.loads(lock_path.read_text())
-    if (lock.get("schema") != "gambit-runtime-source-lock.v1" or
-            not re.fullmatch(r"[0-9a-f]{40}", lock["revision"]) or
-            not set(FILES) <= set(lock["files"]) <= set(AUDIT_FILES) or
-            lock.get("runtimeAdmitted") is not False or
-            lock.get("releaseAdmitted") is not False):
-        raise ValueError("invalid source-slice lock")
+    from gambit_smp.recipes import read_json, source_path
+    lock = read_json(lock_path)
+    validate_source_lock(lock)
+    if (lock.get("submodule") != "vendor/gambit" or
+            lock.get("repository") != "https://git.cons.io/mighty-gerbils/gambit.git"):
+        raise ValueError("canonical Gambit submodule source required")
     checkout = relative(root, lock["submodule"])
-    patch = relative(root, lock["patch"])
+    patch = source_path(root, lock["patch"])
+    if checkout != root / "vendor/gambit":
+        raise ValueError("source repository cannot be an alias")
     if revision(checkout) != lock["revision"] or digest(patch) != lock["patchSha256"]:
         raise ValueError("source revision or snapshot overlay drift")
     if out.exists():
@@ -95,10 +113,10 @@ def materialize(lock_path, out, *, root=None):
         source.mkdir()
         with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
             tree.extractall(source, filter="data")
-        if any(digest(source / name) != row["baseSha256"] for name, row in lock["files"].items()):
+        if any(digest(source_file(source, name)) != row["baseSha256"] for name, row in lock["files"].items()):
             raise ValueError("archived base source differs from lock")
         apply_untracked_patch(source, patch_bytes, set(lock["files"]))
-        observed = {name: digest(source / name) for name in lock["files"]}
+        observed = {name: digest(source_file(source, name)) for name in lock["files"]}
         if any(observed[name] != row["candidateSha256"] for name, row in lock["files"].items()):
             raise ValueError("materialized source differs from candidate slice")
         if (digest(patch) != lock["patchSha256"] or revision(checkout) != lock["revision"] or
@@ -122,7 +140,8 @@ def locked_source(root, name):
     lock = json.loads(lock_path.read_text())
     patch_path = relative(root, lock["patch"])
     paths = (lock_path, patch_path, root / "src/gambit_smp/source_materialize.py",
-             root / "src/gambit_smp/framework.py")
+             root / "src/gambit_smp/framework.py", root / "src/gambit_smp/source_capabilities.py",
+             root / "src/gambit_smp/recipes.py")
     if any(".data" in path.relative_to(root).parts for path in paths):
         raise ValueError("source inputs must be versioned, not cache paths")
     inputs = {str(path.relative_to(root)): digest(path) for path in paths}
@@ -142,8 +161,8 @@ def main():
     parser.add_argument("--export-candidate", type=Path,
                         help="explicit one-time source snapshot export, not a repair admission")
     parser.add_argument("--patch", type=Path)
-    parser.add_argument("--file", action="append", choices=AUDIT_FILES,
-                        help="explicit audited snapshot files; core three remain mandatory")
+    parser.add_argument("--file", action="append",
+                        help="explicit existing tracked source files with locked byte identities")
     args = parser.parse_args()
     if args.export_candidate:
         if not args.patch or args.out:

@@ -1,0 +1,113 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "interrupt-prefix-owned-lifecycle-objects",
+  "scope": "GNU full memory/setup object compilation of retained interrupt ownership, borrowed global P0/private VM distinction and early OS-failure cleanup. Three flags/mutex-backed spin; no actual VM caller/drain, linked SCM regeneration, full GC/bootstrap/Gerbil admission.",
+  "budgetSeconds": 150,
+  "inputs": [
+    "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json",
+    "patches/fixtures/interrupt-prefix-owned-lifecycle.patch",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "cOptimization": 0,
+        "rtsOptimization": 0
+      }
+    },
+    {
+      "id": "memory",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/mem.c"
+      }
+    },
+    {
+      "id": "constructor",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/setup.c"
+      }
+    },
+    {
+      "id": "memory-mutex",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/mem.c",
+        "defines": [
+          "___USE_MUTEX_FOR_SPINLOCK"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "memory",
+        "constructor",
+        "memory-mutex"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [],
+          "controls": []
+        }
+      }
+    }
+  ]
+}

@@ -57,6 +57,33 @@ class ValueTests(unittest.TestCase):
             with self.subTest(text=text), self.assertRaises(ValueError):
                 value(text)
 
+    def test_integer_maps_are_canonical_and_domain_independent(self):
+        self.assertEqual({"$integerMap": [(0, -1), (2, 3)]},
+                         value("(2 :> 3 @@ 0 :> -1)"))
+        self.assertEqual(shape(value("(0 :> 1)")),
+                         shape(value("(12 :> 0 @@ -3 :> 2)")))
+        self.assertNotEqual(shape(value("(0 :> 1)")), shape(value("<<1>>")))
+        self.assertEqual(shape(value('(0 :> {} @@ 1 :> {"x"})')),
+                         shape(value('(2 :> {"y"})')))
+
+    def test_integer_maps_reject_ambiguous_and_heterogeneous_values(self):
+        for text in ("()", "(0 :> 1 @@ 0 :> 2)", "(0 :> 1 @@ 00 :> 2)",
+                     '("0" :> 1)', "(TRUE :> 1)", "(0 :> 1, 1 :> 2)",
+                     "(0 :> 1 @@)", "(0 :> 1", "(0 :> 1) junk",
+                     "(0 :> 1 @@ 1 :> TRUE)", '(0 :> {1} @@ 1 :> {"a"})'):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                value(text)
+
+    def test_integer_map_trace_preserves_types_across_domain_changes(self):
+        def trace(values):
+            return "\n".join(f"State {n}: <step>\ns = [owners |-> {item}]\n"
+                             for n, item in enumerate(values, 1)) + "\n"
+        self.assertEqual(3, len(counterexample(trace([
+            "(0 :> 0 @@ 1 :> 0)", "(0 :> -1 @@ 1 :> 1)",
+            "(2 :> 1)"]))["states"]))
+        with self.assertRaises(ValueError):
+            counterexample(trace(['(0 :> {1})', '(1 :> {})', '(2 :> {"a"})']))
+
 
 if __name__ == "__main__":
     unittest.main()

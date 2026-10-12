@@ -1,0 +1,25 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json": "77137fef1b5b364b6715c7017c38a57ff5f4d97a76d4995b7870e66d40173f3e",
+    "patches/fixtures/pstate-scan-lock-owned-lifecycle.patch": "9f06e68fd29122676926d2313708209e8859586e2d31c345f8d370db051083a1"
+  },
+  "cases": [
+    {
+      "id": "scan_barrier_quiescence",
+      "mode": "characterization",
+      "oldInvariants": ["destroySafe", "admissionSafe"],
+      "oldInitializers": {"destroySafe": "initLocal", "admissionSafe": "initEarlyAdmission"},
+      "invariants": ["safe"],
+      "protocolInitializers": {"safe": "initFixed"},
+      "temporal": "progress",
+      "composes": ["pstate_scan_lock_ownership"],
+      "source": ["lib/setup.c:barrier_sync_op", "lib/setup.c:execute_sync_op_loop", "lib/setup.c:___vm_resize_pstate", "lib/mem.c:___garbage_collect_pstate", "lib/mem.c:___cleanup_mem_pstate"],
+      "papers": [],
+      "openObligations": ["gc_callback_scan_user_return", "sync_barrier_c_memory_order", "foreign_cleanup_reentrancy", "actual_resize_join_failure"],
+      "scope": "Source-shaped callback-return/tree upward convergence, shrink population change, retired scan-lock cleanup and retained next-GC admission. Populations2..5, all legal retained prefixes. Each remote callback uses its next processor queue; complete callback return drains that user's access. Root convergence requires every child's aggregate after local return. Controls reject local-return-only cleanup and next-GC admission before convergence. Finite safety/progress conditional on GC callback drain and coherent/aligned message publication. Different from sync-message resource retirement: downward send tails may outlive receiver arrival but do not touch scan locks. No proof of actual GC payload completion, C weak memory, failed joins, foreign callback reentrancy, growth/slot reuse, arbitrary cardinality, full runtime/bootstrap/Gerbil admission."
+    }
+  ]
+}

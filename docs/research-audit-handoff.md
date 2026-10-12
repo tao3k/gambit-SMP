@@ -2,7 +2,7 @@
 
 Audit date: 2026-10-11. This is a bounded review of existing evidence, not a
 new runtime admission. The audit session owns `research-audit.json`,
-`research-rules.dl`, `research_audit.py`, its tests, and this handoff. The
+`research-rules.ss`, `research_audit.py`, its tests, and this handoff. The
 Working session owns candidate source, protocol models and their manifest.
 Concurrent changes must not be overwritten.
 

@@ -12,17 +12,27 @@ from gambit_smp.native_suite import runtime_view, selected_files
 from gambit_smp.runtime_identity import check
 
 
-def stage_accepted(code, timed_out, output, artifact):
+EXECUTION_WITNESS = "COMPILER-PHASE:module-initialized,assertions-passed"
+LOAD_PROBE = '''(begin
+  (##eval '(define ##failed-test? 'phase-module-not-executed))
+  (##load "probe.o1" (lambda (script path) #f) #t #t "probe" #f)
+  (if (eq? ##failed-test? #f)
+      (begin (display "COMPILER-PHASE:module-initialized,assertions-passed\\n") (exit 0))
+      (exit 2)))'''
+
+
+def stage_accepted(code, timed_out, output, artifact, witness=None):
     return (code == 0 and not timed_out and "FAILED" not in output
             and "Unknown or improperly placed" not in output
-            and (artifact is None or artifact.is_file()))
+            and (artifact is None or artifact.is_file())
+            and (witness is None or output.splitlines().count(witness) == 1))
 
 
 def phase_commands(selection, work):
     return [
         ("scheme-to-c", "gsc/gsc", ["-f", "-verbose", "-c", "-o", "probe.c", str(Path("unit-tests") / selection)], work / "probe.c"),
         ("c-to-dynamic-module", "gsc/gsc", ["-f", "-e", '(exit (if (compile-file "probe.c" options: (quote (verbose)) output: "probe.o1") 0 1))'], work / "probe.o1"),
-        ("compiled-execution", "gsi/gsi", ["-f", "probe.o1"], None),
+        ("compiled-execution", "gsi/gsi", ["-f", "-e", LOAD_PROBE], None),
     ]
 
 
@@ -54,7 +64,9 @@ def main():
     processors = available_processors()
     option = f"p{processors},~~lib={runtime / 'lib'},~~bin={runtime / 'bin'},~~include={runtime / 'include'}"
     environment["GAMBOPT"] = option
-    receipt = dict(schema="gambit-compiler-cost.v1", diagnosticOnly=True,
+    receipt = dict(schema="gambit-compiler-cost.v2", diagnosticOnly=True,
+                   adapterSha256=digest(Path(__file__)),
+                   executionContract="explicit probe linker, initialized original failure flag and unique witness",
                    scope="one unchanged upstream fixture, split compile/execute phases; not suite or bootstrap admission",
                    status="RUNNING", candidateReceiptSha256=digest(args.toolchain_receipt),
                    gsiSha256=identity["binarySha256"], gscSha256=identity["gscSha256"],
@@ -76,7 +88,8 @@ def main():
                 [str(runtime / executable), "-:" + option] + options, work,
                 remaining, env=environment, metadata=metadata)
         (out / (name + ".log")).write_text(output)
-        accepted = stage_accepted(code, timed_out, output, artifact)
+        accepted = stage_accepted(code, timed_out, output, artifact,
+                                  EXECUTION_WITNESS if name == "compiled-execution" else None)
         receipt["stages"].append(dict(name=name, exit=code, timeout=timed_out,
             seconds=round(seconds, 3), accepted=accepted, process=metadata,
             artifactSha256=digest(artifact) if artifact and artifact.is_file() else None))

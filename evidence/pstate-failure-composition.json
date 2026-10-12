@@ -1,0 +1,50 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/runtime-source-031.lock.json": "63790e62656ee57a20de883fe8a9df608b32bf5bd14bcd3a34a1625bfc6e31b2",
+    "patches/snapshots/candidate031-composed-source.patch": "111e24d41228300d0ca2115f26e9206fab5a0999b4d6fd6eb3eb8efe91e32acd",
+    "models/gambit/pstate_setup_transaction.qnt": "7be58564e0e53b14dd1e058dabc6cdfd0a595101589b5ef1689d0d72a3c28561",
+    "models/gambit/pstate_vm_failure_handoff.qnt": "2e66836f9bdc73ee52af1d1fde6628905709a1a56880624e6cebb5d917529b70",
+    "patches/candidate-checked-pstate-init-owned-rollback.patch": "2d08beab1274ad252293028532927a3d5b81dc80c74967e4d8d1d709dd8ec65e"
+  },
+  "cases": [
+    {
+      "id": "pstate_failure_composition",
+      "mode": "characterization",
+      "dependencies": [
+        "pstate_setup_transaction.qnt"
+      ],
+      "step": "composedStep",
+      "oldInvariants": [
+        "processorCleanupSafe",
+        "outerCleanupSafe",
+        "composedSafe"
+      ],
+      "oldInitializers": {
+        "processorCleanupSafe": "initLegacy",
+        "outerCleanupSafe": "initVMOnly",
+        "composedSafe": "initEarlyReturn"
+      },
+      "invariants": [
+        "composedSafe"
+      ],
+      "protocolInitializers": {
+        "composedSafe": "initComposed"
+      },
+      "temporal": "composedProgress",
+      "composes": [
+        "pstate_setup_transaction",
+        "pstate_vm_failure_handoff"
+      ],
+      "source": [
+        "lib/setup.c:___setup_pstate",
+        "lib/setup.c:___setup_vmstate",
+        "lib/setup.c:___cleanup"
+      ],
+      "papers": [],
+      "scope": "Imports five-stage processor setup/unwind transitions; exposes their actual terminal readiness to VM/global constructor cleanup. Borrowed early VM0 interrupt resource survives inner rollback and is released once by outer rollback. Covers actlog/VM failure and each pstate failure site; assumes successful owned destructors, outer global resources initially ready and exclusive fresh slot. Excludes live-slot reuse, partial VM helper allocation and native source refinement."
+    }
+  ]
+}

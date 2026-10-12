@@ -1,0 +1,42 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "resize-requester-retained-handoff-source-core",
+  "scope": "Fresh GNU GCC seed and full source regeneration for the exact 18-file requester handoff candidate, all SMP/multiple-VM flags enabled. No arbitrary thread drain, failed-join recovery, complete GC, two-pass bootstrap, Gerbil or release admission is established by this build recipe. Prior local observations remain separate and cannot be used as producer inputs.",
+  "budgetSeconds": 420,
+  "inputs": [
+    "evidence/fixtures/resize-requester-retained-handoff/source.lock.json",
+    "patches/fixtures/resize-requester-retained-handoff.patch",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source", "capability": "gambit.materialize", "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/resize-requester-retained-handoff/source.lock.json"}
+    },
+    {
+      "id": "configure", "capability": "gambit.configure", "dependsOn": ["source"],
+      "budgetSeconds": 90,
+      "arguments": {"source": {"step": "source", "output": "source"}, "cOptimization": 0, "rtsOptimization": 0}
+    },
+    {
+      "id": "seed", "capability": "gambit.seed-core", "dependsOn": ["configure"],
+      "budgetSeconds": 180,
+      "arguments": {"source": {"step": "configure", "output": "source"}}
+    },
+    {
+      "id": "core", "capability": "gambit.source-core", "dependsOn": ["seed"],
+      "budgetSeconds": 180,
+      "arguments": {"runtime": {"step": "seed", "output": "runtime"}}
+    },
+    {
+      "id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "configure", "seed", "core"],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step", "bindings": "bound_source", "controls": "bound_control"},
+        "expected": {"missing": [], "bindings": [], "controls": []}
+      }
+    }
+  ]
+}

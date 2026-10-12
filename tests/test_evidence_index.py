@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from gambit_smp.ascent_program import load_catalog
 from gambit_smp import evidence_index as index
 from tests.support import protocol_fixture
 
@@ -18,9 +19,15 @@ class EvidenceTests(unittest.TestCase):
             (root / "evidence").mkdir()
             saved = root / "evidence/relations.json"
             saved.write_text("stale\n")
-            (root / "evidence/rules.dl").write_text("rules\n")
-            with patch.object(index, "ROOT", root), patch.object(index, "export", return_value={"facts": {}}), \
+            (root / "evidence/dsl").mkdir()
+            (root / "evidence/dsl/components.json").write_bytes(
+                (Path(__file__).parent / "fixtures/catalog-components.json").read_bytes())
+            (root / "evidence/dsl/catalog.ss").write_text(
+                "(def (make-catalog) (make-recorded-module "
+                "(ascent-fragment (relation input ((value symbol?)))) '(input) 4096 32768 32768))\n")
+            with patch.object(index, "ROOT", root), patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
                     patch.object(index, "query", return_value={"pending": ["source"]}), \
+                    patch("gambit_smp.reasoning_history.record", return_value={}), \
                     contextlib.redirect_stdout(io.StringIO()):
                 with patch("sys.argv", ["evidence", "--validate"]):
                     index.main()
@@ -51,12 +58,12 @@ class EvidenceTests(unittest.TestCase):
         facts["protocol_model"] = [["composition", "source"]]
         facts["model_receipt"] = [["resource", "safety-receipt", "finite-state-TLC"]]
         facts["native_adapter"] = [["resource", "fixture.scm"]]
-        result = index.query(facts, (index.ROOT / "evidence/rules.dl").read_text())
+        result = index.query(facts, load_catalog(index.ROOT / "evidence/catalog.ss"))
         self.assertEqual([("resource",)], result["progress_obligations_without_checks"])
         self.assertEqual([("composition",)], result["protocol_extensions_without_checks"])
         facts["model_progress_checked"] = [["resource", "progress-receipt"]]
         facts["protocol_checked"] = [["composition", "composition-receipt"]]
-        result = index.query(facts, (index.ROOT / "evidence/rules.dl").read_text())
+        result = index.query(facts, load_catalog(index.ROOT / "evidence/catalog.ss"))
         self.assertEqual([], result["progress_obligations_without_checks"])
         self.assertEqual([], result["protocol_extensions_without_checks"])
         self.assertNotIn("runtime_admitted", result)
@@ -69,7 +76,7 @@ class EvidenceTests(unittest.TestCase):
                      model_paper=[["entry", "ghc", "3.5"]],
                      model_contract=[["entry", "closure", "work-complete"],
                                      ["closure", "queue", "acquire-visible"]])
-        rules = (index.ROOT / "evidence/rules.dl").read_text()
+        rules = load_catalog(index.ROOT / "evidence/catalog.ss")
         result = index.query(facts, rules)
         self.assertEqual([("closure", "queue"), ("entry", "closure"), ("entry", "queue")],
                          result["model_contract_dependencies"])
@@ -147,7 +154,7 @@ class EvidenceTests(unittest.TestCase):
                      pr_model=[[2, "m"]], model=[["m", "hash", "repair"]],
                      report_kind=[[1, "runtime-repair"], [2, "runtime-repair"]],
                      dependency=[[1, 2], [2, 3]])
-        rules = (index.ROOT / "evidence/rules.dl").read_text()
+        rules = load_catalog(index.ROOT / "evidence/catalog.ss")
         result = index.query(facts, rules)
         self.assertEqual([(1,)], result["reports_without_models"])
         self.assertEqual([(1,), (2,)], result["reports_without_snapshots"])
@@ -163,7 +170,7 @@ class EvidenceTests(unittest.TestCase):
         facts.update(pr=[[1, "head", "unknown"], [2, "head", "tests"]],
                      report_kind=[[1, "runtime-repair"], [2, "supporting-tests"]],
                      model_context_pr=[["context-only", 1]])
-        result = index.query(facts, (index.ROOT / "evidence/rules.dl").read_text())
+        result = index.query(facts, load_catalog(index.ROOT / "evidence/catalog.ss"))
         self.assertEqual([(1,)], result["reports_without_models"])
 
     def test_cyclic_dependency_is_rejected_before_engine_execution(self):
@@ -176,7 +183,7 @@ class EvidenceTests(unittest.TestCase):
         facts = {name: [] for name in index.export()["facts"]}
         facts["local_native_failure"] = [["a", "assertion", "open", "hash"],
             ["e", "environment", "open", "hash"], ["b", "budget", "open", "hash"]]
-        rules = (index.ROOT / "evidence/rules.dl").read_text()
+        rules = load_catalog(index.ROOT / "evidence/catalog.ss")
         result = index.query(facts, rules)
         self.assertEqual([("a",)], result["local_assertions_without_models"])
         self.assertEqual([("e",)], result["local_environment_failures"])

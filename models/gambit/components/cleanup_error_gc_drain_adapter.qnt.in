@@ -1,0 +1,69 @@
+module cleanup_error_gc_drain_composition {
+  import cleanup_resize_error_contract as C from "./cleanup_resize_error_contract"
+  // PROJECT shutdown handoff
+  // One admitted borrower and one publication tail: neither is an OS join.
+  type Drain = { policy: int, borrower: bool, publisher: bool, badRelease: bool }
+  var d: Drain
+  action initFixed = all {
+    d' = { policy: 0, borrower: true, publisher: true, badRelease: false },
+    C::s' = { policy: 1, phase: 0, count: 2, join: 0, exited: false,
+      setup: 1, freed: false, outcome: 0 },
+    sh_s' = { mode: 2, phase: 0, catcher: true, sealed: false, error: 0,
+      admitted: false, outcome: 0, invalidThrow: false, lost: false },
+  }
+  action initJoinOnlyBorrower = all {
+    d' = { policy: 1, borrower: true, publisher: true, badRelease: false },
+    C::s' = { policy: 1, phase: 0, count: 2, join: 0, exited: false,
+      setup: 1, freed: false, outcome: 0 },
+    sh_s' = { mode: 2, phase: 0, catcher: true, sealed: false, error: 0,
+      admitted: false, outcome: 0, invalidThrow: false, lost: false },
+  }
+  action initJoinOnlyPublisher = all {
+    d' = { policy: 2, borrower: true, publisher: true, badRelease: false },
+    C::s' = { policy: 1, phase: 0, count: 2, join: 0, exited: false,
+      setup: 1, freed: false, outcome: 0 },
+    sh_s' = { mode: 2, phase: 0, catcher: true, sealed: false, error: 0,
+      admitted: false, outcome: 0, invalidThrow: false, lost: false },
+  }
+  action errorStep = all {
+    C::s.join != 1,
+    any { sh_workerReports, sh_serviceError }, C::s' = C::s, d' = d,
+  }
+  action drainErrorAfterJoin = all {
+    sh_serviceError, C::s' = C::s, d' = d,
+  }
+  action closeAdmission = all { sh_sealAdmission, C::s' = C::s, d' = d }
+  action withdrawCatcher = all { sh_removeCatcher, C::s' = C::s, d' = d }
+  action beginCleanup = all { sh_beginCleanup, C::publishCleanup, d' = d }
+  action shrink = all { C::reducePopulation, sh_s' = sh_s, d' = d }
+  action failJoin = all { C::joinFails, sh_s' = sh_s, d' = d }
+  action successfulJoin = all {
+    C::joinSucceeds, sh_stopWorker, d' = d,
+  }
+  action releaseBorrower = all {
+    sh_s.sealed, d.borrower, C::s' = C::s, sh_s' = sh_s,
+    d' = { ...d, borrower: false, badRelease: d.badRelease or C::s.freed },
+  }
+  action releasePublisher = all {
+    sh_s.sealed, d.publisher, C::s' = C::s, sh_s' = sh_s,
+    d' = { ...d, publisher: false, badRelease: d.badRelease or C::s.freed },
+  }
+  action reclaim = all {
+    not(d.borrower) or d.policy == 1,
+    not(d.publisher) or d.policy == 2,
+    C::reclaim, sh_reclaim, d' = d,
+  }
+  action retainOnFailure = all {
+    sh_s.error != 1, C::quarantine, sh_s' = sh_s, d' = d,
+  }
+  val terminal = C::s.phase == 4 and sh_s.error != 1 and
+    not(d.borrower) and not(d.publisher)
+  action finished = all { terminal, C::s' = C::s, sh_s' = sh_s, d' = d }
+  action step = any { errorStep, drainErrorAfterJoin, closeAdmission,
+    withdrawCatcher, beginCleanup, shrink, failJoin, successfulJoin,
+    releaseBorrower, releasePublisher, reclaim, retainOnFailure, finished }
+  val borrowerSafe = not(C::s.freed) or not(d.borrower)
+  val publisherSafe = not(C::s.freed) or not(d.publisher)
+  val safe = C::safe and sh_safe and borrowerSafe and publisherSafe and not(d.badRelease)
+  temporal completion = weakFair(step, Set((C::s, sh_s, d))).implies(eventually(terminal))
+}

@@ -1,0 +1,477 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "interrupt-prefix-owned-lifecycle-callees",
+  "scope": "Locked complete interrupt setup/post/queue-cleanup/owned-cleanup functions. Returning initializer failures, two resource lifetimes, three reuses and real two-producer POSIX enqueue/drain. External interrupt notification and callback deallocation are controlled primitives; producers joined before cleanup. Parent helper control is injected with no-op owned destructor. VM/global caller branches, admission, failed joins and full GC/bootstrap/Gerbil remain pending.",
+  "budgetSeconds": 150,
+  "inputs": [
+    "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json",
+    "patches/fixtures/interrupt-prefix-owned-lifecycle.patch",
+    "evidence/fixtures/sync-slot-retained-resources/source.lock.json",
+    "patches/fixtures/sync-slot-retained-resources.patch",
+    "models/gambit/native/interrupt_prefix_owned.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json"
+      }
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate-source"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "source": {
+          "step": "candidate-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "interrupt_prefix_owned.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/interrupt_prefix_owned.c"
+            },
+            "sha256": "dd1a81a6459e07aae835f00cc7f37fa297a363a81763226e9ac6d453f0deef5a"
+          },
+          {
+            "target": "interrupt-setup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 7922,
+                "end": 8816,
+                "sha256": "8d487a8195e74c36995c0a0c290782b5e0117a8fbdad6eb161f058442bb4ef17"
+              }
+            ]
+          },
+          {
+            "target": "interrupt-post.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 8818,
+                "end": 9490,
+                "sha256": "548eeb8b08a5cb788a4448887946cc39c477817649630c604787827c183e6f6c"
+              }
+            ]
+          },
+          {
+            "target": "interrupt-queue-cleanup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 9492,
+                "end": 10128,
+                "sha256": "3179a0dd6debd694bd1976e6d60c8db50cf8ddb2f7816c95a3379eaac36a1fe1"
+              }
+            ]
+          },
+          {
+            "target": "interrupt-owned-cleanup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 10129,
+                "end": 10461,
+                "sha256": "8c02c41d275ad1a3c44f9e23a0a09ed737cc9103ae50552add81ea73655dbc91"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "candidate-injected-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "interrupt_prefix_owned.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": []
+      }
+    },
+    {
+      "id": "candidate-injected-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-injected-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "candidate-injected-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "injected",
+            "integers": [],
+            "stdout": "interrupt_prefix_owned checks=14 invalid=0\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-void-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "interrupt_prefix_owned.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "MODE_VOID"
+        ]
+      }
+    },
+    {
+      "id": "candidate-void-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-void-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "candidate-void-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "void",
+            "integers": [],
+            "stdout": "interrupt_prefix_owned checks=12 invalid=0\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-posix-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "interrupt_prefix_owned.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "MODE_REAL_POSIX"
+        ]
+      }
+    },
+    {
+      "id": "candidate-posix-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-posix-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "candidate-posix-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "posix",
+            "integers": [],
+            "stdout": "interrupt_prefix_owned checks=14 invalid=0\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "parent-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/sync-slot-retained-resources/source.lock.json"
+      }
+    },
+    {
+      "id": "parent-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "parent-source"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "source": {
+          "step": "parent-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "interrupt_prefix_owned.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/interrupt_prefix_owned.c"
+            },
+            "sha256": "dd1a81a6459e07aae835f00cc7f37fa297a363a81763226e9ac6d453f0deef5a"
+          },
+          {
+            "target": "interrupt-setup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "17ed9ce50a66e17228e4ce54417e5c32439d0e0506396a838813a8c7341c6793",
+            "ranges": [
+              {
+                "start": 7922,
+                "end": 8702,
+                "sha256": "ef8fe5ac1b8b92dee7dfa9fa1487642bca1ba44d799685fc915053c4ac5b0cb9"
+              }
+            ]
+          },
+          {
+            "target": "interrupt-post.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "17ed9ce50a66e17228e4ce54417e5c32439d0e0506396a838813a8c7341c6793",
+            "ranges": [
+              {
+                "start": 8704,
+                "end": 9376,
+                "sha256": "548eeb8b08a5cb788a4448887946cc39c477817649630c604787827c183e6f6c"
+              }
+            ]
+          },
+          {
+            "target": "interrupt-queue-cleanup.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "17ed9ce50a66e17228e4ce54417e5c32439d0e0506396a838813a8c7341c6793",
+            "ranges": [
+              {
+                "start": 9378,
+                "end": 9958,
+                "sha256": "89b24c789996ff6b60694dcf74c981bff584886918165c8c6451130ca380a685"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "parent-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "parent-workspace"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "parent-injected-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "parent-workspace",
+        "parent-binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "parent-binding",
+          "output": "binding"
+        },
+        "translationUnit": "interrupt_prefix_owned.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "PARENT_SETUP"
+        ]
+      }
+    },
+    {
+      "id": "parent-injected-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "parent-injected-build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "parent-injected-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "injected",
+            "integers": [],
+            "stdout": "interrupt_prefix_owned checks=14 invalid=1\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate-source",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-injected-build",
+        "candidate-injected-test",
+        "candidate-void-build",
+        "candidate-void-test",
+        "candidate-posix-build",
+        "candidate-posix-test",
+        "parent-source",
+        "parent-workspace",
+        "parent-binding",
+        "parent-injected-build",
+        "parent-injected-test"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "candidate-source"
+            ],
+            [
+              "parent-binding",
+              "parent-source"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-injected-test",
+              "injected",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-void-test",
+              "void",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-posix-test",
+              "posix",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "parent-injected-test",
+              "injected",
+              true,
+              "parent-binding"
+            ]
+          ]
+        }
+      }
+    }
+  ]
+}

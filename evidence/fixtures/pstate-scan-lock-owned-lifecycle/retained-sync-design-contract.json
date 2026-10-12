@@ -1,0 +1,29 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json": "77137fef1b5b364b6715c7017c38a57ff5f4d97a76d4995b7870e66d40173f3e",
+    "patches/fixtures/pstate-scan-lock-owned-lifecycle.patch": "9f06e68fd29122676926d2313708209e8859586e2d31c345f8d370db051083a1"
+  },
+  "cases": [
+    {
+      "id": "sync_slot_retained_resources",
+      "mode": "characterization",
+      "oldInvariants": ["initializationSafe", "resourceSafe", "safe"],
+      "oldInitializers": {
+        "initializationSafe": "initRepeatedInitialization",
+        "resourceSafe": "initChildDestruction",
+        "safe": "initUndrainedVmDestruction"
+      },
+      "invariants": ["safe"],
+      "protocolInitializers": {"safe": "initFixed"},
+      "temporal": "progress",
+      "composes": ["sync_retirement_round_closure"],
+      "source": ["lib/setup.c:SYNC_SEND_MSG", "lib/setup.c:SYNC_GET_MSG", "lib/setup.c:setup_sync_op_pstate", "lib/setup.c:___vm_resize_pstate", "lib/setup.c:___cleanup_pstate", "lib/setup.c:___cleanup_vmstate"],
+      "papers": [],
+      "openObligations": ["once_initialized_slot_source_repair", "fresh_vm_resource_bitmap_initialization", "full_vm_admission_and_sender_drain", "native_posix_slot_reuse", "failed_join_no_resource_reclamation", "c_message_memory_order"],
+      "scope": "Design before source change: two incarnations retain one mutex/condition pair while old send tails can overlap message reset/new send. Fast receive is independent of sender unlock/signal. Negative controls reject reinitialization of live POSIX resources, child-side destruction and undrained VM destruction. Source has checked initialization but no once-per-slot ownership. VM admission closure and complete user drain are premises, not derived from victim joins. No actual C repair, arbitrary generation/population, allocator/OS failures, full GC/bootstrap/Gerbil or runtime admission."
+    }
+  ]
+}

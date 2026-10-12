@@ -1,0 +1,96 @@
+module scheduler_gc_cohort_composition {
+  // PROJECT thread wait
+  // PROJECT processor wait
+  // PROJECT scheduler retry
+  // Five protocol roles share one collective, not three independent GCs.
+  // These role IDs and two epochs do not cap the native host population.
+  type Cohort = { round: int, requested: bool, joined: Set[int], committed: bool,
+    threadFixed: bool, processorFixed: bool, retryFixed: bool }
+  var c: Cohort
+  pure def initial(t: bool, p: bool, r: bool): Cohort = {
+    round: 0, requested: false, joined: Set(), committed: false,
+    threadFixed: t, processorFixed: p, retryFixed: r,
+  }
+  action initThreadOld = all {
+    c' = initial(false, true, true), thread_s' = thread_initial(false),
+    processor_s' = processor_initial(true), retry_s' = retry_initial(true),
+  }
+  action initProcessorOld = all {
+    c' = initial(true, false, true), thread_s' = thread_initial(true),
+    processor_s' = processor_initial(false), retry_s' = retry_initial(true),
+  }
+  action initRetryOld = all {
+    c' = initial(true, true, false), thread_s' = thread_initial(true),
+    processor_s' = processor_initial(true), retry_s' = retry_initial(false),
+  }
+  action initFixed = all {
+    c' = initial(true, true, true), thread_s' = thread_initial(true),
+    processor_s' = processor_initial(true), retry_s' = retry_initial(true),
+  }
+  action request = all {
+    not(c.requested), thread_requestGc, processor_request, retry_s' = retry_s,
+    c' = { ...c, requested: true, joined: Set(1) },
+  }
+  action joinThreadOwner = all {
+    c.requested, thread_joinA, processor_s' = processor_s, retry_s' = retry_s,
+    c' = { ...c, joined: c.joined.union(Set(0)) },
+  }
+  action joinThreadReader = all {
+    c.requested, thread_joinC, processor_s' = processor_s, retry_s' = retry_s,
+    c' = { ...c, joined: c.joined.union(Set(2)) },
+  }
+  action joinProcessorWaiter = all {
+    c.requested, processor_participate, thread_s' = thread_s, retry_s' = retry_s,
+    c' = { ...c, joined: c.joined.union(Set(3)) },
+  }
+  action retryHead = all {
+    c.requested, any { retry_failedHeadTrylock, retry_uncheckedRetry },
+    thread_s' = thread_s, processor_s' = processor_s, c' = c,
+  }
+  action joinRetryWaiter = all {
+    c.requested, retry_joinAtUnlockedCheckpoint,
+    thread_s' = thread_s, processor_s' = processor_s,
+    c' = { ...c, joined: c.joined.union(Set(4)) },
+  }
+  action commitOneCollective = all {
+    c.requested, not(c.committed), c.joined == Set(0, 1, 2, 3, 4),
+    thread_finishGc, processor_finishGc, retry_finishGc,
+    c' = { ...c, committed: true },
+  }
+  action finishThreadPaths = all {
+    c.committed, any { thread_releaseProcessor, thread_finishA, thread_finishC },
+    processor_s' = processor_s, retry_s' = retry_s, c' = c,
+  }
+  action finishProcessorPath = all {
+    c.committed, any { processor_releaseProcessor, processor_finishYield },
+    thread_s' = thread_s, retry_s' = retry_s, c' = c,
+  }
+  action finishRetryPath = all {
+    c.committed, any { retry_releaseQueued, retry_resume },
+    thread_s' = thread_s, processor_s' = processor_s, c' = c,
+  }
+  val roundDone = thread_terminal and processor_terminal and retry_terminal
+  action nextEpoch = all {
+    c.round == 0, roundDone,
+    c' = { ...initial(c.threadFixed, c.processorFixed, c.retryFixed), round: 1 },
+    thread_s' = thread_initial(c.threadFixed), processor_s' = processor_initial(c.processorFixed),
+    retry_s' = retry_initial(c.retryFixed),
+  }
+  val terminal = c.round == 1 and roundDone
+  action finished = all { terminal, c' = c, thread_s' = thread_s, processor_s' = processor_s, retry_s' = retry_s }
+  action step = any { request, joinThreadOwner, joinThreadReader,
+    joinProcessorWaiter, retryHead, joinRetryWaiter, commitOneCollective,
+    finishThreadPaths, finishProcessorPath, finishRetryPath, nextEpoch, finished }
+  val threadServiceable = thread_progressPossible
+  val processorServiceable = processor_progressPossible
+  val retryServiceable = retry_serviceable
+  val lockSafety = thread_locksPreserved and processor_lockOrder and
+    retry_unlockedParticipation and retry_ownerPreserved
+  val sharedCommit = (thread_s.gcDone == c.committed) and
+    (processor_s.gcDone == c.committed) and (retry_s.gcDone == c.committed) and
+    (c.committed implies c.joined == Set(0, 1, 2, 3, 4))
+  val safe = threadServiceable and processorServiceable and retryServiceable and
+    lockSafety and sharedCommit
+  temporal completion = always(terminal or enabled(step)) and
+    weakFair(step, Set((c, thread_s, processor_s, retry_s))).implies(eventually(terminal))
+}

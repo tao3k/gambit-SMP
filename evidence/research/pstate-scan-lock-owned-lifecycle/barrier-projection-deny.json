@@ -1,0 +1,256 @@
+{
+  "schema": "experiment-declaration-denial.v1",
+  "runtimeAdmitted": false,
+  "originalRecipeSha256": "a08f026a1e160c8a0376a95a7aad743b133bd2f3c93e7df119bcbeff2377a06f",
+  "originalRecipe": {
+    "schema": "evidence-recipe.v2",
+    "id": "scan-barrier-quiescence-native",
+    "scope": "Exact candidate sync message macros, wait, tree barrier, operation loop and scan-lock cleanup projection; real POSIX threads/mutexes/conditions, population from sysconf online CPUs. GC/resize callback primitives are injected to track and drain real scan-lock users; not full GC payload tracing, actual resize/join error handling, C weak-memory proof, foreign callback reentrancy, VM retirement or runtime/bootstrap admission. Negative bypasses caller convergence during GC and expects ordinary exit1.",
+    "budgetSeconds": 120,
+    "inputs": [
+      "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json",
+      "patches/fixtures/pstate-scan-lock-owned-lifecycle.patch",
+      "models/gambit/native/scan_barrier_quiescence.c",
+      "evidence/research/execution-rules.ss"
+    ],
+    "steps": [
+      {
+        "id": "source",
+        "capability": "gambit.materialize",
+        "dependsOn": [],
+        "budgetSeconds": 30,
+        "arguments": {
+          "sourceLock": "evidence/fixtures/pstate-scan-lock-owned-lifecycle/source.lock.json"
+        }
+      },
+      {
+        "id": "workspace",
+        "capability": "source.project",
+        "dependsOn": [
+          "source"
+        ],
+        "budgetSeconds": 10,
+        "arguments": {
+          "source": {
+            "step": "source",
+            "output": "source"
+          },
+          "files": [
+            {
+              "target": "scan_barrier_quiescence.c",
+              "origin": {
+                "kind": "research-asset",
+                "path": "models/gambit/native/scan_barrier_quiescence.c"
+              },
+              "sha256": "09c65163564581e7e4a7a3dabae8df9ddc6ba14ab8b6eb371d817f20be870488"
+            },
+            {
+              "target": "sync-tree.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/setup.c"
+              },
+              "sha256": "d92cbdbac6b72c294d2aae6ef326f8729ad44114d5e173e56b600a8793696a7a",
+              "ranges": [
+                {
+                  "start": 11318,
+                  "end": 17247,
+                  "sha256": "709a72cb7099bfc8d996f4cdfa42b0d47e8bb3066cc6d2ca21763a658a268fef"
+                }
+              ]
+            },
+            {
+              "target": "sync-loop.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/setup.c"
+              },
+              "sha256": "d92cbdbac6b72c294d2aae6ef326f8729ad44114d5e173e56b600a8793696a7a",
+              "ranges": [
+                {
+                  "start": 17724,
+                  "end": 26308,
+                  "sha256": "c1879a5643f481675cbdb9fd953d450c4ad4cfd088667a8a119b0f7319aff719"
+                }
+              ]
+            },
+            {
+              "target": "scan-cleanup.inc",
+              "origin": {
+                "kind": "source-artifact",
+                "path": "lib/mem.c"
+              },
+              "sha256": "2b8c98a6e7af00714a54937875a823fbbf86c1345303dd11f2351226ac7fa66f",
+              "ranges": [
+                {
+                  "start": 139598,
+                  "end": 140045,
+                  "sha256": "a38dc99bdf168612b23ac9ec1454fadbfaf4f804e6865aadc970546a62ea6fc2"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": "binding",
+        "capability": "source.bind",
+        "dependsOn": [
+          "workspace"
+        ],
+        "budgetSeconds": 5,
+        "arguments": {
+          "workspace": {
+            "step": "workspace",
+            "output": "workspace"
+          }
+        }
+      },
+      {
+        "id": "candidate-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "workspace",
+          "binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "binding",
+            "output": "binding"
+          },
+          "translationUnit": "scan_barrier_quiescence.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": true,
+          "target": "executable",
+          "defines": []
+        }
+      },
+      {
+        "id": "candidate-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "candidate-build"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "executable": {
+            "step": "candidate-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "candidate",
+              "integers": [],
+              "stdout": "scan_barrier_quiescence invalid=0\n"
+            }
+          ]
+        }
+      },
+      {
+        "id": "negative-build",
+        "capability": "native.workspace-build",
+        "dependsOn": [
+          "workspace",
+          "binding"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "workspace": {
+            "step": "workspace",
+            "output": "workspace"
+          },
+          "binding": {
+            "step": "binding",
+            "output": "binding"
+          },
+          "translationUnit": "scan_barrier_quiescence.c",
+          "standard": "c11",
+          "optimization": 1,
+          "pthread": true,
+          "target": "executable",
+          "defines": [
+            "NEGATIVE_SKIP_QUIESCENCE"
+          ]
+        }
+      },
+      {
+        "id": "negative-test",
+        "capability": "native.test",
+        "dependsOn": [
+          "negative-build"
+        ],
+        "budgetSeconds": 15,
+        "arguments": {
+          "executable": {
+            "step": "negative-build",
+            "output": "executable"
+          },
+          "cases": [
+            {
+              "id": "negative",
+              "integers": [],
+              "stdout": "scan_barrier_quiescence invalid=1\n",
+              "expectedExit": 1,
+              "negativeControl": true
+            }
+          ]
+        }
+      },
+      {
+        "id": "verdict",
+        "capability": "evidence.evaluate",
+        "dependsOn": [
+          "source",
+          "workspace",
+          "binding",
+          "candidate-build",
+          "candidate-test",
+          "negative-build",
+          "negative-test"
+        ],
+        "budgetSeconds": 10,
+        "arguments": {
+          "rules": [
+            "evidence/research/execution-rules.ss"
+          ],
+          "queries": {
+            "missing": "missing_step",
+            "bindings": "bound_source",
+            "controls": "bound_control"
+          },
+          "expected": {
+            "missing": [],
+            "bindings": [
+              [
+                "binding",
+                "source"
+              ]
+            ],
+            "controls": [
+              [
+                "candidate-test",
+                "candidate",
+                false,
+                "binding"
+              ],
+              [
+                "negative-test",
+                "negative",
+                true,
+                "binding"
+              ]
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "scope": "Exact rejected projection Recipe reconstructed and verified against producer input digest. Forward-declaration range included unrelated functions; compilation failed before native testing. The duplicate failed dispatch had unchanged declared inputs; neither is a native negative-control success.",
+  "recovery": "Current semantic Recipe selects the actual loop definition; source/C/rules and budgets unchanged."
+}

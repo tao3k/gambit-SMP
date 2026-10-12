@@ -1,0 +1,348 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "pthread-returned-error-identity-wrappers",
+  "scope": "Actual locked POSIX create/join wrappers and error macros with injected primitive return codes independent of errno. Parent negative control; fixnum tagging abstracted. Not real OS failure injection, join recovery, linked runtime, GC or bootstrap admission.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/pthread-returned-error-identity/source.lock.json",
+    "patches/fixtures/pthread-returned-error-identity.patch",
+    "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json",
+    "patches/fixtures/interrupt-prefix-owned-lifecycle.patch",
+    "models/gambit/native/pthread_returned_error.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/pthread-returned-error-identity/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate-source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "pthread_returned_error.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/pthread_returned_error.c"
+            },
+            "sha256": "28ea75aeaebe038dd6d5704c3a10e78d87d9272fb5bc76a5bf06c79b7ccf977d"
+          },
+          {
+            "target": "thread-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/os_thread.c"
+            },
+            "sha256": "4aeb80cc54ae12f16285aef201fd3f43cc0b40c22895fd6d4d3585c68643b175",
+            "ranges": [
+              {
+                "start": 8335,
+                "end": 10252,
+                "sha256": "ddfabc687ba7119c8eeb7fa4c751710468f9f65ccb09e3a589e64f2527c0ba97"
+              }
+            ]
+          },
+          {
+            "target": "errno-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/os_base.c"
+            },
+            "sha256": "10fb1465cbdc7fdf00ebb9d528e80bb978b4044c39f4f139fe7fbd6ebea2c2a1",
+            "ranges": [
+              {
+                "start": 19648,
+                "end": 20150,
+                "sha256": "228531c9f304848ea2654450a17d2ac4911ff50c6057934f94e6e0307f79f8f0"
+              }
+            ]
+          },
+          {
+            "target": "error-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "include/gambit.h.in"
+            },
+            "sha256": "e5e662aa8b05f5f288876670e1b6ca5341f56d6e4cd323ed6861972da3488269",
+            "ranges": [
+              {
+                "start": 301808,
+                "end": 304045,
+                "sha256": "bdd36483307336d9a9387369087e35e9b1a3ec3093d0637cdbcd4d50ff13b490"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "pthread_returned_error.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "returned-error-matrix",
+            "integers": [],
+            "stdout": "{\"checks\":18,\"invalid\":0}\n"
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "parent-source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "parent-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "parent-source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "parent-source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "pthread_returned_error.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/pthread_returned_error.c"
+            },
+            "sha256": "28ea75aeaebe038dd6d5704c3a10e78d87d9272fb5bc76a5bf06c79b7ccf977d"
+          },
+          {
+            "target": "thread-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/os_thread.c"
+            },
+            "sha256": "a93a42aca64c5822206c1367aa1bca4b7faabad6d7582606c64f9204b609e94b",
+            "ranges": [
+              {
+                "start": 8335,
+                "end": 10198,
+                "sha256": "b61eb3ca22aca7f5929c76289e31cb85db56e66d64eb6b4dc2cf5d83e44fafe8"
+              }
+            ]
+          },
+          {
+            "target": "errno-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/os_base.c"
+            },
+            "sha256": "10fb1465cbdc7fdf00ebb9d528e80bb978b4044c39f4f139fe7fbd6ebea2c2a1",
+            "ranges": [
+              {
+                "start": 19648,
+                "end": 20150,
+                "sha256": "228531c9f304848ea2654450a17d2ac4911ff50c6057934f94e6e0307f79f8f0"
+              }
+            ]
+          },
+          {
+            "target": "error-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "include/gambit.h.in"
+            },
+            "sha256": "e5e662aa8b05f5f288876670e1b6ca5341f56d6e4cd323ed6861972da3488269",
+            "ranges": [
+              {
+                "start": 301808,
+                "end": 304045,
+                "sha256": "bdd36483307336d9a9387369087e35e9b1a3ec3093d0637cdbcd4d50ff13b490"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "parent-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "parent-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "parent-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "parent-workspace",
+        "parent-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "parent-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "parent-binding",
+          "output": "binding"
+        },
+        "translationUnit": "pthread_returned_error.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "parent-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "parent-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "parent-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "returned-error-matrix",
+            "integers": [],
+            "stdout": "{\"checks\":18,\"invalid\":12}\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate-source",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-build",
+        "candidate-test",
+        "parent-source",
+        "parent-workspace",
+        "parent-binding",
+        "parent-build",
+        "parent-test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "candidate-source"
+            ],
+            [
+              "parent-binding",
+              "parent-source"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-test",
+              "returned-error-matrix",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "parent-test",
+              "returned-error-matrix",
+              true,
+              "parent-binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

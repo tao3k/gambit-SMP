@@ -23,7 +23,7 @@ is `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`; several submissions use
 
 | PR | Claimed repair | Explicit limit or remaining failure |
 | --- | --- | --- |
-| [1003](https://github.com/gambit/gambit/pull/1003) | Setup global-cell compile error | `make check` still fails in `mix.scm` |
+| [1003](https://github.com/gambit/gambit/pull/1003) | Setup global-cell compile error | Original `mix.scm` failure is superseded by [rebased-head report](https://github.com/gambit/gambit/pull/1003#issuecomment-5275101971): 370 tests and full build pass; not local three-flag acceptance. |
 | [1004](https://github.com/gambit/gambit/pull/1004) | SMP configuration enables real processors | Full build fails with heap overflow; core only passes |
 | [1007](https://github.com/gambit/gambit/pull/1007) | Shell-command wait | `make check` and wider unit tests retain baseline failures |
 | [1024](https://github.com/gambit/gambit/pull/1024), [1026](https://github.com/gambit/gambit/pull/1026) | Thread-group insertion | Mutex timeout stress test signal 11; do not count both as independent repairs |

@@ -1,0 +1,178 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "vm-retirement-join-caller",
+  "scope": "Actual complete locked resize function with injected returning thread join and synchronous count-publication primitive. Successful join is positive; nonzero join with unexited receiver is an expected-exit-1 contract counterexample, not an actual POSIX runtime failure. Does not qualify distributed barrier behavior, actual failed join recovery, retirement, native GC, bootstrap or Gerbil.",
+  "budgetSeconds": 120,
+  "inputs": [
+    "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json",
+    "patches/fixtures/interrupt-prefix-owned-lifecycle.patch",
+    "models/gambit/native/vm_retirement_join.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/interrupt-prefix-owned-lifecycle/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "candidate-workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "vm_retirement_join.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/vm_retirement_join.c"
+            },
+            "sha256": "1ff3ab4e7de291ee19f4be2d0ede03a4f48c56227bdd7e9303c939d8170a4136"
+          },
+          {
+            "target": "resize-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "57b2fa59f2a537947dd688578b999eb0601dd76bc58c45da989e6cad8c97b7ba",
+            "ranges": [
+              {
+                "start": 20603,
+                "end": 24347,
+                "sha256": "4bd9e706c2dd6e38ec46dc95ef3fa4b82e913adac55920dde76216a2c63c42aa"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "candidate-binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "candidate-workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "candidate-threaded-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "candidate-workspace",
+        "candidate-binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "candidate-workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "candidate-binding",
+          "output": "binding"
+        },
+        "translationUnit": "vm_retirement_join.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "candidate-threaded-test",
+      "capability": "native.test",
+      "dependsOn": [
+        "candidate-threaded-build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "candidate-threaded-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "successful-join",
+            "integers": [
+              0
+            ],
+            "stdout": "{\"result\":0,\"published\":1,\"retiredLive\":0,\"joins\":1,\"invalid\":0}\n"
+          },
+          {
+            "id": "ignored-failed-join",
+            "integers": [
+              1
+            ],
+            "stdout": "{\"result\":0,\"published\":1,\"retiredLive\":1,\"joins\":1,\"invalid\":1}\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "candidate-workspace",
+        "candidate-binding",
+        "candidate-threaded-build",
+        "candidate-threaded-test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "candidate-binding",
+              "source"
+            ]
+          ],
+          "controls": [
+            [
+              "candidate-threaded-test",
+              "successful-join",
+              false,
+              "candidate-binding"
+            ],
+            [
+              "candidate-threaded-test",
+              "ignored-failed-join",
+              true,
+              "candidate-binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

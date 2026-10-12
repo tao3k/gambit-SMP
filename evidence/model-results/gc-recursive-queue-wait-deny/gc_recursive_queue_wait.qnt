@@ -1,0 +1,209 @@
+module gc_recursive_queue_wait {
+  // Two root producers, two helpers, two queues, graph 0 -> 1 -> 0 and
+  // 2 -> 3 -> 2. These finite roles are not the host's TLC worker count.
+  // Publication is coherent; this is not a C weak-memory refinement.
+  type State = { policy: str, fault: str, mode: int -> str,
+    work: int -> int, owner: int -> int, copied: int -> int,
+    visible: int -> int, pub: int -> int, queueOwner: int -> int,
+    scans: int -> int, target: int -> int, remaining: int -> Set[int],
+    found: int -> bool, headDone: Set[int], mutex: int, count: int,
+    spuriousUsed: Set[int], staleRead: bool, terminated: bool }
+  var s: State
+  val workers = Set(0, 1, 2, 3)
+  val producers = Set(0, 1)
+  val objects = Set(0, 1, 2, 3)
+  val queues = Set(0, 1)
+  val queueOf = Map(0 -> 0, 1 -> 0, 2 -> 1, 3 -> 1)
+  val edge = Map(0 -> 1, 1 -> 0, 2 -> 3, 3 -> 2)
+  val root = Map(0 -> 0, 1 -> 2)
+  // Work: -1 undiscovered, 0 private copy, 1 queued, 2 scanning, 3 scanned.
+  pure def initial(policy: str, fault: str): State = {
+    policy: policy, fault: fault,
+    mode: workers.mapBy(w => "active"),
+    work: Map(0 -> 0, 1 -> -1, 2 -> 0, 3 -> -1),
+    owner: Map(0 -> 0, 1 -> -1, 2 -> 1, 3 -> -1),
+    copied: objects.mapBy(o => 0), visible: objects.mapBy(o => 0),
+    pub: objects.mapBy(o => 0), queueOwner: queues.mapBy(q => -1),
+    scans: objects.mapBy(o => 0), target: workers.mapBy(w => -1),
+    remaining: workers.mapBy(w => Set()), found: workers.mapBy(w => false),
+    headDone: Set(), mutex: -1, count: 4, spuriousUsed: Set(),
+    staleRead: false, terminated: false,
+  }
+  action initEarlyPublish = s' = initial("combined", "early-publication")
+  action initDuplicateClaim = s' = initial("combined", "duplicate-claim")
+  action initEarlyIdle = s' = initial("combined", "early-idle")
+  action initNoRestore = s' = initial("combined", "omit-restore")
+  action initSource = s' = initial("source", "none")
+  action initCombined = s' = initial("combined", "none")
+  action init = {
+    nondet policy = Set("source", "combined").oneOf()
+    s' = initial(policy, "none")
+  }
+  val activeModes = Set("active", "claim-locked", "scanning", "probed", "recheck")
+  val queued = objects.filter(o => s.work.get(o) == 1)
+  def queuePending(q: int): bool = queued.exists(o => queueOf.get(o) == q)
+  // Canonical discovery is separate from copy readiness and scan permission.
+  def privateWork(w: int): bool = objects.exists(o => s.owner.get(o) == w and
+    s.work.get(o) != -1 and (s.work.get(o) == 0 or s.pub.get(o) < 5))
+  def ready(w: int): bool = not(privateWork(w)) and
+    (not(producers.contains(w)) or s.headDone.contains(w))
+
+  action copyWord = {
+    nondet o = objects.oneOf()
+    val w = s.owner.get(o)
+    all { s.work.get(o) == 0, s.pub.get(o) == 0,
+      s.mode.get(w) == "active", s.copied.get(o) < 2,
+      s' = { ...s, copied: s.copied.set(o, s.copied.get(o) + 1) } }
+  }
+  action beginPublish = {
+    nondet o = objects.oneOf()
+    val w = s.owner.get(o)
+    val q = queueOf.get(o)
+    all { s.work.get(o) == 0, s.pub.get(o) == 0, s.mode.get(w) == "active",
+      s.copied.get(o) == 2 or s.fault == "early-publication",
+      s.queueOwner.get(q) == -1,
+      s' = { ...s, pub: s.pub.set(o, 1), queueOwner: s.queueOwner.set(q, w) } }
+  }
+  action publish = {
+    nondet o = objects.oneOf()
+    all { s.pub.get(o) == 1,
+      s' = { ...s, pub: s.pub.set(o, 2), work: s.work.set(o, 1),
+        visible: s.visible.set(o, s.copied.get(o)) } }
+  }
+  action releasePublication = {
+    nondet o = objects.oneOf()
+    all { s.pub.get(o) == 2,
+      s' = { ...s, pub: s.pub.set(o, 3),
+        queueOwner: s.queueOwner.set(queueOf.get(o), -1) } }
+  }
+  action acquireSignalMutex = {
+    nondet o = objects.oneOf()
+    val w = s.owner.get(o)
+    all { s.policy == "combined", s.pub.get(o) == 3, s.mutex == -1,
+      s' = { ...s, pub: s.pub.set(o, 4), mutex: w } }
+  }
+  // A signal selects one currently registered waiter; it is not buffered.
+  action signalWork = {
+    nondet o = objects.oneOf()
+    val w = s.owner.get(o)
+    val waiting = workers.filter(x => s.mode.get(x) == "waiting")
+    nondet wake = (if (waiting == Set()) Set(-1) else waiting).oneOf()
+    all { (s.policy == "source" and s.pub.get(o) == 3) or
+        (s.policy == "combined" and s.pub.get(o) == 4 and s.mutex == w),
+      s' = { ...s, pub: s.pub.set(o, 5),
+        mutex: if (s.policy == "combined") -1 else s.mutex,
+        mode: if (wake == -1) s.mode else s.mode.set(wake, "woken") } }
+  }
+  action finishHead = {
+    nondet p = producers.oneOf()
+    all { s.pub.get(root.get(p)) == 5, s.mode.get(p) == "active",
+      not(s.headDone.contains(p)),
+      s' = { ...s, headDone: s.headDone.union(Set(p)) } }
+  }
+  action claimQueue = {
+    nondet w = workers.oneOf()
+    nondet o = queued.oneOf()
+    val q = queueOf.get(o)
+    all { s.mode.get(w) == "active", ready(w), s.queueOwner.get(q) == -1,
+      s' = { ...s, queueOwner: s.queueOwner.set(q, w),
+        target: s.target.set(w, o), mode: s.mode.set(w, "claim-locked") } }
+  }
+  action popQueue = {
+    nondet w = workers.oneOf()
+    val o = s.target.get(w)
+    all { s.mode.get(w) == "claim-locked", s.work.get(o) == 1,
+      // Deliberate fault leaves the region available for a second claim.
+      s' = { ...s, work: s.work.set(o, if (s.fault == "duplicate-claim") 1 else 2),
+        scans: s.scans.set(o, s.scans.get(o) + 1),
+        queueOwner: s.queueOwner.set(queueOf.get(o), -1),
+        mode: s.mode.set(w, "scanning"),
+        staleRead: s.staleRead or s.visible.get(o) != 2 } }
+  }
+  // The scanner becomes a producer when an edge discovers fresh canonical work.
+  // Discovery and finishing the old scan are atomic here; copy/publication are not.
+  action finishScan = {
+    nondet w = workers.oneOf()
+    val o = s.target.get(w)
+    val child = edge.get(o)
+    val fresh = s.work.get(child) == -1
+    all { s.mode.get(w) == "scanning",
+      s' = { ...s,
+        work: if (fresh) s.work.set(o, 3).set(child, 0) else s.work.set(o, 3),
+        owner: if (fresh) s.owner.set(child, w) else s.owner,
+        mode: s.mode.set(w, "active"), target: s.target.set(w, -1) } }
+  }
+  action finalEmptyProbe = {
+    nondet w = workers.oneOf()
+    all { s.mode.get(w) == "active", queued == Set(),
+      ready(w) or s.fault == "early-idle",
+      s' = { ...s, mode: s.mode.set(w, "probed") } }
+  }
+  action lockTermination = {
+    nondet w = workers.oneOf()
+    all { s.mode.get(w) == "probed", s.mutex == -1,
+      s' = { ...s, mutex: w, mode: s.mode.set(w, "recheck"),
+        remaining: s.remaining.set(w, if (s.policy == "combined") queues else Set()),
+        found: s.found.set(w, false) } }
+  }
+  // Same-Q reads are folded under Q; probes of different queues remain separate.
+  action probeRecheckQueue = {
+    nondet w = workers.oneOf()
+    nondet q = s.remaining.get(w).oneOf()
+    all { s.mode.get(w) == "recheck", s.mutex == w, s.queueOwner.get(q) == -1,
+      s' = { ...s, remaining: s.remaining.set(w, s.remaining.get(w).exclude(Set(q))),
+        found: s.found.set(w, s.found.get(w) or queuePending(q)) } }
+  }
+  action countOrRetry = {
+    nondet w = workers.oneOf()
+    all { s.mode.get(w) == "recheck", s.remaining.get(w) == Set(), s.mutex == w,
+      s' = if (s.found.get(w))
+        { ...s, mode: s.mode.set(w, "active"), found: s.found.set(w, false), mutex: -1 }
+      else if (s.count == 1)
+        { ...s, count: 0, terminated: true, mutex: -1,
+          mode: workers.mapBy(x => if (x == w) "done" else
+            if (s.mode.get(x) == "waiting") "woken" else s.mode.get(x)) }
+      else { ...s, count: s.count - 1, mode: s.mode.set(w, "pre-wait") } }
+  }
+  action registerWait = {
+    nondet w = workers.oneOf()
+    all { s.mode.get(w) == "pre-wait", s.mutex == w,
+      s' = { ...s, mode: s.mode.set(w, "waiting"), mutex: -1 } }
+  }
+  action spuriousWake = {
+    nondet w = workers.oneOf()
+    all { s.mode.get(w) == "waiting", not(s.spuriousUsed.contains(w)),
+      s' = { ...s, mode: s.mode.set(w, "woken"),
+        spuriousUsed: s.spuriousUsed.union(Set(w)) } }
+  }
+  action resume = {
+    nondet w = workers.oneOf()
+    all { s.mode.get(w) == "woken", s.mutex == -1,
+      s' = if (s.count == 0) { ...s, mode: s.mode.set(w, "done") }
+        else { ...s, mode: s.mode.set(w, "active"),
+          count: s.count + (if (s.fault == "omit-restore") 0 else 1) } }
+  }
+  val counted = workers.filter(w => activeModes.contains(s.mode.get(w))).size()
+  val countSafe = s.count == counted and s.count >= 0 and s.count <= workers.size()
+  val payloadSafe = not(s.staleRead) and objects.forall(o =>
+    s.pub.get(o) < 2 or s.visible.get(o) == 2)
+  val ownershipSafe = objects.forall(o => s.scans.get(o) <= 1 and
+    (s.work.get(o) != 2 or workers.filter(w => s.mode.get(w) == "scanning" and
+      s.target.get(w) == o).size() == 1))
+  val producerLifetimeSafe = workers.forall(w =>
+    (privateWork(w) or (producers.contains(w) and not(s.headDone.contains(w))))
+      .implies(activeModes.contains(s.mode.get(w))))
+  val closureSafe = not(s.terminated) or (s.count == 0 and s.headDone == producers and
+    objects.forall(o => s.work.get(o) == 3))
+  val restoreSafe = countSafe
+  val safe = countSafe and payloadSafe and ownershipSafe and producerLifetimeSafe and closureSafe
+  val sourceSafe = safe
+  val combinedSafe = safe
+  val terminal = s.terminated and workers.forall(w => s.mode.get(w) == "done")
+  action finished = all { terminal, s' = s }
+  action step = any { copyWord, beginPublish, publish, releasePublication,
+    acquireSignalMutex, signalWork, finishHead, claimQueue, popQueue, finishScan,
+    finalEmptyProbe, lockTermination, probeRecheckQueue, countOrRetry, registerWait,
+    spuriousWake, resume, finished }
+  temporal progress = always(terminal or enabled(step)) and
+    weakFair(step, Set(s)).implies(eventually(terminal))
+}

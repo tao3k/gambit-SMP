@@ -126,6 +126,15 @@ def execute(argv, cwd, timeout, env=None, metadata=None):
         output, _ = process.communicate()
     if metadata is not None:
         metadata["endedAt"] = datetime.now(timezone.utc).isoformat()
+        metadata["parentReaped"] = process.returncode is not None
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            metadata["processGroupQuiescent"] = True
+        except PermissionError:
+            metadata["processGroupQuiescent"] = None
+        else:
+            metadata["processGroupQuiescent"] = False
     return process.returncode, output, timed_out, time.monotonic() - start
 
 

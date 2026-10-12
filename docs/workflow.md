@@ -82,10 +82,12 @@ Generated binaries, logs and receipts belong under a fresh `--out` directory
 in `.data/`, not beside tracked fixtures. Keep failed receipts and portable
 counterexamples; do not reuse an output directory or silently widen a budget.
 
-## Datalog Evidence
+## ASCENT Evidence
 
 `evidence/relations.json` is a deterministic fact export, not a second manually
-maintained catalog. `evidence/rules.dl` is executable pyDatalog rule syntax.
+maintained catalog. `evidence/catalog.ss` and `evidence/research-rules.ss` contain
+inert typed ASCENT rules. The installed engine reads these sources; downstream
+Python does not import, evaluate or compile Scheme and has no rule-parser fallback.
 Queries expose missing model links, missing native adapters, shared obligations,
 and transitive dependencies. Existing source manifests/report snapshots are
 the input records; their digest changes make a stale export fail `--check`.
@@ -124,7 +126,7 @@ explicit and tested; it is not a claim that arbitrary graph queries terminate.
 - [Feeley: Parallel VM for efficient Scheme compilation (1990)](https://doi.org/10.1145/91556.91606): historical compiler/VM design, not a specification of today's SMP GC.
 - [Feeley: parallel GC announcement (2016)](https://mailman.iro.umontreal.ca/mailman3/hyperkitty/list/gambit-list%40iro.umontreal.ca/thread/HZQR57RT4NMFRAXODSXIMOVYJR4DSHJR/): describes a stop-the-world collector with parallel collection work; reported speedup was explicitly preliminary.
 - [Feeley: SMP usage discussion (2017)](https://mailman.iro.umontreal.ca/mailman3/hyperkitty/list/gambit-list%40iro.umontreal.ca/thread/HJEMBKQTP5PXA4EUHA32LP5Q2QVSK7EF/): waiting processors participate in GC; audit actual wake/wait source before adopting a protocol abstraction.
-- [pyDatalog](https://github.com/pcarbonn/pyDatalog): existing query engine, not a custom handwritten Datalog evaluator.
+- [gerbil-ascent](https://github.com/tao3k/gerbil-ascent): installed native rule reader and inference engine.
 
 These references guide obligations; current source and reproducible receipts
 remain authoritative. No claim of complete SMP correctness is made.

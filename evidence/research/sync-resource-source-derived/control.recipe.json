@@ -1,0 +1,211 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "sync-resource-source-derived-controls",
+  "scope": "Byte-origin bound processor synchronization helpers with mock resources; ordinary nonzero reuse rejection reproduces the still-open source lifetime gap, not a retirement repair or POSIX qualification.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "evidence/runtime-source-031.lock.json",
+    "patches/snapshots/candidate031-composed-source.patch",
+    "patches/research/vm-log-array-mutex-overlay.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/native/sync_resource_reinitialization_control.c"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/runtime-source-031.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "candidate",
+      "capability": "source.overlay",
+      "dependsOn": [
+        "source"
+      ],
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "patch": "patches/research/vm-log-array-mutex-overlay.patch",
+        "role": "candidate",
+        "files": {
+          "lib/actlog.c": {
+            "before": "283a169c37b43fe34d423804bf5df0fe230aea8b7b727e4be75cfa34a6202592",
+            "after": "93b01bcfe574c1b298af7245e404a0acfe20a15cded4b2b8d88b21d83dd70ae3"
+          },
+          "lib/actlog.h": {
+            "before": "17a6b8a9be32c084229ede176ab2a28bcbba957fe41b7a020bc6aa3e0d528da1",
+            "after": "dbbaa0d8b51b829714ec4b401629743ec1ba5fed8c82249c7df47b72077864ee"
+          }
+        }
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "sync_resource_reinitialization_control.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/sync_resource_reinitialization_control.c"
+            },
+            "sha256": "9ac47ff5809479a5c85a75232fb6f9768f12647c1b3d4d599b3cc1b3734cadb4"
+          },
+          {
+            "target": "sync-resource-source.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/setup.c"
+            },
+            "sha256": "98b39f7204d1086550d2666be67f447f0f83410e941ef7f2cb3adbea3c19391f",
+            "ranges": [
+              {
+                "start": 100704,
+                "end": 100995,
+                "sha256": "21a5360aac3f59a69fa8fb9148be3d033eca10a4b5cfed8b190b197df4cfca03"
+              },
+              {
+                "start": 101005,
+                "end": 101198,
+                "sha256": "8097777f07774528585ae99c161decf4142707db919508d3c50dd08aefe9177b"
+              }
+            ]
+          }
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "workspace"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        }
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "workspace",
+        "binding"
+      ],
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "binding",
+          "output": "binding"
+        },
+        "translationUnit": "sync_resource_reinitialization_control.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "test",
+      "capability": "native.test",
+      "dependsOn": [
+        "build"
+      ],
+      "arguments": {
+        "executable": {
+          "step": "build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "single-initialization",
+            "integers": [
+              0
+            ],
+            "stdout": "INITIALIZED 2 DOUBLE_INIT 0\nSINGLE-INITIALIZATION-OBSERVED\n"
+          },
+          {
+            "id": "reinitialization-negative",
+            "integers": [
+              1
+            ],
+            "stdout": "INITIALIZED 4 DOUBLE_INIT 2\nRESOURCE-REUSE-DENIED\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      },
+      "budgetSeconds": 5
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "candidate",
+        "workspace",
+        "binding",
+        "build",
+        "test"
+      ],
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "bindings": "bound_source",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "bindings": [
+            [
+              "binding",
+              "candidate"
+            ]
+          ],
+          "controls": [
+            [
+              "test",
+              "single-initialization",
+              false,
+              "binding"
+            ],
+            [
+              "test",
+              "reinitialization-negative",
+              true,
+              "binding"
+            ]
+          ]
+        }
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

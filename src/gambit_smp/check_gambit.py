@@ -44,7 +44,17 @@ def native_identity(gsi, receipt, case=None, gsc=None):
 
 def model_checks(case):
     if case.get("mode") == "characterization":
-        return [("protocol", inv, "init") for inv in case["invariants"]]
+        controls = [("old", inv, case.get("oldInitializers", {}).get(inv, "initOld"))
+                    for inv in case.get("oldInvariants", [])]
+        initializers = case.get("protocolInitializers", {})
+        if (not isinstance(initializers, dict) or
+                set(initializers) - set(case["invariants"]) or
+                any(not isinstance(name, str) or
+                    not re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]*", name)
+                    for name in initializers.values())):
+            raise ValueError("invalid protocol initializer mapping")
+        return controls + [("protocol", inv, initializers.get(inv, "init"))
+                           for inv in case["invariants"]]
     return [("old", inv, case.get("oldInitializers", {}).get(inv, "initOld"))
             for inv in case.get("oldInvariants", ["safe"])] + [("fixed", "safe", "initFixed")]
 
@@ -64,6 +74,7 @@ def reuse_model_receipt(path, case, model_directory=MODELS):
         == initializers.get((r["variant"], r.get("invariant", "safe"))) for r in rows)
     if not (len(rows) == len(expected) and observed == expected
             and initializers_match
+            and all(r.get("step", "step") == case.get("step", "step") for r in rows)
             and all(r["accepted"] and r["evidence"] == "finite-state-TLC"
                     and r["modelSha256"] == model_hash for r in rows)):
         raise ValueError("model receipt is missing admission or belongs to another model")

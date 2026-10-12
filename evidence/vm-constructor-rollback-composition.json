@@ -1,0 +1,55 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/fixtures/pstate-log-owned-rollback/source.lock.json": "1630117e736b3b0c0f7c84813754ab756ce6a56d32ce8404aa54e3d4d7e8a7ce",
+    "patches/fixtures/pstate-log-owned-rollback.patch": "2b938edf56d4f835c6c21adea2e4cdc00be0a578f6c1303f42a6e74d1add5a44",
+    "models/gambit/pstate_log_rollback_composition.qnt": "67a6cf080ddf4e4b5e90b690da1a41237aab50c555aca4fa2d8e47f7c4075658",
+    "models/gambit/vm_mem_setup_transaction.qnt": "7518d591e1567b4a81d615b2ab350a9a3ba3abd73744686c69116c562179219a",
+    "models/gambit/pstate_setup_transaction.qnt": "7be58564e0e53b14dd1e058dabc6cdfd0a595101589b5ef1689d0d72a3c28561",
+    "models/gambit/vm_activity_log_abort.qnt": "57216f83d91279f5d557fc353af55112316d7d669e4dafc71f2d263f92212d62"
+  },
+  "cases": [
+    {
+      "id": "vm_constructor_rollback_composition",
+      "mode": "characterization",
+      "step": "constructorStep",
+      "dependencies": [
+        "pstate_log_rollback_composition.qnt",
+        "pstate_setup_transaction.qnt",
+        "vm_activity_log_abort.qnt",
+        "vm_mem_setup_transaction.qnt"
+      ],
+      "oldInvariants": [
+        "earlyCountSafe",
+        "earlyReturnSafe",
+        "memoryRollbackSafe"
+      ],
+      "oldInitializers": {
+        "earlyCountSafe": "initConstructor",
+        "earlyReturnSafe": "initConstructor",
+        "memoryRollbackSafe": "initConstructor"
+      },
+      "invariants": [
+        "constructorSafe"
+      ],
+      "protocolInitializers": {
+        "constructorSafe": "initConstructor"
+      },
+      "temporal": "constructorProgress",
+      "composes": [
+        "pstate_log_rollback_composition",
+        "vm_mem_setup_transaction"
+      ],
+      "source": [
+        "lib/setup.c:___setup_vmstate",
+        "lib/setup.c:___cleanup",
+        "lib/mem.c:___setup_mem_vmstate",
+        "lib/mem.c:___cleanup_mem_vmstate"
+      ],
+      "papers": [],
+      "scope": "Imports full existing VM-memory and P0/log constructor transition relations; all component configuration/failure choices retained. Proposed failure handoff unwinds VM memory without touching P0, then VM log and borrowed interrupt/global ownership; count publishes only on success. Premises: fresh exclusive VM/P0, initially owned global prefix, returning allocators/destructors, checked memory/spin callee contracts. Excludes concurrent list readers/retirement, arbitrary native weak memory, implementation of missing VM-memory/global caller repairs, semantic C refinement, GC/bootstrap/Gerbil admission."
+    }
+  ]
+}

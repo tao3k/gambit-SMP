@@ -1,5 +1,12 @@
 # Bounty Evidence Coverage
 
+Current discussion/source audit: [2026-10-11 review](upstream-audit-20261011.md).
+The refreshed window still has 127 PRs (49 open within the window), and the
+selected catalog has 33, not four. Snapshot coverage is not semantic coverage.
+The review corrects #1003's superseded failure report, records issue #912's
+single-process Linux compiler failure and adds the #1035 completion protocol.
+Counts below describe historical campaigns, not current model/native totals.
+
 Latest extension: FFI/GC, shutdown handoff and special-reader header lifetime
 bring the model count to 29. Framework tests pass 62/62. The linked issue 792
 snapshot and 21 reported failure/history entries are digest-bound; current

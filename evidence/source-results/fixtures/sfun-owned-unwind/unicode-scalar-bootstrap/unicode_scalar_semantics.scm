@@ -1,0 +1,85 @@
+(declare (standard-bindings) (extended-bindings) (block))
+
+(define output-directory (##getenv "GAMBIT_SMP_UNICODE_DIRECTORY" #f))
+(if (not output-directory) (error "missing isolated Unicode output directory"))
+(define processors (##current-vm-processor-count))
+(define limit #x110000)
+(define record-bytes 22)
+
+(define (scalar-count start end)
+  (- (- end start) (max 0 (- (min end #xe000) (max start #xd800)))))
+
+(define (put-u32! bytes position value)
+  (let loop ((i 0) (n value))
+    (if (< i 4)
+        (begin
+          (u8vector-set! bytes (+ position i) (bitwise-and n 255))
+          (loop (+ i 1) (arithmetic-shift n -8))))))
+
+(define (observe worker)
+  (let* ((start (quotient (* worker limit) processors))
+         (end (quotient (* (+ worker 1) limit) processors))
+         (expected (scalar-count start end))
+         (bytes (make-u8vector (* expected record-bytes) 0)))
+    (let loop ((code start) (position 0))
+      (cond
+       ((= code end)
+        (if (not (= position (u8vector-length bytes)))
+            (error "Unicode record inventory mismatch"))
+        (let ((port (open-output-file
+                     (string-append output-directory "/" (number->string worker) ".bin"))))
+          (if (not (= (write-subu8vector bytes 0 (u8vector-length bytes) port)
+                      (u8vector-length bytes)))
+              (error "incomplete Unicode byte output"))
+          (close-output-port port))
+        expected)
+       ((and (>= code #xd800) (< code #xe000))
+        (loop (+ code 1) position))
+       (else
+        (let* ((ch (integer->char code))
+               (flags (+ (if (char-alphabetic? ch) 1 0)
+                         (if (char-numeric? ch) 2 0)
+                         (if (char-whitespace? ch) 4 0)
+                         (if (char-upper-case? ch) 8 0)
+                         (if (char-lower-case? ch) 16 0)))
+               (digit (digit-value ch))
+               (title (+ code
+                         (if (< code (u8vector-length ##unicode-class))
+                             (arithmetic-shift
+                              (s32vector-ref ##unicode-titlecase-dist
+                                             (u8vector-ref ##unicode-class code))
+                              -1)
+                             0))))
+          (put-u32! bytes position code)
+          (u8vector-set! bytes (+ position 4) flags)
+          (u8vector-set! bytes (+ position 5) (if digit digit 255))
+          (put-u32! bytes (+ position 6) (char->integer (char-upcase ch)))
+          (put-u32! bytes (+ position 10) (char->integer (char-downcase ch)))
+          (put-u32! bytes (+ position 14) (char->integer (char-foldcase ch)))
+          (put-u32! bytes (+ position 18) title)
+          (loop (+ code 1) (+ position record-bytes))))))))
+
+(define workers
+  (let loop ((worker 0) (threads '()))
+    (if (= worker processors)
+        (reverse threads)
+        (let ((thread (make-thread (lambda () (observe worker)))))
+          (thread-start! thread)
+          (loop (+ worker 1) (cons thread threads))))))
+
+(define observed
+  (let loop ((threads workers) (count 0))
+    (if (null? threads)
+        count
+        (loop (cdr threads) (+ count (thread-join! (car threads)))))))
+(if (not (= observed (scalar-count 0 limit)))
+    (error "incomplete Unicode scalar inventory"))
+(display "UNICODE-SCALARS:processors=")
+(display processors)
+(display ",records=")
+(display observed)
+(display ",bytes=")
+(display (* observed record-bytes))
+(newline)
+(display "NATIVE-OK:unicode_scalar_semantics\n")
+(exit 0)
