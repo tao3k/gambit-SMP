@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tarfile
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from gambit_smp.framework import digest
 
 class SourceMaterializeTests(unittest.TestCase):
     def fixture(self, root, files=source.FILES):
+        subprocess.run(["git", "init", "--quiet", str(root)], check=True, capture_output=True)
         (root / ".data").mkdir()
         checkout = root / "vendor/gambit"
         checkout.mkdir(parents=True)

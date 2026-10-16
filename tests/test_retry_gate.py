@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -18,6 +19,7 @@ class RetryGateTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True, capture_output=True)
         evidence = self.root / "evidence"
         evidence.mkdir()
         for name in ("catalog.ss", "research-rules.ss"):

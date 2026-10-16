@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ class StageJournalCheckpointTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        subprocess.run(["git", "init", "--quiet", str(self.root)], check=True, capture_output=True)
         self.run = self.root / ".data/fixtures/run"
         (self.run / "run").mkdir(parents=True)
         self.tool = self.root / "compiler-fixture"
