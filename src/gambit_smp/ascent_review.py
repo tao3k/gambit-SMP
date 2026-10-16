@@ -96,6 +96,12 @@ def project(base, failures, snapshot_identity, proposal=None, changed=(), observ
 
 
 def collect(root, selected=None, proposal=None, task_model=None):
+    from gambit_smp.framework import path_resolution
+    with path_resolution(root) as canonical:
+        return _collect(canonical, selected, proposal, task_model)
+
+
+def _collect(root, selected=None, proposal=None, task_model=None):
     from ascent.evidence import identity
     from gambit_smp.protocol_evidence import facts as protocol_facts
 

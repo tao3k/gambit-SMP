@@ -939,6 +939,26 @@ class EngineSealTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "historical producer reachable"):
             research_kernel.implementation_paths(package)
 
+    def test_dependency_projection_uses_source_bytes_not_file_metadata(self):
+        import os
+        package = self.root / 'package'
+        package.mkdir()
+        for name in ('__init__', 'research_kernel', 'recipes', 'native_capabilities',
+                     'source_capabilities', 'evidence_capabilities', 'process_observation',
+                     'ascent_program', 'validation_domains'):
+            (package / (name + '.py')).write_text('')
+        source = package / 'recipes.py'
+        source.write_text('from gambit_smp import framework\n')
+        (package / 'framework.py').write_text('')
+        before = source.stat()
+        first = research_kernel.implementation_paths(package)
+        self.assertIn(package / 'framework.py', first)
+        self.assertEqual(first, research_kernel.implementation_paths(package))
+        source.write_text('from gambit_smp import source_unit\n')
+        os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        with self.assertRaisesRegex(ValueError, 'historical producer reachable'):
+            research_kernel.implementation_paths(package)
+
 
 class ProcessObservationTests(unittest.TestCase):
     def test_threaded_batch_runs_independent_processes_and_preserves_exits(self):

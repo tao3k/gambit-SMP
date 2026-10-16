@@ -11,6 +11,31 @@ import shutil
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+_path_root = ContextVar('checked_repository_path_root', default=None)
+
+
+@contextmanager
+def path_resolution(root):
+    """Reuse a canonical root only; every child path is still resolved afresh."""
+    root = Path(root).resolve(strict=True)
+    token = _path_root.set(root)
+    try:
+        yield root
+    finally:
+        _path_root.reset(token)
+        if root.resolve(strict=True) != root:
+            raise ValueError('repository root became a path alias')
+
+
+def resolved_root(root):
+    root = Path(root)
+    scope = _path_root.get()
+    if scope is not None and root.is_absolute() and '..' not in root.parts and root.is_relative_to(scope):
+        return root
+    return root.resolve()
 
 def project_root():
     """Find research data separately from the installed Python package."""
@@ -56,8 +81,9 @@ def digest(path):
 def relative(root, name):
     if not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts:
         raise ValueError("relative evidence path required")
+    root = resolved_root(root)
     path = (root / name).resolve()
-    path.relative_to(root.resolve())
+    path.relative_to(root)
     return path
 
 

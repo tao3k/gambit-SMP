@@ -10,6 +10,29 @@ from gambit_smp import framework
 
 
 class FrameworkTests(unittest.TestCase):
+    def test_scoped_root_never_caches_child_paths_or_bytes(self):
+        from gambit_smp.research_audit import local
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            root, outside = base / 'repo', base / 'outside'
+            root.mkdir()
+            outside.mkdir()
+            source = root / 'source'
+            source.write_bytes(b'before')
+            (outside / 'source').write_bytes(b'escaped')
+            with framework.path_resolution(root):
+                self.assertEqual(source, local(root, 'source'))
+                original = framework.digest(local(root, 'source'))
+                stamp = source.stat()
+                source.write_bytes(b'after!')
+                os.utime(source, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+                self.assertNotEqual(original, framework.digest(local(root, 'source')))
+                source.unlink()
+                source.symlink_to(outside / 'source')
+                with self.assertRaises(ValueError):
+                    local(root, 'source')
+                with self.assertRaises(ValueError):
+                    framework.relative(root, '../outside/source')
     def test_generated_build_driver_binds_compiler_and_detects_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

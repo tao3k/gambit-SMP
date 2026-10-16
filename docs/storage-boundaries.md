@@ -1,5 +1,20 @@
 # Source, Evidence And Local Execution Storage
 
+## Selected Replay Evidence
+
+`evidence/published-inputs.json` explicitly selects pre-existing artifacts used by
+the consumer's strict evidence contracts. Their original SHA-256 and bytes are
+retained. This repairs blanket ignore rules that had hidden useful model and
+observation replay inputs from clean checkouts; it is not a new successful run.
+The listed files are deliberately tracked despite the broad runtime-output
+ignore patterns. `tests/test_published_evidence.py` checks every selected path,
+digest, Git entry and non-admission boundary.
+
+Personal/build-path process records, automatic workspace inventories, arbitrary
+stdout/stderr and unselected runs remain in the Git toplevel `.cache/`. No old
+receipt is rewritten to make it portable. Missing historical material remains a
+gap until its original bytes and identity can be established.
+
 JSON is a representation, not a retention class. A successful process, a SHA
 field, an ASCENT answer or a filename containing `evidence` does not automatically
 make its output a Git asset. Failed results may be important durable evidence;

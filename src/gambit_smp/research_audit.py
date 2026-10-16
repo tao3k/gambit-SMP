@@ -47,8 +47,10 @@ QUERIES = {"blockers": "audit_blocker",
 def local(root, name):
     if not isinstance(name, str) or Path(name).is_absolute():
         raise ValueError("repository-relative evidence path required")
+    from gambit_smp.framework import resolved_root
+    root = resolved_root(root)
     path = (root / name).resolve()
-    path.relative_to(root.resolve())
+    path.relative_to(root)
     return path
 
 

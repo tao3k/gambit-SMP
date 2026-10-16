@@ -85,6 +85,21 @@ def retain_run_record(root, path, scope, payload, inputs):
     return {"path": str(path), "sha256": digest(path), "observation": identity, "scope": scope}
 
 
+@lru_cache(maxsize=256)
+def _static_dependencies(source):
+    """Parse exact bytes only; file availability and policy are never cached."""
+    dependencies = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module == "gambit_smp":
+            dependencies.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("gambit_smp."):
+            dependencies.append(node.module.split(".")[1])
+        elif isinstance(node, ast.Import):
+            dependencies.extend(alias.name.split(".")[1] for alias in node.names
+                                if alias.name.startswith("gambit_smp."))
+    return tuple(dependencies)
+
+
 def implementation_paths(package):
     """Seal the static implementation closure, not unrelated experiment runners."""
     pending = ["__init__", "research_kernel", "recipes", "native_capabilities", "source_capabilities",
@@ -104,18 +119,10 @@ def implementation_paths(package):
         if not path.is_file() or path.is_symlink():
             raise ValueError("unavailable static research implementation: " + name)
         used.add(name)
-        for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
-            dependencies = []
-            if isinstance(node, ast.ImportFrom) and node.module == "gambit_smp":
-                dependencies.extend(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("gambit_smp."):
-                dependencies.append(node.module.split(".")[1])
-            elif isinstance(node, ast.Import):
-                dependencies.extend(alias.name.split(".")[1] for alias in node.names if alias.name.startswith("gambit_smp."))
-            for child in dependencies:
-                if child not in used and child not in pending:
-                    parents[child] = name
-                    pending.append(child)
+        for child in _static_dependencies(path.read_bytes()):
+            if child not in used and child not in pending:
+                parents[child] = name
+                pending.append(child)
     return [package / (name + ".py") for name in sorted(used)]
 
 
