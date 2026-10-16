@@ -20,6 +20,8 @@ receipt, retry admission, or experiment budget. No automatic retry is configured
 `source_materialize.materialize` (revision/base/patch/candidate byte checks),
 `gambit_build_primitives.build_seed_core` (shared build capacity, recursive
 failure detection and complete core artifact inventory),
+`native_capabilities.run_suite_groups` (one mode per invocation, isolated test
+workspace, exact inventory, immutable fixture check and per-mode observations),
 `recipes.tree_identity` (complete paths, modes and checked links),
 `suite_primitives.selected_files` and `admitted_suite`; it has no independent
 Bash timeout/exit parser or research verdict logic. Patch contracts use their
@@ -29,6 +31,25 @@ calls; candidate reasoning/admission remains in Evidence DSL and sealed kernel.
 Modules cover the complete upstream `make check`, GC/C interface/dynamic load,
 compiled execution, interpreted/compiled thread tests and all four explicit
 upstream stress files. Stress is not part of the default unit-test inventory.
+The runner's child interpreter/compiler processes receive the documented
+`GAMBOPT=p2`, not just a processor option on their parent; receipts record it.
+The transport parent uses the existing single-processor runner option; that
+does not reduce the actual fixture/compilation children's `GAMBOPT=p2`.
+GSI and GSC share one 300-second deadline; modes never receive separate caps.
+
+Run 38897367565 completed its patched three-flag build, but **all eight native
+modules failed**. The old combined `-gsi -gsc` invocation exceeded the upstream
+file-count progress bar (104% / negative `make-string` length); it is replaced
+by the existing per-mode suite executor, not by changing Gambit test sources.
+Separate native failures remain: `make test5` reports an unscanned compiler
+object; `make test7` terminates with SIGSEGV. Make-based jobs have explicit
+hard-failing CI holds in the module catalog until source-causal review repairs
+those failures. Holds launch no native process and cannot yield a green summary.
+Do not remove them just because the CI transport changed or a local test passed.
+The original TFIB run additionally recorded `exit=-9`, `timeout=true` and
+`group_quiescent=false`; it is not a successful teardown. An executor exception
+retains partial mode/plan records and explicitly marks later modes unstarted.
+Sending SIGKILL alone never establishes process-group quiescence.
 
 The original vendor-only run [38894861703](https://github.com/tao3k/gambit-SMP/actions/runs/38894861703)
 failed with exit 2 (not timeout) in `setup.c:make_global`: `___GLOCELL` expands

@@ -1,6 +1,7 @@
 """CI wiring/process contracts, never native runtime acceptance."""
 import importlib.util
 import json
+import os
 import re
 from pathlib import Path
 import sys
@@ -8,6 +9,7 @@ import shutil
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -53,11 +55,11 @@ class GambitCIContracts(unittest.TestCase):
         self.assertEqual(upstream, declared)
         for spec in specs.values():
             if spec["kind"] == "suite":
-                argv, files = ci.suite_command(ROOT / "vendor/gambit", spec)
+                files = ci.selected_files(ROOT / "vendor/gambit/tests/unit-tests",
+                    [spec["selection"].removeprefix("unit-tests/")],
+                    inventory="stress" if spec["stress"] else "unit")
                 self.assertTrue(files)
-                self.assertEqual(spec["stress"], "-stress" in argv)
-                self.assertIn("-gsi", argv)
-                self.assertIn("-gsc", argv)
+                self.assertEqual(["gsi", "gsc"], spec["modes"])
 
     def test_identity_rejects_revision_missing_extra_and_changed_paths(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -94,6 +96,41 @@ class GambitCIContracts(unittest.TestCase):
                 self.assertEqual(expected, receipt["timeout"])
                 self.assertTrue(receipt["group_quiescent"])
                 self.assertEqual(-9 if expected else 7, receipt["exit"])
+
+    def test_runtime_options_reach_actual_child_and_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            environment = dict(os.environ, GAMBOPT="p2")
+            output = root / "environment"
+            text = ci.observe([sys.executable, "-c", "import os; print(os.environ['GAMBOPT'])"],
+                              root, time.monotonic() + 3, output, environment=environment)
+            self.assertEqual("p2\n", text)
+            self.assertEqual("p2", json.loads(output.with_suffix(".json").read_text())["runtimeOptions"])
+
+    def test_modes_use_existing_suite_executor_and_one_shared_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "tests/unit-tests").mkdir(parents=True)
+            (root / "tests/unit-tests/fixture.scm").write_text("(exit 0)\n")
+            spec = {"selection": "unit-tests/fixture.scm", "stress": False, "modes": ["gsi", "gsc"]}
+            deadline = time.monotonic() + 3
+            calls = []
+            def existing(context, runtime, copied, arguments, files, jobs, option):
+                calls.append((arguments["mode"], context.deadline))
+                return [{"accepted": arguments["mode"] == "gsc"}]
+            with patch.object(ci, "run_suite_groups", side_effect=existing):
+                with self.assertRaisesRegex(RuntimeError, "shared budget"):
+                    ci.run_modes(root, spec, deadline, root / "logs", root / "work", {})
+            self.assertEqual([("gsi", deadline), ("gsc", deadline)], calls)
+            rows = json.loads((root / "logs/modes.json").read_text())
+            self.assertFalse(rows[0]["rows"][0]["accepted"])
+            self.assertTrue(rows[1]["rows"][0]["accepted"])
+            with patch.object(ci, "run_suite_groups", side_effect=RuntimeError("unreaped group")):
+                with self.assertRaisesRegex(RuntimeError, "unreaped group"):
+                    ci.run_modes(root, spec, deadline, root / "error-logs", root / "error-work", {})
+            rows = json.loads((root / "error-logs/modes.json").read_text())
+            self.assertIsNone(rows[0]["started"])
+            self.assertIs(rows[1]["started"], False)
 
     def test_every_module_is_required_and_uses_one_artifact(self):
         workflow = (ROOT / ".github/workflows/gambit.yml").read_text()
