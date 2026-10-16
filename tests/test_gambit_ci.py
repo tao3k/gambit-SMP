@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 import sys
+import shutil
 import tempfile
 import time
 import unittest
@@ -19,6 +20,29 @@ class GambitCIContracts(unittest.TestCase):
     def test_three_flags_together(self):
         self.assertEqual(("--enable-smp", "--enable-multiple-vms",
                           "--enable-multiple-threaded-vms"), ci.FLAGS)
+
+    def test_checked_patch_reproduces_exact_context_fix_without_vendor_mutation(self):
+        from gambit_smp.framework import apply_untracked_patch
+        from gambit_smp.source_capabilities import validate_source_lock
+        lock = json.loads(ci.LOCK.read_text())
+        validate_source_lock(lock)
+        self.assertEqual({"lib/setup.c"}, set(lock["files"]))
+        source = ROOT / "vendor/gambit/lib/setup.c"
+        before = ci.digest(source)
+        self.assertEqual(before, lock["files"]["lib/setup.c"]["baseSha256"])
+        patch = ROOT / lock["patch"]
+        self.assertEqual(ci.digest(patch), lock["patchSha256"])
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory)
+            (copied / "lib").mkdir()
+            shutil.copy2(source, copied / "lib/setup.c")
+            apply_untracked_patch(copied, patch.read_bytes(), {"lib/setup.c"})
+            self.assertEqual(lock["files"]["lib/setup.c"]["candidateSha256"],
+                             ci.digest(copied / "lib/setup.c"))
+            text = (copied / "lib/setup.c").read_text()
+            self.assertIn("make_global (___MAKE_GLOBAL_PSV", text)
+            self.assertIn("___P((___MAKE_GLOBAL_PSD", text)
+        self.assertEqual(before, ci.digest(source))
 
     def test_complete_stress_inventory_has_independent_jobs(self):
         specs = json.loads(ci.CONFIG.read_text())
@@ -40,7 +64,8 @@ class GambitCIContracts(unittest.TestCase):
             root = Path(directory)
             source = root / "source.c"
             source.write_text("original")
-            identity = {"checkout": "one", "files": ci.inventory(root)}
+            identity = {"checkout": "one", "sourceLockSha256": ci.digest(ci.LOCK),
+                        "files": ci.inventory(root)}
             ci.verify(root, identity, "one")
             with self.assertRaisesRegex(ValueError, "checkout"):
                 ci.verify(root, identity, "two")

@@ -17,6 +17,9 @@ receipt, retry admission, or experiment budget. No automatic retry is configured
 
 `modules.json` declares the modules. The CI adapter reuses the framework's
 `process_observation.capture` (whole deadline, reap and process-group probes),
+`source_materialize.materialize` (revision/base/patch/candidate byte checks),
+`gambit_build_primitives.build_seed_core` (shared build capacity, recursive
+failure detection and complete core artifact inventory),
 `recipes.tree_identity` (complete paths, modes and checked links),
 `suite_primitives.selected_files` and `admitted_suite`; it has no independent
 Bash timeout/exit parser or research verdict logic. Patch contracts use their
@@ -27,12 +30,28 @@ Modules cover the complete upstream `make check`, GC/C interface/dynamic load,
 compiled execution, interpreted/compiled thread tests and all four explicit
 upstream stress files. Stress is not part of the default unit-test inventory.
 
-This workflow tests the exact **vendor gitlink baseline**, not an arbitrary
-unreviewed patch or the current repair candidate. Patch/model regressions remain
-in the Evidence framework CI. A patched runtime campaign must still pass the
-existing sealed Recipe, complete failure inventory and typed retry review; do
-not turn a workflow input into a gate bypass. New native fixtures should become
-explicit modules consuming the same reviewed artifact, not separate hidden builds.
+The original vendor-only run [38894861703](https://github.com/tao3k/gambit-SMP/actions/runs/38894861703)
+failed with exit 2 (not timeout) in `setup.c:make_global`: `___GLOCELL` expands
+through `___ps`, but that function has no processor-state argument. Stress jobs
+did not run. Its logs/artifact and original baseline remain unchanged.
+
+`source.lock.json` now declares a **minimal patched upstream CI candidate**, not
+the Working repair candidate. The exact processor-context fix already present
+in `patches/snapshots/candidate029-notification-source.patch` is reused without
+its other changes. It passes the caller's context through ANSI and K&R forms,
+and keeps single-VM expansion unchanged. `source_materialize` checks its pinned
+base, complete overlay and resulting file SHA before building `.ci/gambit`.
+Vendor and Working are never patched. Temporary real Git metadata supports the
+official release-seed/bootstrap route; no dummy-compiler shortcut is introduced.
+`aclocal`/`autoconf` resolve the installed pkg-config macro before configure.
+Metadata is removed only from that disposable build after completion.
+
+This is CI qualification, not a research retry/admission producer. No arbitrary
+patch workflow input exists. All jobs bind the same lock, patch and artifact
+identity. Research campaigns still require sealed Recipe/complete failures/typed
+retry review; a CI result must not be imported as authorization or as the full
+Working candidate's acceptance. New native fixtures must be explicit modules
+consuming that campaign's reviewed artifact, not separate hidden builds.
 
 Three enabled flags do **not** establish independent multi-VM creation, roots,
 rollback or teardown. Those candidate lifecycle gates, Gerbil, full bootstrap,
