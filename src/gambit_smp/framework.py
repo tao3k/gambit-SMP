@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 import argparse
 import hashlib
+import math
 import os
 from pathlib import Path
 import signal
@@ -106,9 +107,13 @@ def snapshot_fixture(source, out):
     return target
 
 
-def execute(argv, cwd, timeout, env=None, metadata=None):
-    if timeout <= 0:
-        raise ValueError("positive execution timeout required")
+def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=None, completion_grace=0,
+            progress_check=None):
+    if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("positive finite execution timeout required")
+    if (isinstance(completion_grace, bool) or not math.isfinite(completion_grace)
+            or completion_grace < 0):
+        raise ValueError("nonnegative finite finalization grace required")
     start = time.monotonic()
     process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env)
@@ -116,14 +121,40 @@ def execute(argv, cwd, timeout, env=None, metadata=None):
         metadata.update(pid=process.pid, startedAt=datetime.now(timezone.utc).isoformat())
     timed_out = False
     try:
-        output, _ = process.communicate(timeout=timeout)
+        if progress_check is None:
+            output, _ = process.communicate(timeout=timeout)
+        else:
+            from gambit_smp.process_observation import communicate_progress
+            output, _ = communicate_progress(process, timeout, progress_check)
     except subprocess.TimeoutExpired:
-        timed_out = True
         try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        output, _ = process.communicate()
+            completed = completion_check is not None and completion_grace > 0 and completion_check()
+        except BaseException:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.communicate()
+            raise
+        if metadata is not None:
+            metadata.update(**({"wallBudgetExceeded": True} if progress_check is None
+                               else {"idleWatchdogExceeded": True}), finalizationGraceGranted=completed)
+        if completed:
+            finalization_started = time.monotonic()
+            try:
+                output, _ = process.communicate(timeout=completion_grace)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+            if metadata is not None:
+                metadata["finalizationSeconds"] = time.monotonic() - finalization_started
+        else:
+            timed_out = True
+        if timed_out:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            output, _ = process.communicate()
     if metadata is not None:
         metadata["endedAt"] = datetime.now(timezone.utc).isoformat()
         metadata["parentReaped"] = process.returncode is not None

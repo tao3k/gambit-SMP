@@ -1,0 +1,117 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-stack-selection-origin-baseline-diagnostic",
+  "scope": "Current configured core plus focused tfib origin observation on heap-identity parent. No owned undo or pool layout repair inherited; diagnostic only, no full qualification.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-stack-selection-origin-baseline/source.lock.json",
+    "patches/fixtures/darwin-stack-selection-origin-baseline.patch",
+    "evidence/fixtures/darwin-stack-selection-origin-baseline/review-contract.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-origin-baseline-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-origin-baseline-source-state.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-section-owned-undo/native-observation.json",
+    "evidence/fixtures/darwin-section-owned-undo/native-model-feedback.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-selection-origin-baseline/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-stack-selection-origin-baseline-source-state-reference.json"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 130,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "tfib-origin",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "06-thread/tfib_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "seed",
+        "tfib-origin"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

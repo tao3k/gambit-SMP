@@ -1,0 +1,189 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-latency-population-admission-contract",
+  "scope": "Finite timing-admission contract bound to the explicitly selected producer: complete planned owners/rounds, stable source and no failed run are required before percentile acceptance. Survivor-only publication is a negative control. Does not model GC root cause, prove source refinement, statistical independence or a performance threshold.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "models/gambit/latency_population_admission.qnt",
+    "docs/vm-failed-join-retention.md",
+    "evidence/fixtures/vm-global-cleanup-preflight/source.lock.json",
+    "patches/fixtures/vm-global-cleanup-preflight.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-global-cleanup-preflight/source.lock.json"
+      }
+    },
+    {
+      "id": "handoff-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "handoff-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "handoff-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "handoff-parse"
+      }
+    },
+    {
+      "id": "handoff-protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "handoff-parse",
+        "handoff-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "handoff-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "handoff-protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/latency_population_admission.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/latency_population_admission.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/latency_population_admission.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "count-only-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/latency_population_admission.qnt",
+        "parsed": "parse",
+        "initializer": "initSurvivors",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/latency_population_admission.qnt",
+        "parsed": "parse",
+        "main": "latency_population_admission",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "survivorControlTest",
+          "completePopulationTest",
+          "partialTimeoutTest",
+          "sourceDriftTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "parse",
+        "typecheck",
+        "safe",
+        "count-only-control",
+        "trajectories",
+        "source",
+        "handoff-parse",
+        "handoff-typecheck",
+        "handoff-protocol",
+        "producer"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

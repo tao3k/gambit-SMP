@@ -1,4 +1,5 @@
 module gc_work_closure {
+  import WorkObligations.* from "../library/gc/WorkObligations"
   // Paper-guided composition: two workers, graph 1 -> 2 -> 1, two phases.
   // One object stands for a chunk's pending region, not a real block layout.
   // Queue release/acquire and count/wait are atomic abstractions. Mutators stop.
@@ -95,10 +96,14 @@ module gc_work_closure {
     arrive(1), arrive(2), nextPhase, finished,
   }
   val publicationSafe = not(s.staleRead)
-  val terminationSafe = not(s.done) or Set(1, 2).forall(o => s.work.get(o) == 6)
+  val terminationSafe = not(s.done) or allWorkComplete(s.work, Set(1, 2), 6)
   val ownershipSafe = Set(1, 2).forall(o => s.scans.get(o) <= 1)
   val phaseSafe = not(s.badPhase)
-  val counted = s.count == (if (s.active.get(1)) 1 else 0) +
-                          (if (s.active.get(2)) 1 else 0)
+  val counted = s.count == activeCount(s.active, Set(1, 2))
+  val workExtractionEquivalent = all {
+    terminationSafe == (not(s.done) or Set(1, 2).forall(o => s.work.get(o) == 6)),
+    counted == (s.count == (if (s.active.get(1)) 1 else 0) +
+                          (if (s.active.get(2)) 1 else 0)),
+  }
   val safe = publicationSafe and terminationSafe and ownershipSafe and phaseSafe and counted
 }

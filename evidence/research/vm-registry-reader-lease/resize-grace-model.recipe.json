@@ -1,0 +1,17 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "vm-registry-resize-grace-model",
+  "scope": "Finite two-processor shrinking barrier and global registry reader grace. Positive safety/progress, retained cached-count and early-close negative controls; no source refinement or native runtime admission.",
+  "budgetSeconds": 60,
+  "inputs": ["models/gambit/vm_registry_resize_grace.qnt", "evidence/research/execution-rules.ss", "evidence/fixtures/vm-registry-reader-lease/owned-retirement-source.lock.json", "patches/fixtures/vm-registry-owned-retirement.patch"],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/vm-registry-reader-lease/owned-retirement-source.lock.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/vm_registry_resize_grace.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/vm_registry_resize_grace.qnt","parsed":"parse"}},
+    {"id":"safe-progress","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/vm_registry_resize_grace.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"contract","negative":false}},
+    {"id":"cached-count-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/vm_registry_resize_grace.qnt","parsed":"parse","initializer":"initCountOnly","step":"step","invariant":"safe","negative":true}},
+    {"id":"early-close-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/vm_registry_resize_grace.qnt","parsed":"parse","initializer":"initEarlyClose","step":"step","invariant":"noStall","negative":true}},
+    {"id":"trajectories","capability":"quint.test","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/vm_registry_resize_grace.qnt","parsed":"parse","main":"vm_registry_resize_grace","seed":"0x1510","maxSamples":1,"expectedTests":["cachedCountControlTest","earlyCloseControlTest","admittedReaderTest","lateReaderTest"]}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","safe-progress","cached-count-control","early-close-control","trajectories"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

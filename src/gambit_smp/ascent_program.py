@@ -1,72 +1,145 @@
 """Identity-bound native ASCENT programs; no legacy rule-text frontend."""
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 import atexit
 import copy
-import importlib
 import json
+import hashlib
 from pathlib import Path
-import platform
 import os
 import threading
+import time
+import uuid
+import fcntl
+import stat
+import sys
 
 from gambit_smp.framework import digest
+
+INERT_RULE_CONTRACT = "inert-relational-subset.v1"
 
 _loaded_identity = None
 _retained_engine = None
 _retained_owner = None
+_query_owners = {}
+_verified_api = ContextVar("verified_sealed_api", default=None)
+_construction_slot = ContextVar("source_session_construction_slot", default=None)
+_construction_owner = ContextVar("source_session_construction_owner", default=None)
+
+
+@contextmanager
+def session_construction_slot(path, deadline):
+    """Coordinate cold source construction; never replace the Library loader."""
+    if _construction_slot.get() is not None:
+        raise ValueError("session construction slots cannot be nested")
+    if not isinstance(deadline, (int, float)) or not 0 < deadline < float("inf"):
+        raise ValueError("finite construction deadline required")
+    token = _construction_slot.set((Path(path), deadline))
+    try:
+        yield
+    finally:
+        _construction_slot.reset(token)
+
+
+def construction_slot():
+    return _construction_slot.get()
+
+
+@contextmanager
+def construction_admission():
+    slot = construction_slot()
+    if slot is None:
+        yield
+        return
+    path, deadline = slot
+    identity = (os.getpid(), threading.get_ident(), path, deadline)
+    if _construction_owner.get() == identity:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("session construction admission deadline exhausted")
+        yield
+        return
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("regular session construction lock required")
+        while True:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("session construction admission deadline exhausted")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                time.sleep(min(.01, max(0, deadline - time.monotonic())))
+        if time.monotonic() >= deadline:
+            raise TimeoutError("session construction admission deadline exhausted")
+        token = _construction_owner.set(identity)
+        try:
+            yield
+        finally:
+            _construction_owner.reset(token)
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def sealed_api_boundary(engine):
+    """Delegate nested API checks to full byte checks around this request only."""
+    from gambit_smp.research_kernel import execution_identity
+    engine = Path(engine).resolve(strict=True)
+    manifest = execution_identity(engine)
+    token = _verified_api.set((engine, manifest))
+    try:
+        yield manifest
+    finally:
+        _verified_api.reset(token)
+        if execution_identity(engine)["engineId"] != manifest["engineId"]:
+            raise ValueError("ASCENT seal changed during API boundary")
+
+
+
+
+def _api_inventory():
+    admission = construction_admission() if _loaded_identity is None else nullcontext()
+    with admission:
+        boundary = _verified_api.get()
+    from gambit_smp.ascent_runtime import inventory
+    paths, build = inventory(sealed_root=boundary[0] if boundary is not None else None, verify=False)
+    return paths, build, hashlib.sha256(json.dumps(build, sort_keys=True).encode()).hexdigest()
 
 
 def artifact_paths():
-    extension = Path(importlib.import_module("_ascent_cffi").__file__).resolve()
-    files = {"extension": extension, "library": extension.parent / (
-        "libascent.dylib" if platform.system() == "Darwin" else "libascent.so"),
-        "buildReceipt": extension.parent / "receipt.json"}
-    build = json.loads(files["buildReceipt"].read_text())
-    for name in build.get("syntaxResources", {}):
-        path = Path(name)
-        if path.is_absolute() or ".." in path.parts:
-            raise ValueError("invalid native syntax resource path")
-        files["syntax:" + name] = extension.parent / "syntax" / path
-    for name in ("ascent_engine", "ascent_engine.derivations", "ascent_engine.evidence",
-                 "ascent_engine.datalog_symbols",
-                 "ascent_engine.operators", "ascent_engine.review"):
-        files[name] = Path(importlib.import_module(name).__file__)
-    return files
+    return _api_inventory()[0]
+
+
+def _file_identities(files):
+    """Hash every distinct path per boundary; aliases retain separate bindings."""
+    observed = {path: digest(path) for path in set(files.values())}
+    return {name: observed[path] for name, path in files.items()}
+
+
+def _sealed_api_identities(files, root, manifest):
+    """Project paths from this request's no-follow, fully hashed inventory."""
+    identities = {}
+    for name, path in files.items():
+        # The boundary rejects symlinks at every directory level and hashes all
+        # files before/after execution. Re-resolving each ancestor adds no
+        # authority; lexical aliases must still never match a manifest entry.
+        if not path.is_absolute() or ".." in path.parts:
+            raise ValueError("ASCENT API escaped its verified seal")
+        try:
+            relative = path.relative_to(root).as_posix()
+        except ValueError:
+            raise ValueError("ASCENT API escaped its verified seal") from None
+        if relative not in manifest["files"]:
+            raise ValueError("ASCENT API escaped its verified seal")
+        identities[name] = manifest["files"][relative]
+    return identities
 
 
 @contextmanager
 def engine_api(*, engine=None, retain=False):
-    """Require the real compiled API and bind its implementation before/after."""
-    from ascent_engine import Engine
-    global _loaded_identity, _retained_engine, _retained_owner
-    if type(retain) is not bool:
-        raise ValueError("retain must be a boolean")
-    files = artifact_paths()
-    identities = {name: digest(path) for name, path in files.items()}
-    build = json.loads(files["buildReceipt"].read_text())
-    if (build.get("schema") != "ascent.cffi-api-build.v1"
-            or build.get("extensionSha256") != identities["extension"]
-            or build.get("librarySha256") != identities["library"]
-            or any(identities["syntax:" + name] != sha for name, sha in build.get("syntaxResources", {}).items())):
-        raise ValueError("ASCENT API artifacts do not match build receipt")
-    if _loaded_identity is not None and identities != _loaded_identity:
-        if retain and _retained_owner == (os.getpid(), threading.get_ident()):
-            close_retained_queries()
-        raise ValueError("ASCENT implementation changed in the loaded process")
-    # Gambit shutdown is terminal. Binding atexit owns process teardown;
-    # individual queries close their EvidenceChain sessions, not the runtime.
-    owned = engine is None
-    if owned:
-        if retain:
-            if _retained_engine is None:
-                _retained_engine = Engine()
-                _retained_owner = (os.getpid(), threading.get_ident())
-                atexit.register(_close_retained_at_exit)
-            engine = _retained_engine
-        else:
-            engine = Engine()
-    engine.request({"operation": "describe"})
-    _loaded_identity = identities
+    """Require the receipt-bound C ABI and bind its implementation before/after."""
+    engine, identities, files, owned, boundary = _api_entry(engine, retain)
     try:
         yield engine, identities
     except BaseException:
@@ -75,15 +148,65 @@ def engine_api(*, engine=None, retain=False):
         raise
     finally:
         if owned and not retain:
-            close_queries(engine)
-        if any(digest(path) != identities[name] for name, path in files.items()):
-            if owned:
+            try:
                 close_queries(engine)
-            raise ValueError("ASCENT implementation changed during audit")
+            finally:
+                engine.close()
+        if boundary is None:
+            current_files = artifact_paths()
+            if current_files != files or _file_identities(files) != identities:
+                if owned:
+                    close_queries(engine)
+                raise ValueError("ASCENT implementation changed during audit")
+
+
+def _api_entry(engine, retain):
+    """Finish the checked official initialization phase before caller execution."""
+    from ascent import Engine
+    global _loaded_identity, _retained_engine, _retained_owner
+    if type(retain) is not bool:
+        raise ValueError("retain must be a boolean")
+    files, build, receipt_sha = _api_inventory()
+    boundary = _verified_api.get()
+    if boundary is None:
+        identities = _file_identities(files)
+    else:
+        root, manifest = boundary
+        identities = _sealed_api_identities(files, root, manifest)
+    if build.get("schema") != "ascent.rust-build.v1" or not build.get("rayon"):
+        raise ValueError("Rust ASCENT build identity required")
+    if identities.get("ascent._core") != build.get("extensionSha256"):
+        raise ValueError("installed ASCENT extension does not match its RECORD")
+    for prefix, expected in (("source:", build["sourceInputs"]), ("runtime:", build["runtimeInputs"])):
+        if any(identities.get(prefix + path) != sha for path, sha in expected.items()):
+            raise ValueError("ASCENT compiled inputs do not match the installed artifact")
+    if any(identities.get("package:" + path) != sha for path, sha in build["installedInputs"].items()):
+        raise ValueError("ASCENT installed wheel inputs do not match their RECORD")
+    if _loaded_identity is not None and identities != _loaded_identity:
+        if retain and _retained_owner == (os.getpid(), threading.get_ident()):
+            close_retained_queries()
+        raise ValueError("ASCENT implementation changed in the loaded process")
+    owned = engine is None
+    # Never hold a permit across the caller's body: it can wait on a sealed
+    # child that needs its own initialization or source-construction permit.
+    admission = construction_admission() if owned and _loaded_identity is None else nullcontext()
+    with admission:
+        if owned:
+            if retain:
+                if _retained_engine is None:
+                    _retained_engine = Engine(backend="rust")
+                    _retained_owner = (os.getpid(), threading.get_ident())
+                    atexit.register(_close_retained_at_exit)
+                engine = _retained_engine
+            else:
+                engine = Engine(backend="rust")
+        engine.describe()
+    _loaded_identity = identities
+    return engine, identities, files, owned, boundary
 
 
 def close_retained_queries():
-    """Release default-call sessions explicitly, without shutting down Gambit."""
+    """Release default-call sessions while retaining their explicitly owned Engine."""
     if _retained_engine is not None:
         close_queries(_retained_engine)
 
@@ -91,7 +214,10 @@ def close_retained_queries():
 def _close_retained_at_exit():
     if (_retained_engine is not None and not _retained_engine.closed
             and _retained_owner == (os.getpid(), threading.get_ident())):
-        close_retained_queries()
+        try:
+            close_retained_queries()
+        finally:
+            _retained_engine.close()
 
 
 def load_catalog(*paths):
@@ -106,43 +232,53 @@ def load_catalog(*paths):
     return {"sourceTexts": texts, "sourceInputs": inputs}
 
 
-def load_module_catalog(module, constructor, arguments, *, inputs):
-    """Bind a compiled native module entry, without parsing Scheme in Python.
-
-    Inputs are the host's source/build identity inventory. The native API's
-    checked resource receipt separately binds the actually loaded module.
-    This is execution context, not proof admission or host authorization.
-    """
-    paths = [Path(path).resolve() for path in inputs]
-    if not paths:
-        raise ValueError("native Evidence module identity inventory required")
-    return {"nativeModule": {"module": module, "constructor": constructor,
-                             "arguments": copy.deepcopy(arguments)},
-            "sourceInputs": {str(path): digest(path) for path in paths}}
+def load_inert_catalog(*paths):
+    """Explicit checked rule contract; never downgrade executable DSL text."""
+    catalog = load_catalog(*paths)
+    catalog["inertRuleTexts"] = catalog.pop("sourceTexts")
+    return catalog
 
 
 def load_evidence_catalog(*paths, constructor=None, arguments=(), trusted=False, limits=None):
     """Bind scenario DSL; imports, scope and expansion belong to the Library."""
     if trusted is not True:
-        raise ValueError("trusted host Scheme execution must be explicitly authorized")
+        raise ValueError("trusted Evidence DSL execution must be explicitly authorized")
     paths = tuple(Path(path).resolve() for path in paths)
     if not paths:
         raise ValueError("native module source inventory required")
     inputs = {str(path): digest(path) for path in paths}
-    source = '\n'.join(path.read_text() for path in paths)
+    source = '\n'.join(path.read_bytes().decode('utf-8') for path in paths)
     if any(digest(path) != inputs[str(path)] for path in paths):
         raise ValueError("native module source changed during loading")
     return {"nativeEvidence": {"constructor": constructor,
             "arguments": copy.deepcopy(list(arguments)), "source": source, "trusted": True,
             "factLimits": {} if limits is None else limits.wire()},
-            "sourceInputs": inputs}
+            "sourceInputs": inputs, "definitionSources": [str(path) for path in paths]}
+
+
+def _verify_definition_sources(catalog):
+    """Bind exact definition bytes; additional observation inputs are not code."""
+    if "nativeEvidence" not in catalog:
+        return
+    paths = catalog.get("definitionSources")
+    if (not isinstance(paths, list) or not paths
+            or any(not isinstance(path, str) or path not in catalog["sourceInputs"] for path in paths)
+            or len(set(paths)) != len(paths)):
+        raise ValueError("definition source inventory omits a bound source")
+    if any(str(Path(path).resolve(strict=True)) != path for path in paths):
+        raise ValueError("definition source alias is not a bound path")
+    if any(digest(Path(path)) != catalog['sourceInputs'][path] for path in paths):
+        raise ValueError("native ASCENT DSL source generation changed")
+    source = '\n'.join(Path(path).read_bytes().decode('utf-8') for path in paths)
+    if source != catalog["nativeEvidence"]["source"]:
+        raise ValueError("definition bytes differ from their bound sources")
 
 
 def load_component_catalog(manifest_path, *, entry, constructor=None, arguments=(),
                            trusted=False, limits=None):
-    """Bind separate assets; dependency selection and linking remain in Scheme."""
+    """Bind separate assets; dependency selection and linking remain in Rust."""
     if trusted is not True:
-        raise ValueError("trusted host Scheme execution must be explicitly authorized")
+        raise ValueError("trusted Evidence DSL execution must be explicitly authorized")
     manifest_path = Path(manifest_path).resolve()
     inputs = {str(manifest_path): digest(manifest_path)}
     manifest = json.loads(manifest_path.read_text())
@@ -182,6 +318,7 @@ def definitions(catalog, *, engine=None):
             raise ValueError("Evidence definitions changed during their owner lifetime")
 
     check()
+    _verify_definition_sources(catalog)
     if "nativeComponents" in catalog:
         spec = catalog["nativeComponents"]
         manifests = [path for path in sources if Path(path).suffix == ".json"]
@@ -194,8 +331,9 @@ def definitions(catalog, *, engine=None):
             raise ValueError("Evidence component bytes differ from their bound sources")
     else:
         spec = catalog["nativeEvidence"]
-        actual = load_evidence_catalog(*sources, trusted=spec["trusted"])
-        if actual["sourceInputs"] != sources or actual["nativeEvidence"]["source"] != spec["source"]:
+        actual = load_evidence_catalog(*catalog["definitionSources"], trusted=spec["trusted"])
+        if (any(sources.get(path) != sha for path, sha in actual["sourceInputs"].items())
+                or actual["nativeEvidence"]["source"] != spec["source"]):
             raise ValueError("Evidence definition bytes differ from their bound sources")
     with engine_api(engine=engine) as (selected, identities):
         if "nativeComponents" in catalog:
@@ -207,7 +345,7 @@ def definitions(catalog, *, engine=None):
             owner = selected.dsl(spec["source"], trusted=spec["trusted"])
         with owner:
             try:
-                yield owner, {"name": "ascent-cffi-api", "inputs": identities,
+                yield owner, {"name": "ascent-rust", "inputs": identities,
                               "sourceInputs": dict(sources),
                               "entry": "trusted-evidence-definitions.v1",
                               "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
@@ -215,38 +353,41 @@ def definitions(catalog, *, engine=None):
                 check()
 
 
-@contextmanager
-def modules(module):
-    """Agentic AI access to upstream objects, without a Catalog tier.
+def build_sources(build, *, sealed_engine=None):
+    """Resolve every actual build input, independently of language/module names."""
+    from gambit_smp.ascent_runtime import inventory
+    boundary = _verified_api.get()
+    root = Path(sealed_engine).resolve(strict=True) if sealed_engine is not None else (
+        boundary[0] if boundary is not None else None)
+    if root is not None:
+        from gambit_smp.research_kernel import manifest_paths
+        manifest = manifest_paths(root)
+        actual = json.loads((root / "ascent-build.json").read_text())
+        sources = {}
+        for name, sha in actual["sourceInputs"].items():
+            relative = Path(name)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise ValueError("invalid build source path")
+            target = "provider-source/" + relative.as_posix()
+            if manifest["files"].get(target) != sha:
+                raise ValueError("sealed compiled source is not an exact build input")
+            sources[name] = {"path": str(root / target), "sha256": sha}
+    else:
+        _, actual = inventory()
+        sources = {name: {"path": str(Path(actual["sourceRoot"]) / name), "sha256": sha}
+                   for name, sha in actual["sourceInputs"].items()}
+    if (build.get("schema") != "ascent.rust-build.v1"
+            or build.get("sourceInputs") != actual["sourceInputs"]
+            or build.get("runtimeInputs") != actual["runtimeInputs"]):
+        raise ValueError("compiled Rust provider source identity mismatch")
+    if any(digest(Path(entry["path"])) != entry["sha256"] for entry in sources.values()):
+        raise ValueError("build source changed after binding")
+    return sources
 
-    Native constructors, closures, plans and sessions remain owned by Scheme.
-    The host binds all compiled source identities; results and explanations
-    are observations, not permissions or source-refinement certificates.
-    """
-    with engine_api() as (engine, identities):
-        build = engine.build_receipt or {}
-        producer = build.get("producerBuild", build)
-        linked = producer.get("linkedSchemeSources", {})
-        if module.lstrip(":") not in linked:
-            raise ValueError("native module is not bound to the compiled producer")
-        sources = {str(Path(entry["path"]).resolve()): entry["sha256"] for entry in linked.values()}
-        def check():
-            if any(digest(Path(path)) != sha for path, sha in sources.items()):
-                raise ValueError("native module source changed after its compiled producer")
-        check()
-        with engine.module(module) as owner:
-            try:
-                yield owner, {"name": "ascent-cffi-api", "inputs": identities,
-                              "compiledSources": sources,
-                              "entry": "trusted-native-module-calls.v1",
-                              "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
-            finally:
-                check()
 
-
-def assemble(facts, catalog, queries):
-    """Select a complete dependency slice and attach typed source rows."""
-    if any(key in catalog for key in ("sourceTexts", "nativeModule", "nativeEvidence", "nativeComponents")):
+def assemble(facts, catalog, queries, *, engine=None):
+    """Transport complete inputs to Scheme's authority-preserving proof slice."""
+    if any(key in catalog for key in ("sourceTexts", "inertRuleTexts", "nativeEvidence", "nativeComponents")):
         projection = catalog.get("projection", {})
         if projection.get("status") != "supported":
             raise ValueError("native DSL lacks a lossless finite proof projection")
@@ -255,142 +396,56 @@ def assemble(facts, catalog, queries):
     if (not isinstance(catalog, dict) or not {"relations", "rules"} <= set(catalog)
             or set(catalog) - {"relations", "rules", "sourceInputs"}):
         raise ValueError("native ASCENT catalog object required; rule text is unsupported")
-    declarations = {row["name"]: row for row in catalog["relations"]}
-    if len(declarations) != len(catalog["relations"]):
-        raise ValueError("duplicate relation declaration")
-    if not queries or any(not isinstance(name, str) or name not in declarations
-                          for name in queries.values()):
-        raise ValueError("queries must name declared native ASCENT relations")
-    definitions = {}
-    for index, rule in enumerate(catalog["rules"]):
-        if set(rule) != {"head", "body"} or not rule["head"] or not rule["body"]:
-            raise ValueError("native ASCENT head/body rule required")
-        for head in rule["head"]:
-            name = head["relation"]
-            if name not in declarations or declarations[name]["source"]:
-                raise ValueError("rule head must name a derived relation")
-            definitions.setdefault(name, []).append(index)
-    pending, used, selected = list(queries.values()), set(), set()
-    while pending:
-        name = pending.pop()
-        if name in used:
-            continue
-        if name not in declarations:
-            raise ValueError("undeclared native ASCENT dependency: " + name)
-        used.add(name)
-        for index in definitions.get(name, []):
-            selected.add(index)
-            rule = catalog["rules"][index]
-            pending.extend(clause["relation"] for clause in rule["head"] + rule["body"]
-                           if "relation" in clause)
-        if not declarations[name]["source"] and name not in definitions:
-            raise ValueError("derived relation has no rule: " + name)
-    relations = []
-    kinds = {"symbol": str, "integer": int, "boolean": bool}
-    for name in sorted(used):
-        relation = copy.deepcopy(declarations[name])
-        if relation["source"] and name not in facts:
-            raise ValueError("undeclared source facts: " + name)
-        if not relation["source"] and facts.get(name):
-            raise ValueError("derived relation cannot contain source facts: " + name)
-        rows = facts.get(name, []) if relation["source"] else []
-        columns = relation["columns"]
-        if any(len(row) != len(columns) or any(type(value) is not kinds[column["kind"]]
-               for value, column in zip(row, columns)) for row in rows):
-            raise ValueError("source row violates native relation type: " + name)
-        relation["rows"] = [list(row) for row in rows]
-        relations.append(relation)
-    return {"relations": relations, "rules": [copy.deepcopy(catalog["rules"][index])
-            for index in sorted(selected)], "queries": sorted(set(queries.values()))}
-
-
-class QueryOwner:
-    """Bounded process/thread owner for one rule generation and source snapshot."""
-    def __init__(self, engine, facts, catalog):
-        from ascent_engine.derivations import EvidenceChain
-        from ascent_engine.datalog_symbols import encode
-        self.engine, self.catalog = engine, copy.deepcopy(catalog)
-        self.pid, self.thread = os.getpid(), threading.get_ident()
-        self.closed, self.rounds, self.generation = False, 0, 0
-        self.sources = self._sources(facts)
-        encoded, _ = encode({"relations": self.sources, "rules": [], "queries": []})
-        self.chain = EvidenceChain(engine, encoded["relations"])
-
-    def _check(self):
-        if self.closed or self.pid != os.getpid() or self.thread != threading.get_ident():
-            raise ValueError("closed or foreign ASCENT query owner")
-
-    def _sources(self, facts):
-        names = {row["name"]: row["name"] for row in self.catalog["relations"] if row["source"]}
-        # Missing unrelated sources are empty, but assemble still rejects a missing
-        # required source in each actual query before this owner is consumed.
-        rows = {name: facts.get(name, []) for name in names}
-        return assemble(rows, self.catalog, names)["relations"]
-
-    def evaluate(self, facts, queries):
-        from ascent_engine.datalog_symbols import encode
-        self._check()
-        selected = assemble(facts, self.catalog, queries)
-        sources = self._sources(facts)
-        encoded, _ = encode({"relations": sources, "rules": [], "queries": []})
-        if sources != self.sources:
-            self.chain.replace(encoded["relations"])
-            self.sources = sources
-            self.generation += 1
-        selected["relations"] = sources + [row for row in selected["relations"] if not row["source"]]
-        program, symbols = encode(selected)
-        result = self.chain.query(program)
-        repeated = self.chain.query(program)
-        self.rounds += 1
-        return result, repeated, symbols
-
-    def close(self):
-        if not self.closed:
-            self._check()
-            self.chain.close()
-            self.closed = True
-
-    def __enter__(self):
-        self._check()
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
+    from ascent import EngineError
+    def request(active):
+        try:
+            from ascent.derivations import slice_program
+            return slice_program({"relations": catalog["relations"], "rules": catalog["rules"]},
+                                 facts, list(queries.values()))
+        except EngineError as error:
+            raise ValueError(str(error)) from error
+    if engine is not None:
+        return request(engine)
+    with engine_api(retain=True) as (active, _):
+        return request(active)
 
 
 class SourceQueryOwner:
     """Retain the actual upstream DSL program/session across query subsets."""
     def __init__(self, engine, facts, catalog):
+        _verify_definition_sources(catalog)
         entry = ("open-components" if "nativeComponents" in catalog else
                  "open-evidence" if "nativeEvidence" in catalog else
-                 "open-module" if "nativeModule" in catalog else "open-sources")
-        if entry not in engine.request({"operation": "describe"}).get("operations", []):
+                 "open-rule-sources" if "inertRuleTexts" in catalog else "open-sources")
+        if not callable(getattr(engine, "describe", None)):
             raise ValueError("installed ASCENT engine lacks the upstream native DSL entry")
+        description = engine.describe()
+        if entry not in description.get("operations", []):
+            raise ValueError("installed ASCENT engine lacks the upstream native DSL entry")
+        if entry == "open-rule-sources" and description.get("ruleTextContract") != INERT_RULE_CONTRACT:
+            raise ValueError("installed ASCENT inert rule contract mismatch")
         self.engine, self.catalog = engine, catalog
         self.pid, self.thread = os.getpid(), threading.get_ident()
+        self.owner_token = uuid.uuid4().hex
         self.closed, self.rounds, self.generation = False, 0, 0
+        self.context_changed = False
         self.last_result = None
+        self.result_handle = None
         if entry == "open-components":
-            from ascent_engine import FactLimits
+            from ascent import FactLimits
             declaration = catalog["nativeComponents"]
-            self.session = engine.evidence_components(declaration["manifest"], declaration["sources"],
-                declaration["entry"], declaration["constructor"], *declaration["arguments"],
-                trusted=declaration["trusted"], limits=FactLimits(**declaration.get("factLimits", {})))
+            with engine.components(declaration["manifest"], declaration["sources"],
+                                   declaration["entry"], trusted=declaration["trusted"]) as module:
+                with module.call(declaration["constructor"], *declaration["arguments"]) as value:
+                    self.session = value.open_session(limits=FactLimits(**declaration.get("factLimits", {})))
         elif entry == "open-evidence":
-            from ascent_engine import FactLimits
+            from ascent import FactLimits
             declaration = catalog["nativeEvidence"]
             self.session = engine.evidence(declaration["source"], declaration["constructor"],
                 *declaration["arguments"], trusted=declaration["trusted"],
                 limits=FactLimits(**declaration.get("factLimits", {})))
-        elif entry == "open-module":
-            declaration = catalog["nativeModule"]
-            receipt = getattr(engine, "build_receipt", None) or {}
-            producer = receipt.get("producerBuild", receipt)
-            bound = producer.get("linkedSchemeSources", {}).get(declaration["module"].lstrip(":"))
-            if (not bound or catalog["sourceInputs"].get(str(Path(bound["path"]).resolve())) != bound["sha256"]):
-                raise ValueError("native Evidence module source does not match the compiled producer")
-            self.session = engine.open_module(declaration["module"], declaration["constructor"],
-                                              *declaration["arguments"])
+        elif entry == "open-rule-sources":
+            self.session = engine.open_rule_sources(*catalog["inertRuleTexts"])
         else:
             self.session = engine.open_sources(*catalog["sourceTexts"])
         try:
@@ -415,12 +470,27 @@ class SourceQueryOwner:
         if any(digest(Path(path)) != sha for path, sha in self.catalog["sourceInputs"].items()):
             raise ValueError("native ASCENT DSL source generation changed")
 
+    def bind_source_context(self, catalog):
+        """Reuse only byte-identical source programs, never their old bindings."""
+        if self.closed or self.pid != os.getpid() or self.thread != threading.get_ident():
+            raise ValueError("closed or foreign ASCENT query owner")
+        _verify_definition_sources(catalog)
+        entry = next((key for key in ("sourceTexts", "inertRuleTexts", "nativeEvidence", "nativeComponents")
+                      if key in catalog), None)
+        if entry not in catalog or catalog[entry] != self.catalog.get(entry):
+            raise ValueError("source program changed during context binding")
+        if any(digest(Path(path)) != sha for path, sha in catalog["sourceInputs"].items()):
+            raise ValueError("native ASCENT DSL source generation changed")
+        if catalog["sourceInputs"] != self.catalog["sourceInputs"]:
+            self.catalog = catalog
+            self.context_changed = True
+
     def _sources(self, facts):
         declarations = {row["name"]: row for row in self.session.descriptors}
         if any(name in declarations and not declarations[name]["source"] and rows
                for name, rows in facts.items()):
             raise ValueError("derived relation cannot contain source facts")
-        if any(key in self.catalog for key in ("nativeModule", "nativeEvidence", "nativeComponents")):
+        if any(key in self.catalog for key in ("nativeEvidence", "nativeComponents")):
             sources = copy.deepcopy(getattr(self, "sources", {}))
             sources.update({name: copy.deepcopy(rows) for name, rows in facts.items()
                             if name in declarations and declarations[name]["source"]})
@@ -433,14 +503,17 @@ class SourceQueryOwner:
         if not queries or any(name not in self.session.queries for name in queries.values()):
             raise ValueError("queries must name declared native ASCENT relations")
         sources = self._sources(facts)
-        if sources != self.sources:
+        rebound = self.context_changed
+        if sources != self.sources or rebound:
             self.session.replace(sources)
             self.sources = sources
             self.generation += 1
+            self.context_changed = False
         result = self.session.run(timeout_nanoseconds, queries=sorted(set(queries.values())))
         if self.last_result is not None:
             self.last_result.close()
         self.last_result = self.session.result(result) if "resultHandle" in result else None
+        self.result_handle = result.get("resultHandle")
         if not result["complete"]:
             raise ValueError("native ASCENT investigation deadline incomplete")
         self.rounds += 1
@@ -450,27 +523,29 @@ class SourceQueryOwner:
                        for label, name in queries.items()}
         else:
             answers = {label: self.last_result.rows(name) for label, name in queries.items()}
-        from ascent_engine.evidence import identity
-        declaration = self.catalog.get("nativeComponents", self.catalog.get("nativeEvidence", self.catalog.get("nativeModule")))
+        from ascent.evidence import identity
+        declaration = self.catalog.get("nativeComponents", self.catalog.get("nativeEvidence"))
         source_identity = ({"module": declaration,
                             "inputs": self.catalog["sourceInputs"], "updates": self.sources}
                            if declaration else self.sources)
         return answers, {"sourceIdentity": identity(source_identity),
                          "sourceGeneration": result["sourceGeneration"],
                          "investigationRound": self.rounds, "retainedOwner": True,
+                         "sourceContextRebound": rebound,
                          "nativeResultReused": result["nativeResultReused"],
                          "nativeRunIndex": result["runIndex"],
                          "nativeEvaluationPath": result["evaluationPath"],
                          "nativeReusedRelations": result["reusedRelations"],
                          "nativeActiveRuleCount": result["activeRuleCount"],
                          "nativeResultHandle": result.get("resultHandle"),
-                         "nativeSessionHandle": self.session.handle,
+                         "sessionOwner": self.owner_token,
+                         "sessionOwnerScope": "consumer-process-lifetime-token; not a native handle or authority",
                          "nativeFactLimits": self.session.fact_limits,
                          "resultEncoding": result.get("scalarProjection", "supported"),
                          "proofProjection": self.session.projection["status"],
                          "ruleSyntax": ("ascent.evidence-components.v1" if "nativeComponents" in self.catalog else
-                                        "trusted-host-scheme.v1" if "nativeEvidence" in self.catalog else
-                                        "trusted-native-evidence-module.v1" if "nativeModule" in self.catalog
+                                        "trusted-evidence-dsl.v1" if "nativeEvidence" in self.catalog else
+                                        INERT_RULE_CONTRACT if "inertRuleTexts" in self.catalog
                                         else "upstream-ascent-dsl.v1"),
                          "ruleSourceInputs": dict(self.catalog["sourceInputs"]),
                          "transportSyntax": "native-source-session.v1"}
@@ -486,77 +561,74 @@ class SourceQueryOwner:
             self.closed = True
 
 
+def result_explanation(engine, owner_token, result_handle, relation):
+    """Return the typed explanation owner only for this live retained result."""
+    for owner in _query_owners.get(engine, {}).values():
+        if owner.owner_token == owner_token and owner.result_handle == result_handle:
+            owner._check()
+            if owner.last_result is None or owner.last_result.closed:
+                break
+            return owner.last_result.explanation(relation)
+    raise ValueError("closed or foreign ASCENT result owner")
+
+
 def close_queries(engine):
     """Release retained sessions, never shut down the process runtime."""
-    owners = getattr(engine, "_gambit_query_owners", {})
+    owners = _query_owners.pop(engine, {})
     for owner in list(owners.values()):
         owner.close()
     owners.clear()
-    from gambit_smp.native_support import close_support
-    close_support(engine)
+    support = sys.modules.get("gambit_smp.native_support")
+    if support is not None:
+        support.close_support(engine)
 
 
-def evaluate(engine, facts, catalog, queries, *, timeout_nanoseconds=1000000000):
-    from ascent_engine.evidence import identity
-    native_text = any(key in catalog for key in ("sourceTexts", "nativeModule", "nativeEvidence", "nativeComponents"))
+def evaluate(engine, facts, catalog, queries, *, timeout_nanoseconds=1000000000, reuse_program=False):
+    from ascent.evidence import identity
+    entries = [key for key in ("sourceTexts", "inertRuleTexts", "nativeEvidence", "nativeComponents") if key in catalog]
+    if len(entries) != 1 or not catalog.get("sourceInputs"):
+        raise ValueError("one source-bound Library entry required; decoded rule dictionaries are not an execution entry")
     entry_key = ("nativeComponents" if "nativeComponents" in catalog else
                  "nativeEvidence" if "nativeEvidence" in catalog else
-                 "nativeModule" if "nativeModule" in catalog else "sourceTexts")
-    key = identity({name: catalog[name] for name in (entry_key, "sourceInputs")}) if native_text else identity(catalog)
-    owners = getattr(engine, "_gambit_query_owners", None)
-    if owners is None:
-        owners = engine._gambit_query_owners = {}
+                 "inertRuleTexts" if "inertRuleTexts" in catalog else "sourceTexts")
+    if type(reuse_program) is not bool:
+        raise ValueError("reuse_program must be a boolean")
+    reuse_source = reuse_program and entry_key in {"sourceTexts", "inertRuleTexts", "nativeEvidence", "nativeComponents"}
+    text_entry = entry_key in {"sourceTexts", "inertRuleTexts"}
+    key = (identity({entry_key: catalog[entry_key], "reuseSourceProgram": True})
+           if reuse_source and not text_entry else
+           identity({entry_key: catalog[entry_key],
+                     "sourceDigests": sorted(catalog["sourceInputs"].values()),
+                     "reuseSourceProgram": True}) if reuse_source else
+           identity({name: catalog[name] for name in (entry_key, "sourceInputs")}))
+    owners = _query_owners.setdefault(engine, {})
     if key not in owners:
         if len(owners) >= 4:
             owners.pop(next(iter(owners))).close()
-        owners[key] = (SourceQueryOwner if native_text else QueryOwner)(engine, facts, catalog)
+        owners[key] = SourceQueryOwner(engine, facts, catalog)
     owner = owners[key]
     owners.pop(key)
     owners[key] = owner
     try:
-        if native_text:
-            catalog["projection"] = copy.deepcopy(owner.session.projection)
-            catalog["relations"] = copy.deepcopy(owner.session.descriptors)
-            return owner.evaluate(facts, queries, timeout_nanoseconds)
-        result, repeated, symbols = owner.evaluate(facts, queries)
+        if reuse_source:
+            owner.bind_source_context(catalog)
+        catalog["projection"] = copy.deepcopy(owner.session.projection)
+        catalog["relations"] = copy.deepcopy(owner.session.descriptors)
+        return owner.evaluate(facts, queries, timeout_nanoseconds)
     except Exception:
         owners.pop(key).close()
         raise
-    if result["result"] != repeated["result"] or not result["result"].get("complete"):
-        raise ValueError("ASCENT audit did not return a stable complete result")
-    def decode(value):
-        if isinstance(value, str):
-            if value not in symbols:
-                raise ValueError("unknown native ASCENT symbol")
-            return symbols[value]
-        return value
-    answers = {label: sorted((tuple(decode(value) for value in row)
-               for row in result["result"]["relations"][name]),
-               key=lambda row: tuple((type(value).__name__, value) for value in row))
-               for label, name in queries.items()}
-    return answers, {"sourceIdentity": result["sourceIdentity"],
-                     "pathIdentity": result["pathIdentity"],
-                     "freshComponents": len(result["freshComponents"]),
-                     "reusedComponents": len(result["reusedComponents"]),
-                     "investigationRound": owner.rounds,
-                     "sourceGeneration": owner.generation,
-                     "retainedOwner": True,
-                     "repeatReusedComponents": len(repeated["reusedComponents"]),
-                     "repeatPurpose": "stability-control-not-investigation-work-saved",
-                     "ruleSyntax": "inert-relational-subset.v1",
-                     "ruleSourceInputs": catalog.get("sourceInputs", {}),
-                     "transportSyntax": "ascent-native-wire.v1"}
 
 
-def query(facts, catalog, queries, *, engine=None, metrics=None):
+def query(facts, catalog, queries, *, engine=None, metrics=None, reuse_program=False):
     """One production inference path. Missing native artifacts never fall back."""
     if engine is None:
         with engine_api(retain=True) as (selected, identities):
-            answers, observed = evaluate(selected, facts, catalog, queries)
-        observed.update(name="ascent-cffi-api", inputs=identities)
+            answers, observed = evaluate(selected, facts, catalog, queries, reuse_program=reuse_program)
+        observed.update(name="ascent-rust", inputs=identities)
     else:
-        answers, observed = evaluate(engine, facts, catalog, queries)
-        observed.update(name="ascent-cffi-api", externallyManaged=True)
+        answers, observed = evaluate(engine, facts, catalog, queries, reuse_program=reuse_program)
+        observed.update(name="ascent-rust", externallyManaged=True)
     if metrics is not None:
         metrics.update(observed)
     return answers

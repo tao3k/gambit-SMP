@@ -102,7 +102,7 @@ class GateTests(unittest.TestCase):
                                  ("ownershipSafe", 3), ("phaseSafe", 4)):
             with self.subTest(invariant=invariant):
                 trace = json.loads((gate.MODELS / "counterexamples" /
-                                    f"{model}-{invariant}.json").read_text())
+                                    f"{model}-{invariant}-shared-contract.json").read_text())
                 self.assertEqual(gate.digest(gate.MODELS / (model + ".qnt")),
                                  trace["modelSha256"])
                 final = trace["states"][-1]["s"]
@@ -252,7 +252,7 @@ class GateTests(unittest.TestCase):
     def test_forward_publication_controls_decode_actual_record_states(self):
         for invariant, fault in (("publicationSafe", 1), ("terminationSafe", 2), ("destinationSafe", 3), ("payloadInputSafe", 4)):
             trace = json.loads((gate.MODELS / "counterexamples" /
-                               ("gc_forward_publication-" + invariant + ".json")).read_text())
+                               ("gc_forward_publication-" + invariant + "-shared-contract.json")).read_text())
             self.assertEqual(gate.digest(gate.MODELS / "gc_forward_publication.qnt"), trace["modelSha256"])
             states = [row["s"] for row in trace["states"]]
             self.assertTrue(all(row["fault"] == fault for row in states))

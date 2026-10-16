@@ -1,0 +1,31 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-vector-arity-complete-interpreted-stress",
+  "scope": "All four unchanged upstream stress files on the vector arity successor. The prior atomic wrong-arity failure has a source repair and positive native regression. Preserve the original 300-second whole budget, workload, runner and review; reuse one completed producer without a fresh build.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"},
+        "producer": "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json"}},
+    {"id": "stress-gsi", "capability": "gambit.suite", "dependsOn": ["producer"], "budgetSeconds": 300,
+      "arguments": {"runtime": {"step": "producer", "output": "runtime"},
+        "identity": {"step": "producer", "output": "identity"},
+        "mode": "gsi", "regime": "whole-parallel", "inventory": "stress", "selection": ["."],
+        "expectedFiles": ["06-thread/tfib_stress.scm", "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm", "06-thread/thread_terminate_stress.scm"],
+        "failures": "evidence/native-failures.json", "reviewRules": "evidence/research/suite-review-rules.ss"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "producer", "stress-gsi"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

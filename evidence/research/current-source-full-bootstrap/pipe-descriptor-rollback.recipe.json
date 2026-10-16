@@ -1,0 +1,19 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"pipe-descriptor-rollback-ownership",
+  "scope":"Source-directed POSIX descriptor ownership model and four controls. The locked source retains the old implementation; positive is a proposed ownership protocol, not native or C refinement admission.",
+  "budgetSeconds":50,
+  "workspacePolicy":"in-place",
+  "inputs":["models/gambit/pipe_descriptor_rollback.qnt","docs/pipe-descriptor-rollback.md","vendor/gambit/lib/os_setup.c","evidence/fixtures/sfun-marker-explicit-context/source.lock.json","patches/fixtures/sfun-marker-explicit-context.patch","evidence/research/current-source-full-bootstrap/sfun-context-workspace-state.json","evidence/research/execution-rules.ss"],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/sfun-marker-explicit-context/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate","workspaceState":"evidence/research/current-source-full-bootstrap/sfun-context-workspace-state.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt","parsed":"parse"}},
+    {"id":"safe","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false}},
+    {"id":"old-helper","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt","parsed":"parse","initializer":"initOldHelper","step":"step","invariant":"safe","negative":true}},
+    {"id":"old-retain","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt","parsed":"parse","initializer":"initOldRetain","step":"step","invariant":"safe","negative":true}},
+    {"id":"unpublished-output","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt","parsed":"parse","initializer":"initUnpublishedCaller","step":"step","invariant":"safe","negative":true}},
+    {"id":"leaked-temp","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/pipe_descriptor_rollback.qnt","parsed":"parse","initializer":"initLeakedTemp","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","safe","old-helper","old-retain","unpublished-output","leaked-temp"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

@@ -20,9 +20,58 @@ class Observation:
     started_at: str
     ended_at: str
     group_quiescent: bool | None
+    group_probes: tuple[str, ...] = ()
 
 
-def capture(argv, cwd, budget, environment):
+def probe_group(pid, deadline):
+    """Only ESRCH proves absence; transient denied/interrupted probes are unknown."""
+    probes = []
+    end = min(deadline, time.monotonic() + 0.05)
+    while True:
+        try:
+            os.killpg(pid, 0)
+        except ProcessLookupError:
+            probes.append("absent")
+            return True, tuple(probes)
+        except PermissionError:
+            probes.append("permission-denied")
+        except InterruptedError:
+            probes.append("interrupted")
+        else:
+            probes.append("present")
+            return False, tuple(probes)
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return None, tuple(probes)
+        time.sleep(min(0.01, remaining))
+
+
+def communicate_progress(process, window, progress):
+    """Renew only for a strictly increasing completed-work counter."""
+    last, completed = time.monotonic(), 0
+
+    def observe(stdout, stderr):
+        nonlocal last, completed
+        text = lambda value: value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+        count = progress(text(stdout), text(stderr))
+        if type(count) is not int or count < 0:
+            raise ValueError("nonnegative completed-work count required")
+        if count > completed:
+            completed, last = count, time.monotonic()
+
+    while True:
+        remaining = window - (time.monotonic() - last)
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(process.args, window)
+        try:
+            stdout, stderr = process.communicate(timeout=min(0.25, remaining))
+            observe(stdout, stderr)
+            return stdout, stderr
+        except subprocess.TimeoutExpired as error:
+            observe(error.output, error.stderr)
+
+
+def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None):
     if budget <= 0:
         raise ValueError("positive process budget required")
     started = time.monotonic()
@@ -32,7 +81,24 @@ def capture(argv, cwd, budget, environment):
                                text=True, start_new_session=True)
     timeout = False
     try:
-        stdout, stderr = process.communicate(timeout=budget)
+        if progress is not None:
+            if diagnostic is not None:
+                raise ValueError("progress and stack-sampling transports must be selected separately")
+            stdout, stderr = communicate_progress(process, budget, progress)
+        elif diagnostic is not None:
+            try:
+                stdout, stderr = process.communicate(timeout=min(budget, diagnostic["afterSeconds"]))
+            except subprocess.TimeoutExpired:
+                remaining = budget - (time.monotonic() - started)
+                if remaining > 0:
+                    from gambit_smp.stack_observation import sample
+                    sample(process, cwd, min(remaining, 5), environment, diagnostic)
+                remaining = budget - (time.monotonic() - started)
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(argv, budget)
+                stdout, stderr = process.communicate(timeout=remaining)
+        else:
+            stdout, stderr = process.communicate(timeout=budget)
     except subprocess.TimeoutExpired:
         timeout = True
         try:
@@ -40,16 +106,16 @@ def capture(argv, cwd, budget, environment):
         except ProcessLookupError:
             pass
         stdout, stderr = process.communicate()
-    try:
-        os.killpg(process.pid, 0)
-    except ProcessLookupError:
-        quiescent = True
-    except PermissionError:
-        quiescent = None
-    else:
-        quiescent = False
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        raise
+    quiescent, probes = probe_group(process.pid, started + budget)
     return Observation(stdout, stderr, process.returncode, timeout, time.monotonic() - started,
-                       process.pid, timestamp, datetime.now(timezone.utc).isoformat(), quiescent)
+                       process.pid, timestamp, datetime.now(timezone.utc).isoformat(), quiescent, probes)
 
 
 def capture_batch(jobs, *, workers, budget):

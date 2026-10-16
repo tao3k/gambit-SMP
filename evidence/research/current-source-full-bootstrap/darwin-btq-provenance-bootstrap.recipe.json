@@ -1,0 +1,137 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-btq-edge-provenance-bootstrap",
+  "scope": "Diagnostic-only Darwin GNU BTQ field read/store provenance. Reuse current source worktree, unchanged profile and stage limits; full two-pass bootstrap is required. No runtime repair or release admission.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-btq-edge-provenance/source.lock.json",
+    "patches/fixtures/darwin-btq-edge-provenance.patch",
+    "evidence/fixtures/darwin-btq-edge-provenance/review-contract.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/current-source-full-bootstrap/darwin-btq-provenance-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-btq-provenance-source-state.json",
+    "evidence/research/current-source-full-bootstrap/darwin-ticket-bootstrap-intent.json",
+    "evidence/research/current-source-full-bootstrap/darwin-ticket-bootstrap-causal-review.json",
+    "evidence/research/continuation-current-bootstrap/intent.json",
+    "evidence/research/continuation-current-bootstrap/causal-review.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-btq-edge-provenance/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-btq-provenance-source-state-reference.json"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 130,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "intent": "evidence/research/current-source-full-bootstrap/darwin-ticket-bootstrap-intent.json",
+        "target": "bootstrap"
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "seed",
+        "review"
+      ],
+      "budgetSeconds": 270,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "seed",
+        "review",
+        "bootstrap"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

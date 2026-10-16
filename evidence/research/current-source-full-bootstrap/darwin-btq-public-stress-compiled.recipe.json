@@ -1,0 +1,101 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-btq-public-complete-compiled-stress",
+  "scope": "Diagnostic-only: run the complete unchanged compiled upstream stress inventory with BTQ read/store tag provenance. Preserve original budgets and failure records; no-hit/non-recurrence is inconclusive, not repair or release acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-btq-public-provenance/source.lock.json",
+    "patches/fixtures/darwin-btq-public-provenance.patch",
+    "evidence/fixtures/darwin-btq-public-provenance/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-btq-public-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-btq-public-provenance/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-btq-public-completed-producer.json"
+      }
+    },
+    {
+      "id": "stress-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "."
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "stress-gsc"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

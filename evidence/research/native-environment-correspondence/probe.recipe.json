@@ -1,0 +1,195 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-current-environment-probe",
+  "scope": "Same completed-bootstrap producer and host-derived Scheme processor population; current UDP/process observations with source-bound environment QNT controls. No permission lease, known-failure waiver or runtime admission.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "models/gambit/completed_producer_handoff.qnt",
+    "models/gambit/native_environment_correspondence.qnt",
+    "models/gambit/native/host_environment_probe.scm",
+    "evidence/fixtures/thread-completion-contract/source.lock.json",
+    "patches/fixtures/thread-completion-contract.patch",
+    "evidence/research/completed-producer-handoff/producer-complete-inventory.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/thread-completion-contract/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/completed-producer-handoff/producer-complete-inventory.json"
+      }
+    },
+    {
+      "id": "environment-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_correspondence.qnt"
+      }
+    },
+    {
+      "id": "environment-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "environment-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_correspondence.qnt",
+        "parsed": "environment-parse"
+      }
+    },
+    {
+      "id": "environment-contract",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "environment-parse",
+        "environment-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_correspondence.qnt",
+        "parsed": "environment-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "environment-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "environment-parse",
+        "environment-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_correspondence.qnt",
+        "parsed": "environment-parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "environment-probe",
+      "capability": "gambit.probe",
+      "dependsOn": [
+        "producer",
+        "environment-contract",
+        "environment-bypass-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/host_environment_probe.scm",
+        "operations": [
+          "udp-open",
+          "process-pipe-sort",
+          "user-info"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "environment-parse",
+        "environment-typecheck",
+        "environment-contract",
+        "environment-bypass-control",
+        "environment-probe"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "controls": []
+        }
+      }
+    }
+  ]
+}

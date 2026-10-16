@@ -252,7 +252,7 @@ def analyze_observation(root, observation, *, limits=None, legacy_scope=None):
         with _database(root) as db:
             current = _snapshot(db, observation, sources)
             previous = _snapshot(db, request["previousObservation"], analysis_attempt=request["previousAnalysis"])
-            if current.get("backend", {}).get("name") != "ascent-cffi-api" or not current["backendInputs"]:
+            if current.get("backend", {}).get("name") != "ascent-rust" or not current["backendInputs"]:
                 raise ValueError("history requires identity-bound native inference")
             if previous.get("scope") not in (None, request["scope"], request["lineage"]["parentScope"]):
                 raise ValueError("historical observation lineage mismatch")
@@ -290,8 +290,8 @@ def analyze_observation(root, observation, *, limits=None, legacy_scope=None):
         if any(digest(ROOT / path) != sha for path, sha in sources.items()):
             raise ValueError("history rules changed before publication")
         check_bindings()
-        metrics.update(name="ascent-cffi-api", inputs=identities)
-        policy_metrics.update(name="ascent-cffi-api", inputs=identities)
+        metrics.update(name="ascent-rust", inputs=identities)
+        policy_metrics.update(name="ascent-rust", inputs=identities)
         for name in ("added", "removed", "retained"):
             delta[name] = [(relation, json.loads(row)) for relation, row in delta[name]]
         analysis = dict(schema="gambit-reasoning-analysis.v1", attempt=attempt,

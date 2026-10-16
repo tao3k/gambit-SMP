@@ -1,0 +1,162 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "foreign-origin-vm-teardown-model",
+  "scope": "Composed publication/lease transaction for root and child VM teardown, including P0 live C frames, prefix rollback and pre-side-effect busy rejection; finite source-bound design only.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/foreign_origin_vm_teardown.qnt"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": false
+      }
+    },
+    {
+      "id": "release-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "parse",
+        "initializer": "initPopulationOnly",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "late-record-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "parse",
+        "initializer": "initEarlyCommit",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_vm_teardown.qnt",
+        "parsed": "parse",
+        "main": "foreign_origin_vm_teardown",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "childP0BusyTest",
+          "rootP0BusyTest",
+          "partialCloseRollbackTest",
+          "quiescentCommitTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "type",
+        "safe",
+        "progress",
+        "release-control",
+        "late-record-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

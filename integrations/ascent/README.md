@@ -1,5 +1,26 @@
 # Local ASCENT Evidence Review
 
+## Rust Runtime Direction (2026-10-15)
+
+The active execution-runtime migration is now to Rust, not a Rust scheduler
+around a Scheme VM. Provider selection is explicit and compile-time gated;
+there is no automatic Scheme fallback. The corresponding bridge decision and
+real wheel qualification are documented in gerbil-scheme-rust at
+`docs/rust-runtime-transition.md`.
+
+The installed Scheme binary's shared-runtime test created two live VMs, each
+with processor 0 and one processor, but both entry-selection readbacks failed.
+That failure remains preserved; neither the old private-image probe nor a
+single-VM loader result closes it. Gambit was not edited or rebuilt.
+
+The new ASCENT Rust qualification wheel runs real recursive relational rules,
+source withdrawal and independent concurrent Rust sessions without a Scheme
+runtime. It does not yet support this consumer's complete `define-evidence`
+catalog/review/history/module interface. Consequently the existing consumer
+dependency and its receipts are not relabeled as migrated or current. The
+Scheme/CFFI instructions below describe the existing/historical integration,
+not a requirement to ship an SDK with the new Rust runtime.
+
 ## Python-Only Evidence DSL
 
 ASCENT is a Library for Agentic AI. Downstream code imports Python and submits

@@ -1,0 +1,41 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-vector-arity-table-iteration-reviewed-counterexample",
+  "scope": "Bind the existing typed snapshot source repair to the unchanged original single-file moving-GC iteration counterexample under its original 20-second native cap. Retain old assertions and source identities, validate old and wrong-tag QNT counterexamples, reuse one completed runtime; no full PR/GC/FFI admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json",
+    "models/gambit/gc_table_iteration.qnt",
+    "models/gambit/native/pr1038/table_iteration_gc.scm",
+    "evidence/research/smp-threaded-vm-native-grid/vector-arity-table-iteration-review-intent.json",
+    "evidence/research/smp-threaded-vm-native-grid/vector-arity-table-iteration-causal.json",
+    "evidence/native-failures.json", "evidence/research/suite-review-rules.ss", "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gc_table_iteration.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gc_table_iteration.qnt", "parsed": "parse"}},
+    {"id": "snapshot-model", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gc_table_iteration.qnt", "parsed": "parse", "initializer": "initFixed", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "old-traversal-control", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gc_table_iteration.qnt", "parsed": "parse", "initializer": "initOld", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "wrong-tag-control", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gc_table_iteration.qnt", "parsed": "parse", "initializer": "initWrongTagCopy", "step": "step", "invariant": "encodingSafe", "negative": true}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source", "snapshot-model", "old-traversal-control", "wrong-tag-control"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"}, "producer": "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json"}},
+    {"id": "review", "capability": "gambit.review", "dependsOn": ["producer"], "budgetSeconds": 15,
+      "arguments": {"runtime": {"step": "producer", "output": "runtime"}, "identity": {"step": "producer", "output": "identity"}, "intent": "evidence/research/smp-threaded-vm-native-grid/vector-arity-table-iteration-review-intent.json", "target": "table-iteration-gsi"}},
+    {"id": "table-iteration-gsi", "capability": "gambit.suite", "dependsOn": ["producer", "review"], "budgetSeconds": 20,
+      "arguments": {"runtime": {"step": "producer", "output": "runtime"}, "identity": {"step": "producer", "output": "identity"}, "retryReview": {"step": "review", "output": "review"},
+        "mode": "gsi", "regime": "whole-parallel", "selection": ["diagnostic/table_iteration_gc.scm"], "expectedFiles": ["diagnostic/table_iteration_gc.scm"], "fileBudgetSeconds": {"diagnostic/table_iteration_gc.scm": 20},
+        "failures": "evidence/native-failures.json", "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {"diagnostic/table_iteration_gc.scm": {"source": "models/gambit/native/pr1038/table_iteration_gc.scm", "sha256": "57f8cea541700c6f22b281961f9d360976fc5167c50e376e4217127175d1f997"}}}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "snapshot-model", "old-traversal-control", "wrong-tag-control", "producer", "review", "table-iteration-gsi"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

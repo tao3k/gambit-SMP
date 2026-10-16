@@ -8,6 +8,8 @@ from contextlib import contextmanager
 
 from gambit_smp.ascent_program import assemble
 
+_stores = {}
+
 
 def candidate_transport(program, relation):
     declarations = {row["name"]: row for row in program["relations"]}
@@ -27,23 +29,22 @@ def candidate_transport(program, relation):
         candidate.append(["rule", atom(rule["head"][0]), *map(atom, rule["body"])])
     candidate.extend([["query", relation, *["?q" + str(index) for index in
                          range(len(declarations[relation]["columns"]))]],
-                      ["limits", 1024, 4096, 4096]])
+                      ["limits", "unlimited", "unlimited", "unlimited"]])
     return candidate
 
 
 def close_support(engine):
-    store = getattr(engine, "_gambit_support_store", None)
+    store = _stores.pop(engine, None)
     if store is not None:
         store.close()
-        engine._gambit_support_store = None
 
 
 @contextmanager
 def retained_support(engine):
-    from ascent_engine.evidence import ComputationalEvidence
-    store = getattr(engine, "_gambit_support_store", None)
+    from ascent.evidence import ComputationalEvidence
+    store = _stores.get(engine)
     if store is None:
-        store = engine._gambit_support_store = ComputationalEvidence(engine)
+        store = _stores[engine] = ComputationalEvidence(engine)
     try:
         yield store
     except Exception:
@@ -53,16 +54,17 @@ def retained_support(engine):
 
 def observe(engine, facts, catalog, requests, *, generation=0):
     """Observe requested native conclusions; never turn unsupported into proof."""
-    from ascent_engine.datalog_symbols import encode
-    from ascent_engine.evidence import identity
+    from ascent.evidence import identity
+    from ascent import EngineError
     packets = []
+    rejection = None
     if not isinstance(requests, dict) or not requests:
         return packets
     with retained_support(engine) as store:
         for relation, requested in sorted(requests.items()):
             if not requested:
                 continue
-            if (any(key in catalog for key in ("sourceTexts", "nativeModule", "nativeEvidence", "nativeComponents"))
+            if (any(key in catalog for key in ("sourceTexts", "nativeEvidence", "nativeComponents"))
                     and catalog.get("projection", {}).get("status") != "supported"):
                 packets.append({"schema": "native-computational-observation.v1", "relation": relation,
                     "requested": [list(row) for row in requested], "status": "unsupported",
@@ -70,8 +72,8 @@ def observe(engine, facts, catalog, requests, *, generation=0):
                     "ruleSourceInputs": catalog["sourceInputs"], "observations": [], "supportNodes": [],
                     "executionAuthorized": False, "runtimeAdmitted": False})
                 continue
-            raw = assemble(facts, catalog, {relation: relation})
-            program, symbols = encode(raw)
+            raw = assemble(facts, catalog, {relation: relation}, engine=engine)
+            program = raw
             source = {"identity": identity([row for row in program["relations"] if row["source"]]),
                       "generation": generation,
                       "relations": [[row["name"], len(row["columns"]), row["rows"]]
@@ -87,7 +89,17 @@ def observe(engine, facts, catalog, requests, *, generation=0):
                 packets.append(entry)
                 continue
             entry["candidate"] = candidate
-            resolved = store.resolve(source, candidate)
+            if rejection is None:
+                try:
+                    resolved = store.resolve(source, candidate)
+                except EngineError as error:
+                    rejection = str(error)
+                    close_support(engine)
+            if rejection is not None:
+                entry.update(status="unknown", reason="native proof request rejected",
+                             nativeError=rejection, observations=[], supportNodes=[])
+                packets.append(entry)
+                continue
             entry["nativeResolution"] = resolved
             if resolved["status"] != "verified":
                 entry.update(status="unknown", observations=[], supportNodes=[])
@@ -95,9 +107,7 @@ def observe(engine, facts, catalog, requests, *, generation=0):
                 continue
             entry.update(status="observed", observations=[], supportNodes=[])
             nodes = {}
-            inverse = {value: token for token, value in symbols.items()}
-            atoms = [[relation, *[inverse[value] if isinstance(value, str) else value for value in row]]
-                     for row in requested]
+            atoms = [[relation, *row] for row in requested]
             for offset in range(0, len(atoms), 32):
                 packet = store.observe(source, candidate, resolved["handle"], atoms[offset:offset + 32], support=True)
                 if "scope" in entry and entry["scope"] != packet.get("scope"):
@@ -109,14 +119,12 @@ def observe(engine, facts, catalog, requests, *, generation=0):
                         raise ValueError("conflicting native support node")
                     nodes[node["id"]] = node
             entry["supportNodes"] = list(nodes.values())
-            entry["symbols"] = deepcopy(symbols)
-            # The encoded source/candidate and native packet are retained verbatim.
-            # Display labels are a separate lossless symbol decoding, not proof replay.
+            # The typed Library packet already carries the original scalar values.
+            # Preserve its conclusion; there is no retired symbol-codec translation.
             for observation in entry["observations"]:
                 native_atom = observation["conclusion"].get("atom")
                 if native_atom:
-                    observation["displayAtom"] = [native_atom[0], *[
-                        symbols.get(value, value) if isinstance(value, str) else value for value in native_atom[1:]]]
+                    observation["displayAtom"] = deepcopy(native_atom)
             packets.append(entry)
     return packets
 

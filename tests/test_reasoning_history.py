@@ -46,8 +46,9 @@ class NativeHistoryTests(unittest.TestCase):
         self.assertFalse(result["runtimeAdmitted"])
 
     def test_large_history_repeat_rejects_complete_inventory_over_input_bound(self):
-        from ascent_engine import EngineError, FactLimits
-        inputs = {"evidence-" + str(n): "sha-" + str(n) for n in range(1100)}
+        from ascent import EngineError, FactLimits
+        # Two complete snapshots exceed the ceiling even for a smaller wheel.
+        inputs = {"evidence-" + str(n): "sha-" + str(n) for n in range(4096 // 2 + 1)}
         rows = [["claim-" + str(n)] for n in range(100)]
         first = self.observe(rows, inputs)
         with self.assertRaisesRegex(EngineError, "source fact budget exceeded"):
@@ -56,6 +57,8 @@ class NativeHistoryTests(unittest.TestCase):
             self.assertEqual(db.execute("SELECT id FROM heads WHERE scope='test'").fetchone()[0],
                              first["observation"])
             self.assertEqual(db.execute("SELECT count(*) FROM observations").fetchone()[0], 1)
+            failed = json.loads(db.execute("SELECT body FROM analysis_results ORDER BY rowid DESC LIMIT 1").fetchone()[0])
+            self.assertEqual(failed["status"], "failed")
 
     def test_default_unlimited_history_preserves_large_inventory_across_growth(self):
         inputs = {"evidence-" + str(n): "sha-" + str(n) for n in range(1100)}
@@ -98,23 +101,19 @@ class NativeHistoryTests(unittest.TestCase):
             self.observe([["known-failure"]])
 
     def test_unbound_or_non_native_result_cannot_enter_history(self):
-        for backend in ({}, {"name": "ascent-cffi-api"}, {"name": "python", "inputs": {"x": "y"}}):
+        for backend in ({}, {"name": "ascent-c-abi"}, {"name": "python", "inputs": {"x": "y"}}):
             with self.assertRaisesRegex(ValueError, "identity-bound"):
                 history.record(self.root, "test", {}, {}, backend)
 
     def test_missing_api_does_not_run_an_alternate_engine(self):
-        import importlib
-        original = importlib.import_module
-        def missing(name, *args, **kwargs):
-            if name == "_ascent_cffi":
-                raise ModuleNotFoundError(name)
-            return original(name, *args, **kwargs)
-        with patch("gambit_smp.ascent_program.importlib.import_module", side_effect=missing):
-            with self.assertRaises(ModuleNotFoundError):
+        from ascent.build import runtime_identity
+        identity = dict(runtime_identity(), sourceRoot=str(self.root / "missing-source"))
+        with patch('ascent.build.runtime_identity', return_value=identity):
+            with self.assertRaises(FileNotFoundError):
                 self.observe([["known-failure"]])
         self.assertFalse((self.root / ".data/reasoning/history.sqlite3").exists())
 
     def test_changed_loaded_implementation_fails_closed(self):
-        with patch("gambit_smp.ascent_program._loaded_identity", {"library": "stale"}):
+        with patch("gambit_smp.ascent_program._loaded_identity", {"ascent._core": "stale"}):
             with self.assertRaisesRegex(ValueError, "loaded process"):
                 self.observe([["known-failure"]])

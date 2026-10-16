@@ -24,11 +24,12 @@ def unchanged(root, inputs):
 
 
 def project(base, failures, snapshot_identity, proposal=None, changed=(), observations=(),
-            bindings=None, current_inputs=None, task_model=None):
+            bindings=None, current_inputs=None, task_model=None, reviewed_links=(), reviewed_dependencies=()):
     """Transport validated facts, leaving closure/negation/reuse to Scheme."""
     facts = {name: [] for name in (
         "Candidate", "Failure", "Passed", "ReceiptInput", "CurrentInput",
-        "ReceiptDepends", "Requires", "ClaimDepends", "Cause")}
+        "ReceiptDepends", "Requires", "ClaimDepends", "Cause", "FailureBinding",
+        "FailureClaim", "ReviewedLink")}
     facts["CurrentInput"] = [list(row) for row in sorted(
         (current_inputs or {"validated-catalog": snapshot_identity}).items())]
     model_claim = lambda model: "finite-model:" + model
@@ -79,11 +80,23 @@ def project(base, failures, snapshot_identity, proposal=None, changed=(), observ
         name = "task:" + task_model
         facts["Candidate"].append([name, name, snapshot_identity])
         facts["Requires"].append([name, model_claim(task_model)])
+    # Explicit empty sources withdraw prior links in a retained owner.
+    if reviewed_links:
+        for row in reviewed_links:
+            _, failure, _, report, sha, _, _ = row
+            facts["FailureBinding"].append([failure, report, sha])
+            facts["FailureClaim"].append(row[:-1])
+            facts["ReviewedLink"].append(list(row))
+        for receipt, spec in (bindings or {}).items():
+            if "claim" in spec:
+                facts["Passed"].append([receipt, spec["claim"]])
+                bind(receipt)
+        facts["ClaimDepends"].extend(reviewed_dependencies)
     return facts
 
 
 def collect(root, selected=None, proposal=None, task_model=None):
-    from ascent_engine.evidence import identity
+    from ascent.evidence import identity
     from gambit_smp.protocol_evidence import facts as protocol_facts
 
     root = root.resolve()
@@ -97,6 +110,12 @@ def collect(root, selected=None, proposal=None, task_model=None):
                                                     base["facts"].get("protocol_model", [])}:
         raise ValueError("unknown review model: " + task_model)
     inputs = {**base["inputs"], **bound, **audit_inputs}
+    from gambit_smp.evidence_views import registry, load as load_view
+    view_names, view_inputs = registry(root)
+    for name in view_names:
+        _, _, _, bound_view = load_view(root, name)
+        view_inputs.update(bound_view)
+    inputs.update({str(Path(path).relative_to(root)): sha for path, sha in view_inputs.items()})
     from gambit_smp.review_inputs import proof_observations
     _, proof_inputs = proof_observations(root)
     inputs.update(proof_inputs)
@@ -125,9 +144,9 @@ def collect(root, selected=None, proposal=None, task_model=None):
             raise ValueError("unknown failure selection: " + ", ".join(sorted(missing)))
         failures = [f for f in failures if f["id"] in selected]
     # Bind adapter semantics as well as data; partial concurrent snapshots fail.
-    for name in ("ascent_review", "review_inputs", "review_brief", "review_graph",
+    for name in ("ascent_review", "review_links", "review_inputs", "review_brief", "review_graph",
                  "review_validation", "agent_context", "ascent_program", "native_support", "reasoning_history", "research_audit",
-                 "evidence_index", "protocol_evidence", "check_gambit", "reflection"):
+                 "evidence_index", "evidence_views", "protocol_evidence", "check_gambit", "reflection"):
         module = importlib.import_module("gambit_smp." + name)
         path = Path(module.__file__).resolve()
         inputs[str(path.relative_to(root))] = digest(path)
@@ -138,6 +157,17 @@ def collect(root, selected=None, proposal=None, task_model=None):
                      if name != "validated-catalog"})
     facts = project(base, failures, snapshot, proposal, changed, observations,
                     bindings, current, task_model)
+    links_path = "evidence/review-links.json"
+    if (root / links_path).exists():
+        from gambit_smp.review_links import load
+        links, dependencies, reviewed, link_inputs = load(
+            root, links_path, facts["Candidate"], failures, inputs[manifest])
+        inputs.update(link_inputs)
+        bindings.update(reviewed)
+        current.update(link_inputs)
+        facts = project(base, failures, snapshot, proposal, changed, observations,
+                        bindings, current, task_model, links, dependencies)
+        unchanged(root, inputs)
     source_facts = {name: list(rows) for name, rows in base["facts"].items()}
     for name, rows in audit_facts.items():
         source_facts.setdefault(name, []).extend(rows)
@@ -157,7 +187,7 @@ def run_review(root, selected=None, proposal=None, task_model=None, proposal_pat
         proposal_path = Path(proposal_path).resolve()
         inputs[str(proposal_path.relative_to(root))] = digest(proposal_path)
     started = time.monotonic()
-    with engine_api(engine=native_engine) as (engine, engine_inputs):
+    with engine_api(engine=native_engine, retain=native_engine is None) as (engine, engine_inputs):
         catalog_backend = {}
         evidence_catalog = load_component_catalog(
             root / "evidence/dsl/components.json", entry="catalog", constructor="make-catalog", trusted=True)
@@ -170,6 +200,8 @@ def run_review(root, selected=None, proposal=None, task_model=None, proposal_pat
                                             engine=engine, metrics=catalog_backend)
         rows, review_backend = evaluate(engine, facts, review_catalog,
                                        {name: name for name in REVIEW_OUTPUTS})
+        from gambit_smp.evidence_views import registry, evaluate as evaluate_view
+        evidence_views = [evaluate_view(root, name, engine) for name in registry(root)[0]]
         result = {"schema": "ascent-evidence-review.v1", "result": {"complete": True,
                   "relations": {name: [list(row) for row in values] for name, values in rows.items()}},
                   "decisions": [{"candidate": candidate, "decision": decision}
@@ -203,6 +235,7 @@ def run_review(root, selected=None, proposal=None, task_model=None, proposal_pat
                   nativeResultReused=review_backend["nativeResultReused"],
                   nativeObservations=native_observations,
                   nativeCampaigns=campaigns,
+                  evidenceViews=evidence_views,
                   runtimeAdmitted=False, releaseAdmitted=False,
                   scope="Historical route review or unapproved proposal; finite-model conclusions are not native fixes. Causal admission remains pending.")
     if task_model:
@@ -215,7 +248,7 @@ def run_review(root, selected=None, proposal=None, task_model=None, proposal_pat
     scope = (lineage("review", task=task_model, selection=sorted(selected) if selected is not None else "all")
              if history_lineage is None else history_lineage)
     result["history"] = record(root, scope, inputs, result["result"]["relations"],
-                               {"name": "ascent-cffi-api", "inputs": engine_inputs},
+                               {"name": "ascent-rust", "inputs": engine_inputs},
                                legacy_scope=legacy_scope)
     if validation_path:
         from gambit_smp.review_validation import load
@@ -228,7 +261,8 @@ def run_review(root, selected=None, proposal=None, task_model=None, proposal_pat
                                     bindings, source_facts, inputs, engine_inputs,
                                     result["frameworkValidation"], catalog_rows=catalog_rows,
                                     engine_artifacts=result["engineArtifacts"],
-                                    native_observations=native_observations, campaigns=campaigns)
+                                    native_observations=native_observations, campaigns=campaigns,
+                                    evidence_views=evidence_views)
     unchanged(root, inputs)
     unchanged(root, {name: sha for name, sha in current.items()
                      if name != "validated-catalog"})

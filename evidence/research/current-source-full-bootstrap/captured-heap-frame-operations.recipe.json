@@ -1,0 +1,217 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "captured-heap-frame-operations",
+  "scope": "Two physical captured stack frames, shared MISC capture ownership, private heap frame publication, raw/typed frame links, RA copying and heap break-handler consumption. Finite SC model with valid descriptor bounds, not native repair or source refinement.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/source.lock.json",
+    "patches/fixtures/darwin-btq-public-provenance.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-btq-public-completed-producer.json",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-btq-public-provenance/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-btq-public-completed-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "frame-operations",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false,
+        "temporal": "completion"
+      }
+    },
+    {
+      "id": "restore-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "initMissingRestore",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "coordinate-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "initWrongLinkCoordinate",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "publication-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "initEarlyPublication",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "ra-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "initMissingRA",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "resume-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "initEarlyResume",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "typed-link-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/captured_heap_frame_operations.qnt",
+        "parsed": "parse",
+        "initializer": "initUntypedHeapLink",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "parse",
+        "typecheck",
+        "frame-operations",
+        "restore-control",
+        "coordinate-control",
+        "publication-control",
+        "ra-control",
+        "resume-control",
+        "typed-link-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

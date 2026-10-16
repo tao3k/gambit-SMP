@@ -1,0 +1,239 @@
+;; Official VM cleanup table, unchanged stress/latency sample requirements.
+(c-declare #<<c-end
+#include <pthread.h>
+#include <stdatomic.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <time.h>
+#include <limits.h>
+#include <stdint.h>
+
+#if defined(___SINGLE_VM) || defined(___SINGLE_THREADED_VMS) || ___MAX_PROCESSORS < 2
+#error This fixture requires multiple VMs and multiple threaded VMs
+#endif
+
+
+static _Thread_local int fixture_vm_id;
+static _Atomic unsigned fixture_ready;
+static _Atomic unsigned fixture_done;
+static _Atomic int fixture_failed;
+static _Thread_local int fixture_cohort;
+static int fixture_vm_count;
+static int fixture_cycles;
+static _Atomic int fixture_stop_interrupts;
+static _Atomic unsigned fixture_interrupts;
+static FILE *latency_file;
+static pthread_mutex_t latency_mutex = PTHREAD_MUTEX_INITIALIZER;
+static uint64_t *latency_starts;
+static uint64_t monotonic_ns(void)
+{
+  struct timespec now;
+  if (clock_gettime(CLOCK_MONOTONIC, &now)) _Exit(77);
+  return (uint64_t)now.tv_sec * 1000000000ULL + now.tv_nsec;
+}
+static void latency_begin(int owner)
+{
+  if (owner <= 0 || owner > fixture_vm_count) _Exit(78);
+  latency_starts[owner] = monotonic_ns();
+}
+static void latency_end(int owner, int round)
+{
+  uint64_t duration;
+  if (owner <= 0 || owner > fixture_vm_count) _Exit(78);
+  duration = monotonic_ns() - latency_starts[owner];
+  pthread_mutex_lock(&latency_mutex);
+  if (fprintf(latency_file,
+      "{\"population\":%d,\"owner\":%d,\"round\":%d,\"nanoseconds\":%llu}\n",
+      fixture_vm_count, owner, round, (unsigned long long)duration) < 0 || fflush(latency_file))
+    _Exit(79);
+  pthread_mutex_unlock(&latency_mutex);
+}
+
+static void *fixture_interrupt_main(void *unused)
+{
+  const struct timespec pause = {0, 1000000};
+  (void)unused;
+  while (!atomic_load(&fixture_stop_interrupts))
+    {
+      ___raise_interrupt(___INTR_HEARTBEAT);
+      atomic_fetch_add(&fixture_interrupts, 1);
+      nanosleep(&pause, NULL);
+    }
+  return NULL;
+}
+struct fixture_worker { int id; int processors; int accepted; };
+
+static void *fixture_worker_main(void *argument)
+{
+  struct fixture_worker *worker = argument;
+  ___virtual_machine_state vm = calloc(1, sizeof(*vm));
+  ___processor_state ps;
+  ___SCMOBJ thunk, module, err;
+  if (!vm) { atomic_store(&fixture_failed, 1); return NULL; }
+  fixture_vm_id = worker->id;
+  fixture_cohort = worker->processors;
+  module = ___GSTATE->vmstate0.main_module_ref;
+  thunk = ___VECTORELEM(___VECTORELEM(___VECTORELEM(___GSTATE->program_descr, 0), 0),
+                        ___MODULE_DESCR_THUNK);
+  if (___HD_TYP(___HEADER(module)) != ___PERM || ___HD_TYP(___HEADER(thunk)) != ___PERM)
+    { atomic_store(&fixture_failed, 1); free(vm); return NULL; }
+  err = ___GSTATE->___setup_vmstate(vm);
+  if (err != ___FIX(___NO_ERR))
+    { atomic_store(&fixture_failed, 1); free(vm); return NULL; }
+  ps = ___PSTATE_FROM_PROCESSOR_ID(0, vm);
+  err = ___GSTATE->___thread_init_from_self(&ps->os_thread);
+  if (err != ___FIX(___NO_ERR))
+    { atomic_store(&fixture_failed, 1); return NULL; }
+  ___SET_REAL_PSTATE(ps);
+  vm->main_module_ref = module;
+  err = ___GSTATE->___run(___PSA(ps) thunk);
+  if (err != ___FIX(___NO_ERR) || vm->processor_count != 1)
+    { atomic_store(&fixture_failed, 1); return NULL; }
+  worker->accepted = 1;
+  ___GSTATE->___cleanup_vmstate(vm);
+  ___SET_REAL_PSTATE(NULL);
+  free(vm);
+  return NULL;
+}
+
+static int fixture_start(void)
+{
+  const char *capacity = getenv("GAMBIT_SMP_AVAILABLE_CPUS");
+  char *end = NULL;
+  long cpu = capacity ? strtol(capacity, &end, 10) : 0;
+  int count, maximum, i;
+  if (!capacity || *end || cpu < 6 || cpu > INT_MAX) return 0;
+  maximum = (int)((cpu - 2) / 2);
+  latency_file = fopen("latencies.jsonl", "wx");
+  if (!latency_file) return 0;
+  fprintf(latency_file, "{\"schema\":\"native-latency-samples.v1\",\"cpuCapacity\":%ld,\"groups\":[", cpu);
+  for (count = 2; count <= maximum; ++count)
+    {
+      int rounds = (1000 + count - 1) / count;
+      if (rounds < cpu) rounds = (int)cpu;
+      fprintf(latency_file, "%s{\"population\":%d,\"owners\":%d,\"rounds\":%d}",
+              count == 2 ? "" : ",", count, count, rounds);
+    }
+  fputs("]}\n", latency_file);
+  fflush(latency_file);
+  for (count = 2; count <= maximum; ++count)
+    {
+      pthread_t interrupt_thread;
+      pthread_t *threads = calloc(count, sizeof(*threads));
+      struct fixture_worker *workers = calloc(count, sizeof(*workers));
+      int launched = 0, base = (int)((cpu - 2) / count);
+      int remainder = (int)((cpu - 2) % count);
+      if (!threads || !workers) { free(threads); free(workers); return 0; }
+      if (base + (remainder != 0) > ___MAX_PROCESSORS)
+        { free(threads); free(workers); continue; }
+      fixture_vm_count = count;
+      fixture_cycles = (1000 + count - 1) / count;
+      if (fixture_cycles < cpu) fixture_cycles = (int)cpu;
+      latency_starts = calloc(count + 1, sizeof(*latency_starts));
+      if (!latency_starts) _Exit(78);
+      atomic_store(&fixture_ready, 0);
+      atomic_store(&fixture_done, 0);
+      atomic_store(&fixture_failed, 0);
+      atomic_store(&fixture_stop_interrupts, 0);
+      atomic_store(&fixture_interrupts, 0);
+      if (pthread_create(&interrupt_thread, NULL, fixture_interrupt_main, NULL) != 0)
+        { free(threads); free(workers); return 0; }
+      for (i = 0; i < count; ++i)
+        {
+          workers[i].id = i + 1;
+          workers[i].processors = base + (i < remainder);
+          if (pthread_create(&threads[i], NULL, fixture_worker_main, &workers[i]) != 0)
+            { atomic_store(&fixture_failed, 1); break; }
+          ++launched;
+        }
+      for (i = 0; i < launched; ++i)
+        if (pthread_join(threads[i], NULL) != 0)
+          { fputs("VM fixture join failed; resources retained\n", stderr); _Exit(70); }
+      atomic_store(&fixture_stop_interrupts, 1);
+      if (pthread_join(interrupt_thread, NULL) != 0)
+        { fputs("Interrupt reader join failed; resources retained\n", stderr); _Exit(72); }
+      if (atomic_load(&fixture_interrupts) == 0)
+        { fputs("No global interrupt overlap observed\n", stderr); _Exit(73); }
+      if (launched != count || atomic_load(&fixture_failed) ||
+          atomic_load(&fixture_ready) != (unsigned)count ||
+          atomic_load(&fixture_done) != (unsigned)count)
+        { fputs("VM topology failed; resources retained\n", stderr); _Exit(71); }
+      for (i = 0; i < count; ++i)
+        if (!workers[i].accepted) _Exit(71);
+      free(latency_starts);
+      latency_starts = NULL;
+      free(workers);
+      free(threads);
+    }
+  if (fclose(latency_file)) return 0;
+  return fixture_vm_count == maximum;
+}
+
+static void fixture_arrive(void)
+{ atomic_fetch_add(&fixture_ready, 1); }
+static int fixture_both_ready(void) { return atomic_load(&fixture_ready) == (unsigned)fixture_vm_count; }
+static int fixture_aborted(void) { return atomic_load(&fixture_failed); }
+static void fixture_complete(void)
+{ atomic_fetch_add(&fixture_done, 1); }
+c-end
+)
+
+(define fixture-owner ((c-lambda () int "___return(fixture_vm_id);")))
+(define fixture-target ((c-lambda () int "___return(fixture_cohort);")))
+(define fixture-rounds ((c-lambda () int "___return(fixture_cycles);")))
+(define arrive! (c-lambda () void "fixture_arrive"))
+(define both-ready? (c-lambda () bool "fixture_both_ready"))
+(define aborted? (c-lambda () bool "fixture_aborted"))
+(define complete! (c-lambda () void "fixture_complete"))
+(define latency-begin! (c-lambda (int) void "latency_begin"))
+(define latency-end! (c-lambda (int int) void "latency_end"))
+
+(define (require condition message)
+  (if (not condition) (error message)))
+
+(if (= fixture-owner 0)
+    (begin
+      (require ((c-lambda () bool "fixture_start")) "independent VM fixture failed")
+      (display "REGISTRY-TOPOLOGY-GRID:PASS\n"))
+    (let resize-cycle ((cycle 0))
+      (latency-begin! fixture-owner)
+      (##current-vm-resize ##startup-processor! fixture-target)
+      (require (= (##current-vm-processor-count) fixture-target) "VM cohort mismatch")
+      (if (= cycle 0) (arrive!))
+      (let wait ()
+        (require (not (aborted?)) "peer VM failed")
+        (if (not (both-ready?)) (begin (thread-yield!) (wait))))
+      (let ((threads
+              (map (lambda (index)
+                     (let ((thread
+                             (make-thread
+                               (lambda ()
+                                 (require (= (processor-id (current-processor)) index)
+                                          "worker did not execute on its processor")
+                                 (let loop ((round 0) (roots '()))
+                                   (if (= round 8)
+                                       (begin
+                                         (for-each
+                                           (lambda (root)
+                                             (require (= (vector-ref root 0) fixture-owner)
+                                                      "cross-VM root corruption"))
+                                           roots)
+                                         #t)
+                                       (let ((payload (make-vector 256 fixture-owner)))
+                                         (##gc)
+                                         (require (= (vector-ref payload 255) fixture-owner)
+                                                  "GC root corruption")
+                                         (loop (+ round 1) (cons payload roots)))))))))
+                       (##thread-pin! thread (##processor index))
+                       (thread-start! thread)
+                       thread))
+                   (let indices ((index 0))
+                     (if (= index fixture-target) '()
+                         (cons index (indices (+ index 1))))))))
+        (for-each (lambda (thread)
+                    (require (eq? (thread-join! thread) #t) "worker did not complete"))
+                  threads))
+      (##current-vm-resize ##startup-processor! 1)
+      (require (= (##current-vm-processor-count) 1) "VM cohort did not drain")
+      (latency-end! fixture-owner cycle)
+      (if (= (+ cycle 1) fixture-rounds) (complete!) (resize-cycle (+ cycle 1)))))

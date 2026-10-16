@@ -94,3 +94,41 @@ Do not add a to-space skip as a repair merely because the injected source unit
 passes. Establish which producer violates the contract, or explicitly model
 and audit an idempotent collector architecture including publication, scanning
 and termination before changing that contract.
+
+## Operational Cursor Refinement
+
+### Existing Origin Observation
+
+The already-versioned `native-scan-origins-host-deny.log` contains additional
+information from the later origin diagnostic: first origin 2 (own FIFO),
+processor 0; second recorded origin 3 (stolen FIFO), current processor 7; the
+chunk addresses match and the body visit count is two in strong cycle 123.
+Its compiler exited -6 after 11.729 seconds. No rerun is needed to recover this.
+
+There are important limits. The victim queue processor and allocation generation
+were not recorded, so matching chunk addresses do not prove the same FIFO or
+same logical object across visits. At the old-space abort `scanActive=0` and
+`inputCaptured=0`; the bad cell is 13 words past the recorded 11-word body, so
+the abort cannot be directly attributed to that stale scan context. The source
+and binary differ from the later current-source BTQ failure. A bounded portable
+context with exact original hashes is
+`evidence/source-results/compiled-stress-failure/historical-scan-origin.json`.
+
+This refines the diagnostic requirement: establish queue owner and physical
+allocation generation, not merely another origin label. It does not erase the
+subsequent queue-acquire repairs or prove the remaining ALLOC handoff gap caused
+this observation. The scoped ALLOC candidate is separately recorded in
+`allocator-ticket-acquire.md` and still needs complete runtime qualification.
+
+The later `gc_chunk_cursor_operations.qnt` executes the locked candidate's
+saved/local cursors, chunk memory links, exclusive FIFO head update, recursive
+allocation and captured-frame private publication. Its combined positive
+domain checks 1,029 states; four concrete mutation controls violate the physical
+field invariant. No scan is suppressed by an already-visited guard.
+
+This narrows the reconstructed operations, not the native failure: it has one
+arena and no msection/address generations or complete raw forwarding protocol.
+Those uncomposed producers remain the next refinement target. Do not read this
+model result as identifying the first/second origin from diagnostic014, or as
+evidence that diagnostic014 and the later BTQ crash share a cause. See
+`gc-chunk-cursor-operations.md` for exact source identity, controls and limits.

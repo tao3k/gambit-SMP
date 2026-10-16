@@ -1,0 +1,99 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-ffi-premise-complete-compiled-stress",
+  "scope": "Diagnostic-only complete unchanged compiled stress. Observe ABSENT at foreign entry or return. No normal-path logging, workload reduction, widened inactivity window or repair/release admission. Non-recurrence is inconclusive.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-ffi-return-premise/source.lock.json",
+    "patches/fixtures/darwin-ffi-return-premise.patch",
+    "evidence/fixtures/darwin-ffi-return-premise/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-ffi-premise-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-ffi-return-premise/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-ffi-premise-completed-producer.json"
+      }
+    },
+    {
+      "id": "stress-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "."
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "stress-gsc"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,217 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-pool-metadata-separation",
+  "scope": "Existing allocator model plus a separately labeled escaped-payload-write fault envelope. In-band corruption must fail; separated raw metadata must survive. Neither establishes the native writer or complete frame lifetime.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-heap-frame-identity/source.lock.json",
+    "patches/fixtures/darwin-heap-frame-identity.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-heap-frame-completed-producer.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-heap-frame-identity/compiled-stress-crash.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-heap-frame-identity/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-heap-frame-completed-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "ownership",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false,
+        "temporal": "completion"
+      }
+    },
+    {
+      "id": "invalidation-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initMissingInvalidation",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "reset-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initMissingPoolReset",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "resume-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initEarlyResume",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "native-entry-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initObservedNonSection",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "payload-alias-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initInBandPayloadAlias",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "metadata-separation",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initSeparatePoolMetadata",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "parse",
+        "typecheck",
+        "ownership",
+        "invalidation-control",
+        "reset-control",
+        "resume-control",
+        "native-entry-control",
+        "payload-alias-control",
+        "metadata-separation"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

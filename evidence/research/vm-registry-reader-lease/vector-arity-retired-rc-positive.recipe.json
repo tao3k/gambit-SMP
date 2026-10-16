@@ -1,0 +1,263 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-vector-arity-retired-rc-positive-control",
+  "scope": "Actual registered RC roots across successful shrink and forced GC, with CPU-derived donor population. Not the pending-join failure path or whole GC/FFI qualification.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "docs/vm-registry-reader-lease.md",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "models/gambit/native/retired_rc_root_survival.scm",
+    "models/gambit/retired_rc_gc_visibility.qnt"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json"
+      }
+    },
+    {
+      "id": "rc-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt"
+      }
+    },
+    {
+      "id": "rc-type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "rc-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "rc-parse"
+      }
+    },
+    {
+      "id": "rc-safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "rc-parse",
+        "rc-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "rc-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "rc-progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "rc-parse",
+        "rc-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "rc-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": false
+      }
+    },
+    {
+      "id": "rc-retention-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "rc-parse",
+        "rc-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "rc-parse",
+        "initializer": "initCurrentRetention",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "rc-transfer-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "rc-parse",
+        "rc-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "rc-parse",
+        "initializer": "initTransferWithoutAck",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "rc-trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "rc-parse",
+        "rc-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_gc_visibility.qnt",
+        "parsed": "rc-parse",
+        "main": "retired_rc_gc_visibility",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "retainedButUnscannedControlTest",
+          "transferWithoutAckControlTest",
+          "failedJoinVisibleRootsTest",
+          "failedJoinRecoveryTest",
+          "successfulJoinTest"
+        ]
+      }
+    },
+    {
+      "id": "retired-rc-control",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "rc-parse",
+        "rc-type",
+        "rc-safe",
+        "rc-progress",
+        "rc-retention-control",
+        "rc-transfer-control",
+        "rc-trajectories"
+      ],
+      "budgetSeconds": 120,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/retired_rc_root_survival.scm",
+        "stdout": "RETIRED-RC-ROOT-SURVIVAL:PASS\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "retired-rc-control",
+        "rc-parse",
+        "rc-type",
+        "rc-safe",
+        "rc-progress",
+        "rc-retention-control",
+        "rc-transfer-control",
+        "rc-trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

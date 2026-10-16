@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -7,6 +8,32 @@ import unittest
 from unittest.mock import patch
 
 from gambit_smp import recipes
+
+
+class FingerprintPlanTests(unittest.TestCase):
+    def test_same_size_same_timestamp_change_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as directory:
+            file = Path(directory) / "source"
+            file.write_bytes(b"before")
+            plan = recipes.FingerprintPlan(recipes.fingerprints([file, file]))
+            self.assertTrue(plan.matches())
+            timestamp = file.stat()
+            file.write_bytes(b"after!")
+            os.utime(file, ns=(timestamp.st_atime_ns, timestamp.st_mtime_ns))
+            self.assertFalse(plan.matches())
+            file.write_bytes(b"before")
+            self.assertTrue(plan.matches())
+            file.unlink()
+            with self.assertRaises(FileNotFoundError):
+                plan.matches()
+
+    def test_mismatch_reads_all_paths_and_snapshots_expected_identity(self):
+        expected = {"a": "old", "b": "same"}
+        plan = recipes.FingerprintPlan(expected)
+        expected["a"] = "new"
+        with patch.object(recipes, "digest", side_effect=["new", "same"]) as digest:
+            self.assertFalse(plan.matches())
+            self.assertEqual([((Path("a"),), {}), ((Path("b"),), {})], digest.call_args_list)
 
 
 class ProcessCheckpointTests(unittest.TestCase):
@@ -132,6 +159,40 @@ class RecipeTests(unittest.TestCase):
         alternate["id"] = "independent-control"
         (self.root / "evidence/another.recipe.json").write_text(json.dumps(alternate))
         self.assertEqual({"control", "independent-control"}, set(recipes.discover(self.root)))
+
+    def test_stage_watchdogs_start_fresh_after_previous_stage_work(self):
+        self.recipe.pop("budgetSeconds")
+        self.recipe["timeoutPolicy"] = {"mode": "per-stage", "overheadSeconds": 2}
+        self.save()
+        now, caps = [100.0], []
+
+        def execute(argv, root, timeout, **kwargs):
+            caps.append(timeout)
+            now[0] += 7
+            return self.simulated_execute(argv, root, timeout, **kwargs)
+
+        with patch.object(recipes.time, "monotonic", side_effect=lambda: now[0]):
+            receipt = self.run_simulated("stage-timers", execute)
+        self.assertEqual([10, 10], caps)
+        self.assertEqual("PASS", receipt["outcome"])
+        self.assertEqual(14, receipt["wholeSeconds"])
+        self.assertEqual(22, receipt["budgetSeconds"])
+        self.assertEqual("per-stage", receipt["timeoutPolicy"]["mode"])
+
+    def test_stage_policy_rejects_mixed_quota_and_invalid_watchdogs(self):
+        original = copy.deepcopy(self.recipe)
+        for change in ({"budgetSeconds": 30}, {"continuationRequest": "evidence/request.json"},
+                       {"continuationLedger": "evidence/ledger.json"},
+                       {"timeoutPolicy": {"mode": "per-stage", "overheadSeconds": 0}},
+                       {"timeoutPolicy": {"mode": "unknown", "overheadSeconds": 2}}):
+            with self.subTest(change=change):
+                self.recipe = copy.deepcopy(original)
+                self.recipe.pop("budgetSeconds")
+                self.recipe["timeoutPolicy"] = {"mode": "per-stage", "overheadSeconds": 2}
+                self.recipe.update(change)
+                self.save()
+                with self.assertRaises(ValueError):
+                    recipes.load(self.root, self.path)
 
     def test_authorization_preflight_preserves_absent_tool_observation(self):
         prior = {"outcome": "DENY", "steps": [], "error": recipes.AUTHORIZATION_ERROR}

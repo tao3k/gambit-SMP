@@ -1,0 +1,126 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "native-build-driver-correspondence-model",
+  "scope": "Bound original/current compiler driver, budget-only conditional investigation, same producer, exact original scope, nested deadline and causal review; no native runtime or release admission.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "models/gambit/native_build_driver_correspondence.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_build_driver_correspondence.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_build_driver_correspondence.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe-progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_build_driver_correspondence.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "driver-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_build_driver_correspondence.qnt",
+        "parsed": "parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_build_driver_correspondence.qnt",
+        "parsed": "parse",
+        "main": "native_build_driver_correspondence",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "validBudgetTest",
+          "unknownOriginalControlTest",
+          "assertionControlTest",
+          "expandedBudgetControlTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "safe-progress",
+        "driver-bypass-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

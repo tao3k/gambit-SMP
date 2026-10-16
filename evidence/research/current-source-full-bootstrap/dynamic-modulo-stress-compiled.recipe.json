@@ -1,0 +1,79 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-dynamic-modulo-complete-compiled-stress",
+  "scope": "All four unchanged upstream stress files on the exact completed dynamic-modulo producer. No workload reduction, fixture substitution, fixed CPU count or performance admission. The original 300-second window measures missing completed work, not total campaign wall time. Earlier interpreted failures are retained and are not rerun here.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "models/gambit/completed_source_selection.qnt",
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch",
+    "evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+        "workspace": ".data/fixtures/foreign-origin-public-cleanup-contract-candidate"
+      }
+    },
+    {
+      "id":"selection-parse", "capability":"quint.parse", "dependsOn":["source"], "budgetSeconds":15,
+      "arguments":{"source":"models/gambit/completed_source_selection.qnt"}
+    },
+    {
+      "id":"selection-typecheck", "capability":"quint.typecheck", "dependsOn":["selection-parse"], "budgetSeconds":15,
+      "arguments":{"source":"models/gambit/completed_source_selection.qnt","parsed":"selection-parse"}
+    },
+    {
+      "id":"selection-contract", "capability":"quint.verify", "dependsOn":["selection-parse","selection-typecheck"], "budgetSeconds":15,
+      "arguments":{"source":"models/gambit/completed_source_selection.qnt","parsed":"selection-parse","initializer":"init","step":"step","invariant":"safe","negative":false,"temporal":"completion"}
+    },
+    {
+      "id":"selection-sort-control", "capability":"quint.verify", "dependsOn":["selection-parse","selection-typecheck"], "budgetSeconds":15,
+      "arguments":{"source":"models/gambit/completed_source_selection.qnt","parsed":"selection-parse","initializer":"initSorted","step":"step","invariant":"safe","negative":true}
+    },
+    {
+      "id":"selection-fallback-control", "capability":"quint.verify", "dependsOn":["selection-parse","selection-typecheck"], "budgetSeconds":15,
+      "arguments":{"source":"models/gambit/completed_source_selection.qnt","parsed":"selection-parse","initializer":"initFallback","step":"step","invariant":"safe","negative":true}
+    },
+    {
+      "id":"selection-ambiguity-control", "capability":"quint.verify", "dependsOn":["selection-parse","selection-typecheck"], "budgetSeconds":15,
+      "arguments":{"source":"models/gambit/completed_source_selection.qnt","parsed":"selection-parse","initializer":"initAmbiguous","step":"step","invariant":"safe","negative":true}
+    },
+    {
+      "id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source"], "budgetSeconds": 60,
+      "arguments": {
+        "source": {"step": "source", "output": "source"},
+        "producer": "evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json"
+      }
+    },
+    {
+      "id": "stress-gsc", "capability": "gambit.suite", "dependsOn": ["producer","selection-contract","selection-sort-control","selection-fallback-control","selection-ambiguity-control"], "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {"step": "producer", "output": "runtime"},
+        "identity": {"step": "producer", "output": "identity"},
+        "mode": "gsc", "regime": "whole-parallel", "inventory": "stress", "selection": ["."],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "selection-parse", "selection-typecheck", "selection-contract", "selection-sort-control", "selection-fallback-control", "selection-ambiguity-control", "producer", "stress-gsc"], "budgetSeconds": 10,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"}, "expected": {"missing": []}
+      }
+    }
+  ]
+}

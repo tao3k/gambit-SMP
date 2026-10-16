@@ -1,0 +1,99 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-ticket-complete-compiled-stress",
+  "scope": "All four unchanged upstream compiled stress files on the exact completed ticket ownership-acquire runtime. No reduced workload, fixed CPU count or widened watchdog. Existing selection controls are not rerun unchanged. No performance or full SMP acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json",
+    "patches/fixtures/darwin-ticket-ownership-acquire.patch",
+    "evidence/fixtures/darwin-ticket-ownership-acquire/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-ticket-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-ticket-completed-producer.json"
+      }
+    },
+    {
+      "id": "stress-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "."
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "stress-gsc"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

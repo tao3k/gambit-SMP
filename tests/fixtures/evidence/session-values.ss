@@ -1,0 +1,11 @@
+(define-evidence (make-values)
+  (sources input) (outputs input output)
+  (relation input (value) '((1) (2)))
+  (relation output (value))
+  ((output value) <-- (input value)))
+
+(define-evidence (make-fraction-values)
+  (sources input) (outputs output)
+  (relation input (value) '((1/3)))
+  (relation output (value))
+  ((output value) <-- (input value)))

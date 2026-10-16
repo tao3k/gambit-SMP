@@ -1,0 +1,35 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "chez-remote-work-accounting-controls",
+  "scope": "Finite SC three-ticket/three-worker safety controls for locked publication and counted wake; fixed ownership, stopped mutators, successful locks and no weak/ephemeron phases. No native, fairness, source-refinement or performance admission.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "models/library/gc/WorkObligations.qnt",
+    "models/library/gc/RemoteWorkAccounting.qnt",
+    "models/chez/RemoteChecked.qnt", "models/chez/RemoteLost.qnt",
+    "models/chez/RemoteWake.qnt", "models/chez/RemoteCount.qnt", "models/chez/RemoteIdle.qnt",
+    "models/chez/source.json", "vendor/chez/c/gc.c",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/vm-reporter-preservation/source.lock.json",
+    "patches/fixtures/vm-reporter-preservation.patch"
+  ],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":15,"arguments":{"sourceLock":"evidence/fixtures/vm-reporter-preservation/source.lock.json"}},
+    {"id":"checked-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteChecked.qnt"}},
+    {"id":"checked-type","capability":"quint.typecheck","dependsOn":["checked-parse"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteChecked.qnt","parsed":"checked-parse"}},
+    {"id":"checked","capability":"quint.verify","dependsOn":["checked-parse","checked-type"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteChecked.qnt","parsed":"checked-parse","initializer":"init","step":"step","invariant":"Safe","negative":false}},
+    {"id":"lost-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteLost.qnt"}},
+    {"id":"lost-type","capability":"quint.typecheck","dependsOn":["lost-parse"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteLost.qnt","parsed":"lost-parse"}},
+    {"id":"lost","capability":"quint.verify","dependsOn":["lost-parse","lost-type"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteLost.qnt","parsed":"lost-parse","initializer":"init","step":"step","invariant":"Safe","negative":true}},
+    {"id":"wake-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteWake.qnt"}},
+    {"id":"wake-type","capability":"quint.typecheck","dependsOn":["wake-parse"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteWake.qnt","parsed":"wake-parse"}},
+    {"id":"wake","capability":"quint.verify","dependsOn":["wake-parse","wake-type"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteWake.qnt","parsed":"wake-parse","initializer":"init","step":"step","invariant":"Safe","negative":true}},
+    {"id":"count-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteCount.qnt"}},
+    {"id":"count-type","capability":"quint.typecheck","dependsOn":["count-parse"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteCount.qnt","parsed":"count-parse"}},
+    {"id":"count","capability":"quint.verify","dependsOn":["count-parse","count-type"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteCount.qnt","parsed":"count-parse","initializer":"init","step":"step","invariant":"Safe","negative":true}},
+    {"id":"idle-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteIdle.qnt"}},
+    {"id":"idle-type","capability":"quint.typecheck","dependsOn":["idle-parse"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteIdle.qnt","parsed":"idle-parse"}},
+    {"id":"idle","capability":"quint.verify","dependsOn":["idle-parse","idle-type"],"budgetSeconds":15,"arguments":{"source":"models/chez/RemoteIdle.qnt","parsed":"idle-parse","initializer":"init","step":"step","invariant":"Safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","checked-parse","checked-type","checked","lost-parse","lost-type","lost","wake-parse","wake-type","wake","count-parse","count-type","count","idle-parse","idle-type","idle"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

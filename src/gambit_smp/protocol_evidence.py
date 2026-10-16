@@ -65,6 +65,8 @@ def model_snapshot_files(source, inputs):
 
 
 def checked_rows(root, manifest, receipt_path):
+    if any(case.get("registrationOnly") is True for case in manifest["cases"]):
+        raise ValueError("registration-only metadata cannot admit a protocol receipt")
     saved = json.loads(receipt_path.read_text())
     if (saved.get("accepted") is not True or saved.get("contextStable") is not True
             or saved.get("runtimeAdmitted") is not False

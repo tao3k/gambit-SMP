@@ -1,0 +1,38 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-vector-increment-arity-diagnostic",
+  "scope": "Atomic projection of the new stress failure: unchanged producer, public/internal three-argument controls and internal omitted-delta contract. Preserve failure if interpreted and compiler arities diverge. Finite model is not native repair or full SMP acceptance.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/btq-retry-sync-participation/source.lock.json",
+    "patches/fixtures/btq-retry-sync-participation.patch",
+    "evidence/research/vm-registry-reader-lease/btq-retry-completed-producer.json",
+    "models/gambit/vector_increment_arity_parity.qnt",
+    "models/gambit/native/vector_increment_arity.scm",
+    "evidence/native-failures.json", "evidence/research/suite-review-rules.ss", "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/btq-retry-sync-participation/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vector_increment_arity_parity.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vector_increment_arity_parity.qnt", "parsed": "parse"}},
+    {"id": "parity-specification", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vector_increment_arity_parity.qnt", "parsed": "parse", "initializer": "initFixed", "step": "step", "invariant": "contract", "negative": false}},
+    {"id": "current-arity-control", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vector_increment_arity_parity.qnt", "parsed": "parse", "initializer": "initOld", "step": "step", "invariant": "contract", "negative": true}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vector_increment_arity_parity.qnt", "parsed": "parse", "main": "vector_increment_arity_parity", "seed": "0x1510", "maxSamples": 1,
+        "expectedTests": ["omittedDeltaControlTest", "omittedDeltaFixedTest"]}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source", "parity-specification", "current-arity-control", "trajectories"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"}, "producer": "evidence/research/vm-registry-reader-lease/btq-retry-completed-producer.json"}},
+    {"id": "native-arity", "capability": "gambit.suite", "dependsOn": ["producer"], "budgetSeconds": 20,
+      "arguments": {"runtime": {"step": "producer", "output": "runtime"}, "identity": {"step": "producer", "output": "identity"},
+        "mode": "gsi", "regime": "whole-parallel", "selection": ["07-vector/vector_increment_arity.scm"], "expectedFiles": ["07-vector/vector_increment_arity.scm"],
+        "failures": "evidence/native-failures.json", "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {"07-vector/vector_increment_arity.scm": {"source": "models/gambit/native/vector_increment_arity.scm", "sha256": "70638536be2d9058ee886f97743e591157e31421356a8f4371a67b860155acde"}}}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "parity-specification", "current-arity-control", "trajectories", "producer", "native-arity"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "native-exact-environment-scope-model",
+  "scope": "Exact audited operation-to-file mapping, original/current source binding and causal review; unrelated scopes and operations are negative controls. Probe provenance and deadlines remain separate existing contracts.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "models/gambit/native_environment_scope.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_scope.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_scope.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe-progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_scope.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "scope-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_scope.qnt",
+        "parsed": "parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_environment_scope.qnt",
+        "parsed": "parse",
+        "main": "native_environment_scope",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "udpCloseTest",
+          "unrelatedFileControlTest",
+          "wrongOperationControlTest",
+          "unboundSourceControlTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "safe-progress",
+        "scope-bypass-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

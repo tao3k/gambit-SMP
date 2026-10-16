@@ -1,0 +1,26 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "current-source-public-saved-stack",
+  "scope": "First current-source compiled execution of the prepared deep saved-stack workload. Locked section geometry determines depth; CPU capacity determines pinned GC cohort. No injected hook or private cleanup; no physical rollover or full GC acceptance claim.",
+  "budgetSeconds": 300,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/continuation-segment-wake-budget/source.lock.json",
+    "patches/fixtures/continuation-segment-wake-budget.patch",
+    "evidence/research/current-source-full-bootstrap/completed-producer.json",
+    "evidence/research/current-source-full-bootstrap/saved-stack-geometry.json",
+    "models/gambit/continuation_private_chunk_segment.qnt",
+    "models/gambit/native/continuation_rollover_public.scm",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+     "arguments": {"sourceLock": "evidence/fixtures/continuation-segment-wake-budget/source.lock.json", "workspace": ".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source"], "budgetSeconds": 60,
+     "arguments": {"source": {"step": "source", "output": "source"}, "producer": "evidence/research/current-source-full-bootstrap/completed-producer.json"}},
+    {"id": "saved-stack", "capability": "gambit.executable-test", "dependsOn": ["producer"], "budgetSeconds": 120,
+     "arguments": {"runtime": {"step": "producer", "output": "runtime"}, "identity": {"step": "producer", "output": "identity"}, "program": "models/gambit/native/continuation_rollover_public.scm", "parameters": {"GAMBIT_SMP_CONTINUATION_DEPTH": 131072}, "stackSampleAfterSeconds": 12, "stdout": "CONTINUATION-SAVED-STACK-PUBLIC:PASS\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "producer", "saved-stack"], "budgetSeconds": 10,
+     "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "fdset-gc-ffi-multi-vm-observations",
+  "scope": "Current exact fdset producer: C RC/still movable child relocation across processor retirement plus complete public multi-VM forced-GC/interrupt/cleanup latency grid. Original 15/25-second execution gates; no full GC/FFI fault inventory, release performance or optimization speedup admission.",
+  "budgetSeconds": 60,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/fdset-abort-owned-rollback/source.lock.json",
+    "patches/fixtures/fdset-abort-owned-rollback.patch",
+    "evidence/research/current-source-full-bootstrap/fdset-completed-producer.json",
+    "models/gambit/native/retired_root_closure.scm",
+    "models/gambit/native/registry_topology_latency_public.scm",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 15,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/fdset-abort-owned-rollback/source.lock.json"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/fdset-completed-producer.json"
+      }
+    },
+    {
+      "id": "ffi-roots",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/retired_root_closure.scm",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 15,
+        "stdout": "RETIRED-ROOT-CLOSURE:PASS\n"
+      }
+    },
+    {
+      "id": "multi-vm",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer",
+        "ffi-roots"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/registry_topology_latency_public.scm",
+        "executionBudgetSeconds": 25,
+        "stackSampleAfterSeconds": 12,
+        "stdout": "REGISTRY-TOPOLOGY-GRID:PASS\n",
+        "latency": {
+          "path": "latencies.jsonl",
+          "minimumSamples": 1000,
+          "percentiles": [
+            55,
+            99
+          ],
+          "populationPlan": {
+            "reservedPositions": 2,
+            "minimumPopulation": 2,
+            "minimumProcessorsPerOwner": 2
+          }
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "ffi-roots",
+        "multi-vm"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

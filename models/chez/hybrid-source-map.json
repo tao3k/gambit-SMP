@@ -1,0 +1,41 @@
+{
+  "schema": "gc-source-model-correspondence.v1",
+  "implementation": "Chez Scheme",
+  "revision": "41d5ffca7a07cbfc8807e719dedcc70ed74811cd",
+  "sourceFiles": {
+    "vendor/chez/c/gc.c": "6d937386a3aa466cf908fb2990047aba006c01662f28866e328b5a9f15e15fc9",
+    "vendor/chez/s/mkgc.ss": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406"
+  },
+  "model": "models/chez/HybridCollection.qnt",
+  "modelSha256": "53764221cdf41e4ac394b34be790107ee5712803d164227827a92518b3ba45d2",
+  "correspondences": [
+    {"source": "vendor/chez/c/gc.c:43-81", "model": "shouldMark", "boundary": "Collected old-space only; static objects excluded. Compact and eligible are abstract predicates, not measured density or a reconstruction of exact thresholds."},
+    {"source": "vendor/chez/c/gc.c:1011-1048", "model": "modeSafe", "boundary": "Actual selection uses must_mark and eligible segment/chunk compactness. space_new excludes segment use_marks; a locked object can still be marked separately."},
+    {"source": "vendor/chez/c/gc.c:504-513", "model": "bitmapReady and publishMark", "boundary": "Initialization precedes pointer publication in source through STORE_FENCE. SC model does not prove native instruction or compiler ordering."},
+    {"source": "vendor/chez/s/mkgc.ss:1405-1431", "model": "initialize, writeAddress, publishCopy", "boundary": "Generated copy body precedes FWDADDRESS and FWDMARKER. Object-shape coverage and all generated configurations are still open."},
+    {"source": "vendor/chez/c/gc.c:137-170", "model": "segment, owner, prepare", "boundary": "Mixed space_new objects share one segment owner. Other profiles use two segments/owners. Remote re-sweep transport remains in the separate existing remote-work model; no composition proof is claimed."}
+  ],
+  "gambitComparison": {
+    "sourceLock": "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json",
+    "sourceLockSha256": "5d1d167f81ab6947336abdc86caf7cbe93de6c0316d0e54dd79cec65cecb517b",
+    "scope": "Exact current comparison source, not a qualifying binary or proof of its GC behavior.",
+    "obligations": [
+      "Separate forwarding identity from payload readiness and identify every consumer.",
+      "Preserve producer/scan obligations across owner transfer rather than require Chez routing.",
+      "Keep initialization/private/public/scanning work in global termination accounting.",
+      "Measure any new ownership or publication mechanism against current chunk stealing at equal input and topology."
+    ]
+  },
+  "excluded": [
+    "C memory model and fences",
+    "source enabledness and fairness",
+    "mark/copy target-generation arithmetic and static-generation relocation",
+    "cross-segment objects and all generated object shapes",
+    "weak pairs, ephemerons and guardians",
+    "composition with dirty-card and remote-ticket models",
+    "native GC correctness and performance"
+  ],
+  "sourceRefinementEstablished": false,
+  "runtimeAdmitted": false,
+  "performanceAdmitted": false
+}

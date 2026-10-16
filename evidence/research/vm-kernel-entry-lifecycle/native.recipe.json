@@ -1,0 +1,218 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-independent-threaded-vm-entry",
+  "scope": "Real same-bootstrap independently initialized VM cohorts with TLS/kernel entry, private roots, forced GC, pinned processor execution, join/drain and cleanup. Host capacity selects cohort size. This scoped native requirement does not replace complete gsi/gsc, PR/stress, collector/FFI, Gerbil or release gates.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/thread-completion-contract/source.lock.json",
+    "patches/fixtures/thread-completion-contract.patch",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/completed-producer-handoff/producer-complete-inventory.json",
+    "models/gambit/vm_kernel_entry_lifecycle.qnt",
+    "models/gambit/native/independent_threaded_vms.scm",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/thread-completion-contract/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/completed-producer-handoff/producer-complete-inventory.json"
+      }
+    },
+    {
+      "id": "entry-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt"
+      }
+    },
+    {
+      "id": "entry-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "entry-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse"
+      }
+    },
+    {
+      "id": "entry-trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "entry-parse",
+        "entry-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse",
+        "main": "vm_kernel_entry_lifecycle",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "independentCohortsTest",
+          "missingTlsControlTest",
+          "borrowedModuleControlTest",
+          "crossVmRootControlTest",
+          "wrongPstateArgumentControlTest",
+          "failedJoinRetainsOwnershipTest",
+          "prematureCleanupControlTest"
+        ]
+      }
+    },
+    {
+      "id": "entry-safe-binding",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "entry-parse",
+        "entry-typecheck",
+        "entry-trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "entry-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "entry-parse",
+        "entry-typecheck",
+        "entry-trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "independent-vms",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer",
+        "entry-safe-binding",
+        "entry-bypass-control",
+        "entry-trajectories"
+      ],
+      "budgetSeconds": 120,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/independent_threaded_vms.scm",
+        "stdout": "INDEPENDENT-THREADED-VMS:PASS\n"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "entry-parse",
+        "entry-typecheck",
+        "entry-trajectories",
+        "entry-safe-binding",
+        "entry-bypass-control",
+        "independent-vms"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

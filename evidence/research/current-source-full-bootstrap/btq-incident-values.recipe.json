@@ -1,0 +1,32 @@
+{
+  "schema":"evidence-recipe.v2","id":"btq-incident-values",
+  "scope":"Classify the exact BTQ incident against the current configured ABI and actual forwarding expression. No incident address dereference, repeated stress, source fix or native qualification.",
+  "workspacePolicy":"in-place","timeoutPolicy":{"mode":"progress","overheadSeconds":30},
+  "inputs":[
+    "evidence/fixtures/darwin-ffi-return-premise/source.lock.json",
+    "patches/fixtures/darwin-ffi-return-premise.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-ffi-premise-completed-producer.json",
+    "evidence/fixtures/darwin-ffi-return-premise/compiled-stress-crash.json",
+    "models/gambit/native/btq_incident_values.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+      "arguments":{"sourceLock":"evidence/fixtures/darwin-ffi-return-premise/source.lock.json","workspace":".data/fixtures/vm-pending-join-retention/source"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":60,
+      "arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/darwin-ffi-premise-completed-producer.json"}},
+    {"id":"project","capability":"source.project","dependsOn":["source","producer"],"budgetSeconds":15,
+      "arguments":{"source":{"step":"source","output":"source"},"files":[
+        {"target":"gambit.h","origin":{"kind":"source-artifact","path":"include/gambit.h"},"sha256":"ad903a5c098d61be68e3015c1f21e79a79eabba316cfb0aa48f262c216eb3291"},
+        {"target":"values.c","origin":{"kind":"research-asset","path":"models/gambit/native/btq_incident_values.c"},"sha256":"50d8e7faedc894aa87f9aad18a62293921d20dea838431164191a32ab2fd238e"}
+      ]}},
+    {"id":"binding","capability":"source.bind","dependsOn":["project"],"budgetSeconds":10,
+      "arguments":{"workspace":{"step":"project","output":"workspace"}}},
+    {"id":"build","capability":"native.workspace-build","dependsOn":["project","binding"],"budgetSeconds":15,
+      "arguments":{"workspace":{"step":"project","output":"workspace"},"binding":{"step":"binding","output":"binding"},"translationUnit":"values.c","standard":"gnu23","optimization":2,"pthread":false,"target":"executable"}},
+    {"id":"classify","capability":"native.test","dependsOn":["build"],"budgetSeconds":10,
+      "arguments":{"executable":{"step":"build","output":"executable"},"cases":[{"id":"btq-captured-values","integers":[],"stdout":"BTQ-INCIDENT-TAG-AND-FORWARDING-OK\n"}]}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","project","binding","build","classify"],"budgetSeconds":10,
+      "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

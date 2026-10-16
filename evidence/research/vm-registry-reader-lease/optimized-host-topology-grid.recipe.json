@@ -1,0 +1,391 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-registry-optimized-host-topology-grid",
+  "scope": "Same source, exact topology fixture, model checks and original deadlines, using the source-bound O1 GNU completed producer. Bounded optimized concurrency regression, not complete SMP or release admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/optimized-completed-producer.json",
+    "models/gambit/vm_kernel_entry_lifecycle.qnt",
+    "models/gambit/native/registry_topology_grid.scm",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/vm_registry_processor_retirement.qnt",
+    "docs/vm-owned-retirement-contract.md",
+    "models/gambit/vm_registry_resize_grace.qnt",
+    "docs/vm-registry-resize-grace.md"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"
+      }
+    },
+    {
+      "id": "resize-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt"
+      }
+    },
+    {
+      "id": "resize-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "resize-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse"
+      }
+    },
+    {
+      "id": "resize-safe-progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "contract",
+        "negative": false
+      }
+    },
+    {
+      "id": "resize-cached-count-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "initializer": "initCountOnly",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "resize-early-close-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "initializer": "initEarlyClose",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": true
+      }
+    },
+    {
+      "id": "resize-trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "main": "vm_registry_resize_grace",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "cachedCountControlTest",
+          "earlyCloseControlTest",
+          "admittedReaderTest",
+          "lateReaderTest"
+        ]
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/vm-registry-reader-lease/optimized-completed-producer.json"
+      }
+    },
+    {
+      "id": "entry-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt"
+      }
+    },
+    {
+      "id": "entry-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "entry-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse"
+      }
+    },
+    {
+      "id": "entry-trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "entry-parse",
+        "entry-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse",
+        "main": "vm_kernel_entry_lifecycle",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "independentCohortsTest",
+          "missingTlsControlTest",
+          "borrowedModuleControlTest",
+          "crossVmRootControlTest",
+          "wrongPstateArgumentControlTest",
+          "failedJoinRetainsOwnershipTest",
+          "prematureCleanupControlTest"
+        ]
+      }
+    },
+    {
+      "id": "entry-safe-binding",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "entry-parse",
+        "entry-typecheck",
+        "entry-trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "entry-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "entry-parse",
+        "entry-typecheck",
+        "entry-trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_kernel_entry_lifecycle.qnt",
+        "parsed": "entry-parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "retirement-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_processor_retirement.qnt"
+      }
+    },
+    {
+      "id": "retirement-type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "retirement-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_processor_retirement.qnt",
+        "parsed": "retirement-parse"
+      }
+    },
+    {
+      "id": "retirement-safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "retirement-parse",
+        "retirement-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_processor_retirement.qnt",
+        "parsed": "retirement-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "retirement-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "retirement-parse",
+        "retirement-type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_processor_retirement.qnt",
+        "parsed": "retirement-parse",
+        "initializer": "initEarlyCleanup",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "independent-vms",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer",
+        "entry-safe-binding",
+        "entry-bypass-control",
+        "entry-trajectories",
+        "retirement-safe",
+        "retirement-control",
+        "resize-safe-progress",
+        "resize-cached-count-control",
+        "resize-early-close-control",
+        "resize-trajectories"
+      ],
+      "budgetSeconds": 120,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/registry_topology_grid.scm",
+        "stdout": "REGISTRY-TOPOLOGY-GRID:PASS\n"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "entry-parse",
+        "entry-typecheck",
+        "entry-trajectories",
+        "entry-safe-binding",
+        "entry-bypass-control",
+        "independent-vms",
+        "retirement-parse",
+        "retirement-type",
+        "retirement-safe",
+        "retirement-control",
+        "resize-parse",
+        "resize-typecheck",
+        "resize-safe-progress",
+        "resize-cached-count-control",
+        "resize-early-close-control",
+        "resize-trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

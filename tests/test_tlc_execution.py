@@ -44,6 +44,7 @@ class TlcExecutionTests(unittest.TestCase):
 
             with patch.object(runner.shutil, "which", return_value=str(java)), \
                  patch.object(runner.time, "monotonic", side_effect=lambda: now[0]), \
+                 patch.object(backend, "isolated_endpoint", return_value="127.0.0.1:12345"), \
                  patch.object(runner, "execute", side_effect=execute):
                 result = backend.check(snapshot, initializer="initFixed", invariant="safe",
                     negative=False, timeout=90, cwd=cwd, temporal="progress",
@@ -110,9 +111,19 @@ class TlcExecutionTests(unittest.TestCase):
                     runner.runtime_config(config)
 
     def test_off_schedule_is_not_supported(self):
-        with self.assertRaisesRegex(ValueError, "unsupported"):
+        with patch.object(backend, "isolated_endpoint") as endpoint, \
+             self.assertRaisesRegex(ValueError, "unsupported"):
             backend.check(None, initializer="init", invariant="safe", negative=False,
                           timeout=90, cwd=None, liveness_schedule="off")
+        endpoint.assert_not_called()
+
+    def test_invalid_checker_configuration_precedes_resource_acquisition(self):
+        for schedule, jar in (("final", None), ("default", "unexpected.jar")):
+            with patch.object(backend, "isolated_endpoint") as endpoint, \
+                 self.assertRaisesRegex(ValueError, "explicit"):
+                backend.check(None, initializer="init", invariant="safe", negative=False,
+                              timeout=90, cwd=None, liveness_schedule=schedule, tlc_jar=jar)
+            endpoint.assert_not_called()
 
 
 if __name__ == "__main__":

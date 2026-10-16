@@ -1,0 +1,5 @@
+(define-evidence (make-investigation)
+  (sources input) (outputs output)
+  (relation input ((x exact-integer?)))
+  (relation output ((x exact-integer?)))
+  (include copying))

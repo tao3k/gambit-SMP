@@ -78,3 +78,54 @@ before GC, full bootstrap and Gerbil suites with all three switches. Existing
 models supply ordering obligations, not execution permission or causal evidence
 that this explains diagnostic014/015. Do not erase the later candidate018
 post-copy-headroom passes or repeat already-present queue fences.
+
+## Darwin GNU ALLOC Candidate
+
+The new `darwin-allocator-acquire` source lock retains the current 23-file
+predecessor, changing only `lib/mem.c`. It adds a post-lock barrier to ALLOC
+under `__APPLE__ && __MACH__ && __GNUC__ && !__clang__`. MISC, the shared ticket
+primitive, single-threaded operation and other platform/compiler branches are
+unchanged. This intentionally narrow candidate is **not** a claim that the
+underlying ordering obligation is Darwin-only or that MISC is repaired.
+
+The existing handoff result is reused by exact model SHA
+`e471a1bcf5f31d8e2670b55606aa7bb3c3b33e9ae14e040968aa8ac5d32a5947`:
+old control counterexample and acquired variant both have admitted local logs.
+No unchanged negative search was repeated.
+
+The sealed framework projected the current configured C/header closure,
+applied the exact delta, reprojected and rebound the changed bytes. This avoids
+creating a third full source tree or altering the frozen toolchain. The small
+framework change accepts compilation workspaces as overlay inputs; overlay
+output remains a source tree requiring a new projection/binding. No old
+workspace binding silently admits changed bytes.
+
+Real GNU GCC 16.2 compilation of full `mem.c` passed at GNU23/O3 with the parent
+configuration headers and primal/library definitions. GNU16's default reports
+`__STDC_VERSION__=202311L`; the earlier forced GNU11 check failed on the
+configured `thread_local` spelling and remains DENY. The framework now accepts
+the explicit C23/GNU23 enum values, not arbitrary compiler arguments.
+
+In the resulting Mach-O object's `_next_heap_msection`, ticket reservation is
+at `0x1a7c`, the wait ends at `0x1a90`, and `dmb ish` is at `0x1a94`. The actual
+shared allocation cursor load is later at `0x1b84`. This is genuine full-object
+code generation at the **projected check's** flags, not a linked production or
+LTO proof.
+
+All four extracted-source branch checks passed: Darwin/GNU adds one ALLOC
+barrier, non-Darwin and simulated Clang do not, and single-threaded locks remain
+empty. MISC stays unchanged in every branch. These checks ran with GNU on
+Darwin; they are not Linux/Clang CI.
+
+The full child observation took **19.405 seconds**, parent **20.543 seconds**,
+with normal teardown. Source reproduction, object compilation and branch scope
+are the only new checks. Full bootstrap, exact new binary identity, atomic GC
+regressions, real stress, Gerbil and performance gates remain required. Portable
+identity: `evidence/fixtures/darwin-allocator-acquire/object-observation.json`.
+
+The original audit document consumed by that run is retained byte-for-byte in
+`evidence/source-results/allocator-acquire-input-history/`. The subsequent
+write-up therefore does not require recompilation to reconstruct its input.
+Framework inspection with the exact archive reports **HISTORICAL_BOUND** and
+all artifacts AVAILABLE, not a new CURRENT execution. The archive is tied to
+the original outer receipt hash; it cannot substitute binaries or tools.

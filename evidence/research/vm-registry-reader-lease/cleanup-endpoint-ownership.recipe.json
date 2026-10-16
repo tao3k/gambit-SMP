@@ -1,0 +1,163 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "cleanup-endpoint-ownership-model",
+  "scope": "Source-audit-directed cleanup ownership and checked/legacy endpoint contract, with two retained faulty-policy controls; not native, bootstrap, GC/FFI or full SMP qualification.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/foreign-origin-lifecycle-ownership/source.lock.json",
+    "patches/fixtures/foreign-origin-lifecycle-ownership.patch",
+    "models/gambit/cleanup_endpoint_ownership.qnt",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/foreign-origin-lifecycle-ownership/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": false
+      }
+    },
+    {
+      "id": "reacquire-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "parse",
+        "initializer": "initReacquire",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "legacy-return-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "parse",
+        "initializer": "initLegacyReturns",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/cleanup_endpoint_ownership.qnt",
+        "parsed": "parse",
+        "main": "cleanup_endpoint_ownership",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "singleVmOwnedCleanupTest",
+          "checkedBusyReturnTest",
+          "legacyBusyFatalTest",
+          "reacquireClosedGateControlTest",
+          "legacyReturnControlTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "type",
+        "safe",
+        "progress",
+        "reacquire-control",
+        "legacy-return-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,166 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "checkpoint-budget-ledger-model",
+  "scope": "Finite shared expenditure ledger across failed consumers, concurrent reservations and interrupted execution; atomic durable metadata operations require framework refinement. No native runtime, SMP gate, or unbounded/weak-memory proof.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "models/gambit/checkpoint_budget_ledger.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/foreign-origin-lease-admission/source.lock.json",
+    "patches/fixtures/foreign-origin-lease-admission.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/foreign-origin-lease-admission/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "release-first-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "parse",
+        "initializer": "initReleaseFirst",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "omit-consumer-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "parse",
+        "initializer": "initOmit",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "duplicate-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "parse",
+        "initializer": "initDuplicate",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/checkpoint_budget_ledger.qnt",
+        "parsed": "parse",
+        "main": "checkpoint_budget_ledger",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "failedConsumerChargedTest",
+          "interruptedReservationHeldTest",
+          "boundRecoveryTest",
+          "unboundRecoveryChargedTest",
+          "concurrentReservationsTest",
+          "releaseBeforeChargeControlTest",
+          "omitFailedConsumerControlTest",
+          "duplicateSettlementControlTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "type",
+        "safe",
+        "release-first-control",
+        "omit-consumer-control",
+        "duplicate-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

@@ -127,13 +127,51 @@ readable history and cannot be published as verified analysis or loaded as PASS.
 The journal head is not a deadline, execution permission or checkpoint selection
 authority. Native recovery DSL must review the individually bound observations.
 
-The implementation still needs to retain the original clock epoch/deadline at
-launch, rather than infer them after interruption. A read-only check confirmed
+The run header now retains the original clock epoch/deadline at launch, rather
+than inferring them after interruption. A read-only check confirmed
 Darwin exposes `kern.bootsessionuuid`; the restricted sandbox rejected that read,
 and an authorized host read succeeded. Missing epoch identity must remain unknown
 and deny continuation. Do not substitute PID, wall time or an invented boot ID.
 No system change was made. Cross-boot continuation remains conditional on a
 separately verified durable clock contract, not merely a new boot identifier.
+
+## Actual Run Journal Transport
+
+The sealed launcher writes an exclusive, file-and-directory-synced immutable
+`research-run-header.v1` before starting its child. It records a unique run ID,
+recipe/input and engine identities, original whole/step budgets, monotonic
+deadline, exact launch request and boot identity (or null when unavailable).
+The worker rechecks the header hash, exact launch request and original inputs.
+Each completed capability records its actual disposition and artifact bindings
+in `research-step-observation.v1`, with individual prerequisite observation
+references. The existing `append_observation` API retains these records in the
+existing journal. No new database, published analysis, verified head, budget
+reset or runtime admission is introduced. An absent prerequisite is retained as
+null, never replaced by a passing ancestor. Clock-null evidence is readable;
+it does not qualify cross-restart execution.
+
+Focused regression passed 62 tests in 1.659 seconds, including a real child
+`os._exit(7)` after journal commit. A new process can read the committed STARTED
+record after that exit, with no terminal PASS, analysis or head. This is process
+interruption evidence, not a physical power-loss or full reboot test.
+
+The new sealed engine `fb45aed4e7aea225420d3ef57db1f7795fb52c0191b80da6ae748aa84aea58be`
+ran the existing dependency-composition Recipe under its unchanged 90-second
+whole budget. The actual outer observation was DENY in 18.979 seconds, exit 2,
+no outer timeout, with parent reaped and process group quiescent. Source,
+parse, typecheck and all declared trajectories passed; four exhaustive-control
+steps reported `Operation not permitted`, and the terminal native rule check
+timed out under its existing cap. All failures remain in
+`.data/fixtures/checkpoint-dependency-recovery/run-header-controls`; the route
+was not retried unchanged or represented as model verification success.
+
+Reading the actual journal found one header plus nine individually retained
+step observations, all bound to the original header, including all five
+non-PASS results. There were zero analyses and no head. The actual boot identity
+was unknown. Production fact extraction into the recovery DSL, checked reuse
+of individually bound successful checkpoints, durable cross-boot time and full
+native producer continuation remain open. These transport results do not close
+SMP/GC correctness, bootstrap or Gerbil performance admission.
 
 The existing successful thread-completion source producer recorded 150.026
 seconds for core regeneration under its 180-second core cap, with GNU GCC and

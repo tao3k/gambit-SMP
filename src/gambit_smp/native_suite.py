@@ -41,10 +41,7 @@ def admitted_suite(code, output, timed_out, expected):
     return code == 0 and not timed_out and output.splitlines().count(marker) == 1 and "*** FAILED" not in output
 
 
-def campaign_status(results, modes, atomic=False):
-    if any(not row["accepted"] for row in results):
-        return "DENY"
-    return ("COVERAGE-PASS" if atomic else "PASS") if len(results) == len(modes) else "RUNNING"
+from gambit_smp.suite_primitives import campaign_status
 
 
 def admitted_processors(code, output, timed_out, requested):

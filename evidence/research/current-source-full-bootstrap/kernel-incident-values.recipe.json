@@ -1,0 +1,34 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"kernel-incident-values",
+  "scope":"Classify captured immediate and C error using the exact configured header ABI. Static arithmetic/ABI check only, no repeated native failure or source repair.",
+  "workspacePolicy":"in-place",
+  "timeoutPolicy":{"mode":"progress","overheadSeconds":30},
+  "inputs":[
+    "evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json",
+    "patches/fixtures/darwin-ticket-ownership-acquire.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-ticket-completed-producer.json",
+    "evidence/fixtures/darwin-ticket-ownership-acquire/compiled-stress-crash.json",
+    "models/gambit/native/kernel_incident_values.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+      "arguments":{"sourceLock":"evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json","workspace":".data/fixtures/vm-pending-join-retention/source"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":60,
+      "arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/darwin-ticket-completed-producer.json"}},
+    {"id":"project","capability":"source.project","dependsOn":["source","producer"],"budgetSeconds":15,
+      "arguments":{"source":{"step":"source","output":"source"},"files":[
+        {"target":"gambit.h","origin":{"kind":"source-artifact","path":"include/gambit.h"},"sha256":"ad903a5c098d61be68e3015c1f21e79a79eabba316cfb0aa48f262c216eb3291"},
+        {"target":"values.c","origin":{"kind":"research-asset","path":"models/gambit/native/kernel_incident_values.c"},"sha256":"e4065cb55b9312f4e49a0b08e131fcbcff21ef9101492b6573f724c79f88aafd"}
+      ]}},
+    {"id":"binding","capability":"source.bind","dependsOn":["project"],"budgetSeconds":10,
+      "arguments":{"workspace":{"step":"project","output":"workspace"}}},
+    {"id":"build","capability":"native.workspace-build","dependsOn":["project","binding"],"budgetSeconds":15,
+      "arguments":{"workspace":{"step":"project","output":"workspace"},"binding":{"step":"binding","output":"binding"},"translationUnit":"values.c","standard":"gnu23","optimization":2,"pthread":false,"target":"executable"}},
+    {"id":"classify","capability":"native.test","dependsOn":["build"],"budgetSeconds":10,
+      "arguments":{"executable":{"step":"build","output":"executable"},"cases":[{"id":"captured-values","integers":[],"stdout":"INCIDENT-VALUES-ABSENT-EINTR-OK\n"}]}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","project","binding","build","classify"],"budgetSeconds":10,
+      "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

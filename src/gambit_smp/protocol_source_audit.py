@@ -1,8 +1,8 @@
 """Source-review facts, kept distinct from finite-model and native admission."""
 import json
+from pathlib import Path
 
 from gambit_smp.framework import digest, relative
-from gambit_smp.sync_retirement_source import expected
 from gambit_smp.source_materialize import locked_source
 
 MANIFEST = "evidence/protocol-source-correspondence.json"
@@ -10,25 +10,18 @@ ARITIES = {"source_review": 3, "source_review_anchor": 2,
            "source_avoid_route": 2, "source_native_pending": 1}
 
 
-def check_schedule(saved):
-    policies = ("existing-no-destroy", "naive-child-destroy",
-                "deferred-drain-contract", "initialization-failure")
+def check_schedule(saved, root):
+    from gambit_smp.observation_contract import evaluate
     if (saved.get("schema") != "gambit-sync-retirement-schedule.v1"
             or saved.get("compile", {}).get("exit") != 0
             or saved.get("compile", {}).get("timeout") is not False):
         raise ValueError("source-unit compile evidence missing")
-    seen = set()
-    for row in saved["results"]:
-        key = (row.get("policy"), row.get("point"))
-        if key in seen or key[0] not in policies or key[1] not in (1, 2):
-            raise ValueError("duplicate or unknown source schedule")
-        seen.add(key)
-        outcome = expected(policies.index(key[0]), key[1])
-        if (row.get("actual") != outcome or row.get("expected") != outcome
-                or row.get("exit") != 0 or row.get("timeout") is not False):
-            raise ValueError("source schedule observation does not support verdict")
-    if len(seen) != 8:
-        raise ValueError("incomplete source schedules")
+    answers, inputs, _ = evaluate(root,
+        "evidence/research/source-schedule-revalidation/observations.json", saved["results"])
+    if any(answers.values()):
+        raise ValueError("source schedule observation contract rejected: " +
+                         ",".join(name for name, rows in answers.items() if rows))
+    return inputs
 
 
 def facts(root):
@@ -50,6 +43,7 @@ def facts(root):
 
 
 def source_facts(root, data, source, inputs, locked=False):
+    root = root.resolve()
     for name, sha in data["contextInputs"].items():
         path = relative(source, name)
         if digest(path) != sha:
@@ -60,32 +54,47 @@ def source_facts(root, data, source, inputs, locked=False):
     if digest(receipt_path) != data["sourceUnitReceiptSha256"]:
         raise ValueError("source-unit receipt differs")
     saved = json.loads(receipt_path.read_text())
+    historical = {}
+    reconstruction_inputs = dict(inputs)
+    if data.get("sourceUnitInputArchive"):
+        from gambit_smp.historical_inputs import bindings
+        historical, paths = bindings(root, receipt_path, data["sourceUnitInputArchive"])
+        for path in paths:
+            inputs[path.relative_to(root).as_posix()] = digest(path)
     if (saved.get("status") != "source-schedule-observed" or saved.get("sourceStable") is not True
-            or saved.get("runtimeAdmitted") is not False or len(saved.get("results", [])) != 8
-            or not all(row.get("matched") is True for row in saved["results"])):
+            or saved.get("runtimeAdmitted") is not False):
         raise ValueError("incomplete source-unit evidence")
-    check_schedule(saved)
+    inputs.update({Path(name).relative_to(root).as_posix(): sha
+                   for name, sha in check_schedule(saved, root).items()})
     if locked and (saved.get("sourceLock") != data["sourceLock"] or
                    saved.get("sourceFileIdentities", {}).get("lib/setup.c") !=
                    data["contextInputs"].get("lib/setup.c")):
         raise ValueError("source-unit receipt does not bind locked source")
-    if locked and any(saved.get("inputs", {}).get(name) != sha
-                      for name, sha in inputs.items() if name != MANIFEST):
-        raise ValueError("source-unit receipt omits locked source inputs")
+    if locked:
+        lock_name = data["sourceLock"]
+        patch_name = json.loads(relative(root, lock_name).read_text())["patch"]
+        for name, sha in reconstruction_inputs.items():
+            if name == MANIFEST:
+                continue
+            recorded = saved.get("inputs", {}).get(name)
+            if recorded != sha:
+                archived = historical.get(str(root / name))
+                if (name in {lock_name, patch_name} or archived is None
+                        or digest(archived) != recorded):
+                    raise ValueError("source-unit receipt omits locked source inputs")
     inputs[data["sourceUnitReceipt"]] = digest(receipt_path)
     for name, sha in saved["inputs"].items():
-        if digest(relative(root, name)) != sha:
+        path = historical.get(str(root / name), relative(root, name))
+        if digest(path) != sha:
             raise ValueError("source-unit input changed: " + name)
-        inputs[name] = sha
+        inputs[path.relative_to(root).as_posix()] = sha
     result = {name: [] for name in ARITIES}
-    models, ids = set(), set()
-    allowed = {"gc_epoch_work_bridge", "gc_scan_claim_transfer", "sync_retirement_drain", "vm_configuration_contract"}
+    ids = set()
     for row in data["observations"]:
         model, name, status = row["model"], row["id"], row["status"]
-        if (model not in allowed or name in ids or not row["finding"] or not row["next"]
-                or status not in ("implemented-local", "repair-required", "unresolved-origin")):
+        if (not all(type(value) is str for value in (model, name, status))
+                or name in ids or not row["finding"] or not row["next"]):
             raise ValueError("invalid source correspondence row")
-        models.add(model)
         ids.add(name)
         result["source_review"].append((model, name, status))
         for anchor in row["anchors"]:
@@ -94,7 +103,30 @@ def source_facts(root, data, source, inputs, locked=False):
                 raise ValueError("source anchor outside reviewed input")
             result["source_review_anchor"].append((name, anchor))
         result["source_avoid_route"].extend((name, route) for route in row["avoid"])
-    if models != allowed:
-        raise ValueError("all four model/source correspondences required")
+    from gambit_smp.ascent_program import load_evidence_catalog, query
+    requirements_path = relative(root, "evidence/protocol-source-requirements.json")
+    requirements_sha = digest(requirements_path)
+    requirements = json.loads(requirements_path.read_text())
+    if (set(requirements) != {"schema", "models", "statuses"}
+            or requirements["schema"] != "ascent.source-review-contract.v1"
+            or any(not isinstance(requirements[key], list) or not requirements[key]
+                   or any(type(value) is not str for value in requirements[key])
+                   or len(set(requirements[key])) != len(requirements[key])
+                   for key in ("models", "statuses"))):
+        raise ValueError("complete typed source review contract required")
+    catalog = load_evidence_catalog(relative(root, "evidence/dsl/source-review-contract.ss"),
+        constructor="make-source-review-contract", trusted=True)
+    answers = query({"RequiredModel": [[value] for value in requirements["models"]],
+                     "AllowedStatus": [[value] for value in requirements["statuses"]],
+                     "SourceReview": result["source_review"]}, catalog,
+                    {name: name for name in ("MissingModel", "UnknownModel", "UnknownStatus")},
+                    reuse_program=True)
+    inputs[requirements_path.relative_to(root).as_posix()] = requirements_sha
+    inputs.update({Path(path).relative_to(root).as_posix(): sha for path, sha in catalog["sourceInputs"].items()})
+    if any(digest(relative(root, name)) != sha for name, sha in inputs.items()):
+        raise ValueError("source review inputs changed during inference")
+    if any(answers.values()):
+        raise ValueError("source review contract rejected: " +
+                         ",".join(name for name, rows in answers.items() if rows))
     result["source_native_pending"] = [(gate,) for gate in data["nativeGates"]]
     return result, inputs

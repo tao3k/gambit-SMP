@@ -1,0 +1,182 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "foreign-origin-retirement-admission-model",
+  "scope": "Proposed per-origin/incarnation SFUN admission with brief atomic publication gate; retained-origin callbacks remain eligible during shrink. Counterexamples cover split admission, broad global rejection and stale generation. Source-bound design only, no runtime repair/native admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/foreign_origin_retirement_admission.qnt"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": false
+      }
+    },
+    {
+      "id": "release-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse",
+        "initializer": "initSplit",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "late-record-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse",
+        "initializer": "initGlobalBan",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "generation-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse",
+        "initializer": "initUncheckedGeneration",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/foreign_origin_retirement_admission.qnt",
+        "parsed": "parse",
+        "main": "foreign_origin_retirement_admission",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "retainedOriginTest",
+          "removedOriginBusyTest",
+          "allocationRollbackTest",
+          "unwindRollbackTest",
+          "staleLookupRejectedTest",
+          "twoOriginLeasesTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "type",
+        "safe",
+        "progress",
+        "release-control",
+        "late-record-control",
+        "trajectories",
+        "generation-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

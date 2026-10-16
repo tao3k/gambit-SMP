@@ -1,0 +1,19 @@
+--- a/mem.c
++++ b/mem.c
+@@ -380,7 +380,16 @@
+ 
+ #else
+ 
++#if defined(__APPLE__) && defined(__MACH__) && defined(__GNUC__) && !defined(__clang__)
++/* Reserving a ticket does not acquire the preceding owner's later writes. */
++#define ALLOC_MEM_LOCK() \
++do { \
++  ___SPINLOCK_LOCK(alloc_mem_lock); \
++  ___SHARED_MEMORY_BARRIER(); \
++} while (0)
++#else
+ #define ALLOC_MEM_LOCK() ___SPINLOCK_LOCK(alloc_mem_lock)
++#endif
+ #define ALLOC_MEM_UNLOCK() ___SPINLOCK_UNLOCK(alloc_mem_lock)
+ #define MISC_MEM_LOCK() ___SPINLOCK_LOCK(misc_mem_lock)
+ #define MISC_MEM_UNLOCK() ___SPINLOCK_UNLOCK(misc_mem_lock)

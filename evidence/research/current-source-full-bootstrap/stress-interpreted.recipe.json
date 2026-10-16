@@ -1,0 +1,95 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "current-source-public-cleanup-interpreted-stress",
+  "scope": "All unchanged upstream stress files on the currently revalidated public cleanup/continuation source. Preserve original 300-second budget, workloads, assertions and source-bound retry review; reuse the current completed bootstrap, not old runtime bytes.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/continuation-segment-wake-budget/source.lock.json",
+    "patches/fixtures/continuation-segment-wake-budget.patch",
+    "evidence/research/current-source-full-bootstrap/completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/continuation-segment-wake-budget/source.lock.json",
+        "workspace": ".data/fixtures/foreign-origin-public-cleanup-contract-candidate"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/completed-producer.json"
+      }
+    },
+    {
+      "id": "stress-gsi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "."
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "stress-gsi"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ],
+  "workspacePolicy": "in-place"
+}

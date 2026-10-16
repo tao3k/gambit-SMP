@@ -1,30 +1,28 @@
-"""Actual native module evaluation; fresh process and matched producer required."""
+"""Source-bound Rust DSL evaluation, including independently owned graph results."""
 import json
 from pathlib import Path
 import tempfile
 import unittest
 
-from gambit_smp.ascent_program import engine_api
 from gambit_smp.evidence_capabilities import native_evaluate
-from gambit_smp.framework import digest
+from gambit_smp.framework import ROOT, digest
 
 
 class ModuleEvaluationTests(unittest.TestCase):
-    def request(self, directory, module, constructor, facts, queries):
-        with engine_api() as (engine, _):
-            source = engine.build_receipt['producerBuild']['linkedSchemeSources'][module.lstrip(':')]
-        entry = {'schema': 'ascent.evidence-module-entry.v1', 'module': module,
-                 'constructor': constructor, 'arguments': [], 'sourceSha256': source['sha256']}
+    def request(self, directory, source, constructor, facts, queries):
+        entry = {'schema': 'ascent.evidence-dsl-entry.v1',
+                 'sources': [{'path': source, 'sha256': digest(ROOT / source)}],
+                 'constructor': constructor, 'arguments': [], 'trusted': True}
         path = directory / 'entry.json'
         path.write_text(json.dumps(entry))
-        return {'rules': [], 'module': entry, 'moduleInput': str(path),
-                'moduleInputSha256': digest(path), 'facts': facts, 'queries': queries,
+        return {'rules': [], 'dsl': entry, 'dslInput': str(path), 'dslRoot': str(ROOT),
+                'dslInputSha256': digest(path), 'facts': facts, 'queries': queries,
                 'output': str(directory)}
 
     def test_native_program_observations_and_separate_explanation(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
-            request = self.request(directory, ':gerbil-ascent/evidence/execution',
+            request = self.request(directory, 'evidence/dsl/execution.ss',
                                    'make-execution-evidence',
                                    {'required_step': [['finished'], ['missing']],
                                     'observed_step': [['finished', 'PASS', 'native.test']]},
@@ -42,13 +40,15 @@ class ModuleEvaluationTests(unittest.TestCase):
     def test_non_scalar_results_remain_native_graphs(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
-            request = self.request(directory, ':gerbil-ascent/t/qualification/evidence-api-module',
+            request = self.request(directory, 'tests/fixtures/evidence/graph-values.ss',
                                    'make-graph-values', {}, {'values': 'input'})
             native_evaluate(request)
             result = json.loads((directory / 'answers.json').read_text())['values']
             self.assertEqual(result['value']['format'], 'native-value-graph.v1')
             self.assertIn('opaque', str(result))
             self.assertIn('hash-table', str(result))
+            self.assertTrue(any(node.get('type') == 'symbol' and node.get('interned') is False
+                                for node in result['value']['nodes']))
             explanation = json.loads((directory / 'explanations.json').read_text())
             self.assertEqual(explanation['status'], 'recorded-only')
             self.assertTrue(explanation['answers']['values'])
@@ -56,13 +56,13 @@ class ModuleEvaluationTests(unittest.TestCase):
     def test_entry_drift_and_mixed_entry_rejected(self):
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
-            request = self.request(directory, ':gerbil-ascent/evidence/execution',
+            request = self.request(directory, 'evidence/dsl/execution.ss',
                                    'make-execution-evidence', {}, {'missing': 'missing_step'})
             request['rules'] = ['untrusted.ss']
             with self.assertRaisesRegex(ValueError, 'exclusive'):
                 native_evaluate(request)
             request['rules'] = []
-            Path(request['moduleInput']).write_text('{}')
+            Path(request['dslInput']).write_text('{}')
             with self.assertRaisesRegex(ValueError, 'entry changed'):
                 native_evaluate(request)
 

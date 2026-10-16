@@ -71,3 +71,22 @@ already implements this boundary, so reapplying the historical fix or rerunning
 the unchanged failing compiler solely on this result is rejected. Continue with
 source-backed call/ownership hypotheses and complete artifact identity before
 native bootstrap acceptance. Performance remains a separate later gate.
+
+## Current Native Refinement Gap
+
+The `darwin-ticket-ownership-acquire` complete compiled stress incident is
+image-bound to its current interpreter and mapped through identical production
+and debug object text/relocations. The fault is at JUMPRET following this exact
+os-condvar-select wrapper. The register snapshot selected an ordinary frame,
+with a fetched return value -44 and effective access address -53. This is not
+the prior BTQ fault site and does not establish a common cause.
+
+The positive model keeps savedRA as an independent scalar; it does not execute
+the physical return slot, `mark_continuation` descriptor/link walk, stack
+copying or the precise FRAME_FETCH_RA branch. Therefore model PASS cannot
+exclude this native observation. Before a source repair, establish the actual
+slot/caller correspondence and GC/interrupt reachability; do not assume that
+GC ran inside the wait or reapply a protocol already present in current source.
+Portable source/receipt correspondence is in the ticket fixture's
+`kernel-return-symbolization.json`. The full native DENY and single-file PASS
+both remain recorded.

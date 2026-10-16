@@ -1,0 +1,165 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "experimental-rc-payload-first-execution",
+  "scope": "First actual C execution after genuine RC slice consumption correction. Standalone single-thread component, not Scheme FFI or concurrent GC. Earlier combined model campaign DENY remains closed; no model rerun or budget reset. Dedicated native execution lane bounded below prior15s compiler cap.",
+  "budgetSeconds": 15,
+  "inputs": [
+    "models/library/gc/foreign_payload_control.c",
+    "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json",
+    "patches/fixtures/foreign-origin-public-cleanup-contract.patch",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 15,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json"
+      }
+    },
+    {
+      "id": "workspace",
+      "capability": "source.project",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "control.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/library/gc/foreign_payload_control.c"
+            },
+            "sha256": "757ed9aa9661bd249a4ff2fe1a674bda3e1a72c6c50cae19491306a11b2e0335"
+          },
+          {
+            "target": "rc-origin.inc",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/mem.c"
+            },
+            "sha256": "dc25c274c1f35a35f45f6f97bfe66c1c60a24536b33c48ed787a8d7589cd2f44",
+            "ranges": [
+              {
+                "start": 27180,
+                "end": 28852,
+                "sha256": "ee22ff2bbadc8e3f03cbb4eee9c4de467e89f0cfebce979e8b39b760f5d310d5"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "workspace"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "workspace",
+        "binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "workspace",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "binding",
+          "output": "binding"
+        },
+        "translationUnit": "control.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": false,
+        "target": "executable",
+        "defines": []
+      }
+    },
+    {
+      "id": "controls",
+      "capability": "native.test",
+      "dependsOn": [
+        "build"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "executable": {
+          "step": "build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "checked",
+            "integers": [
+              0
+            ],
+            "stdout": "{\"coherent\":true,\"leaseDrained\":true}\n"
+          },
+          {
+            "id": "stale-copy",
+            "integers": [
+              1
+            ],
+            "expectedExit": 1,
+            "negativeControl": true,
+            "stdout": "{\"coherent\":false,\"leaseDrained\":true}\n"
+          },
+          {
+            "id": "live-lease",
+            "integers": [
+              2
+            ],
+            "expectedExit": 1,
+            "negativeControl": true,
+            "stdout": "{\"coherent\":true,\"leaseDrained\":false}\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "workspace",
+        "binding",
+        "build",
+        "controls"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

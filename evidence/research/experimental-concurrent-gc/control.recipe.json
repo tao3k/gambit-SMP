@@ -1,0 +1,38 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "experimental-concurrent-gc-barrier-controls",
+  "scope": "Finite experimental SATB/remembered-card and copy/write/FFI-lease safety. No source refinement, runtime admission, progress or performance proof.",
+  "budgetSeconds": 48,
+  "inputs": [
+    "models/library/gc/ConcurrentSATB.qnt",
+    "models/library/gc/ConcurrentCopyWrite.qnt",
+    "models/library/gc/ColoredReferenceRelocation.qnt",
+    "docs/experimental-concurrent-generational-gc.md",
+    "vendor/gambit/lib/mem.c",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json",
+    "patches/fixtures/foreign-origin-public-cleanup-contract.patch"
+  ],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":15,"arguments":{"sourceLock":"evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json"}},
+    {"id":"satb-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentSATB.qnt"}},
+    {"id":"satb-types","capability":"quint.typecheck","dependsOn":["satb-parse"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentSATB.qnt","parsed":"satb-parse"}},
+    {"id":"satb-safe","capability":"quint.verify","dependsOn":["satb-parse","satb-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentSATB.qnt","parsed":"satb-parse","initializer":"init","step":"step","invariant":"Safe","negative":false}},
+    {"id":"satb-missing-barrier","capability":"quint.verify","dependsOn":["satb-parse","satb-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentSATB.qnt","parsed":"satb-parse","initializer":"initNoBarrier","step":"step","invariant":"Safe","negative":true}},
+    {"id":"satb-private-log","capability":"quint.verify","dependsOn":["satb-parse","satb-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentSATB.qnt","parsed":"satb-parse","initializer":"initEarlyCompletion","step":"step","invariant":"Safe","negative":true}},
+    {"id":"satb-still-card","capability":"quint.verify","dependsOn":["satb-parse","satb-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentSATB.qnt","parsed":"satb-parse","initializer":"initNoStillCard","step":"step","invariant":"Safe","negative":true}},
+    {"id":"copy-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentCopyWrite.qnt"}},
+    {"id":"copy-types","capability":"quint.typecheck","dependsOn":["copy-parse"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentCopyWrite.qnt","parsed":"copy-parse"}},
+    {"id":"copy-safe","capability":"quint.verify","dependsOn":["copy-parse","copy-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentCopyWrite.qnt","parsed":"copy-parse","initializer":"init","step":"step","invariant":"Safe","negative":false}},
+    {"id":"copy-version","capability":"quint.verify","dependsOn":["copy-parse","copy-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentCopyWrite.qnt","parsed":"copy-parse","initializer":"initNoVersion","step":"step","invariant":"Safe","negative":true}},
+    {"id":"copy-reference","capability":"quint.verify","dependsOn":["copy-parse","copy-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentCopyWrite.qnt","parsed":"copy-parse","initializer":"initNoBarrier","step":"step","invariant":"Safe","negative":true}},
+    {"id":"copy-lease","capability":"quint.verify","dependsOn":["copy-parse","copy-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ConcurrentCopyWrite.qnt","parsed":"copy-parse","initializer":"initNoDrain","step":"step","invariant":"Safe","negative":true}},
+    {"id":"color-parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ColoredReferenceRelocation.qnt"}},
+    {"id":"color-types","capability":"quint.typecheck","dependsOn":["color-parse"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ColoredReferenceRelocation.qnt","parsed":"color-parse"}},
+    {"id":"color-safe","capability":"quint.verify","dependsOn":["color-parse","color-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ColoredReferenceRelocation.qnt","parsed":"color-parse","initializer":"init","step":"step","invariant":"Safe","negative":false}},
+    {"id":"color-barrier","capability":"quint.verify","dependsOn":["color-parse","color-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ColoredReferenceRelocation.qnt","parsed":"color-parse","initializer":"initNoBarrier","step":"step","invariant":"Safe","negative":true}},
+    {"id":"color-metadata","capability":"quint.verify","dependsOn":["color-parse","color-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ColoredReferenceRelocation.qnt","parsed":"color-parse","initializer":"initEarlyMetadata","step":"step","invariant":"Safe","negative":true}},
+    {"id":"color-locals","capability":"quint.verify","dependsOn":["color-parse","color-types"],"budgetSeconds":15,"arguments":{"source":"models/library/gc/ColoredReferenceRelocation.qnt","parsed":"color-parse","initializer":"initNoActiveRoots","step":"step","invariant":"Safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","satb-parse","satb-types","satb-safe","satb-missing-barrier","satb-private-log","satb-still-card","copy-parse","copy-types","copy-safe","copy-version","copy-reference","copy-lease","color-parse","color-types","color-safe","color-barrier","color-metadata","color-locals"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

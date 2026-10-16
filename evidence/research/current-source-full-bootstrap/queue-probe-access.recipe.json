@@ -1,0 +1,19 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "gc-queue-probe-access-discipline",
+  "scope": "Source-directed finite access-discipline model checks with three negative controls. Advisory endpoints are not a coherent snapshot or termination authority. Not a C memory-model proof, native timeout diagnosis, runtime/source-refinement or release acceptance.",
+  "budgetSeconds": 90,
+  "workspacePolicy": "in-place",
+  "inputs": ["models/gambit/gc_queue_probe_access.qnt", "docs/gc-queue-probe-access.md", "evidence/fixtures/continuation-segment-wake-budget/source.lock.json", "patches/fixtures/continuation-segment-wake-budget.patch", "evidence/research/execution-rules.ss"],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/continuation-segment-wake-budget/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt","parsed":"parse"}},
+    {"id":"trajectories","capability":"quint.test","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt","parsed":"parse","main":"gc_queue_probe_access","seed":"0x1510","maxSamples":1,"expectedTests":["advisoryProbeTest","plainReadControlTest","loadOnlyControlTest","staleHintControlTest"]}},
+    {"id":"safe","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false}},
+    {"id":"plain-control","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt","parsed":"parse","initializer":"initPlain","step":"step","invariant":"safe","negative":true}},
+    {"id":"mixed-control","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt","parsed":"parse","initializer":"initMixed","step":"step","invariant":"safe","negative":true}},
+    {"id":"hint-control","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/gc_queue_probe_access.qnt","parsed":"parse","initializer":"initTrust","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","trajectories","safe","plain-control","mixed-control","hint-control"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

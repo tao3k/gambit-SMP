@@ -1,0 +1,23 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "gc-design-evidence-boundary",
+  "scope": "New finite classification contract: scoped reasons, unknown versus refuted, and no finite-to-native admission. Not a collector correctness or performance campaign.",
+  "budgetSeconds": 30,
+  "inputs": ["models/library/gc/DesignEvidence.qnt", "evidence/research/execution-rules.ss", "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json", "patches/fixtures/foreign-origin-public-cleanup-contract.patch"],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 15,
+      "arguments": {"sourceLock": "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/library/gc/DesignEvidence.qnt"}},
+    {"id": "types", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/library/gc/DesignEvidence.qnt", "parsed": "parse"}},
+    {"id": "checked", "capability": "quint.verify", "dependsOn": ["parse", "types"], "budgetSeconds": 15,
+      "arguments": {"source": "models/library/gc/DesignEvidence.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "Safe", "negative": false}},
+    {"id": "false-refutation", "capability": "quint.verify", "dependsOn": ["parse", "types"], "budgetSeconds": 15,
+      "arguments": {"source": "models/library/gc/DesignEvidence.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "FalseRefutationSafe", "negative": true}},
+    {"id": "finite-admission", "capability": "quint.verify", "dependsOn": ["parse", "types"], "budgetSeconds": 15,
+      "arguments": {"source": "models/library/gc/DesignEvidence.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "FiniteAdmissionSafe", "negative": true}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "types", "checked", "false-refutation", "finite-admission"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

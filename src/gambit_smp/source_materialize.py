@@ -87,6 +87,12 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES):
 
 
 def materialize(lock_path, out, *, root=None):
+    from gambit_smp.fixture_storage import source_capacity
+    with source_capacity(out):
+        return _materialize(lock_path, out, root=root)
+
+
+def _materialize(lock_path, out, *, root=None):
     root = ROOT if root is None else Path(root).resolve()
     lock_hash = digest(lock_path)
     from gambit_smp.recipes import read_json, source_path

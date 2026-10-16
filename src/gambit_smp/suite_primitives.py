@@ -1,19 +1,33 @@
 """Suite inventory, topology and exit contracts without feature producer imports."""
 from math import isqrt
 from pathlib import Path
+import re
 
 from gambit_smp.framework import digest, relative
 
 
 def check_runtime(runtime, identity):
-    if any(digest(relative(runtime, name)) != expected for name, expected in identity["sourceFiles"].items()):
+    from gambit_smp.recipes import _leased_tree_checks, tree_identity
+    checks = _leased_tree_checks.get()
+    inventory = tree_identity(runtime) if checks is not None and runtime in checks.roots else None
+    def sha(name):
+        path = relative(runtime, name)
+        if inventory is None:
+            return digest(path)
+        row = inventory.get(path.relative_to(runtime).as_posix(), {})
+        if "sha256" not in row:
+            raise ValueError("leased runtime file is absent from checked inventory")
+        return row["sha256"]
+    if any(sha(name) != expected for name, expected in identity["sourceFiles"].items()):
         raise ValueError("candidate input inventory changed")
     for field, name in (("binarySha256", "gsi/gsi"), ("gscSha256", "gsc/gsc"), ("librarySha256", "lib/libgambit.a")):
-        if digest(runtime / name) != identity[field]:
+        if sha(name) != identity[field]:
             raise ValueError("candidate artifact changed: " + name)
 
 
-def selected_files(root, selections):
+def selected_files(root, selections, *, inventory="unit"):
+    if inventory not in {"unit", "stress"}:
+        raise ValueError("explicit unit or stress inventory required")
     root = root.resolve()
     files = set()
     for selection in selections:
@@ -22,7 +36,8 @@ def selected_files(root, selections):
             raise ValueError("suite selection must exist inside upstream unit-tests")
         candidates = selected.rglob("*.scm") if selected.is_dir() else (selected,)
         files.update(path.relative_to(root) for path in candidates
-                     if path.suffix == ".scm" and path.name != "#.scm" and not path.name.endswith("_stress.scm"))
+                     if path.suffix == ".scm" and path.name != "#.scm"
+                     and path.name.endswith("_stress.scm") == (inventory == "stress"))
     if not files:
         raise ValueError("empty suite selection")
     return sorted(files)
@@ -40,6 +55,26 @@ def runtime_view(runtime, mirror):
 def admitted_suite(code, output, timed_out, expected):
     marker = f"PASSED ALL {expected} UNIT TESTS"
     return code == 0 and not timed_out and output.splitlines().count(marker) == 1 and "*** FAILED" not in output
+
+
+class SuiteCompletionProgress:
+    """Read the pinned runner's completed good/failed counters, not output volume."""
+    def __init__(self, expected):
+        self.expected = expected
+        self.completed = 0
+
+    def __call__(self, stdout, stderr):
+        for good, failed in re.findall(r"^\[\s*(\d+)\|\s*(\d+)\]\s+\d+%", stdout, re.MULTILINE):
+            count = int(good) + int(failed)
+            if self.completed < count <= self.expected:
+                self.completed = count
+        return self.completed
+
+
+def campaign_status(results, modes, atomic=False):
+    if any(not row["accepted"] for row in results):
+        return "DENY"
+    return ("COVERAGE-PASS" if atomic else "PASS") if len(results) == len(modes) else "RUNNING"
 
 
 def admitted_processors(code, output, timed_out, requested):

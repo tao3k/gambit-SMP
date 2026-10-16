@@ -68,12 +68,14 @@ def interpret(code, output, timed_out, *, negative, temporal=None):
 def check(snapshot, *, initializer, invariant, negative, timeout, cwd,
           temporal=None, step=None, config=None, executable="quint",
           liveness_schedule="default", tlc_jar=None):
-    endpoint = isolated_endpoint()
     if liveness_schedule not in ("default", "final"):
         raise ValueError("unsupported liveness schedule")
+    if liveness_schedule == "final" and tlc_jar is None:
+        raise ValueError("explicit TLC jar required for final schedule")
+    if liveness_schedule != "final" and tlc_jar is not None:
+        raise ValueError("explicit jar requires final liveness schedule")
+    endpoint = isolated_endpoint()
     if liveness_schedule == "final":
-        if tlc_jar is None:
-            raise ValueError("explicit TLC jar required for final schedule")
         from gambit_smp.tlc_execution import compiled_check
         code, output, timed_out, seconds, identity = compiled_check(snapshot,
             initializer=initializer, invariant=invariant, timeout=timeout, cwd=cwd,
@@ -85,8 +87,6 @@ def check(snapshot, *, initializer, invariant, negative, timeout, cwd,
                    seconds=round(seconds, 3), temporal=temporal, serverEndpoint=endpoint,
                    states=summarize(output), checker=identity)
         return row, output, trace
-    if tlc_jar is not None:
-        raise ValueError("explicit jar requires final liveness schedule")
     command = [executable, "verify", str(snapshot), "--init", initializer,
                "--invariant", invariant, "--backend", "tlc", "--server-endpoint", endpoint]
     for option, setting in (("--step", step), ("--tlc-config", config), ("--temporal", temporal)):

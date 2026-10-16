@@ -198,7 +198,9 @@ def main():
     with preserve_failure(record), locked_source(ROOT, args.source_lock) as (source, inputs):
         if args.target == "seed-core":
             retained = out / "source"
-            shutil.copytree(source, retained)
+            from gambit_smp.fixture_storage import source_capacity
+            with source_capacity(retained):
+                shutil.copytree(source, retained)
             source = retained
         for name in ("locked_object.py", "allocator_object.py", "bootstrap_runtime.py"):
             path = ROOT / "src/gambit_smp" / name

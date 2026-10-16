@@ -71,7 +71,7 @@ class EvidenceDSLMainpaths(unittest.TestCase):
                 self.assertIn(bound[0][1], description)
                 explanation.close()
                 with self.assertRaises(ValueError):
-                    explanation.reference(0)
+                    _ = explanation.graph
                 withdrawn = dict(facts, current_row=rows[1:], current_input=bound[1:])
                 second, reused = owner.evaluate(withdrawn, reasoning_history.QUERIES, 1000000000)
                 self.assertEqual(second['removed'], [rows[0]])
@@ -79,8 +79,8 @@ class EvidenceDSLMainpaths(unittest.TestCase):
                 self.assertEqual(second['added'], [])
                 restored, final = owner.evaluate(facts, reasoning_history.QUERIES, 1000000000)
                 self.assertEqual(restored, first)
-                self.assertEqual(receipt['nativeSessionHandle'], reused['nativeSessionHandle'])
-                self.assertEqual(receipt['nativeSessionHandle'], final['nativeSessionHandle'])
+                self.assertEqual(receipt['sessionOwner'], reused['sessionOwner'])
+                self.assertEqual(receipt['sessionOwner'], final['sessionOwner'])
                 self.assertEqual(receipt['ruleSourceInputs'], catalog['sourceInputs'])
             finally:
                 owner.close()

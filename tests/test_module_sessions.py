@@ -1,12 +1,10 @@
-"""Real, source-bound native Evidence modules through the consumer API."""
+"""Source-bound Rust DSL sessions; no compiled Scheme module contract."""
 from pathlib import Path
-import os
 import tempfile
 import unittest
 
-from gambit_smp.ascent_program import close_queries, evaluate, load_module_catalog, engine_api
-
-MODULE = ':gerbil-ascent/t/qualification/evidence-api-module'
+from gambit_smp.ascent_program import close_queries, evaluate, load_evidence_catalog, engine_api, _query_owners
+from gambit_smp.framework import digest
 
 
 class ModuleSessionTests(unittest.TestCase):
@@ -14,9 +12,7 @@ class ModuleSessionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.context = engine_api()
         cls.engine, _ = cls.context.__enter__()
-        producer = cls.engine.build_receipt['producerBuild']
-        bound = producer['linkedSchemeSources'][MODULE.lstrip(':')]
-        cls.module_source = Path(os.environ.get('ASCENT_EVIDENCE_MODULE_SOURCE', bound['path']))
+        cls.module_source = Path(__file__).parent / 'fixtures/evidence/session-values.ss'
 
     @classmethod
     def tearDownClass(cls):
@@ -26,42 +22,43 @@ class ModuleSessionTests(unittest.TestCase):
         close_queries(self.engine)
 
     def test_constructor_sources_retained_session_and_withdrawal(self):
-        catalog = load_module_catalog(MODULE, 'make-values', [[1, 2]], inputs=[self.module_source])
+        catalog = load_evidence_catalog(self.module_source, constructor='make-values', trusted=True)
         rows, first = evaluate(self.engine, {}, catalog, {'out': 'output'})
         self.assertEqual(rows['out'], [(1,), (2,)])
         rows, second = evaluate(self.engine, {}, catalog, {'in': 'input'})
         self.assertEqual(rows['in'], [(1,), (2,)])
         self.assertTrue(second['nativeResultReused'])
-        self.assertEqual(first['nativeSessionHandle'], second['nativeSessionHandle'])
-        self.assertEqual(second['ruleSyntax'], 'trusted-native-evidence-module.v1')
+        self.assertEqual(first['sessionOwner'], second['sessionOwner'])
+        self.assertEqual(second['ruleSyntax'], 'trusted-evidence-dsl.v1')
         rows, withdrawn = evaluate(self.engine, {'input': []}, catalog, {'out': 'output'})
         self.assertEqual(rows['out'], [])
         self.assertGreater(withdrawn['sourceGeneration'], second['sourceGeneration'])
 
     def test_native_values_do_not_require_scalar_projection(self):
-        catalog = load_module_catalog(MODULE, 'make-values',
-                                      [[{'type': 'number', 'value': '1/3'}]], inputs=[self.module_source])
+        catalog = load_evidence_catalog(self.module_source, constructor='make-fraction-values', trusted=True)
         rows, metrics = evaluate(self.engine, {}, catalog, {'out': 'output'})
         self.assertEqual(rows['out']['value']['format'], 'native-value-graph.v1')
         self.assertIn('1/3', str(rows))
-        self.assertEqual(metrics['proofProjection'], 'unsupported')
+        self.assertEqual(metrics['proofProjection'], 'supported')
         self.assertEqual(metrics['resultEncoding'], 'partial')
 
     def test_identity_drift_retires_the_owner(self):
         with tempfile.TemporaryDirectory() as directory:
             context = Path(directory) / 'context.txt'
             context.write_text('one')
-            catalog = load_module_catalog(MODULE, 'make-values', [[1]], inputs=[self.module_source, context])
+            catalog = load_evidence_catalog(self.module_source, constructor='make-values', trusted=True)
+            catalog['sourceInputs'][str(context.resolve())] = digest(context)
             evaluate(self.engine, {}, catalog, {'out': 'output'})
             context.write_text('two')
             with self.assertRaisesRegex(ValueError, 'source generation changed'):
                 evaluate(self.engine, {}, catalog, {'out': 'output'})
-            self.assertEqual(self.engine._gambit_query_owners, {})
+            self.assertEqual(_query_owners.get(self.engine, {}), {})
 
     def test_unbound_source_inventory_cannot_claim_the_compiled_module(self):
         with tempfile.TemporaryDirectory() as directory:
             unrelated = Path(directory) / 'not-module.ss'
             unrelated.write_text('(void)')
-            catalog = load_module_catalog(MODULE, 'make-values', [[1]], inputs=[unrelated])
-            with self.assertRaisesRegex(ValueError, 'does not match the compiled producer'):
+            catalog = load_evidence_catalog(self.module_source, constructor='make-values', trusted=True)
+            catalog['sourceInputs'] = {str(unrelated.resolve()): digest(unrelated)}
+            with self.assertRaisesRegex(ValueError, 'inventory omits a bound source'):
                 evaluate(self.engine, {}, catalog, {'out': 'output'})

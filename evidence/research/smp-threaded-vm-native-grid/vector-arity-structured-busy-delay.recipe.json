@@ -1,0 +1,152 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-vector-arity-structured-busy-delay-observation",
+  "scope": "Diagnostic interpreted busy-delay throughput only; not reduced original stress coverage or performance acceptance",
+  "budgetSeconds": 300,
+  "inputs": [
+    "docs/vm-registry-reader-lease.md",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/native/busy_delay_structured_observation.scm",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json"
+      }
+    },
+    {
+      "id": "busy-delay-gsi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "selection": [
+          "diagnostics/busy_delay_calibration.scm"
+        ],
+        "expectedFiles": [
+          "diagnostics/busy_delay_calibration.scm"
+        ],
+        "fileBudgetSeconds": {
+          "diagnostics/busy_delay_calibration.scm": 20
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {
+          "diagnostics/busy_delay_calibration.scm": {
+            "source": "models/gambit/native/busy_delay_structured_observation.scm",
+            "sha256": "ea7794bdd97784089c63b5659dbdb1eaae210b92ccc2aa535f861760b8f39483"
+          }
+        },
+        "observationFiles": {
+          "diagnostics/busy_delay_calibration.scm": "observations/busy-delay.json"
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "busy-delay-gsi"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

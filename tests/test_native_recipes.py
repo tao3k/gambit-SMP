@@ -1,7 +1,9 @@
 import copy
 import json
+import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -9,6 +11,18 @@ from gambit_smp import native_capabilities as native, recipes
 
 
 class NativeRecipeTests(unittest.TestCase):
+    def test_suite_parameters_share_typed_fixture_contract(self):
+        args = {"runtime": {"step": "runtime", "output": "runtime"},
+                "identity": {"step": "runtime", "output": "identity"},
+                "mode": "gsi", "regime": "whole-parallel",
+                "selection": ["control.scm"], "expectedFiles": ["control.scm"],
+                "parameters": {"GAMBIT_SMP_DEPTH": 131072}}
+        native.validate_suite(args, [])
+        self.assertEqual({"GAMBIT_SMP_DEPTH": "131072"}, native.fixture_parameters(args))
+        for name in ("PATH", "GAMBIT_SMP_AVAILABLE_CPUS", "GAMBIT_SMP_EXPECTED_PROCESSORS"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                native.validate_suite({**args, "parameters": {name: 1}}, [])
+
     def test_typed_macros_reach_both_dependency_and_compilation_commands(self):
         self.recipe["steps"][0]["arguments"]["defines"] = ["TEST_BRANCH", "TEST_COUNT=3"]
         self.save()
@@ -89,11 +103,36 @@ class NativeRecipeTests(unittest.TestCase):
         return 0, "", False, 0.01
 
     def run_recipe(self, name, execute=None, prior=None, allow=True):
-        with patch.object(native, "host_tools", return_value=({"gcc": self.gcc}, {"PATH": "/unavailable"})), \
+        with patch.object(native, "host_tools", side_effect=lambda gcc, steps, env: ({"gcc": self.gcc}, {**env, "PATH": "/unavailable"})), \
                 patch.object(recipes, "execute", side_effect=execute or self.execute), \
                 patch.object(recipes, "tool_files", side_effect=AssertionError("native must not load Quint")):
             return recipes.run(self.root, self.path, self.root / name, Path("no-quint"), Path("no-node"), prior,
                                gcc=self.gcc, allow_native=allow)
+
+    def test_recipe_identity_reaches_every_actual_child_transport(self):
+        observed = []
+        def child(argv, cwd, timeout, **kwargs):
+            observed.append(kwargs["env"].get("USER"))
+            return self.execute(argv, cwd, timeout, **kwargs)
+        with patch.dict(os.environ, {"USER": "fixture-user"}):
+            result = self.run_recipe("identity", execute=child)
+        self.assertEqual("PASS", result["outcome"])
+        self.assertTrue(observed)
+        self.assertEqual({"fixture-user"}, set(observed))
+
+    def test_unexpected_python_failure_retains_denial_not_a_missing_receipt(self):
+        def broken(argv, cwd, timeout, **kwargs):
+            if "-M" in argv:
+                raise UnboundLocalError("review dispatch fixture failure")
+            return self.execute(argv, cwd, timeout, **kwargs)
+        result = self.run_recipe("python-failure", execute=broken)
+        self.assertEqual(result["outcome"], "DENY")
+        row = result["steps"][0]
+        self.assertEqual(row["errorType"], "UnboundLocalError")
+        self.assertEqual(row["outcome"], "DENY")
+        self.assertTrue((self.root / "python-failure/receipt.json").is_file())
+        self.assertTrue(any(name.endswith("capability-error.log") for name in row["artifacts"]))
+        self.assertFalse(result["runtimeAdmitted"])
 
     def test_native_discovery_and_execution_need_no_quint_or_feature_registration(self):
         alternate = copy.deepcopy(self.recipe)
@@ -239,9 +278,30 @@ class NativeRecipeTests(unittest.TestCase):
                 return 10
         context = Context()
         context.directory = directory
+        context.receipt = {"steps": [{"id": "producer", "outputs": {
+            "source": {"type": "source-tree"}}}]}
         clone = native.clone(context, {"step": "producer", "output": "source"}, "source-tree")
         (clone / "source.c").write_text("changed")
         self.assertEqual("original", (tree / "source.c").read_text())
+        self.assertEqual("source-tree", context.receipt["storageTransfers"][0]["purpose"])
+        self.assertFalse(context.receipt["storageTransfers"][0]["hardlinks"])
+
+    def test_multi_type_clone_receipt_records_actual_type_and_serializes(self):
+        tree = self.root / "configured"
+        tree.mkdir()
+        (tree / "source.c").write_text("original")
+        directory = self.root / "object-step"
+        directory.mkdir()
+        context = recipes.ExecutionContext(self.root, self.root, directory, {},
+            time.monotonic() + 10, {}, {"steps": [{"id": "producer", "outcome": "PASS",
+                "outputs": {"source": {"type": "configured-tree", "path": "configured",
+                    "identity": recipes.tree_identity(tree)}}}]}, {})
+        native.clone(context, {"step": "producer", "output": "source"},
+                     {"source-runtime", "configured-tree"})
+        row = context.receipt["storageTransfers"][0]
+        self.assertEqual("configured-tree", row["purpose"])
+        self.assertEqual(["configured-tree", "source-runtime"], row["allowedTypes"])
+        self.assertEqual(context.receipt, json.loads(json.dumps(context.receipt)))
 
     def test_producer_artifact_drift_during_a_dependent_prevents_pass(self):
         def changed(argv, cwd, timeout, **kwargs):
@@ -312,6 +372,166 @@ class NativeRecipeTests(unittest.TestCase):
         for change in ({"regime": "whole-sequential"}, {"processors": True}, {"jobs": 0}):
             with self.assertRaises(ValueError):
                 native.validate_suite({**arguments, **change}, [])
+        for caps in ({"unknown.scm": 1}, {"control.scm": True},
+                     {"control.scm": 0}, {"control.scm": float("inf")}, []):
+            with self.assertRaises(ValueError):
+                native.validate_suite({**arguments, "fileBudgetSeconds": caps}, [])
+        native.validate_suite({**arguments, "fileBudgetSeconds": {"control.scm": 1}}, [])
+
+    def test_group_caps_require_disjoint_whole_inventory(self):
+        args = {"runtime": {"step": "seed", "output": "runtime"},
+                "identity": {"step": "seed", "output": "identity"}, "mode": "gsc",
+                "regime": "whole-parallel", "selection": ["."],
+                "expectedFiles": ["one.scm", "two.scm", "extra.scm"],
+                "groupBudgetSeconds": {"thread-completion": {
+                    "files": ["one.scm", "two.scm"], "budgetSeconds": 120}}}
+        native.validate_suite(args, [])
+        for change in ({"regime": "atomic-coverage", "batchBudgetSeconds": 300},
+                       {"fileBudgetSeconds": {"one.scm": 20}},
+                       {"groupBudgetSeconds": {"bad": {"files": ["unknown.scm"], "budgetSeconds": 120}}},
+                       {"groupBudgetSeconds": {"bad": {"files": ["one.scm", "one.scm"], "budgetSeconds": 120}}},
+                       {"groupBudgetSeconds": {"first": {"files": ["one.scm"], "budgetSeconds": 120},
+                                               "second": {"files": ["one.scm"], "budgetSeconds": 120}}}):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                native.validate_suite({**args, **change}, [])
+
+    def test_group_cap_preserves_exact_scope_without_serializing_other_groups(self):
+        import time
+        runtime = self.root / "group-runtime"
+        for name in ("gsi", "gsc", "lib", "include", "bin"):
+            (runtime / name).mkdir(parents=True)
+        copied = self.root / "group-tests"
+        (copied / "unit-tests").mkdir(parents=True)
+        files = [Path(name + ".scm") for name in ("one", "two", "extra", "last")]
+        for file in files:
+            (copied / "unit-tests" / file).write_text("fixture")
+        directory = self.root / "group-run"
+        directory.mkdir()
+        ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
+        def executed(argv, cwd, timeout, **kwargs):
+            selected = [str(arg) for arg in argv if str(arg).startswith("unit-tests/")]
+            if "unit-tests/one.scm" in selected:
+                self.assertEqual(["unit-tests/one.scm", "unit-tests/two.scm"], selected)
+                self.assertLessEqual(timeout, 0.5)
+                return -9, "", True, timeout
+            return 0, f"PASSED ALL {len(selected)} UNIT TESTS\n", False, 0.01
+        with patch.object(recipes, "execute", side_effect=executed):
+            rows = native.run_suite_groups(ctx, runtime, copied,
+                {"regime": "whole-parallel", "mode": "gsi", "groupBudgetSeconds": {
+                    "thread-completion": {"files": ["one.scm", "two.scm"], "budgetSeconds": 0.5}}},
+                files, 2, "p2")
+        bounded = next(row for row in rows if row["groupBudget"] == "thread-completion")
+        self.assertFalse(bounded["accepted"])
+        self.assertEqual(0.5, bounded["groupBudgetSeconds"])
+        self.assertEqual(sorted(map(str, files)), sorted(file for row in rows for file in row["files"]))
+        self.assertTrue(all(row["accepted"] for row in rows if row is not bounded))
+
+    def test_group_preparation_is_not_outside_original_cap(self):
+        import time
+        runtime = self.root / "preparation-runtime"
+        copied = self.root / "preparation-tests"
+        runtime.mkdir()
+        copied.mkdir()
+        directory = self.root / "preparation-run"
+        directory.mkdir()
+        ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
+        def delayed_view(runtime, target):
+            time.sleep(0.01)
+            target.mkdir(parents=True)
+            return target
+        with patch("gambit_smp.suite_primitives.runtime_view", side_effect=delayed_view), \
+                patch.object(recipes, "execute") as launched:
+            with self.assertRaises(TimeoutError):
+                native.run_suite_groups(ctx, runtime, copied,
+                    {"regime": "whole-parallel", "mode": "gsi", "groupBudgetSeconds": {
+                        "thread-completion": {"files": ["one.scm", "two.scm"], "budgetSeconds": 0.005}}},
+                    [Path("one.scm"), Path("two.scm")], 2, "p2")
+            launched.assert_not_called()
+
+    def test_completed_owner_is_checkpointed_before_a_slow_owner_returns(self):
+        import time
+        runtime = self.root / "checkpoint-runtime"
+        for name in ("gsi", "gsc", "lib", "include", "bin"):
+            (runtime / name).mkdir(parents=True)
+        copied = self.root / "checkpoint-tests"
+        (copied / "unit-tests").mkdir(parents=True)
+        files = [Path(name + ".scm") for name in ("one", "two", "three", "four")]
+        for file in files:
+            (copied / "unit-tests" / file).write_text("fixture")
+        directory = self.root / "checkpoint-run"
+        directory.mkdir()
+        ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
+        def executed(argv, cwd, timeout, **kwargs):
+            selected = [str(arg) for arg in argv if str(arg).startswith("unit-tests/")]
+            if "unit-tests/one.scm" in selected:
+                deadline = time.monotonic() + 1
+                while time.monotonic() < deadline:
+                    progress = directory / "suite-progress.json"
+                    if progress.exists():
+                        saved = json.loads(progress.read_text())
+                        self.assertEqual(1, len(saved))
+                        self.assertTrue(saved[0]["accepted"])
+                        self.assertNotIn("one.scm", saved[0]["files"])
+                        plan = json.loads((directory / "suite-plan.json").read_text())
+                        self.assertEqual(sorted(map(str, files)), sorted(plan["selectedFiles"]))
+                        self.assertFalse(plan["runtimeAdmitted"])
+                        break
+                    time.sleep(0.001)
+                else:
+                    self.fail("completed fast owner was hidden behind the slow owner")
+            return 0, f"PASSED ALL {len(selected)} UNIT TESTS\n", False, 0.01
+        with patch.object(recipes, "execute", side_effect=executed):
+            rows = native.run_suite_groups(ctx, runtime, copied,
+                {"regime": "whole-parallel", "mode": "gsi"}, files, 2, "p2")
+        self.assertTrue(all(row["accepted"] for row in rows))
+        self.assertEqual(rows, json.loads((directory / "suite-progress.json").read_text()))
+        self.assertFalse((directory / "suite-progress.pending.json").exists())
+
+    def test_bootstrap_requires_both_complete_phase_passes(self):
+        lines = [f"*** making phase{phase}" for _ in range(2) for phase in range(1, 5)]
+        self.assertEqual({f"phase{phase}": 2 for phase in range(1, 5)},
+                         native.bootstrap_phase_counts("\n".join(lines)))
+        for incomplete in (lines[:4], lines[:-1], lines + [lines[0]], []):
+            with self.assertRaisesRegex(ValueError, "two-pass"):
+                native.bootstrap_phase_counts("\n".join(incomplete))
+
+    def test_bootstrap_and_core_share_the_adaptive_cpu_budget(self):
+        from gambit_smp.gambit_build_primitives import build_capacity, core_command
+        for cpus in (1, 2, 5, 16, 64):
+            plan = build_capacity(cpus)
+            core, bootstrap = core_command(plan), core_command(plan, "from-scratch")
+            self.assertEqual(core[:-1], bootstrap[:-1])
+            self.assertEqual("from-scratch", bootstrap[-1])
+            self.assertLessEqual(plan["makeJobs"] * plan["compilerProcessors"], cpus)
+        with self.assertRaises(ValueError):
+            core_command(build_capacity(2), "unbounded-target")
+
+    def test_bootstrap_accepts_typed_current_producer_review_reference(self):
+        args = {"runtime": {"step": "seed", "output": "runtime"},
+                "identity": {"step": "seed", "output": "identity"},
+                "retryReview": {"step": "review", "output": "review"}}
+        native.validate_bootstrap(args, [])
+        args["retryReview"] = {"step": "review", "handler": "bypass"}
+        with self.assertRaises(ValueError):
+            native.validate_bootstrap(args, [])
+
+    def test_bootstrap_review_is_bound_to_the_matching_downstream_operation(self):
+        producer = {"id": "seed", "capability": "gambit.seed-core", "arguments": {}}
+        runtime = {"step": "seed", "output": "runtime"}
+        identity = {"step": "seed", "output": "identity"}
+        review_step = {"id": "review", "capability": "gambit.review", "dependsOn": ["seed"],
+                       "arguments": {"runtime": runtime, "identity": identity, "target": "bootstrap"}}
+        target = {"id": "bootstrap", "capability": "gambit.bootstrap", "dependsOn": ["seed", "review"],
+                  "arguments": {"runtime": runtime, "identity": identity,
+                                "retryReview": {"step": "review", "output": "review"}}}
+        graph = {row["id"]: row for row in (producer, review_step, target)}
+        native.graph(review_step, graph, recipes.CAPABILITIES)
+        native.graph(target, graph, recipes.CAPABILITIES)
+        target["dependsOn"] = ["seed"]
+        with self.assertRaisesRegex(ValueError, "matching|declared"):
+            native.graph(review_step, graph, recipes.CAPABILITIES)
+        with self.assertRaisesRegex(ValueError, "declared"):
+            native.graph(target, graph, recipes.CAPABILITIES)
 
     def test_suite_shards_keep_exact_inventory_and_atomic_claim_separate(self):
         runtime = self.root / "runtime"
@@ -320,6 +540,8 @@ class NativeRecipeTests(unittest.TestCase):
         copied = self.root / "tests"
         (copied / "unit-tests").mkdir(parents=True)
         (copied / "run-unit-tests.scm").write_text("unit runner")
+        (copied / "test4.ok").write_text("independent upstream golden transcript")
+        (copied / "input").write_text("upstream test input")
         files = [Path("one.scm"), Path("two.scm"), Path("three.scm")]
         for file in files:
             (copied / "unit-tests" / file).write_text("unit fixture")
@@ -329,6 +551,8 @@ class NativeRecipeTests(unittest.TestCase):
             import time
             ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
             def executed(argv, cwd, timeout, **kwargs):
+                self.assertEqual("independent upstream golden transcript", (cwd / "test4.ok").read_text())
+                self.assertEqual("upstream test input", (cwd / "input").read_text())
                 count = sum(str(argument).startswith("unit-tests/") for argument in argv)
                 return 0, f"PASSED ALL {count} UNIT TESTS\n", False, 0.01
             with patch.object(recipes, "execute", side_effect=executed):
@@ -339,6 +563,72 @@ class NativeRecipeTests(unittest.TestCase):
             self.assertEqual(3 if regime == "atomic-coverage" else 2, len(rows))
             self.assertTrue(all(row["effectiveBudgetSeconds"] <= (1 if regime == "atomic-coverage" else 10)
                                 for row in ctx.commands))
+
+    def test_nested_file_caps_preserve_inventory_and_kill_within_whole_budget(self):
+        import time
+        runtime = self.root / "bounded-runtime"
+        for name in ("gsi", "gsc", "lib", "include", "bin"):
+            (runtime / name).mkdir(parents=True)
+        copied = self.root / "bounded-tests"
+        (copied / "unit-tests").mkdir(parents=True)
+        files = [Path(name + ".scm") for name in ("one", "limited", "three", "four")]
+        for file in files:
+            (copied / "unit-tests" / file).write_text("fixture")
+        for regime in ("whole-parallel", "atomic-coverage", "whole-sequential"):
+            directory = self.root / ("bounded-" + regime)
+            directory.mkdir()
+            ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
+            def executed(argv, cwd, timeout, **kwargs):
+                selected = [str(arg) for arg in argv if str(arg).startswith("unit-tests/")]
+                if "unit-tests/limited.scm" in selected:
+                    self.assertEqual(["unit-tests/limited.scm"], selected)
+                    self.assertLessEqual(timeout, 0.5)
+                    return -9, "", True, timeout
+                return 0, f"PASSED ALL {len(selected)} UNIT TESTS\n", False, 0.01
+            with patch.object(recipes, "execute", side_effect=executed):
+                rows = native.run_suite_groups(ctx, runtime, copied,
+                    {"regime": regime, "mode": "gsi", "batchBudgetSeconds": 1,
+                     "fileBudgetSeconds": {"limited.scm": 0.5}}, files,
+                    1 if regime == "whole-sequential" else 2, "p2")
+            limited = next(row for row in rows if row["files"] == ["limited.scm"])
+            self.assertFalse(limited["accepted"])
+            self.assertTrue(limited["timeout"])
+            self.assertEqual(0.5, limited["fileBudgetSeconds"])
+            self.assertTrue(all(row["effectiveBudgetSeconds"] <= 10 for row in ctx.commands))
+            if regime != "atomic-coverage":
+                self.assertEqual(sorted(str(file) for file in files),
+                                 sorted(file for row in rows for file in row["files"]))
+
+    def test_additional_fixture_is_hash_bound_and_cannot_replace_upstream(self):
+        source = self.root / "spawn.scm"
+        source.write_text("(test-equal 0 0)")
+        unit = self.root / "fixture-unit"
+        unit.mkdir()
+        args = {"additionalFixtures": {"12-os/process_spawn.scm":
+            {"source": "spawn.scm", "sha256": recipes.digest(source)}}}
+        from types import SimpleNamespace
+        bound = []
+        ctx = SimpleNamespace(root=self.root, bind=lambda paths: bound.extend(paths))
+        native.additional_fixtures(args, ctx, unit)
+        self.assertEqual(source.read_bytes(), (unit / "12-os/process_spawn.scm").read_bytes())
+        self.assertEqual([source.resolve()], bound)
+        with self.assertRaisesRegex(ValueError, "replace upstream"):
+            native.additional_fixtures(args, ctx, unit)
+        source.write_text("drift")
+        (unit / "12-os/process_spawn.scm").unlink()
+        with self.assertRaisesRegex(ValueError, "drift"):
+            native.additional_fixtures(args, ctx, unit)
+
+    def test_real_grid_restores_exact_original_375_file_inventory(self):
+        from gambit_smp.framework import ROOT
+        grid = recipes.read_json(ROOT / "evidence/research/smp-threaded-vm-native-grid/native.recipe.json")
+        fixtures = [row for row in grid["steps"] if row["capability"] == "gambit.suite"]
+        self.assertEqual(2, len(fixtures))
+        for row in fixtures:
+            self.assertEqual(375, len(row["arguments"]["expectedFiles"]))
+            native.validate_suite(row["arguments"], grid["inputs"])
+            item = row["arguments"]["additionalFixtures"]["12-os/process_spawn.scm"]
+            self.assertEqual(item["sha256"], recipes.digest(ROOT / item["source"]))
 
     def test_suite_retry_review_blocks_runtime_probe_and_test(self):
         runtime = self.root / "candidate"
@@ -362,8 +652,9 @@ class NativeRecipeTests(unittest.TestCase):
                 raise AssertionError("runtime must not execute after preflight denial")
         ctx = Context()
         ctx.root, ctx.directory = self.root, directory
-        ctx.receipt = {"engine": {}}
-        arguments = {"runtime": {"output": "runtime"}, "identity": {"output": "identity"},
+        ctx.receipt = {"engine": {}, "steps": [{"id": "producer", "outputs": {
+            "runtime": {"path": "candidate", "type": "source-runtime"}}}]}
+        arguments = {"runtime": {"step": "producer", "output": "runtime"}, "identity": {"output": "identity"},
                      "mode": "gsi", "regime": "whole-sequential", "selection": ["control.scm"],
                      "expectedFiles": ["control.scm"]}
         for decision in ("DENY", "REVIEW_REQUIRED"):
@@ -448,12 +739,14 @@ class NativeRecipeTests(unittest.TestCase):
         source = self.root / "partial-source"
         source.mkdir()
         for name, function, helper, arguments in (
-                ("seed", native.seed, "build_seed_core", {"source": {}}),
-                ("module", native.regenerate, "regenerate_module", {"runtime": {}, "module": "lib/_thread.scm"}),
-                ("source-core", native.source_core, "rebuild_source_core", {"runtime": {}})):
+                ("seed", native.seed, "build_seed_core", {"source": {"step": "producer", "output": "source"}}),
+                ("module", native.regenerate, "regenerate_module", {"runtime": {"step": "producer", "output": "source"}, "module": "lib/_thread.scm"}),
+                ("source-core", native.source_core, "rebuild_source_core", {"runtime": {"step": "producer", "output": "source"}})):
             directory = self.root / ("partial-" + name)
             directory.mkdir()
-            ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, {}, {})
+            kind = "configured-tree" if name == "seed" else "seed-runtime"
+            receipt = {"steps": [{"id": "producer", "outputs": {"source": {"type": kind}}}]}
+            ctx = recipes.ExecutionContext(self.root, self.root, directory, {}, time.monotonic() + 10, {}, receipt, {})
             with patch.object(ctx, "artifact", return_value=source), patch.object(native, "compiler"), \
                     patch("gambit_smp.gambit_build_primitives." + helper, return_value=(False, {"partial": name})):
                 with self.assertRaises(ValueError):

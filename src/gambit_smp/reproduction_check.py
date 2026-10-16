@@ -9,7 +9,7 @@ import tempfile
 
 from gambit_smp.framework import ROOT
 from gambit_smp.paper_cache import paper_pins
-from gambit_smp.source_provision import validate as validate_capsule
+from gambit_smp.source_provision import validate as validate_source
 from gambit_smp.source_materialize import AUDIT_FILES, FILES, materialize
 
 
@@ -56,15 +56,15 @@ def check_source(root, lock_name, require_committed=False):
     from gambit_smp.recipes import read_json
     lock = read_json(lock_path)
     from gambit_smp.source_capabilities import validate_source_lock
-    capsule, _ = validate_capsule(root)
+    source, _ = validate_source(root)
     if (lock.get("schema") != "gambit-runtime-source-lock.v1" or
-            any(lock.get(key) != capsule[key] for key in ("revision", "submodule", "repository")) or
+            any(lock.get(key) != source[key] for key in ("revision", "submodule", "repository")) or
             any(lock.get(key) is not False for key in ("configuredToolchainReproduced",
                 "runtimeAdmitted", "releaseAdmitted"))):
-        raise ValueError("candidate source lock does not bind the pinned source capsule")
+        raise ValueError("candidate source lock does not bind the pinned source revision")
     validate_source_lock(lock)
     inputs = {lock_name, lock["patch"], ".gitmodules", "models/gambit/cases.json",
-              "evidence/runtime-source-provisioning.json", capsule["sourceLock"], capsule["bundle"]}
+              "evidence/runtime-source-provisioning.json", source["sourceLock"]}
     inputs.update("src/gambit_smp/" + name + ".py" for name in
         ("__init__", "framework", "source_materialize", "source_capabilities", "recipes",
          "source_provision", "reproduction_check", "paper_cache"))
@@ -154,8 +154,8 @@ def check(root, manifest, require_committed=False):
                   ("reproduction_check", "paper_cache", "source_materialize",
                    "source_provision", "framework", "__init__"))
     inputs.add("models/gambit/cases.json")
-    capsule, _ = validate_capsule(root)
-    inputs.update(("evidence/runtime-source-provisioning.json", capsule["bundle"]))
+    source, _ = validate_source(root)
+    inputs.update(("evidence/runtime-source-provisioning.json", source["sourceLock"]))
     papers = []
     for name in ("evidence/papers.json", "evidence/papers-audit-expansion.json"):
         papers.extend(json.loads(portable(root, name).read_text())["papers"])

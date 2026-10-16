@@ -1,0 +1,18 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "checkpoint-clock-recovery-controls",
+  "scope": "Clock-epoch composition with interrupted producer and checkpoint dependencies. External verified mapping is an explicit premise, not implemented reboot recovery or native admission.",
+  "budgetSeconds": 90,
+  "inputs": ["models/gambit/checkpoint_clock_recovery.qnt", "models/gambit/checkpoint_dependency_recovery.qnt", "models/gambit/interrupted_producer_recovery.qnt", "evidence/research/execution-rules.ss", "evidence/fixtures/thread-completion-contract/source.lock.json", "patches/fixtures/thread-completion-contract.patch"],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30, "arguments": {"sourceLock": "evidence/fixtures/thread-completion-contract/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15, "arguments": {"source": "models/gambit/checkpoint_clock_recovery.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15, "arguments": {"source": "models/gambit/checkpoint_clock_recovery.qnt", "parsed": "parse"}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/checkpoint_clock_recovery.qnt", "parsed": "parse", "main": "checkpoint_clock_recovery", "seed": "0x1510", "maxSamples": 1,
+       "expectedTests": ["D::R::resumedCommittedTest", "D::R::interruptedRunningTest", "D::R::expiredCheckpointTest", "D::R::postRecoveryDriftTest", "D::R::missingReceiptControlTest", "D::R::staleOutputControlTest", "D::R::liveProcessControlTest", "D::R::deadlineResetControlTest", "D::dependencyClosedTest", "D::staleParentControlTest", "D::missingParentControlTest", "D::cycleControlTest", "D::postRecoveryParentDriftTest", "rebootWithoutMappingTest", "verifiedMappingTest", "expiredMappingTest", "clockBypassControlTest", "postReviewClockLossTest"]}},
+    {"id": "safe-clock", "capability": "quint.verify", "dependsOn": ["parse", "typecheck", "trajectories"], "budgetSeconds": 15, "arguments": {"source": "models/gambit/checkpoint_clock_recovery.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "clock-bypass", "capability": "quint.verify", "dependsOn": ["parse", "typecheck", "trajectories"], "budgetSeconds": 15, "arguments": {"source": "models/gambit/checkpoint_clock_recovery.qnt", "parsed": "parse", "initializer": "initBypass", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "trajectories", "safe-clock", "clock-bypass"], "budgetSeconds": 10, "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step", "bindings": "bound_source", "controls": "bound_control"}, "expected": {"missing": [], "bindings": [], "controls": []}}}
+  ]
+}

@@ -1,0 +1,160 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-trip-owner-limit-configured-control",
+  "scope": "Configured Darwin GNU STACK_TRIPPED check for 36 delayed-publication coordinates with original-trip negative controls and equality/interrupt boundaries; not production scheduling or native repair acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-trip-owner-limit-completed-producer.json",
+    "models/gambit/native/stack_trip_owner_limit.c",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-stack-trip-owner-limit-completed-producer.json"
+      }
+    },
+    {
+      "id": "project",
+      "capability": "source.project",
+      "dependsOn": [
+        "source",
+        "producer"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "gambit.h",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "include/gambit.h"
+            },
+            "sha256": "64dd2b0d0cee5c66fa09604c8809931f7d930d2886de79454d1b4b73fa67011c"
+          },
+          {
+            "target": "values.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/stack_trip_owner_limit.c"
+            },
+            "sha256": "7159df48b17c7b8013255bf6cc4e2fb79600170eb8c198b125aa6010c3e52a49"
+          }
+        ]
+      }
+    },
+    {
+      "id": "binding",
+      "capability": "source.bind",
+      "dependsOn": [
+        "project"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "workspace": {
+          "step": "project",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "project",
+        "binding"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "project",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "binding",
+          "output": "binding"
+        },
+        "translationUnit": "values.c",
+        "standard": "gnu23",
+        "optimization": 2,
+        "pthread": false,
+        "target": "executable"
+      }
+    },
+    {
+      "id": "classify",
+      "capability": "native.test",
+      "dependsOn": [
+        "build"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "executable": {
+          "step": "build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "delayed-publication",
+            "integers": [],
+            "stdout": "STACK-TRIP-OWNER-LIMIT-OK 36 36\n"
+          }
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "project",
+        "binding",
+        "build",
+        "classify"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

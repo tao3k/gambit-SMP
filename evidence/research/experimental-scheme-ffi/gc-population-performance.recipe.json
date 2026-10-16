@@ -1,0 +1,14 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"current-same-input-gc-population-latency",
+  "scope":"Same fixed compiler/runtime/executable, 1024 live vectors of32 identical elements for every sample. AB/BA/AB paired blocks compare population1 with host-derived population; allocation, topology transitions, checksum and setup are outside the timed explicit GC interval but inside the total execution cap. All240 samples retained. Collector scalability observation, not baseline/candidate repair speedup or full performance admission. Uses20s whole15s capability ceilings, not raised retry budgets.",
+  "budgetSeconds":20,
+  "workspacePolicy":"in-place",
+  "inputs":["evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json","patches/fixtures/darwin-dynamic-modulo-scope.patch","evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json","tests/experimental/gc_population_latency.scm","evidence/native-failures.json","evidence/research/execution-rules.ss"],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":15,"arguments":{"sourceLock":"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json"}},
+    {"id":"gc","capability":"gambit.executable-test","dependsOn":["source","producer"],"budgetSeconds":15,"arguments":{"runtime":{"step":"producer","output":"runtime"},"identity":{"step":"producer","output":"identity"},"program":"tests/experimental/gc_population_latency.scm","stdout":"GC-POPULATION-LATENCY:PASS\n","processorTopology":"host-managed","executionBudgetSeconds":10,"latency":{"path":"gc-samples.jsonl","minimumSamples":100,"percentiles":[50,95,99]}}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","gc"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

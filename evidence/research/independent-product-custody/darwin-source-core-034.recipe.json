@@ -1,0 +1,78 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-independent-source-core-034",
+  "scope": "Independent immutable source-regenerated build; not complete two-pass bootstrap, native admission or performance",
+  "budgetSeconds": 360,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "dependsOn": [],
+      "capability": "gambit.materialize",
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json"
+      }
+    },
+    {
+      "id": "configure",
+      "dependsOn": ["source"],
+      "capability": "gambit.configure",
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "seed",
+      "dependsOn": ["configure"],
+      "capability": "gambit.seed-core",
+      "budgetSeconds": 130,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "core",
+      "dependsOn": ["seed"],
+      "capability": "gambit.source-core",
+      "budgetSeconds": 180,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "dependsOn": ["source", "configure", "seed", "core"],
+      "capability": "evidence.evaluate",
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

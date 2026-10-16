@@ -1,0 +1,78 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "quintVersion": "0.33.0",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "contextInputs": {
+    "evidence/fixtures/fdset-abort-owned-rollback/source.lock.json": "c81d31ec44b016e2d5a3ab92ea27b99d4595571f266d39b7c114d2f224c59754",
+    "patches/fixtures/fdset-abort-owned-rollback.patch": "98e3d38ca5ab78e843b79aed3669758cf8616fd4932e35496bef3016a9489662",
+    "models/gambit/sfun_marker_context_use.qnt": "c5c9b95eca108f570c9762dbd2a3696f62230dca8be1f62586e197d9cc371781",
+    "models/gambit/sfun_allocation_unwind.qnt": "f4ac329f5927c69c3a424a5fee238a499451c8e4c7f60b0e2ef536f28b18c756",
+    "models/gambit/sfun_gate_publication_order.qnt": "bab1da4a198bd95a3f6d199c24491777fcff257def051dbbd39b8b150d224e36",
+    "models/gambit/foreign_origin_retirement_admission.qnt": "8675e04fbcb70e59c5b2a679f2c6d21c0298c8b21c367482e1764d4a832f8b8e",
+    "models/gambit/pipe_descriptor_rollback.qnt": "9f371df3142ce405442759aaab16cd20f5ac1b56b85928036f9dd08f3aa5c829",
+    "models/gambit/fdset_abort_setup_ownership.qnt": "abcc4e64f877c570bc1a3ff63a4bb4f3a48b3618a56ca91ef73ae1ea1ad21621",
+    "evidence/research/current-source-full-bootstrap/sfun-context-use-model.recipe.json": "aefdd9864acef039022a73de59775540669cb82de93a82118bb7cb7de072ab16",
+    "evidence/research/current-source-full-bootstrap/sfun-allocation-unwind.recipe.json": "a97456cbeeaf2cc3654eeae2da71e79d214a81c116fa4a876d20e0fd8f269e2f",
+    "evidence/research/current-source-full-bootstrap/sfun-gate-publication-controls.recipe.json": "71f21c5f87d062b652c908f0d0c56bfb601dfa1d3db9d4c8799019aaebc92537",
+    "evidence/research/current-source-full-bootstrap/pipe-descriptor-rollback.recipe.json": "8e0e8ae5fd33b0e1b34e643e973bbb9565409d22942603905c4f280a17d75de2",
+    "evidence/research/current-source-full-bootstrap/fdset-abort-ownership.recipe.json": "06871586bafd68eb502982f650e4ba7f769153166fdbc4e51fc4dbccf68355b8"
+  },
+  "cases": [
+    {
+      "id": "sfun_marker_context_use", "mode": "characterization", "registrationOnly": true,
+      "invariants": ["safe"], "oldInvariants": ["compiles", "safe"],
+      "oldInitializers": {"compiles":"initOld", "safe":"initStatic"},
+      "composes": [], "papers": [], "native": null,
+      "source": ["include/gambit.h.in:___sfun_frame_marker", "include/gambit.h.in:___BEGIN_SFUN"],
+      "openObligations": ["sfun_context_current_source_refinement", "sfun_context_native_bootstrap", "sfun_context_public_ffi"],
+      "scope": "Explicit automatic global/processor context, missing-context and static-binding safety controls. Local typed safety Recipe is retained separately; registration does not create temporal, C-refinement or native acceptance. The historical initial-state-control DENY remains unchanged."
+    },
+    {
+      "id": "sfun_allocation_unwind", "mode": "characterization", "registrationOnly": true,
+      "invariants": ["safe"],
+      "oldInvariants": ["rootsCleared", "errorsReleased", "countExact", "catcherRestored"],
+      "oldInitializers": {"rootsCleared":"initRootLeak", "errorsReleased":"initLeaseLeak", "countExact":"initWrongProcessor", "catcherRestored":"initEarlyRethrow"},
+      "composes": ["sfun_marker_context_use"], "papers": [], "native": null,
+      "source": ["include/gambit.h.in:___sfun_frame_marker", "lib/c_intf.c:___make_sfun_stack_marker"],
+      "openObligations": ["sfun_allocation_public_fault_reachability", "sfun_allocation_nested_callbacks", "sfun_allocation_progress_and_source_refinement"],
+      "scope": "Two distinct processors, returned/nonlocal allocation failures, root/catcher/lease conservation. Context dependency is a required contract, not a proved product of the modules. No runtime injection or private cleanup entry is admitted."
+    },
+    {
+      "id": "foreign_origin_retirement_admission", "mode": "characterization", "registrationOnly": true,
+      "invariants": ["safe"], "oldInvariants": ["safe", "frameAlive"],
+      "oldInitializers": {"safe":"initGlobalBan", "frameAlive":"initUncheckedGeneration"},
+      "composes": [], "papers": [], "native": null,
+      "source": ["include/gambit.h.in:___sfun_frame_enter", "lib/setup.c:sfun_vm_try_close", "lib/setup.c:___cleanup_vmstate"],
+      "openObligations": ["foreign_origin_lookup_lifetime_contract", "foreign_origin_generation_source_correspondence", "foreign_origin_public_retirement_native", "foreign_origin_unbounded_progress"],
+      "scope": "Dependency model for the split-publication safety Recipe. It assumes a valid origin/incarnation lookup and models generation rejection; this is not evidence that the current C helper performs a generation check. Joined direct users and lifetime correspondence remain explicit premises."
+    },
+    {
+      "id": "sfun_gate_publication_order", "mode": "characterization", "registrationOnly": true,
+      "dependencies": ["foreign_origin_retirement_admission.qnt"],
+      "invariants": ["safe"], "oldInvariants": ["originAlive", "countExact", "gateExact"],
+      "oldInitializers": {"originAlive":"initEarlyRelease", "countExact":"initMissingCount", "gateExact":"initDoubleGateRelease"},
+      "composes": ["foreign_origin_retirement_admission"], "papers": [], "native": null,
+      "source": ["include/gambit.h.in:___sfun_frame_enter", "lib/setup.c:sfun_vm_try_close"],
+      "openObligations": ["sfun_gate_machine_memory_order", "sfun_gate_full_transition_refinement", "sfun_gate_retirement_native"],
+      "scope": "Imports the existing origin lifecycle and splits count publication from gate release. 11522-state local safety check and three controls are not a full transition simulation, CPU memory-model proof or native acceptance. All six inherited trajectories remain in the Recipe inventory."
+    },
+    {
+      "id": "pipe_descriptor_rollback", "mode": "characterization", "registrationOnly": true,
+      "invariants": ["safe"], "oldInvariants": ["safe", "ownedAfterReturn"],
+      "oldInitializers": {"safe":"initOldHelper", "ownedAfterReturn":"initOldRetain"},
+      "composes": [], "papers": [], "native": null,
+      "source": ["lib/os_setup.c:___move_fds_to_non_std", "lib/os_setup.c:___open_half_duplex_pipe"],
+      "openObligations": ["pipe_descriptor_c_refinement", "pipe_descriptor_public_fault_path", "pipe_descriptor_eintr_and_alias_scope", "pipe_descriptor_progress"],
+      "scope": "Bounded descriptor prefixes and outside reuse. The safety Recipe also checks unpublished-output and omitted-temp-cleanup controls, beyond the two legacy registry control labels. That retained safety evidence is not a complete protocol receipt; no temporal acceptance is declared."
+    },
+    {
+      "id": "fdset_abort_setup_ownership", "mode": "characterization", "registrationOnly": true,
+      "invariants": ["safe"], "oldInvariants": ["cleanupComplete", "rollbackComplete", "balance"],
+      "oldInitializers": {"cleanupComplete":"initOldCleanup", "rollbackComplete":"initReadyOnly", "balance":"initForgotReset"},
+      "composes": ["pipe_descriptor_rollback"], "papers": [], "native": null,
+      "source": ["lib/os_io.c:___fdset_realloc", "lib/os_io.c:___setup_io_pstate", "lib/os_io.c:___cleanup_io_pstate"],
+      "openObligations": ["fdset_abort_current_source_refinement", "fdset_abort_public_fault_resources", "fdset_abort_platform_configs", "fdset_abort_progress"],
+      "scope": "Independent bank and abort-resource ownership with partial allocation, pipe/fcntl failure and repeated cleanup. Pipe rollback is a required protocol dependency, not a proved whole-GC product. Native public fault coverage, alternate configurations and temporal proof remain open."
+    }
+  ]
+}

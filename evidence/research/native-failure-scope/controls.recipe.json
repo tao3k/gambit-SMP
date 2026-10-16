@@ -1,0 +1,129 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "native-failure-scope-controls",
+  "scope": "Finite immutable failure-mode overlap and nested original-budget controls; unknown scope fails closed. Not native runtime admission.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "models/gambit/native_failure_scope.qnt",
+    "evidence/fixtures/thread-completion-contract/source.lock.json",
+    "patches/fixtures/thread-completion-contract.patch",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/thread-completion-contract/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_failure_scope.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_failure_scope.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_failure_scope.qnt",
+        "parsed": "parse",
+        "main": "native_failure_scope",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "unknownScopeTest",
+          "matchingReviewedTest",
+          "nestedBudgetControlTest"
+        ]
+      }
+    },
+    {
+      "id": "checked-handoff",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck",
+        "trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_failure_scope.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck",
+        "trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_failure_scope.qnt",
+        "parsed": "parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "trajectories",
+        "checked-handoff",
+        "bypass-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "controls": []
+        }
+      }
+    }
+  ]
+}

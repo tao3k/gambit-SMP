@@ -1,0 +1,16 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "historical-failure-observation-controls",
+  "scope": "Finite source-bound historical observation admission: retain original, bind recovered bytes and matching fields, preserve budgets and require causal review. Not GC or runtime admission.",
+  "budgetSeconds": 90,
+  "inputs": ["models/gambit/historical_failure_observation.qnt", "evidence/research/execution-rules.ss", "evidence/fixtures/thread-completion-contract/source.lock.json", "patches/fixtures/thread-completion-contract.patch"],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/thread-completion-contract/source.lock.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/historical_failure_observation.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/historical_failure_observation.qnt","parsed":"parse"}},
+    {"id":"trajectories","capability":"quint.test","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/historical_failure_observation.qnt","parsed":"parse","main":"historical_failure_observation","seed":"0x1510","maxSamples":1,"expectedTests":["checkedVersionTest","loadedIsNotReviewedTest","postReviewDriftTest","bypassControlTest"]}},
+    {"id":"safe-binding","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/historical_failure_observation.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false}},
+    {"id":"bypass-control","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/historical_failure_observation.qnt","parsed":"parse","initializer":"initBypass","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","trajectories","safe-binding","bypass-control"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step","controls":"bound_control"},"expected":{"missing":[],"controls":[]}}}
+  ]
+}

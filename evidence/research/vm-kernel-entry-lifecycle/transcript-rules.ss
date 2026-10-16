@@ -1,0 +1,13 @@
+(ascent-fragment
+  (relation allowed_token ((row exact-integer?) (column exact-integer?) (value string?)))
+  (relation observed_token ((row exact-integer?) (column exact-integer?) (value string?)))
+  (relation required_cell ((row exact-integer?) (column exact-integer?)))
+  (relation observed_cell ((row exact-integer?) (column exact-integer?)))
+  (relation accepted_token ((row exact-integer?) (column exact-integer?) (value string?)))
+  (relation unexpected_token ((row exact-integer?) (column exact-integer?) (value string?)))
+  (relation missing_cell ((row exact-integer?) (column exact-integer?)))
+  ((required_cell R C) <-- (allowed_token R C V))
+  ((observed_cell R C) <-- (observed_token R C V))
+  ((accepted_token R C V) <-- (observed_token R C V) (allowed_token R C V))
+  ((unexpected_token R C V) <-- (observed_token R C V) (not (accepted_token R C V)))
+  ((missing_cell R C) <-- (required_cell R C) (not (observed_cell R C))))

@@ -1,0 +1,112 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "current-source-gc-shape-retention-pair",
+  "scope": "Two same-fixture/same-parameter compiled runs against one exact three-flags completed GNU runtime; process timing is a paired observation, not a GC-only measurement or speedup. Single VM strong objects and saved frames only; no bitmap placement, FFI, multi-VM or complete GC admission.",
+  "budgetSeconds": 60,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/fdset-abort-owned-rollback/source.lock.json",
+    "patches/fixtures/fdset-abort-owned-rollback.patch",
+    "evidence/research/current-source-full-bootstrap/fdset-completed-producer.json",
+    "models/gambit/native/gc_shape_retention_public.scm",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 15,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/fdset-abort-owned-rollback/source.lock.json"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/fdset-completed-producer.json"
+      }
+    },
+    {
+      "id": "shape-a",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/gc_shape_retention_public.scm",
+        "parameters": {
+          "GAMBIT_SMP_SHAPE_WIDTH": 4096,
+          "GAMBIT_SMP_SHAPE_DEPTH": 128
+        },
+        "executionBudgetSeconds": 15,
+        "stdout": "GC-SHAPE-RETENTION-PUBLIC:PASS\n"
+      }
+    },
+    {
+      "id": "shape-b",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/gc_shape_retention_public.scm",
+        "parameters": {
+          "GAMBIT_SMP_SHAPE_WIDTH": 4096,
+          "GAMBIT_SMP_SHAPE_DEPTH": 128
+        },
+        "executionBudgetSeconds": 15,
+        "stdout": "GC-SHAPE-RETENTION-PUBLIC:PASS\n"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "shape-a",
+        "shape-b"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

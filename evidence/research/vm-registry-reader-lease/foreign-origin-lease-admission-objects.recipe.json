@@ -1,0 +1,106 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "foreign-origin-lease-admission-objects",
+  "scope": "Current candidate source materialization, pinned Bazel configuration and real GNU GCC object compilation only; no bootstrap, runtime or source-refinement admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/foreign-origin-lease-admission/source.lock.json",
+    "patches/fixtures/foreign-origin-lease-admission.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/foreign-origin-lease-admission/source.lock.json"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "setup-object",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 45,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/setup.c"
+      }
+    },
+    {
+      "id": "c-intf-object",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 45,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/c_intf.c"
+      }
+    },
+    {
+      "id": "mem-object",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 45,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "translationUnit": "lib/mem.c"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "setup-object",
+        "c-intf-object",
+        "mem-object"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

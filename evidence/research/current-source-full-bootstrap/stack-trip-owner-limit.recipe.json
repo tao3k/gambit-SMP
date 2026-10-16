@@ -1,0 +1,115 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-trip-owner-limit",
+  "scope": "SC delayed interrupt stack_start publication across owner section switch, bounded frame bursts; no native admission.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "docs/stack-section-poll-floor.md",
+    "evidence/fixtures/darwin-msection-header-page-guard/first-stack-write.json",
+    "evidence/fixtures/darwin-msection-header-page-guard/source.lock.json",
+    "evidence/research/execution-rules.ss",
+    "patches/fixtures/darwin-msection-header-page-guard.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-msection-header-page-guard-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-msection-header-page-guard-source-state.json",
+    "models/gambit/stack_trip_owner_limit.qnt",
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-msection-header-page-guard/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-msection-header-page-guard-source-state-reference.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_trip_owner_limit.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_trip_owner_limit.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "guarded",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_trip_owner_limit.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "stale-trip-only",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_trip_owner_limit.qnt",
+        "parsed": "parse",
+        "initializer": "initTripOnly",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "guarded",
+        "stale-trip-only"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

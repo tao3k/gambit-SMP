@@ -1,0 +1,28 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "failure-campaign-scope-contract",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 15},
+  "workspacePolicy": "in-place",
+  "scope": "Exhaust bounded disposition combinations and reject unknown-scope, semantic-failure and overlapping-workload exclusion. No runtime failure is upgraded to PASS.",
+  "inputs": ["models/gambit/failure_campaign_scope.qnt", "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch"],
+  "steps": [
+    {"id":"source", "capability":"gambit.materialize", "dependsOn":[], "budgetSeconds":30,
+     "arguments":{"sourceLock":"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json", "workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id":"parse", "capability":"quint.parse", "dependsOn":["source"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/failure_campaign_scope.qnt"}},
+    {"id":"typecheck", "capability":"quint.typecheck", "dependsOn":["parse"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/failure_campaign_scope.qnt", "parsed":"parse"}},
+    {"id":"contract", "capability":"quint.verify", "dependsOn":["parse","typecheck"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/failure_campaign_scope.qnt", "parsed":"parse", "initializer":"init", "step":"step", "invariant":"safe", "negative":false, "temporal":"completion"}},
+    {"id":"unknown-control", "capability":"quint.verify", "dependsOn":["parse","typecheck"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/failure_campaign_scope.qnt", "parsed":"parse", "initializer":"initUnknown", "step":"step", "invariant":"safe", "negative":true}},
+    {"id":"assertion-control", "capability":"quint.verify", "dependsOn":["parse","typecheck"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/failure_campaign_scope.qnt", "parsed":"parse", "initializer":"initAssertion", "step":"step", "invariant":"safe", "negative":true}},
+    {"id":"overlap-control", "capability":"quint.verify", "dependsOn":["parse","typecheck"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/failure_campaign_scope.qnt", "parsed":"parse", "initializer":"initOverlap", "step":"step", "invariant":"safe", "negative":true}},
+    {"id":"verdict", "capability":"evidence.evaluate", "dependsOn":["source","parse","typecheck","contract","unknown-control","assertion-control","overlap-control"], "budgetSeconds":10,
+     "arguments":{"rules":["evidence/research/execution-rules.ss"], "queries":{"missing":"missing_step"}, "expected":{"missing":[]}}}
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"btq-source-operations",
+  "scope":"Four-node operational insertion/deletion/rotation model of the pinned BTQ generator, two queue-lock owners and independent queue progress. No GC or native acceptance. Missing source writes are negative controls, not inferred native causes.",
+  "workspacePolicy":"in-place",
+  "timeoutPolicy":{"mode":"progress","overheadSeconds":30},
+  "inputs":[
+    "models/gambit/btq_operations.qnt",
+    "vendor/gambit/lib/_thread#.scm",
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch",
+    "evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+     "arguments":{"sourceLock":"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":60,
+     "arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/btq_operations.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/btq_operations.qnt","parsed":"parse"}},
+    {"id":"operations","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":60,
+     "arguments":{"source":"models/gambit/btq_operations.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false,"temporal":"completion"}},
+    {"id":"rotation-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/btq_operations.qnt","parsed":"parse","initializer":"initMissingRotationParent","step":"step","invariant":"safe","negative":true}},
+    {"id":"transplant-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+     "arguments":{"source":"models/gambit/btq_operations.qnt","parsed":"parse","initializer":"initMissingTransplant","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","parse","typecheck","operations","rotation-control","transplant-control"],"budgetSeconds":10,
+     "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

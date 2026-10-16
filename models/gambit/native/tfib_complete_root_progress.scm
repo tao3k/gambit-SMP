@@ -1,0 +1,42 @@
+;;; Full upstream workload, with result-bearing root completion observations.
+(declare (standard-bindings) (block))
+
+(define expected-processors (string->number (getenv "GAMBIT_SMP_EXPECTED_PROCESSORS")))
+(if (not (= expected-processors (##current-vm-processor-count)))
+    (error "framework processor population mismatch"))
+
+(define (busy-sleep n) (if (> n 0) (busy-sleep (- n 1)) #f))
+(define (short-delay) (busy-sleep 6000))
+(define (tfib n)
+  (short-delay)
+  (if (< n 2)
+      1
+      (let* ((x (thread-start! (make-thread (lambda () (tfib (- n 2))))))
+             (y (tfib (- n 1))))
+        (+ (thread-join! x) y))))
+
+(define (range i j)
+  (let loop ((j (- j 1)) (lst '()))
+    (if (< j i) lst (loop (- j 1) (cons j lst)))))
+
+(define (go n repeat)
+  (let ((threads (map (lambda (i) (make-thread (lambda () (tfib n))))
+                      (range 0 repeat)))
+        (completed 0))
+    (for-each thread-start! threads)
+    (map (lambda (thread)
+           (let ((answer (thread-join! thread)))
+             (if (not (= answer 987)) (error "tfib root result mismatch"))
+             (set! completed (+ completed 1))
+             (display "TFIB-ROOT-COMPLETE ")
+             (display completed)
+             (display "/")
+             (display repeat)
+             (display " 987\n")
+             (force-output)
+             answer))
+         threads)))
+
+(define answers (go 15 5000))
+(if (not (= (length answers) 5000)) (error "tfib root inventory mismatch"))
+(display "TFIB-WORKLOAD-COMPLETE\n")

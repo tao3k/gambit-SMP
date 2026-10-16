@@ -1,0 +1,26 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-thread-object-source-map",
+  "scope": "Diagnostic-only debug object for the exact resize-grace completed producer. Preserve configured optimization and concurrency flags. Not a runtime repair, executed correctness or performance qualification.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch",
+    "evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json",
+    "docs/vm-topology-stack-source-audit.md",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"},
+        "producer": "evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json"}},
+    {"id": "thread-map", "capability": "gambit.object", "dependsOn": ["producer"], "budgetSeconds": 120,
+      "arguments": {"source": {"step": "producer", "output": "runtime"},
+        "translationUnit": "lib/_thread.c", "debugSymbols": true}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "producer", "thread-map"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

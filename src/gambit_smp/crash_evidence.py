@@ -61,11 +61,18 @@ def compiler_child(receipt, identity):
     return pid
 
 
+def binary_hash(identity, role):
+    if role not in {"compiler", "interpreter"}:
+        raise ValueError("compiler or interpreter binary role required")
+    return identity["gscSha256" if role == "compiler" else "binarySha256"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--identity", type=Path, required=True)
+    parser.add_argument("--binary-role", choices=("compiler", "interpreter"), default="compiler")
     parser.add_argument("--pid", type=int)
     parser.add_argument("--native-receipt", type=Path)
     parser.add_argument("--out", type=Path, required=True)
@@ -75,20 +82,22 @@ def main():
     identity = json.loads(args.identity.read_text())
     pid = None
     if args.native_receipt:
+        if args.binary_role != "compiler":
+            parser.error("compiler receipt cannot attribute an interpreter child PID")
         pid = compiler_child(json.loads(args.native_receipt.read_text()), identity)
         if args.pid is not None and args.pid != pid:
             raise ValueError("supplied PID differs from native compiler receipt")
     elif args.pid is not None:
         parser.error("--pid requires the actual --native-receipt")
-    if digest(args.binary) != identity["gscSha256"]:
-        raise ValueError("selected compiler identity mismatch")
+    if digest(args.binary) != binary_hash(identity, args.binary_role):
+        raise ValueError("selected binary identity mismatch")
     output = subprocess.check_output(["xcrun", "dwarfdump", "--uuid", str(args.binary)], text=True, timeout=30)
     uuids = re.findall(r"^UUID: ([0-9a-fA-F-]+) ", output, re.MULTILINE)
     if len(uuids) != 1:
         raise ValueError("exactly one Mach-O binary UUID required")
     result = normalize(incident(args.report.read_text()), uuids[0], pid)
     result.update(binarySha256=digest(args.binary), sourceReportSha256=digest(args.report),
-                  candidateIdentitySha256=digest(args.identity))
+                  candidateIdentitySha256=digest(args.identity), binaryRole=args.binary_role)
     if args.native_receipt:
         result["nativeReceiptSha256"] = digest(args.native_receipt)
         result["nativeStage"] = "compile"

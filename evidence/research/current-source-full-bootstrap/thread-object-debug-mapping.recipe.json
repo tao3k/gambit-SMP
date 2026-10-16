@@ -1,0 +1,27 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "thread-object-debug-mapping",
+  "scope": "Source-bound isolated _thread.c object with only debug metadata added to the configured command. No relink, runtime replacement, repeated stress execution, compiler equivalence or native acceptance. Symbol mapping requires independent original/debug text and relocation comparison.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode":"progress", "overheadSeconds":30},
+  "inputs": [
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch",
+    "evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id":"source", "capability":"gambit.materialize", "dependsOn":[], "budgetSeconds":30,
+     "arguments":{"sourceLock":"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+                  "workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id":"producer", "capability":"gambit.completed-runtime", "dependsOn":["source"], "budgetSeconds":60,
+     "arguments":{"source":{"step":"source","output":"source"},
+                  "producer":"evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json"}},
+    {"id":"debug-object", "capability":"gambit.object", "dependsOn":["producer"], "budgetSeconds":60,
+     "arguments":{"source":{"step":"producer","output":"runtime"},
+                  "translationUnit":"lib/_thread.c", "debugSymbols":true}},
+    {"id":"verdict", "capability":"evidence.evaluate", "dependsOn":["source","producer","debug-object"], "budgetSeconds":10,
+     "arguments":{"rules":["evidence/research/execution-rules.ss"],
+                  "queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

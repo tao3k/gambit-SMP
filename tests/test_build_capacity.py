@@ -40,7 +40,12 @@ class BuildCapacityTests(unittest.TestCase):
             with patch("gambit_smp.gambit_build_primitives.available_processors", return_value=7):
                 ok, observation = build_seed_core(stages, source, 120)
             self.assertFalse(ok)  # Successful exit without artifacts is not admission.
-            stages.run.assert_called_once_with("seed-core", ["make", "-j7", "GAMBOPT=p1", "core"], source, 120)
+            from gambit_smp.gambit_build_primitives import CoreBuildProgress
+            stages.run.assert_called_once()
+            self.assertEqual(stages.run.call_args.args,
+                ("seed-core", ["make", "--debug=b", "-j7", "GAMBOPT=p1", "core"], source, 120))
+            self.assertEqual(set(stages.run.call_args.kwargs), {"progress"})
+            self.assertIsInstance(stages.run.call_args.kwargs["progress"], CoreBuildProgress)
             self.assertEqual(7, observation["capacity"]["availableProcessors"])
             self.assertEqual("host-auto-shared-budget", observation["processorSelection"])
 

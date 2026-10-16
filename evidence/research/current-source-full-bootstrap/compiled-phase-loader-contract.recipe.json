@@ -1,0 +1,148 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "compiled-phase-original-loader-contract",
+  "scope": "Bounded three-phase compilation/loader contract, preserving original entry symbol and assertion exit semantics. Three decoded negative controls. Model only; no runtime/compiler equivalence, speedup or complete native admission.",
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "models/gambit/compiled_phase_loader_contract.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch",
+    "vendor/gambit/gsc/_gsclib.scm",
+    "vendor/gambit/tests/run-unit-tests.scm",
+    "vendor/gambit/tests/unit-tests/#.scm"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+        "workspace": ".data/fixtures/foreign-origin-public-cleanup-contract-candidate"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/compiled_phase_loader_contract.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/compiled_phase_loader_contract.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "contract",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/compiled_phase_loader_contract.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false,
+        "temporal": "completion"
+      }
+    },
+    {
+      "id": "entry-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/compiled_phase_loader_contract.qnt",
+        "parsed": "parse",
+        "initializer": "initDiagnostic",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "artifact-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/compiled_phase_loader_contract.qnt",
+        "parsed": "parse",
+        "initializer": "initMissing",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "assertion-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/compiled_phase_loader_contract.qnt",
+        "parsed": "parse",
+        "initializer": "initIgnoreExit",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "contract",
+        "entry-control",
+        "artifact-control",
+        "assertion-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ],
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  }
+}

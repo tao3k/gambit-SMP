@@ -4,7 +4,7 @@ from pathlib import Path
 import sys
 import unittest
 
-from gambit_smp.ascent_program import engine_api
+from gambit_smp.ascent_program import engine_api, artifact_paths
 from gambit_smp.framework import ROOT, execute
 
 
@@ -13,30 +13,36 @@ class BindingCleanupTests(unittest.TestCase):
     def setUpClass(cls):
         cls.context = engine_api()
         cls.engine, _ = cls.context.__enter__()
-        cls.api = Path(importlib.import_module("_ascent_cffi").__file__).resolve().parent
-        cls.binding = Path(importlib.import_module("ascent_engine").__file__).resolve().parent.parent
+        cls.extension = artifact_paths()['ascent._core']
+        cls.binding = Path(importlib.import_module("ascent").__file__).resolve().parent.parent
 
     @classmethod
     def tearDownClass(cls):
         cls.context.__exit__(None, None, None)
 
     def run_child(self, suffix, limit):
-        script = '''from ascent_engine import Engine
+        script = '''import os
+from ascent import Engine, EngineError
 engine = Engine()
-source = """(def (make-work)
-  (ascent
+source = """(define-evidence (make-work)
+    (sources input) (outputs output)
     (relation input ((x exact-integer?)) [[1]])
     (relation output ((x exact-integer?)))
-    ((output X) <-- (input X))))"""
+    ((output X) <-- (input X)))"""
 session = engine.evidence(source, "make-work", trusted=True)
-result = session.run(0, queries=["output"])
-assert result["complete"] is False
+try:
+    session.run(0, queries=["output"])
+except EngineError as error:
+    assert "deadline" in str(error).lower(), str(error)
+else:
+    raise AssertionError("exhausted deadline admitted a result")
+assert session.run(queries=["output"])["complete"] is True
 session.close()
-engine.shutdown()
+engine.close()
 print("NATIVE-DEADLINE-CLOSED", flush=True)
 ''' + suffix
-        env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(self.api), str(self.binding)]),
-                   GERBIL_PATH="/unavailable", GERBIL_HOME="/unavailable")
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GERBIL")}
+        env["PYTHONPATH"] = str(self.binding)
         metadata = {}
         result = execute([sys.executable, "-B", "-c", script], ROOT, limit, env=env, metadata=metadata)
         return result, metadata

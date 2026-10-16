@@ -1,0 +1,41 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-btq-retry-complete-topology-latency",
+  "scope": "Exact fresh BTQ retry candidate. Original CPU-derived 2-5 VM topology and 1000 samples/population, full forced GC and grow/join/shrink assertions. Retain all original budgets and failed tails. No full SMP or release admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/btq-retry-sync-participation/source.lock.json",
+    "patches/fixtures/btq-retry-sync-participation.patch",
+    "evidence/research/vm-registry-reader-lease/btq-retry-completed-producer.json",
+    "models/gambit/scheduler_retry_gc_participation.qnt",
+    "models/gambit/native/registry_topology_latency.scm",
+    "docs/vm-topology-stack-source-audit.md",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/btq-retry-sync-participation/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/scheduler_retry_gc_participation.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/scheduler_retry_gc_participation.qnt", "parsed": "parse"}},
+    {"id": "safe-progress", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/scheduler_retry_gc_participation.qnt", "parsed": "parse",
+        "initializer": "initFixed", "step": "step", "invariant": "safe", "temporal": "completion", "negative": false}},
+    {"id": "unchecked-retry-control", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/scheduler_retry_gc_participation.qnt", "parsed": "parse",
+        "initializer": "initOld", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source", "safe-progress", "unchecked-retry-control"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"},
+        "producer": "evidence/research/vm-registry-reader-lease/btq-retry-completed-producer.json"}},
+    {"id": "independent-vms", "capability": "gambit.executable-test", "dependsOn": ["producer"], "budgetSeconds": 120,
+      "arguments": {"runtime": {"step": "producer", "output": "runtime"},
+        "identity": {"step": "producer", "output": "identity"},
+        "program": "models/gambit/native/registry_topology_latency.scm",
+        "stdout": "REGISTRY-TOPOLOGY-GRID:PASS\n",
+        "latency": {"path": "latencies.jsonl", "minimumSamples": 1000, "percentiles": [55, 99]}}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "safe-progress", "unchecked-retry-control", "producer", "independent-vms"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

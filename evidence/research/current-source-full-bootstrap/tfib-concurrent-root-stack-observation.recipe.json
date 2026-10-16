@@ -1,0 +1,95 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "tfib-concurrent-root-stack-observation",
+  "scope": "Atomic occupancy contrast: eight roots per available CPU, unchanged depth 15 and delay 6000. Compared with the completed one-root-per-CPU case using the identical core; not full 5000-root qualification.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-stack-selection-origin-baseline/source.lock.json",
+    "patches/fixtures/darwin-stack-selection-origin-baseline.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-origin-baseline-seed.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-sampling-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-sampling-source-state.json",
+    "models/gambit/native/tfib_atomic_stack_observation.scm",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-section-owned-undo/native-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-selection-origin-baseline/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-stack-selection-sampling-source-state-reference.json"
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-checkpoint",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "checkpoint": "evidence/research/current-source-full-bootstrap/darwin-stack-selection-origin-baseline-seed.json",
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "tfib-standalone",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/tfib_atomic_stack_observation.scm",
+        "stdout": "TFIB-ATOMIC-COMPLETE\n",
+        "processorTopology": "host-managed",
+        "parameters": {
+          "GAMBIT_SMP_TFIB_ROOTS_PER_CPU": 8
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "seed",
+        "tfib-standalone"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

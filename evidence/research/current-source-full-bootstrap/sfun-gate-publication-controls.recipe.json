@@ -1,0 +1,19 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"sfun-gate-count-publication-controls",
+  "scope":"Declare the six imported trajectory tests as well as the two split-publication tests. Retain original 7.897120375-second inventory DENY; this successor is capped at42 seconds within the original50-second model campaign. No new native allowance.",
+  "budgetSeconds":42,
+  "workspacePolicy":"in-place",
+  "inputs":["models/gambit/sfun_gate_publication_order.qnt","models/gambit/foreign_origin_retirement_admission.qnt","docs/sfun-gate-publication-order.md","evidence/fixtures/sfun-marker-explicit-context/source.lock.json","patches/fixtures/sfun-marker-explicit-context.patch","evidence/research/current-source-full-bootstrap/sfun-context-workspace-state.json","evidence/research/execution-rules.ss"],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/sfun-marker-explicit-context/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate","workspaceState":"evidence/research/current-source-full-bootstrap/sfun-context-workspace-state.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt","parsed":"parse"}},
+    {"id":"trajectories","capability":"quint.test","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt","parsed":"parse","main":"sfun_gate_publication_order","seed":"0x1510","maxSamples":10,"expectedTests":["A::retainedOriginTest","A::removedOriginBusyTest","A::allocationRollbackTest","A::unwindRollbackTest","A::staleLookupRejectedTest","A::twoOriginLeasesTest","reservedCloseBusyTest","publishedCloseBusyTest"]}},
+    {"id":"safe","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false}},
+    {"id":"early-release","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt","parsed":"parse","initializer":"initEarlyRelease","step":"step","invariant":"safe","negative":true}},
+    {"id":"missing-count","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt","parsed":"parse","initializer":"initMissingCount","step":"step","invariant":"safe","negative":true}},
+    {"id":"double-release","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_gate_publication_order.qnt","parsed":"parse","initializer":"initDoubleGateRelease","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","trajectories","safe","early-release","missing-count","double-release"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

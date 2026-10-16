@@ -413,11 +413,36 @@ def export(root=ROOT):
             if any(url not in links for url in [row["url"], *row.get("additionalUrls", [])]):
                 raise ValueError("reported failure provenance is absent from snapshot")
             facts["reported_failure"].append([row["pr"], row["failure"], row["status"]])
+    historical_path = root / "evidence/frozen-trace-history.json"
+    historical = {}
+    if historical_path.exists():
+        history = json.loads(historical_path.read_text())
+        if history.get("schema") != "gambit-frozen-trace-history.v1":
+            raise ValueError("typed frozen trace history required")
+        bind(historical_path)
+        for entry in history["traces"]:
+            if set(entry) != {"path", "sha256", "modelSnapshot", "modelSha256"} or entry["path"] in historical:
+                raise ValueError("unique exact historical trace binding required")
+            historical[entry["path"]] = entry
     for path in sorted((directory / "counterexamples").glob("*.json")):
         trace = json.loads(path.read_text())
         name = trace["case"]
-        if name not in cases or trace["modelSha256"] != digest(directory / (name + ".qnt")):
+        if name not in cases:
             raise ValueError("stale or unknown frozen trace: " + path.name)
+        if trace["modelSha256"] != digest(directory / (name + ".qnt")):
+            entry = historical.get(str(path.relative_to(root)))
+            from gambit_smp.recipes import source_path
+            if (entry is None or digest(path) != entry["sha256"]
+                    or trace["modelSha256"] != entry["modelSha256"]
+                    or digest(source_path(root, entry["modelSnapshot"])) != entry["modelSha256"]):
+                raise ValueError("stale or unknown frozen trace: " + path.name)
+            bind(path)
+            bind(root / entry["modelSnapshot"])
+            # Preserve source-bound history, but never count it as a current
+            # model's negative control. New controls require new trace bytes.
+            facts.setdefault("historical_frozen_negative", []).append(
+                [name, trace.get("invariant", "safe"), digest(path), entry["modelSnapshot"]])
+            continue
         bind(path)
         facts["frozen_negative"].append([name, trace.get("invariant", "safe"), digest(path)])
     for item in manifest["unresolved"]:

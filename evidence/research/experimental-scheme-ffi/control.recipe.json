@@ -1,0 +1,96 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "experimental-current-scheme-ffi-payload",
+  "scope": "First actual compiled stable C payload FFI fixture on isolated checked current Darwin producer. No full inventory, concurrent movable-pointer/VM transfer or GC performance acceptance; all original failures and canonical review remain.",
+  "budgetSeconds": 30,
+  "inputs": [
+    "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",
+    "patches/fixtures/darwin-dynamic-modulo-scope.patch",
+    "evidence/research/current-source-full-bootstrap/dynamic-modulo-completed-producer.json",
+    "tests/experimental/foreign_payload_gc.scm",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 15,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/dynamic-modulo-completed-producer.json"
+      }
+    },
+    {
+      "id": "ffi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsc",
+        "regime": "whole-sequential",
+        "selection": [
+          "diagnostic/foreign_payload_gc.scm"
+        ],
+        "expectedFiles": [
+          "diagnostic/foreign_payload_gc.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {
+          "diagnostic/foreign_payload_gc.scm": {
+            "source": "tests/experimental/foreign_payload_gc.scm",
+            "sha256": "982fb200fa26794f1abe12748b01b0835899645ff715dae4b536e338138bd877"
+          }
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "ffi"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

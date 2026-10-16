@@ -12,28 +12,7 @@ from gambit_smp.native_suite import runtime_view, selected_files
 from gambit_smp.runtime_identity import check
 
 
-EXECUTION_WITNESS = "COMPILER-PHASE:module-initialized,assertions-passed"
-LOAD_PROBE = '''(begin
-  (##eval '(define ##failed-test? 'phase-module-not-executed))
-  (##load "probe.o1" (lambda (script path) #f) #t #t "probe" #f)
-  (if (eq? ##failed-test? #f)
-      (begin (display "COMPILER-PHASE:module-initialized,assertions-passed\\n") (exit 0))
-      (exit 2)))'''
-
-
-def stage_accepted(code, timed_out, output, artifact, witness=None):
-    return (code == 0 and not timed_out and "FAILED" not in output
-            and "Unknown or improperly placed" not in output
-            and (artifact is None or artifact.is_file())
-            and (witness is None or output.splitlines().count(witness) == 1))
-
-
-def phase_commands(selection, work):
-    return [
-        ("scheme-to-c", "gsc/gsc", ["-f", "-verbose", "-c", "-o", "probe.c", str(Path("unit-tests") / selection)], work / "probe.c"),
-        ("c-to-dynamic-module", "gsc/gsc", ["-f", "-e", '(exit (if (compile-file "probe.c" options: (quote (verbose)) output: "probe.o1") 0 1))'], work / "probe.o1"),
-        ("compiled-execution", "gsi/gsi", ["-f", "-e", LOAD_PROBE], None),
-    ]
+from gambit_smp.compiler_phase_primitives import EXECUTION_WITNESS, LOAD_PROBE, stage_accepted, phase_commands
 
 
 def main():

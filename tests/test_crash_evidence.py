@@ -5,6 +5,13 @@ from gambit_smp import crash_evidence as evidence
 
 
 class CrashEvidenceTests(unittest.TestCase):
+    def test_binary_role_uses_exact_corresponding_identity(self):
+        identity = {"gscSha256":"compiler-sha","binarySha256":"interpreter-sha"}
+        self.assertEqual("compiler-sha",evidence.binary_hash(identity,"compiler"))
+        self.assertEqual("interpreter-sha",evidence.binary_hash(identity,"interpreter"))
+        with self.assertRaises(ValueError):
+            evidence.binary_hash(identity,"unknown")
+
     def test_compiler_binding_requires_real_failed_child_and_exact_toolchain(self):
         identity = {"gscSha256": "sha"}
         receipt = {"native": {"toolchain": identity, "compile": {

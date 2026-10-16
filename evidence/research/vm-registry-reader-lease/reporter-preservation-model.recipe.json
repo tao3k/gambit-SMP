@@ -1,0 +1,28 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-test-reporter-failure-preservation-model",
+  "scope": "Materialize the exact inherited runtime source plus the one-line upstream reporter correction. Check sticky failure and no false admission, with suppression as a negative control. No port equivalence, native runtime fix, source-refinement or performance admission.",
+  "budgetSeconds": 300,
+  "inputs": ["evidence/fixtures/vm-reporter-preservation/source.lock.json", "patches/fixtures/vm-reporter-preservation.patch",
+    "models/gambit/test_reporter_failure_preservation.qnt", "evidence/research/execution-rules.ss"],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/vm-reporter-preservation/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/test_reporter_failure_preservation.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/test_reporter_failure_preservation.qnt", "parsed": "parse"}},
+    {"id": "safe", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/test_reporter_failure_preservation.qnt", "parsed": "parse",
+        "initializer": "init", "step": "step", "invariant": "contract", "negative": false}},
+    {"id": "suppression-control", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/test_reporter_failure_preservation.qnt", "parsed": "parse",
+        "initializer": "initSuppressed", "step": "step", "invariant": "contract", "negative": true}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/test_reporter_failure_preservation.qnt", "parsed": "parse",
+        "main": "test_reporter_failure_preservation", "seed": "0x1510", "maxSamples": 1,
+        "expectedTests": ["suppressionControlTest", "missingReporterTest", "stickyFailureTest"]}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "safe", "suppression-control", "trajectories"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

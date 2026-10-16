@@ -1,0 +1,161 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "registry-capacity-writer-replay-model",
+  "scope": "Finite composition of unsigned reader capacity, writer closure/reopen, release replay and late mailbox publication. Model-only, not C refinement or runtime admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "models/gambit/registry_capacity_writer_replay.qnt",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": false
+      }
+    },
+    {
+      "id": "release-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt",
+        "parsed": "parse",
+        "initializer": "initNoReleaseReplay",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "late-record-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt",
+        "parsed": "parse",
+        "initializer": "initNoRecordRecheck",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/registry_capacity_writer_replay.qnt",
+        "parsed": "parse",
+        "main": "registry_capacity_writer_replay",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "lateRecordControlTest",
+          "releaseControlTest",
+          "lateRecordReplayTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "type",
+        "safe",
+        "progress",
+        "release-control",
+        "late-record-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

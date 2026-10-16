@@ -44,7 +44,7 @@ class ReproductionCheckTests(unittest.TestCase):
                 lock_path.write_text(json.dumps(data))
                 with self.subTest(field=field), patch.object(reproduction, "portable",
                         side_effect=lambda root, item: lock_path if item == name else original(root, item)), \
-                     self.assertRaisesRegex(ValueError, "pinned source capsule"):
+                     self.assertRaisesRegex(ValueError, "pinned source revision"):
                     reproduction.check_source(reproduction.ROOT, name)
 
     def test_candidate_digest_mismatch_fails_actual_materialization(self):
@@ -176,7 +176,7 @@ class ReproductionCheckTests(unittest.TestCase):
         original = reproduction.hashlib.sha256
         with patch.object(reproduction.hashlib, "sha256") as sha:
             sha.side_effect = lambda data: original(data + b"changed")
-            with self.assertRaisesRegex(ValueError, "source differs|overlay differs|capsule binding"):
+            with self.assertRaisesRegex(ValueError, "source differs|overlay differs|revision binding"):
                 reproduction.check(reproduction.ROOT, "evidence/gc-recursive-queue-wait.json")
 
     def test_uncommitted_gitlink_is_not_clean_checkout_evidence(self):

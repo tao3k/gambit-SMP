@@ -41,7 +41,7 @@ class HistoryJournalTests(unittest.TestCase):
         self.assertFalse(result["runtimeAdmitted"])
 
     def test_real_finite_denial_retains_new_observation_and_prior_head(self):
-        from ascent_engine import FactLimits, EngineError
+        from ascent import FactLimits, EngineError
         first = history.analyze_observation(self.root, self.append("before"))
         observation = self.append("after")
         with self.assertRaises(EngineError):

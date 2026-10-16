@@ -19,9 +19,8 @@ class HistoryProtocolTests(unittest.TestCase):
     def test_exhaustive_safety_temporal_and_five_decoded_negative_controls(self):
         quint = shutil.which("quint")
         self.assertIsNotNone(quint, "actual Quint required; no skipped formal qualification")
-        jar = Path(os.environ.get("QUINT_TLC_JAR", str(Path.home() /
-                   "ghq/github.com/tao3k/gerbil-ascent/.cache/ascent/tools/quint-backends/"
-                   "apalache-dist-0.62.1/apalache/lib/apalache.jar")))
+        jar = Path(os.environ.get("QUINT_TLC_JAR", str(ROOT /
+                   ".data/tools/apalache-0.62.1/lib/apalache.jar")))
         self.assertTrue(jar.is_file(), "actual TLC jar required")
         sources = sorted((ROOT / "models/library").glob("HistoryJournal*.qnt"))
         inputs = {str(path): digest(path) for path in sources}

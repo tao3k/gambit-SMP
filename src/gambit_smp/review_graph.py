@@ -37,6 +37,15 @@ def checkout(root, paths):
         mode, kind, revision = metadata.split(" ")
         if mode == "160000" and kind == "commit":
             links[name] = revision
+    committed_links = dict(links)
+    # Newly staged submodules are repositories too, but are not durable at HEAD.
+    for record in git("ls-files", "--stage", "-z").decode().split("\0"):
+        if not record:
+            continue
+        metadata, name = record.split("\t", 1)
+        mode, revision, stage = metadata.split(" ")
+        if mode == "160000" and stage == "0":
+            links.setdefault(name, revision)
     nested_paths = {name: [path for path in paths if path.startswith(name + "/")]
                     for name in links}
     outer_paths = set(paths) - {path for values in nested_paths.values() for path in values}
@@ -57,7 +66,8 @@ def checkout(root, paths):
         if not values:
             continue
         nested = checkout(root / name, {path[len(name) + 1:] for path in values})
-        pinned = nested["head"] == links[name] and name not in changed
+        pinned = (name in committed_links and nested["head"] == committed_links[name]
+                  and name not in changed)
         submodules[name] = {"root": nested["root"], "head": nested["head"],
                             "pinnedRevision": links[name], "matchesParentHead": pinned,
                             "submodules": nested["submodules"]}
@@ -74,7 +84,7 @@ def checkout(root, paths):
 
 def build(root, model, facts, rows, bindings, source_facts, inputs, engine_inputs,
           validation=None, git_state=None, catalog_rows=None, engine_artifacts=None,
-          native_observations=(), campaigns=()):
+          native_observations=(), campaigns=(), evidence_views=()):
     """Transport native decisions; catalog links never synthesize proof edges."""
     candidate = "task:" + model
     needs = {claim for name, claim in rows["Need"] if name == candidate}
@@ -357,7 +367,7 @@ def build(root, model, facts, rows, bindings, source_facts, inputs, engine_input
     for path in validation.get("testFiles", []):
         edge(vid, "tested-module", file(path), expectedSha256=validation["testInputHashes"][path],
              matchesCurrent=validation.get("testCurrentHashes", {}).get(path) == validation["testInputHashes"][path])
-    backend = node("backend", fingerprint(engine_inputs), name="ascent-cffi-api", inputs=engine_inputs)
+    backend = node("backend", fingerprint(engine_inputs), name="ascent-rust", inputs=engine_inputs)
     edge(snapshot, "inferred-by", backend)
     for name, artifact in sorted((engine_artifacts or {}).items()):
         edge(backend, "loaded-artifact", node("backend-artifact", name, **artifact))
@@ -419,6 +429,22 @@ def build(root, model, facts, rows, bindings, source_facts, inputs, engine_input
                 parentReaped=command.get("parentReaped"), processGroupQuiescent=command.get("processGroupQuiescent"),
                 runtimeAdmitted=False)
             edge(campaign, "recorded-native-command", observed)
+    for view in evidence_views:
+        vid = node("evidence-view", view["id"], path=view["path"],
+                   executionAuthorized=False, runtimeAdmitted=False, scope=view["scope"])
+        edge(task, "observes-evidence-view", vid)
+        edge(vid, "inferred-by", backend)
+        for path, sha in view["inputs"].items():
+            relative = str(Path(path).relative_to(root))
+            if inputs.get(relative) != sha:
+                raise ValueError("Evidence view input is not bound by graph")
+            edge(vid, "uses-view-input", file(relative), expectedSha256=sha)
+        for query, values in view["answers"].items():
+            for row in values:
+                observed = node("evidence-view-row", [view["id"], query, list(row)],
+                                query=query, relation=view["queries"][query], value=list(row),
+                                runtimeAdmitted=False, executionAuthorized=False)
+                edge(vid, "records-derived-row", observed, derivedBy="ASCENT:" + view["queries"][query])
     output = {"schema": "gambit-agent-evidence-graph.v1", "task": model,
               "snapshot": current["validated-catalog"], "checkout": {key: value for key, value in git_state.items() if key != "files"},
               "nodes": sorted(nodes.values(), key=lambda value: value["id"]),

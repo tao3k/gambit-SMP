@@ -1,0 +1,31 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "current-source-public-topology-custody",
+  "scope": "Public VM retirement diagnostic with separate stage/finalization timing. Reuses the current source and completed producer. Does not close the full SMP milestone or erase the retained latency timeout.",
+  "budgetSeconds": 300,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/fixtures/continuation-segment-wake-budget/source.lock.json",
+    "patches/fixtures/continuation-segment-wake-budget.patch",
+    "evidence/research/current-source-full-bootstrap/completed-producer.json",
+    "models/gambit/execution_finalization_custody.qnt",
+    "models/gambit/native/public_vm_topology_grid.scm",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+     "arguments": {"sourceLock": "evidence/fixtures/continuation-segment-wake-budget/source.lock.json", "workspace": ".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": [], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt", "parsed": "parse"}},
+    {"id": "custody", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source", "custody"], "budgetSeconds": 60,
+     "arguments": {"source": {"step": "source", "output": "source"}, "producer": "evidence/research/current-source-full-bootstrap/completed-producer.json"}},
+    {"id": "topology", "capability": "gambit.executable-test", "dependsOn": ["producer"], "budgetSeconds": 120,
+     "arguments": {"runtime": {"step": "producer", "output": "runtime"}, "identity": {"step": "producer", "output": "identity"}, "program": "models/gambit/native/public_vm_topology_grid.scm", "stdout": "PUBLIC-VM-TOPOLOGY-GRID:PASS\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "custody", "producer", "topology"], "budgetSeconds": 10,
+     "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

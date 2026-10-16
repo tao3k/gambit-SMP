@@ -14,7 +14,7 @@ from gambit_smp.framework import digest
 
 class TypedRetryReviewTests(unittest.TestCase):
     # These independent fixtures require the actual sealed implementation.
-    validation_domain = {"kind": "sealed-research", "budgetSeconds": 60, "workers": 2}
+    validation_domain = {"kind": "sealed-research", "budgetSeconds": 60, "workers": "auto", "processesPerWorker": 2}
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -38,7 +38,7 @@ class TypedRetryReviewTests(unittest.TestCase):
             "gscSha256": digest(self.runtime / "gsc/gsc"), "librarySha256": digest(self.runtime / "lib/libgambit.a")})
         self.prior = self.save("evidence/failed.json", {
             "candidateReceiptSha256": digest(self.baseline), "wholeSuiteBudgetPerMode": 8,
-            "atomicBatchBudgetPerMode": 2, "sourceFiles": {},
+            "atomicBatchBudgetPerMode": 2, "sourceFiles": {}, "selectedFiles": ["control.scm"],
             "results": [{"mode": "gsi", "accepted": False, "exit": -9, "timeout": True}]})
         log = self.root / "evidence/failed.log"
         log.write_text("actual archived failure fixture, not native acceptance")
@@ -98,7 +98,7 @@ class TypedRetryReviewTests(unittest.TestCase):
             return_value={"files": {"policy/suite-review-rules.ss": digest(self.rules)}})
         # Unit transport checks use a fixed response, never a Python inference substitute.
         evaluation = nullcontext() if real else patch("gambit_smp.evidence_capabilities.evaluate_observations",
-            return_value={"selected": [["known", "gsi"]], "eligible": [["known", "gsi"]],
+            return_value={"selected": [["known", self.args["mode"]]], "eligible": [["known", self.args["mode"]]],
                           "denied": [], "missing": [], "review": [], "need": [],
                           "decision": [["RETRY_ELIGIBLE"]]})
         with manifest, evaluation:
@@ -119,6 +119,121 @@ class TypedRetryReviewTests(unittest.TestCase):
             row["candidateReceiptSha256"] = {"binding": "current-producer"}
         self.save_review()
         with self.assertRaisesRegex(ValueError, "exact current candidate"):
+            self.preflight()
+
+    def check_whole_inventory_correspondence(self, inventory, bound):
+        self.args["regime"] = "whole-parallel"
+        self.doc["campaign"] = review.campaign(self.ctx, self.args, self.runtime,
+                                               self.candidate, self.files, self.unit)
+        previous = json.loads(self.prior.read_text())
+        previous["selectedFiles"] = inventory
+        self.save("evidence/failed.json", previous)
+        self.doc["failures"][0]["receiptSha256"] = digest(self.prior)
+        for row in self.evidence["claims"]:
+            row["failureReceiptSha256"] = digest(self.prior)
+        self.save_review()
+        result = self.preflight()
+        self.assertEqual([["known"]] if bound else [], result["facts"]["exact_whole_inventory"])
+
+    def test_whole_topology_correspondence_binds_exact_inventory(self):
+        self.check_whole_inventory_correspondence(["control.scm"], True)
+
+    def test_compiler_probe_binds_real_stage_and_nested_cap_without_suite_projection(self):
+        previous = json.loads(self.prior.read_text())
+        previous.pop("results")
+        previous.pop("selectedFiles")
+        previous.update(schema="gambit-compiler-cost.v1", diagnosticOnly=True,
+                        sourceStable=True, status="DENY", selection="control.scm",
+                        wholeProbeBudget=90, stages=[
+                            {"name": "scheme-to-c", "exit": 0, "timeout": False, "accepted": True},
+                            {"name": "c-to-dynamic-module", "exit": -9, "timeout": True, "accepted": False}])
+        self.save("evidence/failed.json", previous)
+        self.args.update(mode="gsc", fileBudgetSeconds={"control.scm": 90})
+        self.doc["campaign"] = review.campaign(self.ctx, self.args, self.runtime,
+                                               self.candidate, self.files, self.unit)
+        entry = self.doc["failures"][0]
+        entry.update(receiptSha256=digest(self.prior), failurePointer="/stages/1/accepted",
+                     budget={"regime": "compiler-probe", "pointer": "/wholeProbeBudget", "file": "control.scm"})
+        for claim in self.evidence["claims"]:
+            claim["failureReceiptSha256"] = digest(self.prior)
+        self.save_review()
+        result = self.preflight()
+        self.assertEqual([["known", "c-to-dynamic-module"]], result["facts"]["compiler_probe_failure"])
+        self.assertEqual([["known", "file-step", 90000]], result["facts"]["original_budget"])
+        self.assertNotIn("results", json.loads(self.prior.read_text()))
+        entry["budget"]["regime"] = "whole-sequential"
+        entry["budget"]["pointer"] = "/wholeSuiteBudgetPerMode"
+        self.save_review()
+        with self.assertRaisesRegex(ValueError, "cannot be relabeled"):
+            self.preflight()
+
+    def test_whole_topology_correspondence_does_not_bind_changed_inventory(self):
+        self.check_whole_inventory_correspondence(["other.scm"], False)
+
+    def test_whole_topology_correspondence_does_not_bind_duplicate_inventory(self):
+        self.check_whole_inventory_correspondence(["control.scm", "control.scm"], False)
+
+    def test_atomic_correspondence_requires_exact_inventory(self):
+        self.args["regime"] = "atomic-coverage"
+        self.doc["campaign"] = review.campaign(self.ctx, self.args, self.runtime,
+                                               self.candidate, self.files, self.unit)
+        self.doc["failures"][0]["budget"] = {
+            "regime": "atomic-coverage", "pointer": "/atomicBatchBudgetPerMode"}
+        for index, (inventory, bound) in enumerate(((["control.scm"], True), (["other.scm"], False),
+                                                    (["control.scm", "control.scm"], False))):
+            with self.subTest(inventory=inventory):
+                previous = json.loads(self.prior.read_text())
+                previous["selectedFiles"] = inventory
+                self.save("evidence/failed.json", previous)
+                self.doc["failures"][0]["receiptSha256"] = digest(self.prior)
+                for row in self.evidence["claims"]:
+                    row["failureReceiptSha256"] = digest(self.prior)
+                self.save_review()
+                directory = self.directory / ("atomic-case-" + str(index)) / "suite"
+                directory.mkdir(parents=True)
+                self.ctx = recipes.ExecutionContext(
+                    self.root, self.root, directory, self.ctx.env, self.ctx.deadline,
+                    {}, self.receipt, {})
+                result = self.preflight()
+                self.assertEqual([["known"]] if bound else [],
+                                 result["facts"]["exact_atomic_inventory"])
+                self.assertEqual([], result["facts"]["exact_whole_inventory"])
+
+    def test_whole_topology_correspondence_does_not_bind_unknown_inventory(self):
+        self.check_whole_inventory_correspondence(None, False)
+
+    def bind_group_budget(self, cap):
+        for name in ("second.scm", "extra.scm"):
+            (self.unit / name).write_text("synthetic group fixture")
+        self.files = [Path(name) for name in ("control.scm", "second.scm", "extra.scm")]
+        self.args.update(regime="whole-parallel", groupBudgetSeconds={"thread-completion": {
+            "files": ["control.scm", "second.scm"], "budgetSeconds": cap}})
+        previous = json.loads(self.prior.read_text())
+        previous["selectedFiles"] = ["control.scm", "second.scm"]
+        self.save("evidence/failed.json", previous)
+        self.doc["campaign"] = review.campaign(self.ctx, self.args, self.runtime,
+                                               self.candidate, self.files, self.unit)
+        entry = self.doc["failures"][0]
+        entry["receiptSha256"] = digest(self.prior)
+        entry["budget"]["group"] = "thread-completion"
+        for row in self.evidence["claims"]:
+            row["failureReceiptSha256"] = digest(self.prior)
+        self.save_review()
+
+    def test_group_correspondence_binds_original_inventory_and_budget(self):
+        self.bind_group_budget(8)
+        result = self.preflight()
+        self.assertEqual([["known", "thread-completion"]], result["facts"]["scoped_file_group"])
+        self.assertEqual([["known", "group-step", 8000]], result["facts"]["original_budget"])
+        self.assertEqual([["known", "group-step", 8000]], result["facts"]["requested_budget"])
+
+    def test_group_correspondence_rejects_scope_omission(self):
+        self.bind_group_budget(8)
+        self.args["groupBudgetSeconds"]["thread-completion"]["files"] = ["control.scm"]
+        self.doc["campaign"] = review.campaign(self.ctx, self.args, self.runtime,
+                                               self.candidate, self.files, self.unit)
+        self.save_review()
+        with self.assertRaisesRegex(ValueError, "exact original whole-group"):
             self.preflight()
 
     def bind_current_review(self):
@@ -223,9 +338,70 @@ class TypedRetryReviewTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 review.milliseconds(value)
 
+    def bind_single_file_budget(self, cap):
+        data = json.loads(self.prior.read_text())
+        data["selectedFiles"] = ["control.scm"]
+        self.save("evidence/failed.json", data)
+        self.args.update(regime="whole-parallel", fileBudgetSeconds={"control.scm": cap})
+        self.current = review.campaign(self.ctx, self.args, self.runtime, self.candidate, self.files, self.unit)
+        self.doc["campaign"] = self.current
+        entry = self.doc["failures"][0]
+        entry["receiptSha256"] = digest(self.prior)
+        entry["budget"]["file"] = "control.scm"
+        for row in self.evidence["claims"]:
+            row["failureReceiptSha256"] = digest(self.prior)
+        self.save_review()
+
+    def test_single_file_budget_binds_independent_cap_not_containing_suite(self):
+        self.bind_single_file_budget(8)
+        result = self.preflight()
+        self.assertEqual([["known", "file-step", 8000]], result["facts"]["original_budget"])
+        self.assertEqual([["known", "file-step", 8000]], result["facts"]["requested_budget"])
+
+    def test_single_file_scope_cannot_be_invented_for_multi_file_history(self):
+        self.bind_single_file_budget(8)
+        self.doc["failures"][0]["budget"]["file"] = "other.scm"
+        self.save_review()
+        with self.assertRaisesRegex(ValueError, "original single-file"):
+            self.preflight()
+
 
 @unittest.skipUnless("GAMBIT_SMP_TEST_ENGINE" in os.environ, "run inside an actual sealed native engine")
 class NativeRetryInferenceTests(TypedRetryReviewTests):
+    def test_expanded_group_cap_is_native_denial(self):
+        self.bind_group_budget(9)
+        result = self.preflight()
+        self.assertEqual("DENY", result["decision"])
+        self.assertIn(["known", "budget-expanded"], result["answers"]["denied"])
+
+    def test_same_regime_scope_change_is_native_denial(self):
+        previous = json.loads(self.prior.read_text())
+        previous["selectedFiles"] = ["other.scm"]
+        self.save("evidence/failed.json", previous)
+        self.doc["failures"][0]["receiptSha256"] = digest(self.prior)
+        for row in self.evidence["claims"]:
+            row["failureReceiptSha256"] = digest(self.prior)
+        self.save_review()
+        result = self.preflight()
+        self.assertEqual([], result["facts"]["exact_whole_inventory"])
+        self.assertEqual("DENY", result["decision"])
+        self.assertIn(["known", "budget-regime-changed"], result["answers"]["denied"])
+
+    def test_nested_budget_remains_native_denial_when_enlarged(self):
+        self.bind_single_file_budget(9)
+        result = self.preflight()
+        self.assertEqual("DENY", result["decision"])
+        self.assertIn(["known", "budget-expanded"], result["answers"]["denied"])
+
+    def test_missing_nested_cap_cannot_be_authorized_by_whole_cap(self):
+        self.bind_single_file_budget(8)
+        self.args["fileBudgetSeconds"] = {}
+        self.doc["campaign"] = review.campaign(self.ctx, self.args, self.runtime, self.candidate, self.files, self.unit)
+        self.save_review()
+        result = self.preflight()
+        self.assertEqual("DENY", result["decision"])
+        self.assertIn(["known", "budget-unbound"], result["answers"]["denied"])
+
     def test_build_step_uses_the_same_policy_and_original_budget(self):
         (self.runtime / "Makefile").write_text("synthetic makefile, never executed")
         self.files, self.unit = [Path("Makefile")], self.runtime

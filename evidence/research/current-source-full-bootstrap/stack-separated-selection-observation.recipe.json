@@ -1,0 +1,136 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-separated-selection-observation",
+  "scope": "Import the separated candidate's first-stack-write failure as an entry-contract violation, not as a reconstructed writer. Retain the narrow payload-separation positive control; it must not imply native repair.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-section-pool-metadata/source.lock.json",
+    "evidence/fixtures/darwin-section-pool-metadata/native-incident.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/research/current-source-full-bootstrap/darwin-section-pool-historical-producer.json",
+    "patches/fixtures/darwin-section-pool-metadata.patch",
+    "evidence/fixtures/darwin-section-pool-metadata/review-contract.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json",
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/fixtures/darwin-frame-ra-boundary/native-observation.json",
+    "evidence/fixtures/darwin-section-pool-metadata/model-observation.json",
+    "evidence/fixtures/darwin-heap-frame-identity/native-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-section-pool-metadata/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-section-pool-historical-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "selected-entry-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initObservedSeparatedSelection",
+        "step": "step",
+        "invariant": "rawStackWriteSafe",
+        "negative": true
+      }
+    },
+    {
+      "id": "separation-scope-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initSeparatePoolMetadata",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "parse",
+        "typecheck",
+        "selected-entry-control",
+        "separation-scope-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

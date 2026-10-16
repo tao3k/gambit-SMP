@@ -1,0 +1,115 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "shared-msection-fresh-return-observation",
+  "scope": "Compose existing stack ownership with shared arena cursor. Import the actual post-return invalid fresh cursor with an empty private pool; do not invent corruption of a stored next word or a legal header writer.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/shared_msection_successor.qnt",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "patches/fixtures/darwin-section-owned-undo.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/gc_recheck_visibility_completion.qnt",
+    "models/gambit/gc_recheck_visibility.qnt",
+    "docs/gc-single-round-probe-review.md",
+    "evidence/fixtures/darwin-gc-complete-probe-round/source.lock.json",
+    "patches/fixtures/darwin-gc-complete-probe-round.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-gc-complete-probe-round-completed-producer.json",
+    "evidence/fixtures/darwin-gc-complete-probe-round/native-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-gc-complete-probe-round/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/shared_msection_successor.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/shared_msection_successor.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "stale-snapshot-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/shared_msection_successor.qnt",
+        "parsed": "parse",
+        "initializer": "initObservedFreshReturn",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "live-break-cursor",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/shared_msection_successor.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "stale-snapshot-control",
+        "live-break-cursor"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

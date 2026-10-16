@@ -24,9 +24,51 @@ def build_capacity(cpus):
             "compilerProcessors": population, "selection": "host-auto-shared-budget"}
 
 
-def core_command(plan):
+class BootstrapPhaseProgress:
+    """A next phase closes the preceding attempt; final success is separate."""
+    def __call__(self, stdout, stderr):
+        expected = (1, 2, 3, 4, 1, 2, 3, 4)
+        reached = 0
+        for line in stdout.splitlines():
+            if not line.startswith("*** making phase"):
+                continue
+            if reached >= len(expected) or line != f"*** making phase{expected[reached]}":
+                break
+            reached += 1
+        return max(0, reached - 1)
+
+
+class ConfigureProbeProgress:
+    """Completed unique Autoconf probes, not checking announcements or noise."""
+    def __call__(self, stdout, stderr):
+        completed = set()
+        for line in stdout.splitlines(keepends=True):
+            if not line.endswith("\n"):
+                continue
+            match = re.fullmatch(r"checking (.+?)\.\.\. (\S[^\r\n]*)\n", line)
+            if match:
+                completed.add(match[1])
+        return len(completed)
+
+
+class CoreBuildProgress(BootstrapPhaseProgress):
+    """GNU make reports successful target completion after the recipe exits."""
+    def __call__(self, stdout, stderr):
+        targets = set()
+        for line in stdout.splitlines(keepends=True):
+            match = re.fullmatch(r"\s*Successfully remade target file ['`]([^'`\r\n]+)'\.\n", line)
+            if match:
+                name = match[1]
+                if name.endswith((".o", ".a")) or Path(name).name in {"gsi", "gsc", "gsc-boot"}:
+                    targets.add(name)
+        return super().__call__(stdout, stderr) + len(targets)
+
+
+def core_command(plan, target="core"):
+    if target not in {"core", "from-scratch"}:
+        raise ValueError("explicit bounded core or bootstrap target required")
     return ["make", "-j" + str(plan["makeJobs"]),
-            "GAMBOPT=p" + str(plan["compilerProcessors"]), "core"]
+            "GAMBOPT=p" + str(plan["compilerProcessors"]), target]
 
 
 def command(plan, compiler, source, output):
@@ -46,14 +88,20 @@ def command(plan, compiler, source, output):
 def build_seed_core(stages, source, budget):
     plan = build_capacity(available_processors())
     jobs = plan["makeJobs"]
-    code, log, timeout, _ = stages.run("seed-core", core_command(plan), source, budget)
+    progress_timed = getattr(stages, "progress_mode", False)
+    argv = core_command(plan)
+    if progress_timed:
+        argv.insert(1, "--debug=b")
+    code, log, timeout, _ = stages.run("seed-core", argv, source, budget,
+        **({"progress": CoreBuildProgress()} if progress_timed else {}))
     artifacts = {name: digest(source / name) for name in
                  ("gsi/gsi", "gsc/gsc", "lib/libgambit.a") if (source / name).is_file()}
     errors = build_errors(log)
     return code == 0 and not timeout and not errors and len(artifacts) == 3, {
         "processors": jobs, "processorSelection": "host-auto-shared-budget",
         "capacity": plan, "artifacts": artifacts,
-        "recursiveBuildErrors": errors, "scmRegenerationEstablished": False}
+        "recursiveBuildErrors": errors, "scmRegenerationEstablished": False,
+        "watchdogKind": "completed-native-target-inactivity" if progress_timed else "wall-clock"}
 
 
 def regenerate_module(stages, source, name, budget):

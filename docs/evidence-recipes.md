@@ -41,6 +41,17 @@ are checked before execution and rechecked afterward. Constructors must be
 actual exports of that module. There is no Python module loader, language
 lowerer, handler registry or alternate inference backend.
 
+The `rules` entry retains the complete upstream DSL loader by default. A
+Recipe may explicitly set `rulesContract: "inert-relational-subset.v1"` to use
+the Library's checked `open-rule-sources` entry. The consumer verifies both the
+operation and advertised `ruleTextContract`; missing or mismatched capabilities
+are errors, never fallback to another loader. Scheme reads and validates every
+declared source before creating the ordinary source session. Full DSL macros,
+arbitrary predicates and module definitions are not silently projected into
+this subset. In particular, the complete retry policy still uses its original
+full DSL path: its compound comparisons are outside the inert contract.
+`rulesContract` is forbidden with `module` or `dsl` entries.
+
 The constructor executes normal upstream Scheme Program/Fragment semantics.
 `queries` are partitioned into `expected` exact scalar transport controls and
 `recordedQueries` native observations. A result that cannot use the scalar
@@ -182,4 +193,55 @@ binding, judgments and entry points, including negative controls, timeout and
 parent exit propagation. Historical dedicated producers and failed receipts
 remain reproducible history, not the new experiment production interface.
 This independent architecture gate cannot qualify the Gambit full-GC chain.
+
+## Stage Watchdogs Versus Research Quotas
+
+New stage-timed Recipes declare `timeoutPolicy` as
+`{"mode": "per-stage", "overheadSeconds": 30}` and omit top-level
+`budgetSeconds`, `continuationRequest` and `continuationLedger`. Each step
+retains its positive finite `budgetSeconds` watchdog. A fresh attempt starts
+fresh stage clocks; previous attempt costs are immutable observations, not
+deductions. The executor derives an outer supervisor limit from the sum of
+stage caps plus the declared orchestration allowance. Its receipt records
+that derived bound as `budgetSeconds` and `supervisorWatchdogSeconds`, alongside
+the explicit timeout policy. It is not a performance acceptance threshold.
+Legacy whole-budget/quota Recipes keep their original semantics and receipts.
+Mixed stage-watchdog and cumulative-quota declarations reject.
+
+`--prior` still binds failure identity and requires a material change. Migrating
+an interrupted attempt to a differently named stage-timed Recipe additionally
+checks the immutable original request/Recipe, identical stage graph and input
+closure, unchanged stage caps and a reaped, quiescent prior process group.
+The prior receipt is never rewritten and partial native coverage is not
+silently resumed or promoted to a complete test pass.
+
+An explicit repository Recipe path passed to `research --run` validates only
+that Recipe and its declared closure. Name-based discovery remains available;
+an unrelated unfinished Recipe cannot block explicit-path execution. Both
+entry forms still require a sealed implementation, exact input binding and
+the same native causal review. A watchdog timeout means incomplete execution,
+not proof of deadlock; release performance remains a separate gate.
+
+### Completed-Work Inactivity Policy
+
+The current human-approved anti-stall policy is
+`{"mode": "progress", "overheadSeconds": 30}`, with the same prohibition on
+top-level cumulative quota/continuation declarations. Step `budgetSeconds`
+values define inactivity windows rather than total elapsed execution limits.
+The parent supervisor derives its inactivity window from the largest step
+window plus orchestration allowance, not the sum of historical attempt costs.
+Receipts identify this explicitly as `supervisorWatchdogKind: "no-progress"`.
+
+Only the sealed adapters' completed-work events renew the clocks: completed
+compiler subprocess phases, completed test files and validated terminal stage
+observations. Repeated counters, raw log output, timestamps and heartbeats
+cannot renew a clock. A failed but completed test file may advance the clock,
+but still fails correctness admission. Quiet individual phases retain their
+own inactivity bound; progressing campaigns are not killed solely for total
+wall-clock duration. Performance admission remains independent and unchanged.
+
+Every fresh attempt starts fresh watchdogs. Prior receipts, hashes and elapsed
+cost remain immutable evidence and are not deducted from a later allowance.
+Policy migration still requires exact stage/input binding and a quiescent
+prior process group. Partial coverage is never promoted to full-suite success.
 

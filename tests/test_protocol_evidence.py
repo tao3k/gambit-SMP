@@ -13,6 +13,23 @@ from tests.support import protocol_fixture
 
 
 class ProtocolEvidenceTests(unittest.TestCase):
+    def test_budget_ledger_parent_is_registered_without_admission(self):
+        manifest_name = "evidence/research/continuation-retained-seed-bootstrap/budget-ledger-contract.json"
+        receipt_name = "evidence/model-results/research/checkpoint-budget-ledger/receipt.json"
+        manifest = json.loads((ROOT / manifest_name).read_text())
+        parent = manifest["cases"][0]
+        self.assertTrue(parent["registrationOnly"])
+        self.assertNotIn("temporal", parent)
+        self.assertEqual(parent["id"], "checkpoint_budget_ledger")
+        rows, bound = evidence.bundle_facts(ROOT, manifest_name, receipt_name)
+        self.assertEqual(rows["protocol_checked"], [])
+        self.assertEqual(rows["protocol_composes"], [])
+        self.assertEqual(bound["models/gambit/checkpoint_budget_ledger.qnt"],
+                         digest(ROOT / "models/gambit/checkpoint_budget_ledger.qnt"))
+        child = json.loads((ROOT / "evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json").read_text())
+        self.assertEqual(child["cases"][0]["composes"], [parent["id"]])
+        self.assertIn((manifest_name, receipt_name), evidence.load_bundles(ROOT))
+
     def test_log_processor_composition_has_real_control_and_complete_check(self):
         manifest = json.loads((ROOT / "evidence/fixtures/pstate-log-owned-rollback/processor-log-contract.json").read_text())
         receipt = ROOT / "evidence/model-results/fixtures/pstate-log-owned-rollback/processor-log-contract/receipt.json"

@@ -23,7 +23,7 @@ class NumericPhaseEvidenceTests(unittest.TestCase):
         self.assertNotIn("/Users/", (folder / "receipt.json").read_text())
         return folder, receipt
 
-    def test_corrected_adapter_continuous_campaign_is_scoped_and_bound(self):
+    def test_historical_adapter_continuous_campaign_is_scoped_and_bound(self):
         folder, receipt = self.receipt("numeric-continuous-loader-contract", continuous=True)
         self.assertEqual(receipt["status"], "PASS")
         self.assertTrue(receipt["sourceStable"])
@@ -31,7 +31,9 @@ class NumericPhaseEvidenceTests(unittest.TestCase):
         self.assertLessEqual(receipt["seconds"], receipt["wholeProbeBudget"])
         self.assertEqual(receipt["wholeProbeBudget"], 90)
         self.assertEqual(receipt["adapterSha256"], digest(folder / "compiler_cost.py"))
-        self.assertEqual(receipt["adapterSha256"], digest(ROOT / "src/gambit_smp/compiler_cost.py"))
+        # Historical execution binds the archived adapter, not today's code.
+        archive = json.loads((folder / "archive.json").read_text())
+        self.assertEqual(receipt["adapterSha256"], archive["files"]["compiler_cost.py"])
         _, prior = self.receipt("numeric-phase-loader-denial")
         self.assertEqual([r["artifactSha256"] for r in receipt["stages"][:2]],
                          [r["artifactSha256"] for r in prior["stages"][:2]])
@@ -44,6 +46,17 @@ class NumericPhaseEvidenceTests(unittest.TestCase):
             self.assertTrue(row["process"]["processGroupQuiescent"])
         self.assertEqual((folder / "compiled-execution.log").read_text(),
                          "COMPILER-PHASE:module-initialized,assertions-passed\n")
+
+    def test_current_predicate_validates_witness_without_readmitting_history(self):
+        from gambit_smp.compiler_phase_primitives import EXECUTION_WITNESS, stage_accepted
+        folder, receipt = self.receipt("numeric-continuous-loader-contract", continuous=True)
+        output = (folder / "compiled-execution.log").read_text()
+        self.assertTrue(stage_accepted(0, False, output, None, EXECUTION_WITNESS))
+        self.assertFalse(stage_accepted(0, False, "", None, EXECUTION_WITNESS))
+        self.assertFalse(stage_accepted(0, False, output + output, None, EXECUTION_WITNESS))
+        self.assertFalse(stage_accepted(70, False, output, None, EXECUTION_WITNESS))
+        self.assertFalse(stage_accepted(0, True, output, None, EXECUTION_WITNESS))
+        self.assertFalse(receipt["runtimeAdmitted"])
 
     def test_original_denial_is_loading_not_compile_timeout(self):
         folder, receipt = self.receipt("numeric-phase-loader-denial")

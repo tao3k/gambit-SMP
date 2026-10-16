@@ -1,0 +1,19 @@
+--- a/gambit.h
++++ b/gambit.h
+@@ -6221,6 +6221,15 @@
++#if defined(__APPLE__) && defined(__MACH__) && defined(__GNUC__) && !defined(__clang__) && defined(__ATOMIC_ACQUIRE)
++/* Ticket reservation precedes the previous owner's protected writes. */
++#define ___TICKETLOCK_READ_CURRENT(current) \
++__atomic_load_n(___CAST(___WORD*,&current),__ATOMIC_ACQUIRE)
++#else
++#define ___TICKETLOCK_READ_CURRENT(current) \
++(*___CAST(___VOLATILE ___WORD*,&current))
++#endif
++
+ #define ___TICKETLOCK_LOCK2(next,current) \
+ do { \
+   ___WORD ___ticket = ___FETCH_AND_ADD_WORD(___CAST(___VOLATILE ___WORD*,&next),___FIX(1)); \
+-  while (*___CAST(___VOLATILE ___WORD*,&current) != ___ticket) \
++  while (___TICKETLOCK_READ_CURRENT(current) != ___ticket) \
+     ___CPU_RELAX(); \
+ } while (0)

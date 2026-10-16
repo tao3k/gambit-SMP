@@ -259,7 +259,15 @@ class ReviewGraphTests(unittest.TestCase):
             git(upstream, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org",
                 "commit", "-qm", "child")
             git(root, "init", "-q")
+            git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org",
+                "commit", "--allow-empty", "-qm", "initial parent")
             git(root, "-c", "protocol.file.allow=always", "submodule", "add", str(upstream), "vendor/child")
+            name = "vendor/child/tracked source"
+            staged = checkout(root, {name})
+            self.assertFalse(staged["files"][name]["durableAtHead"])
+            self.assertFalse(staged["submodules"]["vendor/child"]["matchesParentHead"])
+            self.assertEqual(staged["files"][name]["repositoryHead"],
+                             staged["submodules"]["vendor/child"]["pinnedRevision"])
             git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org",
                 "commit", "-qm", "parent")
             name = "vendor/child/tracked source"

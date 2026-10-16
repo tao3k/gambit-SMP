@@ -1,0 +1,27 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "seed-checkpoint-handoff-model",
+  "scope": "Finite seed transfer, retained DENY/budget, fresh review and no expired resumption. Retry uses the new fixed evidence-dag provider rather than the timed-out old API. Original failed whole expenditure 33.462529416996404 remains charged within the original 300-second scope; retry cap 266. No native runtime or SMP gate admission.",
+  "budgetSeconds": 266,
+  "inputs": ["models/gambit/seed_checkpoint_handoff.qnt", "evidence/research/execution-rules.ss",
+             "evidence/fixtures/foreign-origin-lease-admission/source.lock.json", "patches/fixtures/foreign-origin-lease-admission.patch"],
+  "steps": [
+    {"id":"source", "capability":"gambit.materialize", "dependsOn":[], "budgetSeconds":30,
+     "arguments":{"sourceLock":"evidence/fixtures/foreign-origin-lease-admission/source.lock.json"}},
+    {"id":"parse", "capability":"quint.parse", "dependsOn":["source"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/seed_checkpoint_handoff.qnt"}},
+    {"id":"type", "capability":"quint.typecheck", "dependsOn":["parse"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/seed_checkpoint_handoff.qnt", "parsed":"parse"}},
+    {"id":"safe", "capability":"quint.verify", "dependsOn":["parse","type"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/seed_checkpoint_handoff.qnt", "parsed":"parse", "initializer":"init", "step":"step", "invariant":"safe", "negative":false}},
+    {"id":"review-bypass-control", "capability":"quint.verify", "dependsOn":["parse","type"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/seed_checkpoint_handoff.qnt", "parsed":"parse", "initializer":"initBypass", "step":"step", "invariant":"safe", "negative":true}},
+    {"id":"charge-reset-control", "capability":"quint.verify", "dependsOn":["parse","type"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/seed_checkpoint_handoff.qnt", "parsed":"parse", "initializer":"initReset", "step":"step", "invariant":"safe", "negative":true}},
+    {"id":"trajectories", "capability":"quint.test", "dependsOn":["parse","type"], "budgetSeconds":15,
+     "arguments":{"source":"models/gambit/seed_checkpoint_handoff.qnt", "parsed":"parse", "main":"seed_checkpoint_handoff", "seed":"0x1510", "maxSamples":1,
+                  "expectedTests":["checkedHandoffTest","seedIsNotRuntimeTest","expiredIsNotResumeTest","sourceDriftTest","reviewBypassControlTest","chargeResetControlTest"]}},
+    {"id":"verdict", "capability":"evidence.evaluate", "dependsOn":["source","parse","type","safe","review-bypass-control","charge-reset-control","trajectories"], "budgetSeconds":10,
+     "arguments":{"rules":["evidence/research/execution-rules.ss"], "queries":{"missing":"missing_step"}, "expected":{"missing":[]}}}
+  ]
+}

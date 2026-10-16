@@ -1,9 +1,10 @@
 """Real evidence through downstream DSL and a Python-only Library entry."""
 import json
 import unittest
-from ascent_engine import EngineError
+from ascent import EngineError
 
 from gambit_smp.ascent_program import definitions, evaluate, load_component_catalog, engine_api
+from gambit_smp import ascent_program
 from gambit_smp.evidence_index import export
 from gambit_smp.framework import ROOT, digest
 
@@ -34,7 +35,7 @@ class EvidenceInvestigationScenario(unittest.TestCase):
             self.assertEqual(answers, repeated)
             self.assertEqual(first['sourceGeneration'], second['sourceGeneration'])
             self.assertTrue(second['nativeResultReused'])
-            owner = next(iter(engine._gambit_query_owners.values()))
+            owner = next(iter(ascent_program._query_owners[engine].values()))
             explanation = owner.last_result.explanation('missing')
             owner.last_result.close()
             text = json.dumps(explanation.graph)
@@ -44,7 +45,7 @@ class EvidenceInvestigationScenario(unittest.TestCase):
             self.assertIn(facts['field'][0][3], text)
             explanation.close()
             with self.assertRaises(ValueError):
-                explanation.reference(0)
+                _ = explanation.graph
             # Withdraw an actual existing required field, then restore its bytes.
             withdrawn = next(row for row in facts['field'] if row[1] == 'fixture-sha')
             updated = dict(facts, field=[row for row in facts['field'] if row != withdrawn])
@@ -58,47 +59,27 @@ class EvidenceInvestigationScenario(unittest.TestCase):
             restored, fourth = evaluate(engine, facts, catalog, entry['queries'])
             self.assertEqual(restored, answers)
             self.assertGreater(fourth['sourceGeneration'], third['sourceGeneration'])
-            self.assertEqual(first['nativeSessionHandle'], fourth['nativeSessionHandle'])
-            # The same real contract inventory now uses ordinary owned DSL
-            # closures and higher-order operators, without a Catalog projection.
+            self.assertEqual(first['sessionOwner'], fourth['sessionOwner'])
+            # The explicitly approved contract uses precompiled Graph closures,
+            # not runtime ordinary Scheme procedures or a host interpreter.
             edges = [row[:2] for row in facts['contracts']]
-            atoms = sorted({atom for row in edges for atom in row})
-            with definitions(catalog, engine=engine) as (module, context):
-                self.assertEqual(context['sourceInputs'], catalog['sourceInputs'])
-                with module.call('make-dependency-updater', edges, component='dependency') as updater:
-                    for current in (facts, dict(facts, contracts=facts['contracts'][1:]), facts):
-                        expected, _ = evaluate(engine, current, catalog, entry['queries'])
-                        rows = [row[:2] for row in current['contracts']]
-                        ancestry = [list(row) for row in expected['dependencies']]
-                        with module.call('dependency-update-summary', updater.reference(),
-                                         rows, ancestry, component='dependency') as result:
-                            self.assertEqual(result.graph['format'], 'native-value-graph.v1')
-                        with module.call('typed-dependency-summary', atoms, rows, ancestry,
-                                         component='dependency') as typed:
-                            self.assertEqual(typed.graph['format'], 'native-value-graph.v1')
-                with self.assertRaises(ValueError):
-                    updater.apply(edges)
-                # Actors execute the admitted positive dependency graph;
-                # aggregate/negation/lattice investigation rules stay unchanged.
-                for workers in (1, 2, 4):
-                    with module.call('make-dependency-actor', edges, workers,
-                                     component='dependency') as actor:
-                        try:
-                            for current in (facts, dict(facts, contracts=facts['contracts'][1:]), facts):
-                                expected, _ = evaluate(engine, current, catalog, entry['queries'])
-                                with module.call('dependency-actor-summary', actor.reference(),
-                                                 [row[:2] for row in current['contracts']],
-                                                 [list(row) for row in expected['dependencies']],
-                                                 component='dependency') as result:
-                                    self.assertEqual(result.graph['format'], 'native-value-graph.v1')
-                            with actor.apply('cancel', []) as idle:
-                                self.assertIsNotNone(idle.graph)
-                        finally:
-                            with actor.apply('close', []):
-                                pass
-                        with self.assertRaises(EngineError) as rejected:
-                            actor.apply('run', [])
-                        self.assertIn('Session closed', str(rejected.exception))
+            for workers in (1, 2, 4):
+                from ascent import Engine
+                with Engine(workers=workers) as graph_engine:
+                    graph = {'algorithm': 'transitive', 'source': 'contracts', 'width': 2,
+                             'rows': edges, 'output': 'ancestry', 'captures': {}}
+                    with graph_engine.core_graph(graph, trusted=True) as updater:
+                        for current in (facts, dict(facts, contracts=facts['contracts'][1:]), facts):
+                            expected, _ = evaluate(engine, current, catalog, entry['queries'])
+                            updater.replace({'contracts': [row[:2] for row in current['contracts']]}).value()
+                            with updater.run(result_format='typed-rows') as result:
+                                actual = result.value()['relations']['ancestry']
+                                ancestry = [[{'type': 'string', 'value': value} for value in row]
+                                            for row in expected['dependencies']]
+                                self.assertEqual(actual, ancestry)
+                        self.assertFalse(updater.runtime().value()['schemeVm'])
+                    with self.assertRaises(ValueError):
+                        updater.run()
             self.assertTrue(identity)
         with self.assertRaises(ValueError):
             owner.session.run()

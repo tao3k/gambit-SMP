@@ -1,6 +1,6 @@
 ;;; Receipt closure is reusable; the review policy is explicit at this entry.
 (define-evidence (make-review)
-  (sources Candidate Failure Passed ReceiptInput CurrentInput ReceiptDepends Requires ClaimDepends Cause)
+  (sources Candidate Failure Passed ReceiptInput CurrentInput ReceiptDepends Requires ClaimDepends Cause FailureBinding FailureClaim ReviewedLink)
   (outputs KnownFailure Established Reusable Missing Unusable Denial Need ReceiptPath CausalEvidence Decision)
   (relation Candidate ((candidate symbol?) (scope symbol?) (identity symbol?)))
   (relation Failure ((failure symbol?) (scope symbol?) (identity symbol?) (report symbol?)))
@@ -11,6 +11,9 @@
   (relation Requires ((candidate symbol?) (claim symbol?)))
   (relation ClaimDepends ((claim symbol?) (dependency symbol?)))
   (relation Cause ((candidate symbol?) (failure symbol?) (receipt symbol?)))
+  (relation FailureBinding ((failure symbol?) (report symbol?) (hash symbol?)))
+  (relation FailureClaim ((candidate symbol?) (failure symbol?) (identity symbol?) (report symbol?) (hash symbol?) (claim symbol?)))
+  (relation ReviewedLink ((candidate symbol?) (failure symbol?) (identity symbol?) (report symbol?) (hash symbol?) (claim symbol?) (receipt symbol?)))
   (relation PassedId ((receipt symbol?)))
   (relation Bound ((receipt symbol?)))
   (relation Bad ((receipt symbol?)))
@@ -36,7 +39,12 @@
   ((Missing C P) <-- (Need C P) (not (Claim P)))
   ((Relevant C F I Report) <-- (Candidate C S CI) (Failure F S I Report))
   ((KnownFailure C F Report) <-- (Relevant C F I Report))
-  ((CausalEvidence C F R) <-- (Cause C F R) (Reusable R P))
+  ;; Cause is a proposal, not an authenticated correspondence.
+  ((CausalEvidence C F R) <--
+    (Candidate C S CI) (Failure F S FI Report)
+    (FailureBinding F Report Hash)
+    (FailureClaim C F CI Report Hash P)
+    (ReviewedLink C F CI Report Hash P R) (Reusable R P))
   ((HasCause C F) <-- (CausalEvidence C F R))
   ((Denial C (lit 'unchanged-failed-inputs)) <-- (Candidate C S I) (Failure F S I Report))
   ((Denial C (lit 'missing-causal-evidence)) <-- (Relevant C F I Report) (not (HasCause C F)))

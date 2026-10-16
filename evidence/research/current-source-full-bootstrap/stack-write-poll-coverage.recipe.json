@@ -1,0 +1,132 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-write-poll-coverage",
+  "scope": "Refine the existing owner-limit protocol with absent poll coverage; diagnostic denial preserves bytes but is not completed runtime work.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_write_poll_coverage.qnt",
+    "models/gambit/stack_trip_owner_limit.qnt",
+    "docs/stack-write-poll-coverage.md",
+    "evidence/fixtures/darwin-stack-trip-owner-limit/stack-write-symbolization.json",
+    "evidence/fixtures/darwin-stack-write-boundary/source.lock.json",
+    "patches/fixtures/darwin-stack-write-boundary.patch",
+    "evidence/fixtures/darwin-stack-write-boundary/review-contract.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_write_poll_coverage.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_write_poll_coverage.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "covered",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_write_poll_coverage.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "unpolled",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_write_poll_coverage.qnt",
+        "parsed": "parse",
+        "initializer": "initUnpolled",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "observed-stores",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_write_poll_coverage.qnt",
+        "parsed": "parse",
+        "initializer": "initObservedStores",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "covered",
+        "unpolled",
+        "observed-stores"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

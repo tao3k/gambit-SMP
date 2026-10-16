@@ -1,0 +1,113 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-section-poll-floor",
+  "scope": "Bounded frame writes under a Darwin physical stack guard, including a stale stack_trip negative control; no native or performance admission.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_section_poll_floor.qnt",
+    "docs/stack-section-poll-floor.md",
+    "evidence/fixtures/darwin-msection-header-page-guard/first-stack-write.json",
+    "evidence/fixtures/darwin-msection-header-page-guard/source.lock.json",
+    "evidence/research/execution-rules.ss",
+    "patches/fixtures/darwin-msection-header-page-guard.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-msection-header-page-guard-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-msection-header-page-guard-source-state.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-msection-header-page-guard/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-msection-header-page-guard-source-state-reference.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_section_poll_floor.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_section_poll_floor.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "guarded",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_section_poll_floor.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "stale-trip-only",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_section_poll_floor.qnt",
+        "parsed": "parse",
+        "initializer": "initStaleTripOnly",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "guarded",
+        "stale-trip-only"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

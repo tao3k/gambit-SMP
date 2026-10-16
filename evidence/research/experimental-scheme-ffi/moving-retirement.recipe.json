@@ -1,0 +1,15 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"current-moving-callback-and-retirement",
+  "scope":"First current-runtime observations: official Scheme/C/Scheme callback physically moves a vector and validates every element in C without dereferencing a stale address; existing frame fixture rejects retirement while the actual origin C frame is live, then allows unrelated retirement and returns through C. Not arbitrary movable raw-pointer borrowing or full runtime/performance admission. Original callback whole300/compile-execute120/execution30 budgets are retained; any failure stops the recipe.",
+  "budgetSeconds":300,
+  "workspacePolicy":"in-place",
+  "inputs":["evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json","patches/fixtures/darwin-dynamic-modulo-scope.patch","evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json","tests/experimental/moving_callback_gc.scm","models/gambit/native/foreign_origin_frame_roundtrip.scm","evidence/native-failures.json","evidence/research/execution-rules.ss"],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":15,"arguments":{"sourceLock":"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/scope-reviewed-completed-producer.json"}},
+    {"id":"moving","capability":"gambit.executable-test","dependsOn":["source","producer"],"budgetSeconds":120,"arguments":{"runtime":{"step":"producer","output":"runtime"},"identity":{"step":"producer","output":"identity"},"program":"tests/experimental/moving_callback_gc.scm","stdout":"MOVING-CALLBACK-GC:PASS\n","processorTopology":"host-managed","executionBudgetSeconds":30}},
+    {"id":"retirement","capability":"gambit.executable-test","dependsOn":["source","producer","moving"],"budgetSeconds":120,"arguments":{"runtime":{"step":"producer","output":"runtime"},"identity":{"step":"producer","output":"identity"},"program":"models/gambit/native/foreign_origin_frame_roundtrip.scm","stdout":"FOREIGN-ORIGIN-FRAME:PASS\n","processorTopology":"host-managed","executionBudgetSeconds":30}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","moving","retirement"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

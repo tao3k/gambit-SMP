@@ -1,0 +1,40 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"btq-copy-epochs-composition",
+  "scope":"Two-node/two-copy-worker field-projected forwarding CAS, word copying, scan leases and two semispace epochs, interleaved with actual existing BTQ deletion actions. Finite SC model, not full thread layout, collector source refinement, weak memory or native repair.",
+  "workspacePolicy":"in-place",
+  "timeoutPolicy":{"mode":"progress","overheadSeconds":30},
+  "inputs":[
+    "models/gambit/btq_copy_epochs.qnt",
+    "models/gambit/btq_operations.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/source.lock.json",
+    "patches/fixtures/darwin-ffi-return-premise.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-ffi-premise-completed-producer.json",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-symbolization.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+      "arguments":{"sourceLock":"evidence/fixtures/darwin-ffi-return-premise/source.lock.json","workspace":".data/fixtures/vm-pending-join-retention/source"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":60,
+      "arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/darwin-ffi-premise-completed-producer.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse"}},
+    {"id":"copy-epochs","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":60,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","temporal":"completion","negative":false}},
+    {"id":"duplicate-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse","initializer":"initDuplicate","step":"step","invariant":"safe","negative":true}},
+    {"id":"publication-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse","initializer":"initEarlyPublish","step":"step","invariant":"safe","negative":true}},
+    {"id":"right-edge-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse","initializer":"initMissingRight","step":"step","invariant":"safe","negative":true}},
+    {"id":"resume-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse","initializer":"initEarlyResume","step":"step","invariant":"safe","negative":true}},
+    {"id":"arena-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/btq_copy_epochs.qnt","parsed":"parse","initializer":"initAliasedArena","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","parse","typecheck","copy-epochs","duplicate-control","publication-control","right-edge-control","resume-control","arena-control"],"budgetSeconds":10,
+      "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

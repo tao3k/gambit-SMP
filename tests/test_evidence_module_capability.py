@@ -10,46 +10,47 @@ from gambit_smp import evidence_capabilities as capability
 
 class EvidenceModuleContractTests(unittest.TestCase):
     def entry(self):
-        return {"schema": "ascent.evidence-module-entry.v1", "module": ":example/evidence",
-                "constructor": "make-evidence", "arguments": [], "sourceSha256": "0" * 64}
+        return {"schema": "ascent.evidence-dsl-entry.v1", "trusted": True,
+                "constructor": "make-evidence", "arguments": [],
+                "sources": [{"path": "module.ss", "sha256": "0" * 64}]}
 
     def test_module_entry_and_exact_recorded_partition(self):
-        args = {"module": "evidence/module.json", "queries": {"ok": "complete", "value": "native_value"},
+        args = {"dsl": "evidence/module.json", "queries": {"ok": "complete", "value": "native_value"},
                 "expected": {"ok": [[True]]}, "recordedQueries": ["value"]}
         capability.validate(args, ["evidence/module.json"])
-        self.assertEqual(capability.module_entry(self.entry()), self.entry())
+        self.assertEqual(capability.dsl_entry(self.entry()), self.entry())
         for change in ({"recordedQueries": []}, {"recordedQueries": ["ok", "value"]},
                        {"recordedQueries": ["value", "value"]}, {"rules": ["evidence/rules.ss"]}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 capability.validate(dict(args, **change), ["evidence/module.json"])
 
     def test_no_scripts_handlers_or_missing_module_identity(self):
-        for change in ({"schema": "other"}, {"sourceSha256": "g" * 64}, {"arguments": "eval"},
-                       {"module": "script.py"}, {"handler": "eval"}):
+        for change in ({"schema": "other"}, {"sources": [{"path": "module.ss", "sha256": "g" * 64}]},
+                       {"arguments": "eval"}, {"module": "script.py"}, {"handler": "eval"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
-                capability.module_entry(dict(self.entry(), **change))
+                capability.dsl_entry(dict(self.entry(), **change))
         with self.assertRaises(ValueError):
             capability.validate({"module": "producer.py", "queries": {"x": "x"}, "expected": {"x": []}},
                                 ["producer.py"])
 
-    def test_compiled_module_source_must_match_real_bytes(self):
+    def test_declarative_source_must_match_real_bytes_and_complete_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "module.ss"
-            source.write_text("(export constructor)\n")
-            entry = dict(self.entry(), sourceSha256=hashlib.sha256(source.read_bytes()).hexdigest())
-            build = {"producerBuild": {"linkedSchemeSources": {"example/evidence": {
-                "path": str(source), "sha256": entry["sourceSha256"]}}}}
-            self.assertEqual(capability.module_source(entry, build), source)
-            wrong = copy.deepcopy(build)
-            wrong["producerBuild"]["linkedSchemeSources"]["example/evidence"]["sha256"] = "0" * 64
-            with self.assertRaisesRegex(ValueError, "compiled producer"):
-                capability.module_source(entry, wrong)
+            source.write_text("(define-evidence (make-evidence) (sources input) (outputs input) (relation input (x)))\n")
+            entry = dict(self.entry(), sources=[{"path": "module.ss", "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}])
+            self.assertEqual(capability.dsl_sources(entry, Path(directory)), [source.resolve()])
+            wrong = copy.deepcopy(entry)
+            wrong['sources'][0]['sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, "source changed"):
+                capability.dsl_sources(wrong, Path(directory))
+            with self.assertRaises(ValueError):
+                capability.dsl_entry(dict(entry, sources=entry['sources'] * 2))
             source.write_text("changed\n")
             with self.assertRaisesRegex(ValueError, "source changed"):
-                capability.module_source(entry, build)
+                capability.dsl_sources(entry, Path(directory))
 
     def test_native_graph_is_recorded_without_scalar_admission(self):
-        args = {"module": "evidence/module.json", "queries": {"ok": "ok", "graph": "graph"},
+        args = {"dsl": "evidence/module.json", "queries": {"ok": "ok", "graph": "graph"},
                 "expected": {"ok": [[True]]}, "recordedQueries": ["graph"]}
         context = type("Context", (), {"receipt": {"steps": []}})()
         native = {"ok": [[True]], "graph": {"value": {"format": "native-value-graph.v1"}}}

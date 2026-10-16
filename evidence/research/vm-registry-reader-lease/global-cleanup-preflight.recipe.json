@@ -1,0 +1,189 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-global-cleanup-preflight-contract",
+  "scope": "Source-derived root-only global cleanup control and proposed all-VM preflight with recoverable rejection. Finite protocol qualification; direct-user quiescence remains assumed and native source admission remains open.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "models/gambit/vm_registry_global_cleanup_preflight.qnt",
+    "docs/vm-failed-join-retention.md",
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"
+      }
+    },
+    {
+      "id": "handoff-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "handoff-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "handoff-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "handoff-parse"
+      }
+    },
+    {
+      "id": "handoff-protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "handoff-parse",
+        "handoff-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "handoff-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "handoff-protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/vm-registry-reader-lease/bazel-profile-completed-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_global_cleanup_preflight.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_global_cleanup_preflight.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_global_cleanup_preflight.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "count-only-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_global_cleanup_preflight.qnt",
+        "parsed": "parse",
+        "initializer": "initRootOnly",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_global_cleanup_preflight.qnt",
+        "parsed": "parse",
+        "main": "vm_registry_global_cleanup_preflight",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "activeChildControlTest",
+          "pendingChildControlTest",
+          "rejectionPreservesRecoveryTest",
+          "pendingJoinRejectTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "parse",
+        "typecheck",
+        "safe",
+        "count-only-control",
+        "trajectories",
+        "source",
+        "handoff-parse",
+        "handoff-typecheck",
+        "handoff-protocol",
+        "producer"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

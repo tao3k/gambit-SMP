@@ -1,0 +1,116 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-gc-header-write-boundary-complete-compiled-stress",
+  "scope": "Unchanged four-file compiled stress on the exact new two-pass producer. Observe GC administrative-header write boundaries; no source-repair, speedup, suppression or quota-widening claim.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-gc-header-write-boundary/source.lock.json",
+    "patches/fixtures/darwin-gc-header-write-boundary.patch",
+    "evidence/fixtures/darwin-gc-header-write-boundary/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-gc-header-write-boundary-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json",
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/fixtures/darwin-frame-ra-boundary/native-observation.json",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-gc-complete-probe-round/model-observation.json",
+    "evidence/fixtures/darwin-heap-frame-identity/native-observation.json",
+    "evidence/research/producer-decision-rules.ss",
+    "models/gambit/gc_scan_probe_round.qnt",
+    "models/gambit/gc_recheck_visibility.qnt",
+    "models/gambit/shared_msection_successor.qnt",
+    "evidence/fixtures/darwin-gc-complete-probe-round/native-observation.json",
+    "models/gambit/shared_section_undo_bounds.qnt",
+    "evidence/fixtures/darwin-shared-successor-snapshot/native-observation.json",
+    "models/gambit/shared_header_write_boundary.qnt",
+    "evidence/fixtures/darwin-shared-stack-reservation/native-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-gc-header-write-boundary/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-gc-header-write-boundary-completed-producer.json"
+      }
+    },
+    {
+      "id": "stress-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "inventory": "stress",
+        "selection": [
+          "."
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "stress-gsc"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

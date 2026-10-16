@@ -1,6 +1,6 @@
 # Reproducing Research Inputs
 
-## Offline Closure
+## Historical Offline Closure
 
 The offline source-input gate passed at source commit
 `86e9145b8d3b57c63905145a4d3694fde986e06f`. A fresh clone using
@@ -15,7 +15,62 @@ archive raw command logs or admit model/native execution.
 This closes offline reproduction of this source slice and portable manifest,
 not upstream network health, the historical manifest migration backlog,
 ASCENT installation, complete toolchain generation or native/runtime gates.
-The older failed attempts below remain historical observations.
+The older failed attempts below remain historical observations. This is a v1
+historical result, not qualification of the current v2 provisioner. The original
+receipts and source-input commit are not rewritten by the migration below.
+
+## Current Revision Source
+
+The v2 source manifest pins the same canonical upstream URL and full revision,
+with SHA256 of the raw Git commit and complete NUL-delimited recursive Git tree
+inventory. Existing per-file base/candidate and overlay SHA256 locks remain
+unchanged. No `.bundle` is a current Git input. `source-provisioning-history.json`
+records the exact historical commit and bundle SHA; the old bundle can still be
+read using `git show <historicalCommit>:<historicalBundle>` or reproduced in an
+isolated checkout of that commit. Do not copy old receipts into a new run.
+
+Provisioning fetches the exact revision, never an upstream branch tip. TLS is
+not disabled. For offline use, prepare a portable bare Git object cache before
+disconnecting, or transfer objects from an already verified local source repo:
+
+```sh
+PYTHONPATH=src python3 -m gambit_smp.source_provision \
+  --prepare-cache "$SOURCE_CACHE"
+# Alternative, without network (the local commit and full tree are verified):
+PYTHONPATH=src python3 -m gambit_smp.source_provision \
+  --prepare-cache "$SOURCE_CACHE" --from-repository "$PINNED_SOURCE_REPOSITORY"
+# In a fresh checkout, with the prepared cache accessible:
+PYTHONPATH=src python3 -m gambit_smp.source_provision \
+  --offline --cache "$SOURCE_CACHE"
+```
+
+Each preparation command requires a fresh destination; choose one alternative,
+not both against the same directory. The default cache is ignored
+`.data/source-cache/gambit.git`. Cache paths are transport, not source identities
+or committed evidence. Initialization verifies fsck, canonical URL, commit SHA,
+complete tree-inventory SHA, commit parents and base-file SHA before admitting a
+checkout. Git transports real shallow metadata; the provisioner no longer
+manufactures a shallow boundary. A missing offline cache fails without fetching.
+No already populated submodule or existing cache is modified. Fully disconnected
+reproduction requires the prepared objects; a pin alone cannot supply missing
+source bytes. Neither local transfer nor offline initialization establishes
+upstream network health, a complete toolchain or runtime correctness.
+
+### Migration Verification
+
+The v2 provisioner passed 36 source-provisioning, materialization and
+reproduction tests in 13.220 seconds under the unchanged 15-second budget,
+with no skips, timeout or input drift. Raw logs and process receipts are local
+at `.data/source-revision-044/tests-002`; they are not versioned raw evidence.
+
+A fresh `--no-local --no-hardlinks` checkout with no bundle working file
+initialized the pinned source offline from a verified bare object cache. Full
+fsck and reproduction checks for the default, 026 and 029 locks passed; all
+processes exited successfully and were reaped. Inputs remained byte-identical.
+The step logs are local at `.data/source-revision-044/fresh-001`.
+The current edited v2 inputs were explicitly copied into that fresh checkout,
+so this is not a strict committed-input qualification or a new runtime receipt.
+The canonical upstream network fetch was not qualified by this offline run.
 
 ## Source Identity
 
@@ -40,8 +95,9 @@ PYTHONPATH=src python3 -m gambit_smp.source_materialize \
   --lock evidence/runtime-source-026.lock.json --out "$SOURCE_OUT"
 ```
 
-`SOURCE_OUT` must name a fresh output directory. These commands require neither
-a previous source cache nor ASCENT. The source-lock check archives the pinned
+`SOURCE_OUT` must name a fresh output directory. These checks require no ASCENT.
+Offline initialization requires a prepared verified object cache; online
+initialization fetches the pinned revision. The source-lock check archives the pinned
 commit, applies the versioned overlay and verifies all five candidate hashes;
 its strict gate rejects uncommitted or modified required input bytes. It is
 distinct from the default recursive-model/027 input check. It does not admit
@@ -87,15 +143,16 @@ Do not substitute either mirror's latest HEAD for the reviewed source.
 
 An earlier HTTPS initialization attempt failed certificate verification; the
 upstream network route is not qualified. TLS verification remains enabled.
-Offline initialization instead uses the versioned Git source capsule bound by
-`evidence/runtime-source-provisioning.json`. Its bundle SHA256, locked commit,
+Historical v1 offline initialization used the versioned Git source capsule bound
+by its original `evidence/runtime-source-provisioning.json`. Its bundle SHA256, locked commit,
 canonical submodule URL, omitted parent and intentional shallow boundary are
 checked before the complete commit tree is verified with `git fsck --full`.
-The bundle is a required frozen source input, not a disposable cache.
+That bundle was a required v1 source input, not a disposable cache. It is no
+longer a current input; see Current Revision Source above.
 
 A bare bundle clone without shallow metadata was rejected: Git omitted the
-sender's shallow boundary, leaving a missing-parent fsck failure. The provisioner
-restores only the explicitly locked boundary after checking the commit's actual
+sender's shallow boundary, leaving a missing-parent fsck failure. The v1 provisioner
+restored only the explicitly locked boundary after checking the commit's actual
 parent. It does not claim to reproduce upstream history. It refuses to modify
 an already populated submodule and does not disable TLS or change global Git
 transport settings. Its file-transport override applies to one command only.
@@ -108,14 +165,15 @@ PYTHONPATH=src python3 -m gambit_smp.source_materialize --out .data/source-slice
 ```
 
 These input-only commands use the standard library (Python 3.13 or newer), Git
-and Python's tar support; they do not require ASCENT, a native runtime or any previous cache.
+and Python's tar support; they do not require ASCENT or a native runtime. Current
+offline provisioning requires prepared Git objects as described above.
 The check rejects cache paths, missing inputs, context hash drift, a wrong
 submodule HEAD/URL and, with `--require-committed`, uncommitted or modified input
 bytes. A check without that flag validates prepared local inputs only; it must
 not be described as a clean Git reproduction. It does not download upstream or
 prove network availability. The provisioner checks the indexed gitlink; the
 strict input checker additionally requires that gitlink and all input bytes to
-be in `HEAD`. A staged capsule is not a committed-input receipt.
+be in `HEAD`. A staged source lock is not a committed-input receipt.
 
 The source lock and `patches/snapshots/candidate027-audited-source-slice.patch`
 reproduce exactly the audited `lib/mem.c`, `lib/setup.c` and

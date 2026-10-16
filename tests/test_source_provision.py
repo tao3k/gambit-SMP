@@ -1,4 +1,5 @@
 import json
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -29,11 +30,7 @@ class SourceProvisionTests(unittest.TestCase):
         source.write_text("pinned\n")
         git(upstream, "commit", "-am", "pinned")
         revision = git(upstream, "rev-parse", "HEAD")
-        shallow = Path(directory) / "shallow"
-        git(root, "clone", "--depth", "1", upstream.as_uri(), str(shallow))
         (root / "evidence").mkdir()
-        bundle = root / "evidence/source.bundle"
-        git(shallow, "bundle", "create", str(bundle), "HEAD")
         git(root, "init")
         (root / ".gitmodules").write_text('[submodule "vendor/gambit"]\n'
             ' path = vendor/gambit\n url = https://example.invalid/source.git\n')
@@ -43,62 +40,131 @@ class SourceProvisionTests(unittest.TestCase):
                 "files": {"lib/mem.c": {"baseSha256": digest(source)}}}
         lock_path = root / "evidence/runtime-source.lock.json"
         lock_path.write_text(json.dumps(lock))
-        record = {"schema": "gambit-source-provisioning.v1", "sourceLock": str(lock_path.relative_to(root)),
+        def object_sha(*args):
+            return hashlib.sha256(subprocess.check_output(["git", "-C", str(upstream), *args])).hexdigest()
+        record = {"schema": "gambit-source-provisioning.v2", "sourceLock": str(lock_path.relative_to(root)),
             "sourceLockSha256": digest(lock_path), "revision": revision,
             "submodule": lock["submodule"], "repository": lock["repository"],
-            "bundle": "evidence/source.bundle", "bundleSha256": digest(bundle),
-            "shallowBoundary": revision, "omittedParents": [parent],
+            "commitSha256": object_sha("cat-file", "commit", revision),
+            "treeManifestSha256": object_sha("ls-tree", "-r", "-z", revision), "parents": [parent],
             "networkReproductionChecked": False, "configuredToolchainReproduced": False,
             "runtimeAdmitted": False, "releaseAdmitted": False}
         manifest = root / provision.MANIFEST
         manifest.write_text(json.dumps(record))
+        provision.prepare_cache(root, root / provision.DEFAULT_CACHE, source=upstream)
         return root, record, manifest
 
-    def test_offline_source_and_explicit_shallow_history(self):
+    def test_offline_source_without_versioned_bundle(self):
         with tempfile.TemporaryDirectory() as directory:
             root, record, _ = self.fixture(directory)
-            result = provision.initialize(root)
+            result = provision.initialize(root, offline=True)
             self.assertTrue(result["fsckPassed"])
             self.assertFalse(result["runtimeAdmitted"])
             self.assertFalse(result["networkReproductionChecked"])
-            self.assertEqual("true", provision.git(root / record["submodule"], "rev-parse", "--is-shallow-repository"))
+            self.assertTrue(result["offline"])
+            self.assertFalse(result["shallowHistory"])
             self.assertEqual("pinned\n", (root / "vendor/gambit/lib/mem.c").read_text())
-            self.assertFalse((root / ".data").exists())
+            self.assertFalse(list((root / "evidence").glob("*.bundle")))
+            self.assertEqual(record["repository"], provision.git(root / record["submodule"], "remote", "get-url", "origin"))
             with self.assertRaisesRegex(ValueError, "fresh unpopulated"):
                 provision.initialize(root)
 
-    def test_bundle_drift_is_rejected_before_initializing(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root, record, _ = self.fixture(directory)
-            (root / record["bundle"]).write_bytes(b"tampered")
-            with self.assertRaisesRegex(ValueError, "bundle digest drift"):
-                provision.initialize(root)
-            self.assertFalse((root / "vendor/gambit").exists())
-
-    def test_cache_alias_and_wrong_boundary_are_rejected(self):
+    def test_object_digest_drift_is_rejected_before_initializing(self):
         with tempfile.TemporaryDirectory() as directory:
             root, record, manifest = self.fixture(directory)
-            record["shallowBoundary"] = record["omittedParents"][0]
+            record["treeManifestSha256"] = "0" * 64
             manifest.write_text(json.dumps(record))
-            with self.assertRaisesRegex(ValueError, "capsule binding"):
-                provision.validate(root)
-            (root / ".data").mkdir()
-            (root / ".data/source.bundle").write_bytes((root / record["bundle"]).read_bytes())
-            (root / "alias.bundle").symlink_to(".data/source.bundle")
-            record["shallowBoundary"] = record["revision"]
-            record["bundle"] = "alias.bundle"
+            with self.assertRaisesRegex(ValueError, "object digest drift"):
+                provision.initialize(root, offline=True)
+            self.assertFalse((root / "vendor/gambit").exists())
+
+    def test_cache_cannot_be_aliased_as_locked_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, manifest = self.fixture(directory)
+            target = root / ".data/source.lock.json"
+            target.write_bytes((root / record["sourceLock"]).read_bytes())
+            (root / "alias.json").symlink_to(target)
+            record["sourceLock"] = "alias.json"
             manifest.write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError, "not a cache"):
                 provision.validate(root)
 
-    def test_wrong_parent_keeps_failed_checkout_non_admitted(self):
+    def test_wrong_parent_is_rejected_before_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             root, record, manifest = self.fixture(directory)
-            record["omittedParents"] = ["0" * 40]
+            record["parents"] = ["0" * 40]
             manifest.write_text(json.dumps(record))
             with self.assertRaisesRegex(ValueError, "commit parents"):
-                provision.initialize(root)
-            self.assertTrue((root / "vendor/gambit/.git").exists())
+                provision.initialize(root, offline=True)
+            self.assertFalse((root / "vendor/gambit").exists())
+
+    def test_missing_offline_cache_never_attempts_fetch(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root, _, _ = self.fixture(directory)
+            with patch.object(provision, "prepare_cache") as fetch, self.assertRaisesRegex(ValueError, "cache missing"):
+                provision.initialize(root, cache=Path(directory) / "missing", offline=True)
+            fetch.assert_not_called()
+
+    def test_movable_shallow_cache_and_git_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, _ = self.fixture(directory)
+            upstream = Path(directory) / "upstream"
+            shallow = Path(directory) / "shallow"
+            provision.git(root, "clone", "--depth=1", upstream.as_uri(), str(shallow))
+            cache = Path(directory) / "portable.git"
+            provision.prepare_cache(root, cache, source=shallow)
+            self.assertTrue(provision.initialize(root, cache=cache, offline=True)["shallowHistory"])
+            self.assertEqual(record["revision"], provision.git(root / record["submodule"], "rev-parse", "HEAD"))
+
+    def test_wrong_url_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, _, _ = self.fixture(directory)
+            cache = root / provision.DEFAULT_CACHE
+            provision.git(cache, "remote", "set-url", "origin", "https://example.invalid/other.git")
+            with self.assertRaisesRegex(ValueError, "canonical URL drift"):
+                provision.initialize(root, offline=True)
+            self.assertFalse((root / "vendor/gambit").exists())
+
+    def test_incomplete_git_objects_fail_before_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, _, _ = self.fixture(directory)
+            cache = root / provision.DEFAULT_CACHE
+            packs = list((cache / "objects/pack").glob("*.pack"))
+            self.assertTrue(packs)
+            packs[0].unlink()
+            with self.assertRaises(subprocess.CalledProcessError):
+                provision.initialize(root, offline=True)
+            self.assertFalse((root / "vendor/gambit").exists())
+
+    def test_fetch_selects_only_the_exact_revision(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, manifest = self.fixture(directory)
+            record["repository"] = (Path(directory) / "upstream").as_uri()
+            lock_path = root / record["sourceLock"]
+            lock = json.loads(lock_path.read_text())
+            lock["repository"] = record["repository"]
+            lock_path.write_text(json.dumps(lock))
+            record["sourceLockSha256"] = digest(lock_path)
+            manifest.write_text(json.dumps(record))
+            provision.git(root, "config", "-f", ".gitmodules", "submodule.vendor/gambit.url", record["repository"])
+            real_git = provision.git
+            with patch.object(provision, "git", wraps=real_git) as calls:
+                result = provision.prepare_cache(root, Path(directory) / "fetched.git")
+            fetches = [call.args[1:] for call in calls.call_args_list if "fetch" in call.args]
+            self.assertEqual([( "-c", "http.sslVerify=true", "fetch", "--no-tags", "--depth=1",
+                                record["repository"], record["revision"])], fetches)
+            self.assertFalse(result["networkReproductionChecked"])
+            self.assertTrue(provision.initialize(root, cache=Path(directory) / "fetched.git", offline=True)["shallowHistory"])
+
+    def test_old_bundle_contract_is_not_a_current_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, manifest = self.fixture(directory)
+            record.update(schema="gambit-source-provisioning.v1", bundle="evidence/old.bundle")
+            manifest.write_text(json.dumps(record))
+            with self.assertRaisesRegex(ValueError, "revision binding"):
+                provision.validate(root)
 
 
 if __name__ == "__main__":

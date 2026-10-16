@@ -1,0 +1,132 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "native-campaign-budget-correspondence-controls",
+  "scope": "Finite whole-wall-clock campaign topology correspondence with exact inventory, original cap, bound mode and retained nested file caps. Atomic-to-whole conversion and unreviewed retry stay forbidden. Not runtime admission.",
+  "budgetSeconds": 90,
+  "inputs": [
+    "models/gambit/native_campaign_budget_correspondence.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/thread-completion-contract/source.lock.json",
+    "patches/fixtures/thread-completion-contract.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/thread-completion-contract/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_campaign_budget_correspondence.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_campaign_budget_correspondence.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_campaign_budget_correspondence.qnt",
+        "parsed": "parse",
+        "main": "native_campaign_budget_correspondence",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "exactWholeTest",
+          "exactAtomicTest",
+          "scopeOmissionControlTest",
+          "scopeAdditionControlTest",
+          "atomicConversionControlTest",
+          "nestedCapControlTest"
+        ]
+      }
+    },
+    {
+      "id": "safe-binding",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck",
+        "trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_campaign_budget_correspondence.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck",
+        "trajectories"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_campaign_budget_correspondence.qnt",
+        "parsed": "parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "trajectories",
+        "safe-binding",
+        "bypass-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step",
+          "controls": "bound_control"
+        },
+        "expected": {
+          "missing": [],
+          "controls": []
+        }
+      }
+    }
+  ]
+}

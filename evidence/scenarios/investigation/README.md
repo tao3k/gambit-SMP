@@ -48,24 +48,21 @@ released handles. Explanations preserve native dependencies, generation, full
 source rows, receipt hashes, JSON pointers and the explicit per-row-proof gap.
 The proof gap does not restrict execution.
 
-The same complete contract inventory also enters `definitions(catalog)`.
-`dependency.ss` returns an actual Scheme closure over a retained upstream
-operator session; union/join/project/fix derives transitive dependencies.
-Repeated replacement, real edge withdrawal and restoration are compared with
-the recursive Evidence relation. A finite typed relation/arrow transformer
-independently compiles the same inventory. Semantic comparison occurs in
-Scheme, not a Python graph algorithm. The owner returns native multi-value
-graphs and opaque closure references without requesting a finite projection.
-Only the Library internally imports the public higher-order constructors.
+The same complete contract edges enter the maintenance-precompiled transitive
+Graph closure through `Engine.core_graph`. Its fixed C ABI owner retains the Core
+session; replacement, real edge withdrawal and restoration are compared with
+the recursive Evidence relation at 1, 2 and 4 Rayon workers. Python only transports
+inputs and compares complete answers; it implements no graph algorithm. Closing
+the owner invalidates calls while already-owned result observations are independent.
 
-The same exact contract edges also enter an upstream Actor Session. A Scheme
-closure owns that session and exposes replacement, run, state, cancellation and
-close operations through ordinary Python/C ABI value handles. Tests compare its
-complete transitive relation against the business rules with 1, 2 and 4 workers,
-withdraw a real edge, restore it, explicitly drain/close and reject post-close
-requests. This uses no downstream import or compiler. Only the pure positive
-dependency subgraph selects Actors; aggregate, negation and lattice rules retain
-their original semantics. Correct Actor execution is not a measured speedup.
+Runtime ordinary Scheme procedures and mutable closure factories were removed
+from the current dependency asset and its declared exports under the explicitly
+approved declarative contract. Their exact old files and tests remain in
+`evidence/library/compiled-graph-057/contract-history`, not a compatibility path.
+The current dependency asset contains only statically lowered rule helpers.
+Aggregate, negation, lattice and recorded-only explanation boundaries are unchanged.
+This does not claim the old arbitrary-procedure or Actor API was implemented in
+the new backend, nor that correctness controls establish a performance gain.
 
 Historical import-free API045 execution passed with SDK/toolchain hidden:
 1 scenario test, no skips, exit 0, no timeout, quiescent process group,

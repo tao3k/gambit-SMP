@@ -1,0 +1,33 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "shared-section-undo-bounds",
+  "scope": "Verify the partition across pending GC frame reservation, relocation and undo; do not attribute the captured native header damage to this sequence.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "models/gambit/shared_section_undo_bounds.qnt",
+    "docs/shared-section-undo-bounds.md",
+    "evidence/fixtures/darwin-shared-successor-snapshot/source.lock.json",
+    "patches/fixtures/darwin-shared-successor-snapshot.patch",
+    "evidence/fixtures/darwin-shared-successor-snapshot/native-observation.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/darwin-shared-successor-snapshot/source.lock.json", "workspace": ".data/fixtures/vm-pending-join-retention/source"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/shared_section_undo_bounds.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/shared_section_undo_bounds.qnt", "parsed": "parse"}},
+    {"id": "original-undo-partition", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_section_undo_bounds.qnt", "parsed": "parse", "initializer": "initOriginalUndo", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "restored-shared-boundary", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_section_undo_bounds.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "original-gc-pending-frame", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_section_undo_bounds.qnt", "parsed": "parse", "initializer": "initOriginalGCReservation", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "unchanged-separate-section", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_section_undo_bounds.qnt", "parsed": "parse", "initializer": "initSeparateSection", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "original-undo-partition", "original-gc-pending-frame", "restored-shared-boundary", "unchanged-separate-section"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

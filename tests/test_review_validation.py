@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 from pathlib import Path
 import sys
@@ -60,6 +61,20 @@ class ReviewValidationTests(unittest.TestCase):
         changed = load(self.root, path, self.inputs, self.engine)
         self.assertEqual("STALE", changed["status"])
         self.assertIn("src/source.py", changed["changedInputs"])
+
+    def test_live_journal_retains_exact_output_without_admitting_partial_results(self):
+        journal = io.StringIO()
+        result, output = run_suite(self.root,
+            unittest.defaultTestLoader.loadTestsFromModule(self.module),
+            self.inputs, self.engine, "evidence-review", journal=journal)
+        self.assertEqual(journal.getvalue(), output)
+        self.assertTrue(result["frameworkValidated"])
+        from gambit_smp.review_validation import ValidationOutput
+        partial = io.StringIO()
+        buffered = ValidationOutput(partial)
+        buffered.write("test_actual (Fixture) ... ")
+        self.assertEqual(partial.getvalue(), "test_actual (Fixture) ... ")
+        self.assertNotIn("PASS", partial.getvalue())
 
     def test_new_python_module_invalidates_an_old_test_inventory(self):
         path = self.receipt()

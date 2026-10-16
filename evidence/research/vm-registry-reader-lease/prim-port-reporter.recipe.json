@@ -1,0 +1,44 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-global-cleanup-prim-port-reporter-diagnostic",
+  "scope": "Diagnostic additional fixture against the explicitly selected current producer. Includes unmodified upstream prim_port and helpers; the missing reporter delegates to the original failed-test function and preserves its failure flag. Does not replace the retained 378/379 original-suite failure, qualify a source repair, establish whole-mode correctness or claim performance. Existing canonical failure inventory remains supplied; this new entry point is not an acceptance substitute for the original scope.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vm-global-cleanup-preflight/source.lock.json",
+    "patches/fixtures/vm-global-cleanup-preflight.patch",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json",
+    "models/gambit/native/prim_port_reporter.scm",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/vm-global-cleanup-preflight/source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/completed_producer_handoff.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/completed_producer_handoff.qnt", "parsed": "parse"}},
+    {"id": "protocol", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/completed_producer_handoff.qnt", "parsed": "parse",
+        "initializer": "init", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "producer", "capability": "gambit.completed-runtime", "dependsOn": ["source", "protocol"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"},
+        "producer": "evidence/research/vm-registry-reader-lease/global-cleanup-completed-producer.json"}},
+    {"id": "reporter", "capability": "gambit.suite", "dependsOn": ["producer"], "budgetSeconds": 120,
+      "arguments": {"runtime": {"step": "producer", "output": "runtime"},
+        "identity": {"step": "producer", "output": "identity"},
+        "mode": "gsi", "regime": "whole-parallel",
+        "selection": ["13-modules/prim_port_reporter.scm"],
+        "expectedFiles": ["13-modules/prim_port_reporter.scm"],
+        "fileBudgetSeconds": {"13-modules/prim_port_reporter.scm": 20},
+        "additionalFixtures": {"13-modules/prim_port_reporter.scm": {
+          "source": "models/gambit/native/prim_port_reporter.scm",
+          "sha256": "ce4f199604965c31d66f45cbf5a3b67f2096f3b8db07c818445da23d900eaba6"}},
+        "failures": "evidence/native-failures.json", "reviewRules": "evidence/research/suite-review-rules.ss"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "protocol", "producer", "reporter"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

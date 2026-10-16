@@ -1,0 +1,82 @@
+{
+  "schema": "gc-source-model-correspondence.v1",
+  "implementation": "Chez Scheme",
+  "revision": "41d5ffca7a07cbfc8807e719dedcc70ed74811cd",
+  "sourceFiles": {
+    "vendor/chez/c/gc.c": "6d937386a3aa466cf908fb2990047aba006c01662f28866e328b5a9f15e15fc9",
+    "vendor/chez/s/mkgc.ss": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406"
+  },
+  "model": "models/chez/ResweepCards.qnt",
+  "modelSha256": "670c141ab07d88f4415eeba9ffbe5a5ec8ac9b3342e0f6369fb01e862f3a9df9",
+  "sharedContract": {
+    "path": "models/library/gc/ScanCoverage.qnt",
+    "sha256": "fdd48bd9e1400b5f9ab0151c5bdaf5a270bfaa79b98e07eafc37b68049226a6b"
+  },
+  "correspondences": [
+    {
+      "source": "vendor/chez/s/mkgc.ss:850-894",
+      "model": "requestShape/postShape/resolveShape/returnShape",
+      "boundary": "Remote pointer-mask bignum causes referencing-object resweep; the temporary zero-length mask is not complete field coverage. One mask/one bounce is modeled, not all generated shapes or unbounded bouncing."
+    },
+    {
+      "source": "vendor/chez/s/mkgc.ss:2218-2288",
+      "model": "establishSpan/completeSpan",
+      "boundary": "Coverage abstracts shape-specific byte-range metadata. One-bit shapes may only require a non-NULL tail mask; do not demand all tail bits set. Two segments, not arbitrary span lengths."
+    },
+    {
+      "source": "vendor/chez/c/gc.c:2373-2415",
+      "model": "scan",
+      "boundary": "Dirty record start recovery depends on space/generation and preceding bitmap coverage; address arithmetic is not modeled."
+    },
+    {
+      "source": "vendor/chez/c/gc.c:43-81",
+      "model": "modeConfused",
+      "boundary": "A bitmap caused by a spanning marked neighbor cannot select a movable object's mode; eligibility/density thresholds are excluded."
+    },
+    {
+      "source": "vendor/chez/c/gc.c:137-182",
+      "model": "requestTarget/postTarget/resolveTarget",
+      "boundary": "Three fixed owners, sequential one-obligation routing. Not a proof of actual queue, wake, lock or idle accounting; standalone RemoteWorkAccounting retains those finite controls."
+    },
+    {
+      "source": "vendor/chez/c/gc.c:638-713",
+      "model": "promote/youngest",
+      "boundary": "Two-round retained younger-reference obligation; no exact full target-generation arithmetic."
+    }
+  ],
+  "composition": {
+    "kind": "interaction-profile",
+    "components": [
+      "GenerationCards",
+      "RemoteWorkAccounting",
+      "HybridCollection"
+    ],
+    "claim": "Explicit shared boundary transitions, not a mechanically established refinement/product of these standalone state spaces.",
+    "completedWitnessInvariant": "NeverCompleted",
+    "mutations": [
+      "drop-resweep",
+      "partial-shape",
+      "missing-tail",
+      "bitmap-mode",
+      "clear-card",
+      "early-finish"
+    ]
+  },
+  "gambitComparison": {
+    "sourceLock": "evidence/fixtures/foreign-origin-public-cleanup-contract/source.lock.json",
+    "sha256": "5d1d167f81ab6947336abdc86caf7cbe93de6c0316d0e54dd79cec65cecb517b",
+    "runtimeAdmitted": false
+  },
+  "excluded": [
+    "C memory order and native visibility",
+    "unbounded resweep/fairness",
+    "all shapes and weak-object fixed points",
+    "full region/generation arithmetic",
+    "parallel queue interleavings",
+    "native correctness",
+    "matched performance"
+  ],
+  "sourceRefinementEstablished": false,
+  "runtimeAdmitted": false,
+  "performanceAdmitted": false
+}

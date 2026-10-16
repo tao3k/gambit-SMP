@@ -1,0 +1,126 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "native-resource-plan-correspondence-model",
+  "scope": "Recorded old child demand, source-bound actual current shared CPU plan, preserved scope/deadlines and causal review. Conditional budget investigation only; no assertion, signal or environment waiver.",
+  "budgetSeconds": 60,
+  "inputs": [
+    "models/gambit/native_resource_plan_correspondence.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_resource_plan_correspondence.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_resource_plan_correspondence.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe-progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_resource_plan_correspondence.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "resource-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_resource_plan_correspondence.qnt",
+        "parsed": "parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_resource_plan_correspondence.qnt",
+        "parsed": "parse",
+        "main": "native_resource_plan_correspondence",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "sharedCapacityTest",
+          "unknownOriginalControlTest",
+          "equalDemandControlTest",
+          "assertionControlTest"
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "safe-progress",
+        "resource-bypass-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

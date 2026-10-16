@@ -14,6 +14,7 @@ from gambit_smp.framework import digest, relative
 
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 TREE = {"source-tree", "configured-tree"}
+OVERLAY_INPUT = TREE | {"compilation-workspace"}
 
 
 def fields(value, required, optional=()):
@@ -153,7 +154,7 @@ def validate_workspace_build(args, inputs):
 
 def graph(step, by_id, registry):
     contracts = {
-        "source.overlay": {"source": TREE},
+        "source.overlay": {"source": OVERLAY_INPUT},
         "source.project": {"source": TREE},
         "source.bind": {"workspace": {"compilation-workspace"}},
         "native.workspace-build": {"workspace": {"compilation-workspace"}, "binding": {"source-binding"}},
@@ -174,9 +175,10 @@ def graph(step, by_id, registry):
 
 def overlay(args, ctx):
     from gambit_smp.recipes import source_path
-    source = ctx.artifact(args["source"], TREE)
+    source = ctx.artifact(args["source"], OVERLAY_INPUT)
     target = ctx.directory / "source"
-    shutil.copytree(source, target, symlinks=True)
+    from gambit_smp.artifact_storage import transfer_tree
+    transfer_tree(source, target)
     for name, row in args["files"].items():
         if digest(relative(target, name)) != row["before"]:
             raise ValueError("overlay baseline differs from its byte contract")
@@ -276,7 +278,9 @@ def workspace_build(args, ctx):
     if binding.get("workspace") != args["workspace"] or binding.get("sourceRefinementAdmitted") is not False:
         raise ValueError("matching non-refinement workspace binding required")
     copied = ctx.directory / "inputs"
-    shutil.copytree(workspace, copied)
+    from gambit_smp.fixture_storage import source_capacity
+    with source_capacity(copied):
+        shutil.copytree(workspace, copied)
     if set(path.relative_to(copied).as_posix() for path in copied.rglob("*") if path.is_file()) != set(binding["files"]):
         raise ValueError("workspace inventory differs from binding")
     for name, expected in binding["files"].items():

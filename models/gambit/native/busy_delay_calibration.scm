@@ -1,0 +1,26 @@
+;;; Cost observation only, not a shortened stress acceptance campaign.
+(declare (standard-bindings) (block))
+(define (busy-sleep n) (if (> n 0) (busy-sleep (- n 1)) #f))
+(define (short-delay) (busy-sleep 6000))
+(define processors (string->number (getenv "GAMBIT_SMP_EXPECTED_PROCESSORS")))
+(if (or (not processors) (< processors 1)) (error "missing admitted CPU population"))
+(define repetitions 250)
+(define threads
+  (let loop ((index 0))
+    (if (= index processors) '()
+        (cons (make-thread
+               (lambda ()
+                 (let repeat ((round 0))
+                   (if (= round repetitions) #f
+                       (begin (short-delay) (repeat (+ round 1)))))))
+              (loop (+ index 1))))))
+(define started (time->seconds (current-time)))
+(for-each thread-start! threads)
+(for-each (lambda (thread)
+            (if (not (eq? (thread-join! thread) #f)) (error "incomplete delay worker")))
+          threads)
+(define seconds (- (time->seconds (current-time)) started))
+(display "BUSY-DELAY-CALIBRATION processors=") (display processors)
+(display " repetitions-per-owner=") (display repetitions)
+(display " decrements=") (display (* processors repetitions 6000))
+(display " seconds=") (display seconds) (newline)

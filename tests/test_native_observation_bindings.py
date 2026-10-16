@@ -199,7 +199,7 @@ class ObservationBindingsTests(unittest.TestCase):
         rules = load_catalog(index.ROOT / "evidence/catalog.ss")
         backend = {}
         result = query(facts, rules, queries, metrics=backend)
-        self.assertEqual("ascent-cffi-api", backend["name"])
+        self.assertEqual("ascent-rust", backend["name"])
         self.assertEqual(set(bound), {r[0] for r in result["failures"]})
         self.assertEqual([], result["mismatches"])
         self.assertEqual([], result["controls"])

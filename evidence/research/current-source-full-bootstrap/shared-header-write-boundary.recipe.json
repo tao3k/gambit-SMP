@@ -1,0 +1,26 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "shared-header-write-boundary",
+  "scope": "Bind current native header/catalog mismatch and check diagnostic GC write-target classification, without runtime admission or first-writer attribution.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": ["models/gambit/shared_header_write_boundary.qnt", "docs/shared-header-write-boundary.md", "evidence/fixtures/darwin-shared-stack-reservation/source.lock.json", "patches/fixtures/darwin-shared-stack-reservation.patch", "evidence/fixtures/darwin-shared-stack-reservation/native-observation.json", "evidence/research/execution-rules.ss"],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/darwin-shared-stack-reservation/source.lock.json", "workspace": ".data/fixtures/vm-pending-join-retention/source"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/shared_header_write_boundary.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/shared_header_write_boundary.qnt", "parsed": "parse"}},
+    {"id": "guarded-writes", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_header_write_boundary.qnt", "parsed": "parse", "initializer": "init", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "unguarded-writes", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_header_write_boundary.qnt", "parsed": "parse", "initializer": "initUnguardedWrite", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "native-header", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_header_write_boundary.qnt", "parsed": "parse", "initializer": "initNativeHeader", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "in-range-position", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+      "arguments": {"source": "models/gambit/shared_header_write_boundary.qnt", "parsed": "parse", "initializer": "initInRangeWrongCatalogPosition", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["source", "parse", "typecheck", "guarded-writes", "unguarded-writes", "native-header", "in-range-position"], "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"], "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

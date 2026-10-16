@@ -1,0 +1,310 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-vector-arity-root-cohort-reviewed-transcript",
+  "scope": "Current completed producer, unchanged moving-root and resize-GC assertions, composed root/cohort QNT controls. Scoped diagnostics, not full GC/FFI or runtime admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "models/gambit/completed_producer_handoff.qnt",
+    "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+    "models/gambit/native/gc_root_cohort_composition.scm",
+    "models/gambit/native/resize_gc_lifecycle.scm",
+    "evidence/research/vm-kernel-entry-lifecycle/resize-transcript.contract.json",
+    "evidence/research/vm-kernel-entry-lifecycle/transcript-rules.ss",
+    "models/gambit/native_transcript_admission.qnt"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/completed_producer_handoff.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/vm-registry-reader-lease/vector-arity-completed-producer.json"
+      }
+    },
+    {
+      "id": "root-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/scheduler_gc_root_cohort_composition.qnt"
+      }
+    },
+    {
+      "id": "root-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "root-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+        "parsed": "root-parse"
+      }
+    },
+    {
+      "id": "root-safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "root-parse",
+        "root-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+        "parsed": "root-parse",
+        "initializer": "initFixed",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "root-missing-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "root-parse",
+        "root-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+        "parsed": "root-parse",
+        "initializer": "initMissingRoot",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "root-reload-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "root-parse",
+        "root-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+        "parsed": "root-parse",
+        "initializer": "initStaleReload",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "root-cohort",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer",
+        "root-safe",
+        "root-missing-control",
+        "root-reload-control",
+        "transcript-safe",
+        "transcript-bypass-control"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/gc_root_cohort_composition.scm",
+        "stdout": "NATIVE-OK:gc_root_cohort_composition\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30,
+        "stderr": "TRACE:gc-wait-cohort:gc-request\nTRACE:gc-wait-cohort:gc-request\n"
+      }
+    },
+    {
+      "id": "resize-gc",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer",
+        "root-safe",
+        "root-missing-control",
+        "root-reload-control",
+        "transcript-safe",
+        "transcript-bypass-control"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/resize_gc_lifecycle.scm",
+        "stdout": "NATIVE-OK:resize_gc_lifecycle\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30,
+        "stdoutTranscript": {
+          "contract": "evidence/research/vm-kernel-entry-lifecycle/resize-transcript.contract.json",
+          "rules": "evidence/research/vm-kernel-entry-lifecycle/transcript-rules.ss"
+        }
+      }
+    },
+    {
+      "id": "transcript-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_transcript_admission.qnt"
+      }
+    },
+    {
+      "id": "transcript-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "transcript-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_transcript_admission.qnt",
+        "parsed": "transcript-parse"
+      }
+    },
+    {
+      "id": "transcript-safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "transcript-parse",
+        "transcript-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_transcript_admission.qnt",
+        "parsed": "transcript-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "transcript-bypass-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "transcript-parse",
+        "transcript-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/native_transcript_admission.qnt",
+        "parsed": "transcript-parse",
+        "initializer": "initBypass",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "producer",
+        "root-parse",
+        "root-typecheck",
+        "root-safe",
+        "root-missing-control",
+        "root-reload-control",
+        "root-cohort",
+        "resize-gc",
+        "transcript-parse",
+        "transcript-typecheck",
+        "transcript-safe",
+        "transcript-bypass-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

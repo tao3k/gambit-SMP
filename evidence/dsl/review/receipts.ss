@@ -9,7 +9,7 @@
     ((Unusable R (lit 'stale-or-missing-input)) <-- (ReceiptInput R K V) (not (CurrentInput K V)))
     ((Unusable R (lit 'missing-dependency)) <-- (ReceiptPath R D) (not (PassedId D)))
     ((Unusable R (lit 'circular-justification)) <-- (ReceiptPath R R))
-    ((Unusable R "invalid-dependency") <-- (ReceiptPath R D) (Unusable D Reason))
+    ((Unusable R (lit 'invalid-dependency)) <-- (ReceiptPath R D) (Unusable D Reason))
     ((Bad R) <-- (Unusable R Reason))
     ((Reusable R P) <-- (Passed R P) (not (Bad R)))
     ((Established P R) <-- (Reusable R P))

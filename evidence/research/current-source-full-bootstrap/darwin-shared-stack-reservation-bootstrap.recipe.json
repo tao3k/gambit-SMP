@@ -1,0 +1,154 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-shared-stack-reservation-full-bootstrap",
+  "scope": "Preserve one shared stack/heap partition through pending GC-frame reservation, delayed relocation and undo. Source-derived controls show missing reservation and lost undo boundary; attribution to captured header damage remains unproved. Darwin/GNU-only, O(1), no runtime/release admission before native gates.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-shared-stack-reservation/source.lock.json",
+    "patches/fixtures/darwin-shared-stack-reservation.patch",
+    "evidence/fixtures/darwin-shared-stack-reservation/review-contract.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/current-source-full-bootstrap/darwin-shared-stack-reservation-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-shared-stack-reservation-source-state.json",
+    "evidence/research/current-source-full-bootstrap/darwin-shared-stack-reservation-bootstrap-intent.json",
+    "evidence/research/current-source-full-bootstrap/darwin-shared-stack-reservation-bootstrap-causal-review.json",
+    "evidence/research/continuation-current-bootstrap/intent.json",
+    "evidence/research/continuation-current-bootstrap/causal-review.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json",
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/fixtures/darwin-frame-ra-boundary/native-observation.json",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/research/current-source-full-bootstrap/stack-pool-metadata-separation.recipe.json",
+    "evidence/fixtures/darwin-heap-frame-identity/stack-allocation-symbolization.json",
+    "evidence/fixtures/darwin-section-pool-metadata/bootstrap-progress-contract.json",
+    "evidence/research/current-source-full-bootstrap/stack-undo-metadata-ownership.recipe.json",
+    "evidence/fixtures/darwin-gc-complete-probe-round/model-observation.json",
+    "models/gambit/gc_scan_probe_round.qnt",
+    "models/gambit/gc_recheck_visibility.qnt",
+    "docs/gc-single-round-probe-review.md",
+    "evidence/fixtures/darwin-gc-complete-probe-round/native-observation.json",
+    "models/gambit/shared_msection_successor.qnt",
+    "models/gambit/shared_section_undo_bounds.qnt",
+    "docs/shared-section-undo-bounds.md",
+    "evidence/fixtures/darwin-shared-successor-snapshot/native-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-shared-stack-reservation/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-shared-stack-reservation-source-state-reference.json"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 130,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "intent": "evidence/research/current-source-full-bootstrap/darwin-shared-stack-reservation-bootstrap-intent.json",
+        "target": "bootstrap"
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "seed",
+        "review"
+      ],
+      "budgetSeconds": 270,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "seed",
+        "review",
+        "bootstrap"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

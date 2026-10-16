@@ -1,0 +1,290 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "vm-registry-resize-grace-rts-bootstrap",
+  "scope": "Same exact source, models, review, two-pass bootstrap and deadlines; change only RTS compilation from O0 to O1 while generated dynamic modules and Scheme compiler code retain C O0. GNU all-three-flags configuration qualification, not full SMP or performance admission.",
+  "budgetSeconds": 600,
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch",
+    "models/gambit/exit_drain_mutex_lock_order.qnt",
+    "models/gambit/vm_registry_repeated_retirement.qnt",
+    "models/gambit/vm_registry_shutdown_seal.qnt",
+    "models/gambit/vm_registry_capacity_replay.qnt",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "evidence/research/vm-registry-reader-lease/resize-grace-bootstrap-intent.json",
+    "evidence/research/vm-registry-reader-lease/resize-grace-bootstrap-causal-review.json",
+    "docs/vm-owned-retirement-contract.md",
+    "evidence/research/smp-threaded-vm-bootstrap/bootstrap-second-core-history.json",
+    "evidence/research/smp-threaded-vm-bootstrap/bootstrap-gc-iteration-history.json",
+    "evidence/research/smp-threaded-vm-bootstrap/bootstrap-serialization-history.json",
+    "docs/sync-message-atomic-publication-fixture.md",
+    "docs/vm-registry-reader-lease.md",
+    "models/gambit/vm_registry_processor_retirement.qnt",
+    "models/gambit/native/independent_threaded_vms.scm",
+    "models/gambit/vm_registry_resize_grace.qnt",
+    "docs/vm-registry-resize-grace.md"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"
+      }
+    },
+    {
+      "id": "resize-parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt"
+      }
+    },
+    {
+      "id": "resize-typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "resize-parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse"
+      }
+    },
+    {
+      "id": "resize-safe-progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "contract",
+        "negative": false
+      }
+    },
+    {
+      "id": "resize-cached-count-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "initializer": "initCountOnly",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "resize-early-close-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "initializer": "initEarlyClose",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": true
+      }
+    },
+    {
+      "id": "resize-trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "resize-parse",
+        "resize-typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/vm_registry_resize_grace.qnt",
+        "parsed": "resize-parse",
+        "main": "vm_registry_resize_grace",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "cachedCountControlTest",
+          "earlyCloseControlTest",
+          "admittedReaderTest",
+          "lateReaderTest"
+        ]
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/exit_drain_mutex_lock_order.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+        "parsed": "parse",
+        "initializer": "initFixed",
+        "step": "step",
+        "invariant": "checked",
+        "negative": false,
+        "temporal": "progress"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source",
+        "protocol",
+        "resize-safe-progress",
+        "resize-cached-count-control",
+        "resize-early-close-control",
+        "resize-trajectories"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "cOptimization": 0,
+        "rtsOptimization": 1
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 180,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "seed",
+        "protocol"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "intent": "evidence/research/vm-registry-reader-lease/resize-grace-bootstrap-intent.json",
+        "target": "bootstrap"
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "seed",
+        "review"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "configure",
+        "seed",
+        "review",
+        "bootstrap",
+        "resize-parse",
+        "resize-typecheck",
+        "resize-safe-progress",
+        "resize-cached-count-control",
+        "resize-early-close-control",
+        "resize-trajectories"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

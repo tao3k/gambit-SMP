@@ -1,0 +1,81 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-heap-frame-mem-debug-object",
+  "scope": "Compile current runtime mem.c with its production command plus debug symbols; require matching text and relocations before mapping the exact-image stack_limit write fault. No repeated stress or bootstrap.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-heap-frame-identity/source.lock.json",
+    "patches/fixtures/darwin-heap-frame-identity.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-heap-frame-completed-producer.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-heap-frame-identity/compiled-stress-crash.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-heap-frame-identity/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-heap-frame-completed-producer.json"
+      }
+    },
+    {
+      "id": "kernel-object",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "translationUnit": "lib/mem.c",
+        "debugSymbols": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "kernel-object"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

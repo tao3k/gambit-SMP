@@ -1,0 +1,27 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"darwin-allocator-acquire-object",
+  "scope":"Unqualified Darwin GNU ALLOC-only post-ticket acquire candidate. Preserve the full 23-file predecessor overlay and original Bazel profile; do not change MISC, shared lock primitives or non-Darwin/non-GNU paths. Source reproduction, configure and genuine mem.c object compilation only, not linked runtime/bootstrap/stress acceptance.",
+  "workspacePolicy":"in-place",
+  "timeoutPolicy":{"mode":"progress","overheadSeconds":30},
+  "inputs":[
+    "evidence/fixtures/darwin-allocator-acquire/source.lock.json",
+    "patches/fixtures/darwin-allocator-acquire.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "models/gambit/ticket_queue_handoff.qnt",
+    "evidence/fixtures/darwin-allocator-acquire/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-allocator-autoconf-resume-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-allocator-autoconf-resume-state.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+     "arguments":{"sourceLock":"evidence/fixtures/darwin-allocator-acquire/source.lock.json","workspace":".data/fixtures/vm-pending-join-retention/source","workspaceState":"evidence/research/current-source-full-bootstrap/darwin-allocator-autoconf-resume-state-reference.json"}},
+    {"id":"configure","capability":"gambit.configure","dependsOn":["source"],"budgetSeconds":60,
+     "arguments":{"source":{"step":"source","output":"source"},"buildProfile":"evidence/fixtures/gerbil-bazel-build-profile/profile.json"}},
+    {"id":"memory-object","capability":"gambit.object","dependsOn":["configure"],"budgetSeconds":60,
+     "arguments":{"source":{"step":"configure","output":"source"},"translationUnit":"lib/mem.c","debugSymbols":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","configure","memory-object"],"budgetSeconds":10,
+     "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

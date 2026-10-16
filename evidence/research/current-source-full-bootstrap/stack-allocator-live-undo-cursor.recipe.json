@@ -1,0 +1,113 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-allocator-live-undo-cursor",
+  "scope": "Compose existing allocator ownership/undo with break-handler NEXT progression. Stale snapshot negative control versus live cursor. Source-audit witness, not the native corruption cause or complete GC proof.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_allocator_undo_cursor.qnt",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "patches/fixtures/darwin-section-owned-undo.patch",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-selection-origin-baseline/source.lock.json",
+    "patches/fixtures/darwin-stack-selection-origin-baseline.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-sampling-source-state-reference.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-selection-sampling-source-state.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-selection-origin-baseline/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source",
+        "workspaceState": "evidence/research/current-source-full-bootstrap/darwin-stack-selection-sampling-source-state-reference.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_undo_cursor.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_undo_cursor.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "stale-snapshot-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_undo_cursor.qnt",
+        "parsed": "parse",
+        "initializer": "initStaleSnapshot",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "live-break-cursor",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_undo_cursor.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "stale-snapshot-control",
+        "live-break-cursor"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

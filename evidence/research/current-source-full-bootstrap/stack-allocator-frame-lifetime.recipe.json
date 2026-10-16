@@ -1,0 +1,181 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-allocator-frame-lifetime",
+  "scope": "Four logical raw sections, per-processor stack pool, captured frame roots, undo invalidation and two semispace epochs. Native non-section input is an explicit negative entry observation, not a proven legal source trace. Six-transition finite prefix; no full GC or repair admission.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-heap-frame-identity/source.lock.json",
+    "patches/fixtures/darwin-heap-frame-identity.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-heap-frame-completed-producer.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-heap-frame-identity/compiled-stress-crash.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-heap-frame-identity/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-heap-frame-completed-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "ownership",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false,
+        "temporal": "completion"
+      }
+    },
+    {
+      "id": "invalidation-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initMissingInvalidation",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "reset-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initMissingPoolReset",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "resume-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initEarlyResume",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "native-entry-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initObservedNonSection",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "parse",
+        "typecheck",
+        "ownership",
+        "invalidation-control",
+        "reset-control",
+        "resume-control",
+        "native-entry-control"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

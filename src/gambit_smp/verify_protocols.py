@@ -35,7 +35,15 @@ def load_manifest(path):
                 or name == case["id"] + ".qnt" for name in dependencies)):
             raise ValueError("protocol dependencies must be unique sibling models")
         checks = model_checks(case)
-        if len(set(checks)) != len(checks) or not case.get("temporal"):
+        if "registrationOnly" in case and type(case["registrationOnly"]) is not bool:
+            raise ValueError("registration-only marker must be boolean")
+        if len(set(checks)) != len(checks):
+            raise ValueError("unique checks and explicit progress property required")
+        if case.get("registrationOnly") is True:
+            if case.get("temporal") is not None:
+                raise ValueError("registration-only case cannot declare temporal acceptance")
+            continue
+        if not case.get("temporal"):
             raise ValueError("unique checks and explicit progress property required")
     return manifest
 
@@ -106,6 +114,8 @@ def main():
     cases = [case for case in manifest["cases"] if args.case is None or case["id"] == args.case]
     if not cases:
         parser.error("unknown case")
+    if any(case.get("registrationOnly") is True for case in cases):
+        parser.error("registration-only metadata is not executable protocol acceptance; use its declared safety recipe")
     version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != manifest["quintVersion"]:
         raise ValueError("Quint version differs from reviewed version")

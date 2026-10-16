@@ -1,0 +1,156 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-undo-metadata-ownership",
+  "scope": "Existing allocator protocol plus first-break saved-pointer fault envelope. Identify scope of section-owned undo metadata before native implementation; no native writer or repair admission inferred.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-section-pool-metadata/source.lock.json",
+    "evidence/fixtures/darwin-section-pool-metadata/native-incident.json",
+    "evidence/research/execution-rules.ss",
+    "evidence/research/current-source-full-bootstrap/darwin-section-pool-historical-producer.json",
+    "patches/fixtures/darwin-section-pool-metadata.patch",
+    "evidence/fixtures/darwin-section-pool-metadata/review-contract.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json",
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/fixtures/darwin-frame-ra-boundary/native-observation.json",
+    "evidence/fixtures/darwin-section-pool-metadata/model-observation.json",
+    "evidence/fixtures/darwin-heap-frame-identity/native-observation.json",
+    "evidence/fixtures/darwin-section-pool-metadata/native-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-section-pool-metadata/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-section-pool-historical-producer.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "ownership",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false,
+        "temporal": "completion"
+      }
+    },
+    {
+      "id": "undo-payload-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initInBandUndoAlias",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "owned-undo-metadata",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/stack_allocator_frame_lifetime.qnt",
+        "parsed": "parse",
+        "initializer": "initOwnedUndoMetadata",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "parse",
+        "typecheck",
+        "ownership",
+        "undo-payload-control",
+        "owned-undo-metadata"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

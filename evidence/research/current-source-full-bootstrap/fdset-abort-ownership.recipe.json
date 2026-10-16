@@ -1,0 +1,18 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"fdset-abort-setup-ownership",
+  "scope":"Separate fd-set bank ownership from select-abort publication; proposed setup/cleanup protocol with three controls. No native fault injection, bootstrap or C-refinement admission.",
+  "budgetSeconds":45,
+  "workspacePolicy":"in-place",
+  "inputs":["models/gambit/fdset_abort_setup_ownership.qnt","docs/fdset-abort-setup-ownership.md","evidence/fixtures/pipe-descriptor-owned-rollback/source.lock.json","patches/fixtures/pipe-descriptor-owned-rollback.patch","evidence/research/current-source-full-bootstrap/pipe-descriptor-workspace-state.json","evidence/research/execution-rules.ss"],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/pipe-descriptor-owned-rollback/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate","workspaceState":"evidence/research/current-source-full-bootstrap/pipe-descriptor-workspace-state.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/fdset_abort_setup_ownership.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/fdset_abort_setup_ownership.qnt","parsed":"parse"}},
+    {"id":"safe","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/fdset_abort_setup_ownership.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false}},
+    {"id":"old-cleanup","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/fdset_abort_setup_ownership.qnt","parsed":"parse","initializer":"initOldCleanup","step":"step","invariant":"safe","negative":true}},
+    {"id":"ready-only","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/fdset_abort_setup_ownership.qnt","parsed":"parse","initializer":"initReadyOnly","step":"step","invariant":"safe","negative":true}},
+    {"id":"forgot-reset","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/fdset_abort_setup_ownership.qnt","parsed":"parse","initializer":"initForgotReset","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","safe","old-cleanup","ready-only","forgot-reset"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

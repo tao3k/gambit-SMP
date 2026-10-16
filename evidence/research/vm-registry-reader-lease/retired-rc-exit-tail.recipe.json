@@ -1,0 +1,269 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "retired-rc-exit-tail-model-native",
+  "scope": "Executable composition with POSIX exit-tail callbacks and real pthread checkpoint/join controls. No Gambit join injection, implemented RC repair or native GC admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/vector-increment-arity-parity/source.lock.json",
+    "patches/fixtures/vector-increment-arity-parity.patch",
+    "models/gambit/retired_rc_gc_visibility.qnt",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/retired_rc_exit_tail.qnt",
+    "models/gambit/native/pthread_exit_tail_ack.c"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vector-increment-arity-parity/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "safe",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "progress",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "noStall",
+        "negative": false
+      }
+    },
+    {
+      "id": "release-control",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt",
+        "parsed": "parse",
+        "initializer": "initPreExitAck",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": [
+        "parse",
+        "type"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/retired_rc_exit_tail.qnt",
+        "parsed": "parse",
+        "main": "retired_rc_exit_tail",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": [
+          "preExitAckControlTest",
+          "tailBeforeHandoffTest",
+          "R::retainedButUnscannedControlTest",
+          "R::transferWithoutAckControlTest",
+          "R::failedJoinVisibleRootsTest",
+          "R::failedJoinRecoveryTest",
+          "R::successfulJoinTest"
+        ]
+      }
+    },
+    {
+      "id": "exit-tail-project",
+      "capability": "source.project",
+      "dependsOn": [
+        "source",
+        "safe",
+        "progress",
+        "release-control",
+        "trajectories"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "files": [
+          {
+            "target": "exit-tail.c",
+            "origin": {
+              "kind": "research-asset",
+              "path": "models/gambit/native/pthread_exit_tail_ack.c"
+            },
+            "sha256": "79ed1046b31d61f429af667233384403107b4551292b23395b39e7277f6ab95d"
+          },
+          {
+            "target": "gambit-thread-exit.c",
+            "origin": {
+              "kind": "source-artifact",
+              "path": "lib/os_thread.c"
+            },
+            "sha256": "4aeb80cc54ae12f16285aef201fd3f43cc0b40c22895fd6d4d3585c68643b175",
+            "ranges": [
+              {
+                "start": 10252,
+                "end": 10413,
+                "sha256": "7ad14807864f335e3091cc2bf46a36e758a16acf15d06a12bad7463d5e663e07"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exit-tail-bind",
+      "capability": "source.bind",
+      "dependsOn": [
+        "exit-tail-project"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "workspace": {
+          "step": "exit-tail-project",
+          "output": "workspace"
+        }
+      }
+    },
+    {
+      "id": "exit-tail-build",
+      "capability": "native.workspace-build",
+      "dependsOn": [
+        "exit-tail-project",
+        "exit-tail-bind"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "workspace": {
+          "step": "exit-tail-project",
+          "output": "workspace"
+        },
+        "binding": {
+          "step": "exit-tail-bind",
+          "output": "binding"
+        },
+        "translationUnit": "exit-tail.c",
+        "standard": "c11",
+        "optimization": 1,
+        "pthread": true,
+        "target": "executable",
+        "defines": [
+          "___USE_POSIX_THREAD_SYSTEM"
+        ]
+      }
+    },
+    {
+      "id": "exit-tail-controls",
+      "capability": "native.test",
+      "dependsOn": [
+        "exit-tail-build"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "executable": {
+          "step": "exit-tail-build",
+          "output": "executable"
+        },
+        "cases": [
+          {
+            "id": "joined-exit-tail",
+            "integers": [
+              0
+            ],
+            "stdout": "JOINED-EXIT-TAIL:PASS\n"
+          },
+          {
+            "id": "pre-exit-ack-control",
+            "integers": [
+              1
+            ],
+            "stdout": "PRE-EXIT-ACK:EXPECTED-VIOLATION\n",
+            "expectedExit": 1,
+            "negativeControl": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "type",
+        "safe",
+        "progress",
+        "release-control",
+        "trajectories",
+        "exit-tail-build",
+        "exit-tail-controls",
+        "exit-tail-project",
+        "exit-tail-bind"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

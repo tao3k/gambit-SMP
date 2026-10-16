@@ -5,10 +5,11 @@ import os
 from pathlib import Path
 import unittest
 
-from gambit_smp.ascent_program import assemble, evaluate, engine_api
-from ascent_engine import EngineError
-from ascent_engine.derivations import EvidenceChain
-from ascent_engine.evidence import ComputationalEvidence
+from gambit_smp.ascent_program import assemble, evaluate, engine_api, load_evidence_catalog
+from gambit_smp.framework import ROOT
+from ascent import EngineError
+from ascent.derivations import EvidenceChain
+from ascent.evidence import ComputationalEvidence
 
 
 RULES = """(ascent-fragment
@@ -28,32 +29,21 @@ class UtilizationAudit(unittest.TestCase):
     def setUpClass(cls):
         cls.context = engine_api()
         cls.engine, cls.identities = cls.context.__enter__()
-        cls.calls, cls.observations = [], {}
-        cls.original_request = cls.engine.request
-
-        def record(request):
-            result = cls.original_request(request)
-            cls.calls.append({"operation": request["operation"],
-                              "handle": request.get("handle", result.get("handle") if isinstance(result, dict) else None),
-                              "timeoutNanoseconds": request.get("timeoutNanoseconds")})
-            return result
-
-        cls.engine.request = record
-        cls.describe = cls.engine.request({"operation": "describe"})
+        cls.observations = {}
+        cls.describe = cls.engine.describe()
         cls.catalog = cls.engine.read_rules(RULES)
 
     @classmethod
     def tearDownClass(cls):
-        cls.engine.request = cls.original_request
         cls.context.__exit__(None, None, None)
         if os.environ.get("ASCENT_AUDIT_OBSERVATIONS"):
             Path(os.environ["ASCENT_AUDIT_OBSERVATIONS"]).write_text(json.dumps({
                 "describe": cls.describe, "identities": cls.identities,
-                "observations": cls.observations, "successfulNativeCalls": cls.calls,
+                "observations": cls.observations,
                 "runtimeAdmitted": False, "executionAuthorized": False}, indent=2) + "\n")
 
     def program(self, facts=None):
-        value = assemble(facts or FACTS, self.catalog, {"path": "path", "usable": "usable"})
+        value = assemble(facts or FACTS, self.catalog, {"path": "path", "usable": "usable"}, engine=self.engine)
         # Keep a deliberately unused source to measure conservative invalidation.
         value["relations"].append({"name": "unrelated", "source": True,
                                     "columns": [{"kind": "symbol"}],
@@ -61,24 +51,26 @@ class UtilizationAudit(unittest.TestCase):
         return value
 
     def test_adapter_retains_native_sessions_between_calls(self):
-        from gambit_smp.ascent_program import close_queries
+        from gambit_smp.ascent_program import close_queries, _query_owners
         close_queries(self.engine)
         counts, results, metrics = [], [], []
+        catalog = load_evidence_catalog(ROOT / "tests/fixtures/evidence/recursive-audit.ss",
+                                        constructor="make-recursive-audit", trusted=True)
         for _ in range(2):
-            start = len(self.calls)
-            result, metric = evaluate(self.engine, FACTS, self.catalog, {"answer": "usable"})
+            start = len(_query_owners.get(self.engine, {}))
+            result, metric = evaluate(self.engine, FACTS, catalog, {"answer": "usable"})
             results.append(result)
             metrics.append(metric)
-            counts.append(sum(row["operation"] == "open" for row in self.calls[start:]))
+            counts.append(len(_query_owners[self.engine]) - start)
         self.assertEqual(results[0], results[1])
         self.assertGreater(counts[0], 0)
         self.assertEqual(counts[1], 0)
         self.assertTrue(all(metric["retainedOwner"] for metric in metrics))
         self.assertEqual(metrics[0]["sourceGeneration"], metrics[1]["sourceGeneration"])
         self.assertEqual(metrics[1]["investigationRound"], metrics[0]["investigationRound"] + 1)
-        self.assertGreater(metrics[1]["reusedComponents"], 0)
-        self.assertGreater(metrics[1]["repeatReusedComponents"], 0)
-        self.observations["adapterCalls"] = {"opensPerCall": counts, "metrics": metrics,
+        self.assertTrue(metrics[1]["nativeResultReused"])
+        self.assertEqual(metrics[0]["sessionOwner"], metrics[1]["sessionOwner"])
+        self.observations["adapterCalls"] = {"consumerOwnersCreated": counts, "metrics": metrics,
                                             "crossCallReuseEstablished": True}
 
     def test_retained_chain_reuses_shared_component_across_distinct_queries(self):
@@ -140,14 +132,16 @@ class UtilizationAudit(unittest.TestCase):
     def test_native_zero_budget_is_not_a_fresh_complete_result(self):
         program = self.program()
         with self.engine.open(program) as session:
-            fresh = session.run(0)
+            with self.assertRaisesRegex(EngineError, "deadline"):
+                session.run(0)
             completed = session.run()
-            retained = session.run(0)
-            self.assertFalse(fresh["complete"])
+            with self.assertRaisesRegex(EngineError, "deadline"):
+                session.run(0)
+            retained = session.run()
             self.assertTrue(completed["complete"])
             self.assertTrue(retained["complete"])
             self.assertEqual(completed["relations"], retained["relations"])
-            self.observations["zeroBudget"] = {"freshComplete": fresh["complete"],
+            self.observations["zeroBudget"] = {"freshRejected": True, "retainedRejected": True,
                 "completedComplete": completed["complete"], "retainedComplete": retained["complete"]}
 
     def test_loaded_native_support_store_has_bound_positive_ancestors(self):

@@ -119,18 +119,47 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual({case["id"] for case in cases},
                          {row[0] for row in exported["facts"]["model"]})
         self.assertIn("gc_work_closure", {row[0] for row in exported["facts"]["model"]})
-        self.assertEqual({"gc_sync_membership", "gc_work_closure",
-                          "gc_forward_publication", "ticket_queue_handoff",
-                          "sync_tree_rounds", "sync_message_acquire", "sync_resource_retirement",
-                          "sync_resource_users", "continuation_chunk_publication",
-                          "pstate_setup_transaction", "pstate_resize_composition"},
-                         {row[0] for row in exported["facts"]["model_receipt"]})
+        from gambit_smp.check_gambit import reuse_model_receipt
+        from gambit_smp.review_inputs import _raw_log_attestations, _checked_raw_logs
+        expected_models = {case["id"]: case for case in cases if "modelReceipt" in case}
+        actual_models = exported["facts"]["model_receipt"]
+        self.assertEqual(len(expected_models), len(actual_models))
+        self.assertEqual(set(expected_models), {row[0] for row in actual_models})
+        attestations = _raw_log_attestations(index.ROOT)
+        self.assertTrue({key[0] for key in attestations}.issubset(expected_models))
+        for name, receipt, sha in attestations:
+            self.assertEqual(expected_models[name]["modelReceipt"], receipt)
+            self.assertEqual(index.digest(index.ROOT / receipt), sha)
+        for name, sha, evidence in actual_models:
+            case = expected_models[name]
+            self.assertEqual("finite-state-TLC", evidence)
+            path = index.ROOT / case["modelReceipt"]
+            self.assertEqual(index.digest(path), sha)
+            rows = reuse_model_receipt(path, case, index.ROOT / "models/gambit")
+            self.assertTrue(rows)
+            self.assertTrue(all(row["sourceStable"] is True for row in rows))
+            entry = attestations.get((name, case["modelReceipt"], sha))
+            if entry is not None:
+                bound = _checked_raw_logs(index.ROOT, name, case["modelReceipt"], sha, entry)
+                self.assertTrue(all(index.digest(index.ROOT / source) == expected for source, expected in bound.items()))
         self.assertEqual(33, len(exported["facts"]["report_snapshot"]))
         self.assertEqual(127, len(exported["facts"]["window_disposition"]))
         self.assertEqual(21, len(exported["facts"]["reported_failure"]))
         self.assertEqual(5, len(exported["facts"]["source_unit_fixture"]))
         self.assertEqual(30, len(exported["facts"]["native_observation"]))
-        self.assertEqual(25, len(exported["facts"]["local_native_failure"]))
+        inventory = json.loads((index.ROOT / "evidence/native-failures.json").read_text())["failures"]
+        observed = json.loads((index.ROOT / "evidence/native-observation-bindings.json").read_text())["bindings"]
+        expected_failures = {row["id"]: row for row in inventory if row["id"] not in observed}
+        actual_failures = exported["facts"]["local_native_failure"]
+        self.assertEqual(len(expected_failures), len(actual_failures))
+        self.assertEqual(set(expected_failures), {row[0] for row in actual_failures})
+        self.assertEqual({row["id"] for row in inventory},
+                         {row[0] for row in actual_failures} |
+                         {row[0] for row in exported["facts"]["observed_failure"]})
+        for name, category, status, sha in actual_failures:
+            expected = expected_failures[name]
+            self.assertEqual((expected["category"], expected["status"], index.digest(index.ROOT / expected["receipt"])),
+                             (category, status, sha))
         self.assertEqual(1, len(exported["facts"]["local_control_pass"]))
         self.assertNotIn("/Users/", json.dumps(exported))
         self.assertNotIn("release_admitted", exported["facts"])

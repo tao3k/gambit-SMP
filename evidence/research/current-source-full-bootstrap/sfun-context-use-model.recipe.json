@@ -1,0 +1,18 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"sfun-marker-context-use-model",
+  "scope":"Explicit binding-to-use transition. Retains the preceding 19.622076959-second DENY; 70 seconds maximum here keeps the model campaign below its original 90 seconds. No native qualification or budget reset.",
+  "budgetSeconds":70,
+  "workspacePolicy":"in-place",
+  "inputs":["models/gambit/sfun_marker_context_use.qnt","docs/sfun-marker-explicit-context.md","evidence/fixtures/sfun-marker-explicit-context/source.lock.json","patches/fixtures/sfun-marker-explicit-context.patch","evidence/research/current-source-full-bootstrap/sfun-context-workspace-state.json","evidence/research/execution-rules.ss"],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/fixtures/sfun-marker-explicit-context/source.lock.json","workspace":".data/fixtures/foreign-origin-public-cleanup-contract-candidate","workspaceState":"evidence/research/current-source-full-bootstrap/sfun-context-workspace-state.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_marker_context_use.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_marker_context_use.qnt","parsed":"parse"}},
+    {"id":"trajectories","capability":"quint.test","dependsOn":["parse","typecheck"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_marker_context_use.qnt","parsed":"parse","main":"sfun_marker_context_use","seed":"0x1510","maxSamples":10,"expectedTests":["contextTest","missingContextControlTest","staticBindingControlTest"]}},
+    {"id":"safe","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_marker_context_use.qnt","parsed":"parse","initializer":"init","step":"step","invariant":"safe","negative":false}},
+    {"id":"missing-context","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_marker_context_use.qnt","parsed":"parse","initializer":"initOld","step":"step","invariant":"safe","negative":true}},
+    {"id":"shared-static","capability":"quint.verify","dependsOn":["parse","typecheck","trajectories"],"budgetSeconds":15,"arguments":{"source":"models/gambit/sfun_marker_context_use.qnt","parsed":"parse","initializer":"initStatic","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","parse","typecheck","trajectories","safe","missing-context","shared-static"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

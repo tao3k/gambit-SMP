@@ -1,0 +1,106 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-stack-trip-owner-limit-thread-debug-object",
+  "scope": "Compile the exact generated lib/_thread.c with production flags plus DWARF; map the existing page-guard fault without rerunning failed stress. No linked runtime replacement or native admission.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch",
+    "evidence/fixtures/darwin-stack-trip-owner-limit/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-trip-owner-limit-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json",
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/fixtures/darwin-frame-ra-boundary/native-observation.json",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-gc-complete-probe-round/model-observation.json",
+    "evidence/fixtures/darwin-heap-frame-identity/native-observation.json",
+    "evidence/research/producer-decision-rules.ss",
+    "models/gambit/gc_scan_probe_round.qnt",
+    "models/gambit/gc_recheck_visibility.qnt",
+    "models/gambit/shared_msection_successor.qnt",
+    "evidence/fixtures/darwin-gc-complete-probe-round/native-observation.json",
+    "models/gambit/shared_section_undo_bounds.qnt",
+    "evidence/fixtures/darwin-shared-successor-snapshot/native-observation.json",
+    "models/gambit/shared_header_write_boundary.qnt",
+    "evidence/fixtures/darwin-shared-stack-reservation/native-observation.json",
+    "models/gambit/msection_header_page_guard.qnt",
+    "docs/msection-header-page-guard.md",
+    "evidence/fixtures/darwin-gc-header-write-boundary/native-observation.json",
+    "models/gambit/stack_trip_owner_limit.qnt",
+    "docs/stack-trip-owner-limit.md",
+    "evidence/fixtures/darwin-msection-header-page-guard/first-stack-write.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-stack-trip-owner-limit-completed-producer.json"
+      }
+    },
+    {
+      "id": "object",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "translationUnit": "lib/_thread.c",
+        "debugSymbols": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "object"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

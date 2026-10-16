@@ -1,0 +1,75 @@
+{
+  "schema":"ascent.evidence-view.v1",
+  "id":"gambit-btq-gc-edge-integrity",
+  "manifest":"evidence/scenarios/concurrent-gc/components.json",
+  "entry":"concurrent-gc",
+  "constructor":"make-concurrent-gc-review",
+  "facts":{
+    "candidate":[["darwin-dynamic-modulo-scope",{"reference":"candidate-lock"}]],
+    "flag":[["darwin-dynamic-modulo-scope","--enable-smp"],["darwin-dynamic-modulo-scope","--enable-multiple-vms"],["darwin-dynamic-modulo-scope","--enable-multiple-threaded-vms"]],
+    "expected_flag":[["--enable-smp"],["--enable-multiple-vms"],["--enable-multiple-threaded-vms"]],
+    "obligation":[
+      ["btq-writer-exclusion","scheduling","Establish the exact queue writer ownership for the failing red-black removal, not just a held thread lock"],
+      ["btq-transitive-closure","gc-copying","Establish valid sibling/child edges after GC, beyond correct root publication and reload"],
+      ["btq-destination-identity","gc-scanning","Bind physical-slot scan origin and allocation generation; exclude duplicate canonical forwarding without a masking to-space skip"]
+    ],
+    "model":[["btq-writer-exclusion","models/gambit/btq_gc_transitive_edges.qnt","edge-model"],["btq-writer-exclusion","models/gambit/btq_operations.qnt","operations-model"],["btq-transitive-closure","models/gambit/btq_gc_transitive_edges.qnt","edge-model"],["btq-destination-identity","models/gambit/btq_gc_transitive_edges.qnt","edge-model"],["btq-destination-identity","models/gambit/gc_chunk_cursor_operations.qnt","chunk-model"],["btq-destination-identity","models/gambit/ticket_queue_handoff.qnt","ticket-model"],["btq-writer-exclusion","models/gambit/btq_ticket_selection.qnt","ticket-selection-model"]],
+    "source":[
+      ["ticket-candidate","evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json",{"reference":"ticket-candidate"},"Darwin GNU production ticket acquire-load successor; local lock test does not establish VM/GC acceptance"],
+      ["ticket-selection-model","models/gambit/btq_ticket_selection.qnt",{"reference":"ticket-selection-model"},"conditional composition of minimum removal and ticket visibility; no C/ARM refinement or native cause"],
+      ["candidate-lock","evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json",{"reference":"candidate-lock"},"current 23-file source overlay identity"],
+      ["rb-generator","vendor/gambit/lib/_thread#.scm",{"reference":"rb-generator"},"pinned unchanged red-black generator range; overlay is separately bound"],
+      ["edge-model","models/gambit/btq_gc_transitive_edges.qnt",{"reference":"edge-model"},"conditional finite access contract; not source refinement"],
+      ["operations-model","models/gambit/btq_operations.qnt",{"reference":"operations-model"},"four-node two-round source operations; queue callers and physical GC composition remain open"],
+      ["chunk-model","models/gambit/gc_chunk_cursor_operations.qnt",{"reference":"chunk-model"},"cursor/FIFO/private segment with section rollover, stack sharing and peer free-list request; epochs, cross-arena payloads and native cause remain open"],
+      ["ticket-model","models/gambit/ticket_queue_handoff.qnt",{"reference":"ticket-model"},"existing abstract post-ticket ownership acquire obligation, not a full C/ARM memory-model proof"],
+      ["allocator-candidate","evidence/fixtures/darwin-allocator-acquire/source.lock.json",{"reference":"allocator-candidate"},"unqualified ALLOC-only source successor; no new linked runtime or source acceptance"]
+    ],
+    "evidence":[
+      ["btq-transitive-closure","FAULT_SITE_MAPPED",{"reference":"premise-btq-mapping"}],
+      ["btq-transitive-closure","NATIVE_DENY",{"reference":"premise-native"}],
+      ["btq-writer-exclusion","CANDIDATE_OBJECT_ONLY",{"reference":"ticket-handoff"}],
+      ["btq-writer-exclusion","MODEL_ONLY_PASS",{"reference":"ticket-selection-observation"}],
+      ["btq-transitive-closure","NATIVE_DENY",{"reference":"allocator-native-failure"}],
+      ["btq-writer-exclusion","FAULT_SITE_MAPPED",{"reference":"mapping"}],
+      ["btq-writer-exclusion","MODEL_ONLY_PASS",{"reference":"operations-observation"}],
+      ["btq-transitive-closure","MODEL_ONLY_PASS",{"reference":"model-observation"}],
+      ["btq-transitive-closure","NATIVE_DENY",{"reference":"native-failure"}],
+      ["btq-destination-identity","MODEL_ONLY_PASS",{"reference":"model-observation"}],
+      ["btq-destination-identity","MODEL_ONLY_PASS",{"reference":"chunk-observation"}],
+      ["btq-destination-identity","HISTORICAL_SCAN_CONTEXT",{"reference":"historical-origin"}],
+      ["btq-destination-identity","CANDIDATE_OBJECT_ONLY",{"reference":"allocator-object"}],
+      ["btq-destination-identity","NATIVE_DENY",{"reference":"native-failure"}]
+    ],
+    "source_anchor":[
+      ["btq-writer-exclusion","rb-generator",428,471,"Prove same-queue exclusive structural mutation at delete fixup"],
+      ["btq-transitive-closure","rb-generator",450,471,"Prove the sibling right-child color read receives a current live object"],
+      ["btq-destination-identity","rb-generator",450,471,"Bind the failing child to unique copying/scan ownership and allocation generation"]
+    ],
+    "measurement":[],"metric":[]
+  },
+  "queries":{"open":"open","observed":"observed","models":"model_context","source_gaps":"source_gap","actions":"actions"},
+  "references":[
+    {"id":"premise-btq-mapping","path":"evidence/fixtures/darwin-ffi-return-premise/btq-symbolization.json","sha256":"74fab86c1cfe8a52c50f79329db9c32f18275b5ab4d726cbd1994b8ea47fc57e","pointer":null},
+    {"id":"premise-native","path":"evidence/fixtures/darwin-ffi-return-premise/native-observation.json","sha256":"df075d89efdbf20d1bee291afbad90f8c79130f400ab2dccbe6cfc6813ac23f3","pointer":null},
+    {"id":"ticket-candidate","path":"evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json","sha256":"afc447ee08a1187a29e6e5a5e3206a83d206a153b22ab063f8daf61ae6d8f084","pointer":null},
+    {"id":"ticket-handoff","path":"evidence/fixtures/darwin-ticket-ownership-acquire/handoff-observation.json","sha256":"97274ed0d6e79d9ea4fcc572fffc3c58c65cc4d2dff9b92516aeda382f0e1e56","pointer":null},
+    {"id":"ticket-selection-model","path":"models/gambit/btq_ticket_selection.qnt","sha256":"5fdf9782d4bc4ae46896fe81b01ef6e98fb2191236fe07522aeacd8120bc7414","pointer":null},
+    {"id":"ticket-selection-observation","path":"evidence/source-results/compiled-stress-failure/ticket-selection-model.json","sha256":"0e7d422bc6d2c685c168bff79de04034383d577628abd60a850fcc395a0ea90a","pointer":null},
+    {"id":"allocator-native-failure","path":"evidence/fixtures/darwin-allocator-acquire/compiled-tfib-observation.json","sha256":"55b14490f120a5e2bf9ed309bbe0d68be3a116b617b60fd54319fdf77c6147ec","pointer":null},
+    {"id":"candidate-lock","path":"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json","sha256":"316c87a64b5fd16f588141e2601fcce16f38ec88a4e7b7831baffe9467093c52","pointer":null},
+    {"id":"rb-generator","path":"vendor/gambit/lib/_thread#.scm","sha256":"e7113bd34c26296b5ef6890737ed47ac263bb8c072bc72c664cd76b5dfc2db14","pointer":null},
+    {"id":"edge-model","path":"models/gambit/btq_gc_transitive_edges.qnt","sha256":"5cbbbf46fb439cd453aea528ff239232f7ca8ae164d8bc9516fb7b57175b491b","pointer":null},
+    {"id":"mapping","path":"evidence/source-results/compiled-stress-failure/symbolization.json","sha256":"c3b31ee1d630e9a59dbab552aa3694dfe8d3390eef884006d529a4a76fbcc1fa","pointer":null},
+    {"id":"model-observation","path":"evidence/source-results/compiled-stress-failure/model-contract.json","sha256":"8cc36abeb09efb0d015937fe6cc0e5a92eb2585bee853c26d01a1f8236520f07","pointer":null},
+    {"id":"native-failure","path":"evidence/source-results/compiled-stress-failure/campaign.json","sha256":"5ab802eec371dac3aca717b650958b2cf0f27bd3ae49c8069608467d5ca750ee","pointer":null},
+    {"id":"operations-model","path":"models/gambit/btq_operations.qnt","sha256":"881c5e23e9c93b38c50dbbff708cfa3c0a76f101b3f145a59685367f9d03ea81","pointer":null},
+    {"id":"operations-observation","path":"evidence/source-results/compiled-stress-failure/operations-model.json","sha256":"5b5c1760a8c0a18181bac76d747ba70b2c715ca9eb6c89fd2145917a750516e4","pointer":null},
+    {"id":"chunk-model","path":"models/gambit/gc_chunk_cursor_operations.qnt","sha256":"acd4d303895c843365ef197d16aaa6d0356fc088ec685ae30dad4365b1b4e1ec","pointer":null},
+    {"id":"chunk-observation","path":"evidence/source-results/compiled-stress-failure/chunk-cursor-model.json","sha256":"31c7e975d93d0edeb82da5c5d676f3e58d466f3df62422709350b0bff9b9822c","pointer":null},
+    {"id":"ticket-model","path":"models/gambit/ticket_queue_handoff.qnt","sha256":"e471a1bcf5f31d8e2670b55606aa7bb3c3b33e9ae14e040968aa8ac5d32a5947","pointer":null},
+    {"id":"historical-origin","path":"evidence/source-results/compiled-stress-failure/historical-scan-origin.json","sha256":"3ece18df84c81572cbcfcd327ba118bd8be32e3bc51068bae88e714a34351a20","pointer":null},
+    {"id":"allocator-candidate","path":"evidence/fixtures/darwin-allocator-acquire/source.lock.json","sha256":"b559b964597bec7982481548269f74c963b5a9f6e5377b9d8ed9dc300c9dc479","pointer":null},
+    {"id":"allocator-object","path":"evidence/fixtures/darwin-allocator-acquire/object-observation.json","sha256":"ed7112930b2251aeb7fe4827bec6bccfcb977ab2fea3a6c4eabf56ba42bedf80","pointer":null}
+  ]
+}

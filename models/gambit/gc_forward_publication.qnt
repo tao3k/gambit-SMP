@@ -1,4 +1,5 @@
 module gc_forward_publication {
+  import WorkObligations.* from "../library/gc/WorkObligations"
   // One two-word object, two competing workers, one private destination chunk.
   // Address publication by CAS precedes copying. References may be redirected
   // immediately; scanning requires completed chunk publication. Mutators stop.
@@ -75,8 +76,11 @@ module gc_forward_publication {
   val publicationSafe = not(s.staleRead)
   val terminationSafe = not(s.resumed) or
     (s.copied == 2 and s.scanned and not(s.queued))
-  val identitySafe = (s.refs.get(1) == 0 or s.refs.get(1) == s.owner) and
-                     (s.refs.get(2) == 0 or s.refs.get(2) == s.owner)
+  val identitySafe = canonicalReferences(s.refs, Set(1, 2), 0, s.owner)
+  // Keep the original formula executable to check extraction equivalence.
+  val identityExtractionEquivalent = identitySafe ==
+    ((s.refs.get(1) == 0 or s.refs.get(1) == s.owner) and
+     (s.refs.get(2) == 0 or s.refs.get(2) == s.owner))
   val destinationSafe = not(s.canonicalForwarded)
   val payloadInputSafe = not(s.canonicalForwarded)
   val safe = publicationSafe and terminationSafe and identitySafe and destinationSafe

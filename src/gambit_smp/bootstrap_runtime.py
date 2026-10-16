@@ -174,7 +174,9 @@ def main():
     environment.pop("GAMBOPT", None)
     out.mkdir(parents=True, exist_ok=False)
     copy = out / "source"
-    shutil.copytree(runtime, copy, symlinks=True, ignore=shutil.ignore_patterns(".git", ".hg"))
+    from gambit_smp.fixture_storage import source_capacity
+    with source_capacity(copy):
+        shutil.copytree(runtime, copy, symlinks=True, ignore=shutil.ignore_patterns(".git", ".hg"))
     check(copy, identity)
     patched_hashes, binding, proof_inputs, support = {}, None, [(ROOT / name, sha) for name, sha in seed_inputs.items()], {}
     if args.patch:

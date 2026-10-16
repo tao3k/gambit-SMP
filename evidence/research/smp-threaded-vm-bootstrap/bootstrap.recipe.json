@@ -1,0 +1,174 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-threaded-vm-bootstrap",
+  "scope": "Milestone bootstrap gate: one locked GNU candidate, all three flags, host-shared concurrency, retained historical failures and typed native ASCENT review. Exact two-pass bootstrap only; full gsi/gsc, real multi-VM GC and Gerbil acceptance remain mandatory and open.",
+  "budgetSeconds": 600,
+  "inputs": [
+    "evidence/fixtures/thread-completion-contract/source.lock.json",
+    "patches/fixtures/thread-completion-contract.patch",
+    "models/gambit/exit_drain_mutex_lock_order.qnt",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "evidence/research/smp-threaded-vm-bootstrap/intent.json",
+    "evidence/research/smp-threaded-vm-bootstrap/bootstrap-second-core-history.json",
+    "evidence/research/smp-threaded-vm-bootstrap/bootstrap-gc-iteration-history.json",
+    "evidence/research/smp-threaded-vm-bootstrap/bootstrap-serialization-history.json",
+    "docs/sync-message-atomic-publication-fixture.md"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/thread-completion-contract/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/exit_drain_mutex_lock_order.qnt"
+      }
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "parse"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "protocol",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "parse",
+        "typecheck"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+        "parsed": "parse",
+        "initializer": "initFixed",
+        "step": "step",
+        "invariant": "checked",
+        "negative": false,
+        "temporal": "progress"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source",
+        "protocol"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "cOptimization": 0,
+        "rtsOptimization": 0
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 180,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "seed",
+        "protocol"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "intent": "evidence/research/smp-threaded-vm-bootstrap/intent.json",
+        "target": "bootstrap"
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "seed",
+        "review"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "parse",
+        "typecheck",
+        "protocol",
+        "configure",
+        "seed",
+        "review",
+        "bootstrap"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

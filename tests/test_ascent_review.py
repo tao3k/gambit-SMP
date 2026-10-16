@@ -6,6 +6,17 @@ from tempfile import TemporaryDirectory
 from gambit_smp.ascent_review import project
 
 
+def current_review(facts):
+    from gambit_smp.ascent_program import engine_api, evaluate, load_component_catalog
+    from gambit_smp.ascent_review import REVIEW_OUTPUTS
+    from gambit_smp.framework import ROOT
+    catalog = load_component_catalog(ROOT / "evidence/dsl/components.json", entry="review",
+                                     constructor="make-review", trusted=True)
+    with engine_api() as (engine, _):
+        rows, _ = evaluate(engine, facts, catalog, {name: name for name in REVIEW_OUTPUTS})
+    return {name: [list(row) for row in values] for name, values in rows.items()}
+
+
 class EvidenceProjectionTest(unittest.TestCase):
     def setUp(self):
         self.base = {"facts": {"model_receipt": [["parent", "hash", "finite-state-TLC"]],
@@ -32,7 +43,6 @@ class EvidenceProjectionTest(unittest.TestCase):
         self.assertEqual(facts["Cause"], [])
 
     def test_native_invalidation_preserves_independent_receipt(self):
-        from ascent_engine.review import EvidenceReview
         from gambit_smp.ascent_program import engine_api
         from gambit_smp.review_brief import render
 
@@ -50,8 +60,7 @@ class EvidenceProjectionTest(unittest.TestCase):
                         current_inputs={"validated-catalog": "snapshot", "a.json": "ha",
                                         "a.c": "new", "b.json": "hb", "c.json": "hc"},
                         task_model="b")
-        with engine_api() as (engine, _), EvidenceReview(engine, facts) as review:
-            rows = review.review()["result"]["relations"]
+        rows = current_review(facts)
         self.assertIn(["a:ha", "stale-or-missing-input"], rows["Unusable"])
         self.assertIn(["b:hb", "invalid-dependency"], rows["Unusable"])
         self.assertIn(["c:hc", "finite-model:c"], rows["Reusable"])
@@ -117,10 +126,8 @@ class EvidenceProjectionTest(unittest.TestCase):
             self.assertTrue(specs["m:" + expected]["rawLogEvidencePending"])
             facts = project(base, [], "snapshot", observations=[observation],
                             bindings=specs, current_inputs=current, task_model="m")
-            from ascent_engine.review import EvidenceReview
             from gambit_smp.ascent_program import engine_api
-            with engine_api() as (engine, _), EvidenceReview(engine, facts) as review:
-                rows = review.review()["result"]["relations"]
+            rows = current_review(facts)
             self.assertIn(["m:" + expected, "stale-or-missing-input"], rows["Unusable"])
             self.assertIn(["audit:observed", "invalid-dependency"], rows["Unusable"])
             self.assertIn(["task:m", "finite-model:m"], rows["Missing"])

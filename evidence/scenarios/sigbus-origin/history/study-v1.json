@@ -1,0 +1,53 @@
+{
+  "schema": "research-study.v1",
+  "id": "diagnostic-010-origin",
+  "references": [
+    {"id": "incident-pid", "path": "evidence/model-results/native-gc-incident-010-child-bound.json", "sha256": "3d33c6774cbfada4899548494dceda0fd487df5babffba7bd4dbe1f64fdc12b1", "pointer": "/pid"},
+    {"id": "compiler-pid", "path": "evidence/model-results/native-diagnostic-decode-p4-deny.json", "sha256": "a45f628790a512108141836da6c9c69fddb2723e8c3fc9ab6f312c6174211d30", "pointer": "/native/compile/process/pid"},
+    {"id": "incident-binary", "path": "evidence/model-results/native-gc-incident-010-child-bound.json", "sha256": "3d33c6774cbfada4899548494dceda0fd487df5babffba7bd4dbe1f64fdc12b1", "pointer": "/binarySha256"},
+    {"id": "compiler-binary", "path": "evidence/model-results/native-diagnostic-decode-p4-deny.json", "sha256": "a45f628790a512108141836da6c9c69fddb2723e8c3fc9ab6f312c6174211d30", "pointer": "/native/toolchain/gscSha256"},
+    {"id": "compiler-exit", "path": "evidence/model-results/native-diagnostic-decode-p4-deny.json", "sha256": "a45f628790a512108141836da6c9c69fddb2723e8c3fc9ab6f312c6174211d30", "pointer": "/native/compile/exit"},
+    {"id": "exception", "path": "evidence/model-results/native-gc-incident-010-child-bound.json", "sha256": "3d33c6774cbfada4899548494dceda0fd487df5babffba7bd4dbe1f64fdc12b1", "pointer": "/exception"},
+    {"id": "threads", "path": "evidence/model-results/native-gc-incident-010-child-bound.json", "sha256": "3d33c6774cbfada4899548494dceda0fd487df5babffba7bd4dbe1f64fdc12b1", "pointer": "/threads"},
+    {"id": "candidate-mem", "path": "evidence/model-results/native-diagnostic-decode-p4-deny.json", "sha256": "a45f628790a512108141836da6c9c69fddb2723e8c3fc9ab6f312c6174211d30", "pointer": "/native/toolchain/sourceFiles/lib~1mem.c"}
+  ],
+  "equalities": [["incident-pid", "compiler-pid"], ["incident-binary", "compiler-binary"]],
+  "hypotheses": [
+    {
+      "id": "allocation-extent",
+      "claim": "Scan interprets a field beyond the allocated object extent.",
+      "predictions": [{"observation": "first-invalid-field", "expected": "outside-allocation", "falsifier": "First bad field lies within a generation-bound allocation and valid payload layout.", "coverageRequired": "Allocation generation, base, byte extent, object subtype, copy extent and scan field index at the first producing operation."}],
+      "limitations": ["Fault PC is a consumer location, not a producer identity.", "No observer denial does not establish full extent coverage."],
+      "recipe": null
+    },
+    {
+      "id": "payload-layout",
+      "claim": "An in-range payload word is interpreted using the wrong object layout.",
+      "predictions": [{"observation": "first-invalid-field", "expected": "inside-allocation-wrong-layout", "falsifier": "First bad field is outside the original allocation with exact layout and allocation provenance.", "coverageRequired": "Original header/subtype, byte extent, payload field class, generated scan correspondence and first field writer."}],
+      "limitations": ["Shared closure/vector-like scan return location does not recover the original subtype."],
+      "recipe": null
+    },
+    {
+      "id": "lifetime-ownership",
+      "claim": "Scan consumes a stale or prematurely published object generation.",
+      "predictions": [{"observation": "generation-publication", "expected": "retired-or-unpublished-generation", "falsifier": "Object generation remains live and correctly published through the first invalid reference with complete owner/GC epoch coverage.", "coverageRequired": "Allocation/copy generation, forwarding epoch, producer/consumer ownership, publication order and retirement at first invalid reference."}],
+      "limitations": ["No dynamic provenance events are bound yet.", "Finite models and nearby candidate source cannot establish this candidate's root cause."],
+      "recipe": null
+    }
+  ],
+  "sourceTrace": {
+    "path": "patches/snapshots/010-child-bound-mem.c",
+    "shaReference": "candidate-mem",
+    "anchors": [
+      {"role": "reference-to-body", "line": 3685, "text": "            body = ___BODY0(obj);"},
+      {"role": "header-derived-copy-extent", "line": 3692, "text": "                ___SIZE_TS words = ___HD_WORDS(head);"},
+      {"role": "destination-header", "line": 3724, "text": "                *alloc++ = head;"},
+      {"role": "forwarding-cas", "line": 3734, "text": "                    ___COMPARE_AND_SWAP_WORD(&body[-1],"},
+      {"role": "payload-copy", "line": 3763, "text": "                    *alloc++ = *body++;"},
+      {"role": "closure-field-scan", "line": 4347, "text": "      mark_array (___PSP body+___CLO_FREEVARS, words-___CLO_FREEVARS);"},
+      {"role": "vector-like-field-scan", "line": 4356, "text": "        mark_array (___PSP body, words);"},
+      {"role":"scan-cursor-advance","line":4367,"text":"  ptr += scan (___PSP (ptr)+1, head) + 1; \\"}
+    ],
+    "missingReason": "Recovered exactly matching mem.c from local gc-native-candidate-011-input, then froze bytes in a repository snapshot. This does not establish the complete candidate/build or dynamic first producer. Candidate026 cannot substitute. Dynamic first-producer instrumentation is not a sealed capability."
+  }
+}

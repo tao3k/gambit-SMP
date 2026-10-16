@@ -1,0 +1,80 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "darwin-btq-public-kernel-debug-object",
+  "scope": "Compile the current failed runtime's generated kernel using its configured production object command plus debug symbols. Read-only source/producer reuse; no bootstrap or repeated stress. Debug object must match production text/relocations before source mapping is admitted.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-btq-public-provenance/source.lock.json",
+    "patches/fixtures/darwin-btq-public-provenance.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-btq-public-completed-producer.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-btq-public-provenance/source.lock.json",
+        "workspace": ".data/fixtures/vm-pending-join-retention/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/current-source-full-bootstrap/darwin-btq-public-completed-producer.json"
+      }
+    },
+    {
+      "id": "kernel-object",
+      "capability": "gambit.object",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "translationUnit": "lib/_kernel.c",
+        "debugSymbols": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "kernel-object"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "schema":"evidence-recipe.v2",
+  "id":"ffi-select-relock-frame-composition",
+  "scope":"Conditional composition of existing foreign caller protocol, physical stack copy, C relock wait and local-root lifetime. Not a source patch, actual wait-cycle reachability, crash-causality or release proof.",
+  "workspacePolicy":"in-place",
+  "timeoutPolicy":{"mode":"progress","overheadSeconds":30},
+  "inputs":[
+    "models/gambit/ffi_select_relock_frame.qnt",
+    "models/gambit/ffi_gc_frame_protocol.qnt",
+    "evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json",
+    "patches/fixtures/darwin-ticket-ownership-acquire.patch",
+    "evidence/research/current-source-full-bootstrap/darwin-ticket-completed-producer.json",
+    "evidence/fixtures/darwin-ticket-ownership-acquire/kernel-return-symbolization.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps":[
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,
+      "arguments":{"sourceLock":"evidence/fixtures/darwin-ticket-ownership-acquire/source.lock.json","workspace":".data/fixtures/vm-pending-join-retention/source"}},
+    {"id":"producer","capability":"gambit.completed-runtime","dependsOn":["source"],"budgetSeconds":60,
+      "arguments":{"source":{"step":"source","output":"source"},"producer":"evidence/research/current-source-full-bootstrap/darwin-ticket-completed-producer.json"}},
+    {"id":"parse","capability":"quint.parse","dependsOn":["source"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/ffi_select_relock_frame.qnt"}},
+    {"id":"typecheck","capability":"quint.typecheck","dependsOn":["parse"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/ffi_select_relock_frame.qnt","parsed":"parse"}},
+    {"id":"closed-protocol","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":60,
+      "arguments":{"source":"models/gambit/ffi_select_relock_frame.qnt","parsed":"parse","initializer":"initClosed","step":"step","invariant":"safe","temporal":"completion","negative":false}},
+    {"id":"spin-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/ffi_select_relock_frame.qnt","parsed":"parse","initializer":"initSpin","step":"step","invariant":"safe","negative":true}},
+    {"id":"unrooted-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/ffi_select_relock_frame.qnt","parsed":"parse","initializer":"initUnrooted","step":"step","invariant":"safe","negative":true}},
+    {"id":"return-slot-control","capability":"quint.verify","dependsOn":["parse","typecheck"],"budgetSeconds":15,
+      "arguments":{"source":"models/gambit/ffi_select_relock_frame.qnt","parsed":"parse","initializer":"initMissingReturnSlot","step":"step","invariant":"safe","negative":true}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","producer","parse","typecheck","closed-protocol","spin-control","unrooted-control","return-slot-control"],"budgetSeconds":10,
+      "arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

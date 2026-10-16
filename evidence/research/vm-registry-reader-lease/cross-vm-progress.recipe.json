@@ -1,0 +1,36 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "smp-registry-cross-vm-progress-model",
+  "scope": "Unqualified bounded two-VM composition: writer exclusion, reader drain and deferred replay over two resize cycles per VM. Old barrier arrival, successful OS join, finite signal demand and SC atomics are assumptions. No source refinement, native fix or performance admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "models/gambit/vm_registry_cross_vm_progress.qnt",
+    "docs/vm-resize-cross-vm-progress-audit.md",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace.patch"
+  ],
+  "steps": [
+    {"id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {"sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-source.lock.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["source"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vm_registry_cross_vm_progress.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vm_registry_cross_vm_progress.qnt", "parsed": "parse"}},
+    {"id": "safe-progress", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vm_registry_cross_vm_progress.qnt", "parsed": "parse",
+        "initializer": "init", "step": "step", "invariant": "contract", "temporal": "progress", "negative": false}},
+    {"id": "writer-bypass-control", "capability": "quint.verify", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vm_registry_cross_vm_progress.qnt", "parsed": "parse",
+        "initializer": "initBypass", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/vm_registry_cross_vm_progress.qnt", "parsed": "parse",
+        "main": "vm_registry_cross_vm_progress", "seed": "0x1510", "maxSamples": 1,
+        "expectedTests": ["writerBypassControlTest", "readerDrainTest", "deferredReplayTest"]}},
+    {"id": "verdict", "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "typecheck", "safe-progress", "writer-bypass-control", "trajectories"],
+      "budgetSeconds": 10,
+      "arguments": {"rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

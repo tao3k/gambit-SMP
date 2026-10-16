@@ -109,7 +109,20 @@ def test_files(suite, root):
     return sorted(files)
 
 
-def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None):
+class ValidationOutput(io.StringIO):
+    def __init__(self, journal=None):
+        super().__init__()
+        self.journal = journal
+
+    def write(self, text):
+        count = super().write(text)
+        if self.journal is not None:
+            self.journal.write(text)
+            self.journal.flush()
+        return count
+
+
+def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None, journal=None):
     root = Path(root).resolve()
     expected = sorted(test_ids(suite))
     if len(expected) != len(set(expected)):
@@ -126,7 +139,7 @@ def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None):
             raise ValueError("declared validation domain requires a sealed engine and receipt directory")
         engine = Path(os.environ["GAMBIT_SMP_TEST_ENGINE"]).resolve()
         domain_results.append(run_domain(root, tests, policy, engine, Path(domain_out) / str(index)))
-    output = io.StringIO()
+    output = ValidationOutput(journal)
     result = unittest.TextTestRunner(stream=output, verbosity=2, resultclass=Outcomes).run(local_suite)
     for domain in domain_results:
         if set(result.outcomes) & set(domain["outcomes"]):
@@ -300,13 +313,12 @@ def main():
     loader = unittest.TestLoader()
     suite = (loader.discover(str(root / "tests"), top_level_dir=str(root)) if args.profile == "full"
              else loader.loadTestsFromNames(EVIDENCE_TESTS))
-    with engine_api() as (_, engine_inputs):
-        receipt, output = run_suite(root, suite, inputs, engine_inputs, args.profile,
-                                    domain_out=args.out / "domains")
     args.out.mkdir(parents=True, exist_ok=True)
     log = args.out / "tests.log"
     with log.open("x") as stream:
-        stream.write(output)
+        with engine_api() as (_, engine_inputs):
+            receipt, output = run_suite(root, suite, inputs, engine_inputs, args.profile,
+                                        domain_out=args.out / "domains", journal=stream)
     receipt["log"] = {"path": log.name, "sha256": digest(log)}
     with (args.out / "test-result.json").open("x") as stream:
         stream.write(json.dumps(receipt, indent=2) + "\n")

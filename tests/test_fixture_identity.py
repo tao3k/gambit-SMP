@@ -16,9 +16,29 @@ class FixtureIdentityTests(unittest.TestCase):
                 self.assertRegex(fixture.name, r"^[a-z]+(?:-[a-z]+)*$")
                 for path in fixture.rglob("*"):
                     self.assertFalse(any(char.isdigit() for char in path.relative_to(fixture_root).as_posix()), path)
-                lock = json.loads((fixture / "source.lock.json").read_text())
-                self.assertEqual(f"patches/fixtures/{fixture.name}.patch", lock["patch"])
-                self.assertEqual(lock["patchSha256"], digest(ROOT / lock["patch"]))
+                lock_path = fixture / "source.lock.json"
+                if lock_path.is_file():
+                    lock = json.loads(lock_path.read_text())
+                    self.assertEqual(f"patches/fixtures/{fixture.name}.patch", lock["patch"])
+                    self.assertEqual(lock["patchSha256"], digest(ROOT / lock["patch"]))
+                elif (fixture / "profile.json").is_file():
+                    from gambit_smp.build_profile import read_profile
+                    # A source-bound build profile is data, not a runtime patch.
+                    self.assertEqual(["profile.json"], sorted(p.name for p in fixture.iterdir()))
+                    read_profile(fixture / "profile.json")
+                else:
+                    # Protocol-only fixtures do not pretend to own a C overlay.
+                    self.assertTrue(list(fixture.glob("*.json")))
+                    for path in fixture.iterdir():
+                        self.assertEqual(path.suffix, ".json")
+                        contract = json.loads(path.read_text())
+                        self.assertEqual(contract["schema"], "gambit-protocol-extensions.v1")
+                        self.assertTrue(contract["contextInputs"])
+                        self.assertTrue(contract["cases"])
+                        for case in contract["cases"]:
+                            self.assertRegex(case["id"], r"^[a-z]+(?:_[a-z]+)*$")
+                            self.assertTrue((ROOT / "models/gambit" / (case["id"] + ".qnt")).is_file())
+                            self.assertTrue(case.get("invariants"))
                 for manifest_path in fixture.glob("*.json"):
                     manifest = json.loads(manifest_path.read_text())
                     for context_path in manifest.get("contextInputs", {}):
@@ -32,9 +52,13 @@ class FixtureIdentityTests(unittest.TestCase):
                     for step in recipe["steps"]:
                         if step["capability"] == "gambit.materialize":
                             source_lock = step["arguments"]["sourceLock"]
-                            self.assertRegex(source_lock, r"^evidence/fixtures/[a-z]+(?:-[a-z]+)*/source\.lock\.json$")
+                            self.assertRegex(source_lock, r"^evidence/fixtures/[a-z]+(?:-[a-z]+)*/(?:source|[a-z]+(?:-[a-z]+)*-source)\.lock\.json$")
                             self.assertIn(source_lock, recipe["inputs"])
                             self.assertTrue((ROOT / source_lock).is_file())
+                            selected_lock = json.loads((ROOT / source_lock).read_text())
+                            self.assertEqual("vendor/gambit", selected_lock["submodule"])
+                            self.assertRegex(selected_lock["patch"], r"^patches/fixtures/[a-z]+(?:-[a-z]+)*\.patch$")
+                            self.assertEqual(selected_lock["patchSha256"], digest(ROOT / selected_lock["patch"]))
 
     def test_owned_log_fixture_has_semantic_and_content_bound_identity(self):
         base = "evidence/fixtures/pstate-log-owned-rollback/"
