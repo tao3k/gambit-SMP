@@ -7,6 +7,11 @@ from gambit_smp import native_capabilities as native, recipes
 
 
 class CurrentProducerReviewTests(unittest.TestCase):
+    def test_operation_scope_does_not_invent_unit_runner_coverage(self):
+        from gambit_smp.native_review import selected_scope
+        self.assertFalse(selected_scope("tests/run-unit-tests.scm", {"Makefile:core"}, []))
+        self.assertTrue(selected_scope("tests/run-unit-tests.scm", {"control.scm"}, [Path("control.scm")]))
+
     def setUp(self):
         runtime = {"step": "core", "output": "runtime"}
         identity = {"step": "core", "output": "identity"}

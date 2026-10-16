@@ -171,11 +171,11 @@ def build_driver_change(previous, change, runtime):
     return driver["sha256"], path
 
 
-def selected_scope(name, selected):
+def selected_scope(name, selected, fixtures):
     path = Path(name)
     if path.is_absolute() or ".." in path.parts:
         raise ValueError("repository-relative failure scope required")
-    return (name == "tests/run-unit-tests.scm" and bool(selected) or name in selected or
+    return (name == "tests/run-unit-tests.scm" and bool(fixtures) or name in selected or
             not path.suffix and any(path in Path(file).parents for file in selected))
 
 
@@ -247,6 +247,8 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
     if "environmentProbe" in args:
         observation = ctx.artifact(args["environmentProbe"], "current-producer-observation")
         result.update(environmentProbe=args["environmentProbe"], environmentObservationSha256=digest(observation))
+    if "operations" in args:
+        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"])
     return result
 
 
@@ -385,9 +387,10 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
             raise ValueError("failure does not bind the supplied baseline identity")
         fields(entry["budget"], ("regime", "pointer"), ("file", "group"))
         regime, budget_pointer = entry["budget"]["regime"], entry["budget"]["pointer"]
-        if regime not in {"whole-sequential", "whole-parallel", "atomic-coverage", "build-step", "compiler-probe"}:
+        if regime not in {"whole-sequential", "whole-parallel", "atomic-coverage", "build-step", "compiler-probe", "upstream-make"}:
             raise ValueError("original budget regime required")
         allowed = {"atomic-coverage": "/atomicBatchBudgetPerMode", "build-step": "/wholeBootstrapBudget",
+                   "upstream-make": "/wholeUpstreamTestBudget",
                    "compiler-probe": "/wholeProbeBudget"}.get(
             regime, "/wholeSuiteBudgetPerMode")
         if budget_pointer != allowed:
@@ -625,7 +628,7 @@ def historical_observation(ctx, failure, original, inputs, facts):
 
 
 def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, document=None, suite_budget=None,
-              producer_binding=False):
+              producer_binding=False, label="retry-review"):
     from gambit_smp.evidence_capabilities import evaluate_observations, review_policy_identity
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.research_kernel import manifest_paths
@@ -656,13 +659,21 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     facts["current_campaign_file"] = [[name] for name in sorted(selected)]
     if args.get("operation") is not None:
         selected.add("Makefile:" + args["operation"])
+    if "operations" in args:
+        operations = args["operations"]
+        if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
+                or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) for name in operations)
+                or not isinstance(args.get("requestedOperations"), list)
+                or not set(args["requestedOperations"]) <= set(operations)):
+            raise ValueError("exact inferred and requested operation inventories required")
+        selected.update("Makefile:" + name for name in operations)
     overlaps, failures = [], {}
     seen = set()
     for failure in declared["failures"]:
         if failure["id"] in seen:
             raise ValueError("duplicate known-failure identity")
         seen.add(failure["id"])
-        if not selected_scope(failure["file"], selected):
+        if not selected_scope(failure["file"], selected, files):
             continue
         observed = relative(ctx.root, failure["receipt"])
         prior = read_json(observed)
@@ -705,11 +716,13 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
     ctx.bind(ctx.root / name for name in inputs)
+    if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):
+        raise ValueError("bounded retry observation label required")
     answers = evaluate_observations(ctx, [args["reviewRules"]], facts,
         {"selected": "selected_known_failure", "disjoint": "failure_campaign_disjoint",
          "eligible": "retry_eligible", "denied": "retry_denied",
          "missing": "missing_claim", "review": "review_required", "need": "needed_claim",
-         "decision": "retry_decision"}, "retry-review")
+         "decision": "retry_decision"}, label)
     expected = sorted([[route, args["mode"]] for route in overlaps])
     disjoint = answers.get("disjoint", [])
     if sorted(answers["selected"] + disjoint) != expected:

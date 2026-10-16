@@ -2,7 +2,53 @@
 
 ## Current Milestone Checkpoint
 
-### Single Causal Workstream
+### 2026-10-16 Stack Write State
+
+The current diagnostic source is `darwin-stack-prepare-origin`, locked by
+`evidence/fixtures/darwin-stack-prepare-origin/source.lock.json`. Its native
+qualification is blocked by input drift. It adds the last preparation call site and return
+label to the existing pre-store observer; it does not implement a runtime repair.
+
+Its `from-scratch` command exits zero in 209.533 seconds and records each of
+the eight phases. Concurrent work changes `suite-review-rules.ss` while that
+run is active; publication therefore rejects the workspace state and the
+terminal review is STALE. No completed producer is exported and no origin
+stress is launched. The original receipt is retained in
+`evidence/fixtures/darwin-stack-prepare-origin/bootstrap-input-drift-20261016.json`.
+An observed successful make command does not close that failed producer gate.
+
+Its parent `darwin-stack-write-boundary` completes both bootstrap passes and
+the final ASCENT review: phase1 through phase4 each execute twice; native make
+takes 230.872 seconds, the bootstrap stage 240.465 seconds, and the complete
+seed-consuming child 258.887 seconds. The completed producer is retained in
+`evidence/research/current-source-full-bootstrap/darwin-stack-write-boundary-completed-producer.json`.
+Original configure/seed and the denied reviews remain retained separately.
+
+That parent's complete original compiled stress is **DENY**: two files pass,
+TFIB aborts at the pre-store diagnostic, and interrupt2 reaches its unchanged
+300-second timeout. At `_thread.c:11361`, `SET_STK(9)` has `fp=floor+32` bytes,
+target `floor-40`, saved fp `floor+192`, owner limit `floor+65552`, and trip
+equal to the section top. Both poll thresholds exceed the recorded fp. This
+does not establish the last preparation path, an intervening effective poll,
+live allocation generation, or a store to the administrative header.
+The exact source, producer, process/log hashes and arithmetic are retained in
+`evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json`.
+No unchanged native retry is admitted.
+
+The poll-coverage refinement now passes all three checks and native ASCENT
+review after an equivalent pure initial-state constructor fixes Quint QNT409.
+The original conversion failure remains DENY. Covered polling exhausts 172
+states, absent polling yields the required negative trace, and the abort-only
+observer exhausts 406 states. This is finite-model evidence, independently of
+the native failure. See `model-observation-20261016.json` in the same fixture.
+
+Historical completion remains **5/12**. A new diagnostic source does not inherit
+native acceptance. The seven open gates remain both complete stress modes,
+registry lifetime, lifecycle faults, GC/FFI, Gerbil correctness and release
+performance. The already reviewed whole-wall producer denial below stays
+retired; neither the new abort nor the new timeout is retired by that decision.
+
+### Earlier Causal Checkpoint (Retained)
 
 The current unqualified source is `darwin-shared-stack-reservation`, locked by
 `evidence/fixtures/darwin-shared-stack-reservation/source.lock.json`. It changes

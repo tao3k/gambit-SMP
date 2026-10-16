@@ -4,12 +4,24 @@ module stack_write_poll_coverage {
   // premise. This is a conditional envelope, not native reachability proof.
   var skipPoll: bool
   var storeObserver: bool
-  action init = all { A::init, skipPoll' = false, storeObserver' = false }
-  action initUnpolled = all {
-    A::init, skipPoll' = true, storeObserver' = false
+  // Keep the parent's exact initial-state set, but do not share an action
+  // across TLC initializer selections (Quint QNT409).
+  pure def initial(burst: int): A::State = {
+    phase: "switch", sender: "sample", sampled: 0, start: 12,
+    limit: 8, trip: 8, fp: 12, target: 12, burst: burst,
+    ownerGuard: true, switched: false
   }
-  action initObservedStores = all {
-    A::init, skipPoll' = true, storeObserver' = true
+  action init = {
+    nondet burst = Set(1, 2, 4).oneOf()
+    all { A::s' = initial(burst), skipPoll' = false, storeObserver' = false }
+  }
+  action initUnpolled = {
+    nondet burst = Set(1, 2, 4).oneOf()
+    all { A::s' = initial(burst), skipPoll' = true, storeObserver' = false }
+  }
+  action initObservedStores = {
+    nondet burst = Set(1, 2, 4).oneOf()
+    all { A::s' = initial(burst), skipPoll' = true, storeObserver' = true }
   }
   action hold = all { skipPoll' = skipPoll, storeObserver' = storeObserver }
   action bypassPoll = all {

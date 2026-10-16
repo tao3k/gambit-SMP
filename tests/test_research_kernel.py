@@ -543,6 +543,18 @@ class SourceArtifactTests(unittest.TestCase):
 
 
 class EngineSealTests(unittest.TestCase):
+    def test_private_source_transfers_do_not_alias_or_chmod_originals(self):
+        original = self.source.read_bytes()
+        permissions = self.source.stat().st_mode & 0o777
+        manifest = self.seal()
+        target = self.root / "engine/provider-source/example.ss"
+        self.assertFalse(manifest["privateFileTransfers"]["hardlinks"])
+        self.assertGreater(sum(manifest["privateFileTransfers"][name] for name in ("copy-on-write", "byte-copy")), 0)
+        self.assertNotEqual(self.source.stat().st_ino, target.stat().st_ino)
+        self.assertEqual(permissions, self.source.stat().st_mode & 0o777)
+        self.source.write_bytes(b"changed original source")
+        self.assertEqual(original, target.read_bytes())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

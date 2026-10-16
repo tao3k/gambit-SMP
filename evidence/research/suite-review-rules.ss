@@ -147,6 +147,7 @@
   ((reviewed_claim R C) <-- (claim_evidence R C (lit 'causal-review) (lit 'reviewed) D))
   ((missing_claim R C) <-- (needed_claim R C) (not (reviewed_claim R C)))
   ((matching_regime R) <-- (budget_regime R (lit 'build-step) (lit 'build-step)))
+  ((matching_regime R) <-- (budget_regime R (lit 'upstream-make) (lit 'upstream-make)))
   ((compiler_probe_phase (lit 'scheme-to-c)) <-- (compiler_probe_failure R (lit 'scheme-to-c)))
   ((compiler_probe_phase (lit 'c-to-dynamic-module)) <-- (compiler_probe_failure R (lit 'c-to-dynamic-module)))
   ((compiler_probe_phase (lit 'compiled-assertions)) <-- (compiler_probe_failure R (lit 'compiled-assertions)))

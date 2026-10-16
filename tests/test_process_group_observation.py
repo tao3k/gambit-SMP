@@ -2,10 +2,21 @@ import time
 import unittest
 from unittest.mock import patch
 
-from gambit_smp.process_observation import probe_group
+from gambit_smp.process_observation import probe_group, capture_batch
 
 
 class ProcessGroupObservationTests(unittest.TestCase):
+    def test_failed_launch_is_not_a_started_process_and_does_not_hide_other_jobs(self):
+        import os
+        import sys
+        from pathlib import Path
+        jobs = [{"argv": argv, "cwd": Path.cwd(), "environment": dict(os.environ), "budget": 3}
+                for argv in (["/missing/framework-contract-executable"], [sys.executable, "-c", "pass"])]
+        result = capture_batch(jobs, workers=2, budget=3)
+        self.assertFalse(result["runs"][0]["started"])
+        self.assertIsNone(result["runs"][0]["observation"])
+        self.assertEqual("FileNotFoundError", result["runs"][0]["launchError"]["type"])
+        self.assertEqual(0, result["runs"][1]["observation"]["exit"])
     def test_absence_after_permission_error_requires_a_real_absence_probe(self):
         with patch("gambit_smp.process_observation.os.killpg",
                    side_effect=[PermissionError(), ProcessLookupError()]) as kill:

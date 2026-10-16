@@ -1,0 +1,60 @@
+{
+  "schema": "gambit-stack-trip-source-audit.v1",
+  "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+  "sourceLockSha256": "f1b85acce2a40ae4c957934f40439ab6dacc5f036025084205731594e8a09752",
+  "compilerSources": [
+    {
+      "path": "gsc/_t-c-1.scm",
+      "revision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+      "sha256": "cd9030133390377167b2b29ad5f06f3854606e762a8a7cb44d932b62127d6b0a",
+      "source": "unchanged upstream file in locked archived producer"
+    },
+    {
+      "path": "gsc/_t-c-2.scm",
+      "revision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+      "sha256": "27d9cc50c6331a0e526c09e029f68153b7fb4bf0e8ce62ed75ec1ba9224a52a0",
+      "source": "unchanged upstream file in locked archived producer"
+    },
+    {
+      "path": "gsc/_front.scm",
+      "revision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+      "sha256": "e05dd9b2370da0e1a7baa3c8b7ea1d212fc3efe23e0e90e8fce3db69119c63de",
+      "source": "unchanged upstream file in locked archived producer"
+    }
+  ],
+  "operations": [
+    {
+      "file": "lib/setup.c",
+      "operation": "___raise_interrupt_pstate -> ___STACK_TRIP_ON",
+      "premise": "___raise_interrupt_vmstate iterates processor states and calls this writer; the global heartbeat/registry path permits another processor to be targeted. Expansion samples stack_start then publishes stack_trip. Its trailing shared-memory barrier does not bind that sample to the current section generation."
+    },
+    {
+      "file": "lib/mem.c",
+      "operation": "prepare_mem_pstate",
+      "premise": "Owner writes stack_limit from alloc_stack_limit, fudge, stack pointer and available heap before refreshing interrupts and resuming. Source grep finds no other actual stack_limit field assignment."
+    },
+    {
+      "file": "include/gambit.h.in",
+      "operation": "___STACK_TRIPPED",
+      "premise": "Darwin GNU successor retains the trip comparison and separately checks current owner stack_limit. A delayed low trip can no longer suppress this condition."
+    },
+    {
+      "file": "lib/mem.h",
+      "operation": "___MSECTION_FUDGE",
+      "premise": "Source contract requires reserve at least largest continuation frame; compiler target declares 4096 maximum frame slots."
+    },
+    {
+      "file": "gsc/_t-c-2.scm",
+      "operation": "targ-check-conditions / targ-adjust-stack",
+      "premise": "Poll emission adjusts the represented frame pointer before evaluating POLL. This is source correspondence, not complete control-flow coverage proof."
+    }
+  ],
+  "openRequirements": [
+    "The actual native sender/section-switch interleaving has not been traced.",
+    "The page-guard fault is before payload; it does not prove a write to header fields.",
+    "Arbitrary generated control-flow poll coverage, memory-model refinement and interrupt liveness are not proved by finite QNT.",
+    "Complete exact-source native inventories, fault/lifetime/GC-FFI, Gerbil and release qualification remain required."
+  ],
+  "runtimeAdmitted": false,
+  "releaseAdmitted": false
+}

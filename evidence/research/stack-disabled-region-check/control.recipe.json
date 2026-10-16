@@ -1,0 +1,98 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-disabled-region-check-controls",
+  "scope": "Finite check that an interrupt-disabled stack check resumes without header damage or interrupt service, with omitted-check and interrupt-service counterexamples. The recorded 9*8-32=40 byte relation is an invariant conjunct. No native bootstrap, stress, runtime, or milestone admission.",
+  "budgetSeconds": 400,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "models/gambit/stack_disabled_region_check.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-disabled-region-check/source.lock.json",
+    "evidence/fixtures/darwin-stack-disabled-region-check/review-contract.json",
+    "patches/fixtures/darwin-stack-disabled-region-check.patch",
+    "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-disabled-region-check/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": ["source"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_disabled_region_check.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_disabled_region_check.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "positive",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_disabled_region_check.qnt",
+        "parsed": "parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "omitted",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_disabled_region_check.qnt",
+        "parsed": "parse",
+        "initializer": "initOmitted",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "interrupts",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_disabled_region_check.qnt",
+        "parsed": "parse",
+        "initializer": "initServicesInterrupts",
+        "step": "step",
+        "invariant": "InterruptsOff",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "type", "positive", "omitted", "interrupts"],
+      "budgetSeconds": 45,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"},
+        "expected": {"missing": []}
+      }
+    }
+  ]
+}

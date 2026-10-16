@@ -28,7 +28,8 @@ ALLOWED = frozenset({"gambit.materialize", "source.overlay", "source.project", "
                      "native.workspace-build", "native.test", "quint.parse", "quint.typecheck", "quint.test", "quint.verify",
                      "evidence.evaluate", "gambit.configure", "gambit.object", "gambit.seed-core", "gambit.seed-checkpoint",
                      "gambit.regenerate-module", "gambit.source-core", "gambit.bootstrap", "gambit.suite", "gambit.review",
-                     "gambit.completed-runtime", "gambit.probe", "gambit.executable-test", "gambit.compiler-observation"})
+                     "gambit.completed-runtime", "gambit.probe", "gambit.executable-test", "gambit.compiler-observation",
+                     "gambit.runtime-import", "gambit.upstream-tests"})
 FORBIDDEN_IMPORTS = frozenset({"source_unit", "ffi_source_unit", "allocator_acquire", "allocator_object",
                                "sync_retirement_source", "gc_wait_source", "gc_queue_binding"})
 
@@ -133,7 +134,7 @@ def validate_graph(recipe, steps):
     if not dsl_only and not any(step["capability"] == "gambit.materialize" for step in steps):
         raise ValueError("a new research run must start from a locked source producer")
     for step in steps:
-        if step["capability"] in {"gambit.suite", "gambit.bootstrap"}:
+        if step["capability"] in {"gambit.suite", "gambit.bootstrap", "gambit.upstream-tests"}:
             args = step["arguments"]
             if (args.get("failures") not in recipe["inputs"] or args.get("reviewRules") not in recipe["inputs"]
                     or not args["failures"].endswith(".json") or not args["reviewRules"].endswith(".ss")):
@@ -274,7 +275,7 @@ def manifest_paths(engine):
 
 
 def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
-    from gambit_smp.artifact_storage import transfer_generation
+    from gambit_smp.artifact_storage import transfer_generation, clone_file
     from gambit_smp.recipes import tool_files
     from gambit_smp.native_review import POLICY
     from gambit_smp.provider_contract import inspect_provider
@@ -299,6 +300,8 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     originals.update({path: "python/ascent/" + path.relative_to(binding).as_posix()
                       for path in (files["ascent"], files["ascent._core"])})
     originals[ROOT / POLICY] = "policy/suite-review-rules.ss"
+    from gambit_smp.upstream_tests import POLICIES
+    originals.update({ROOT / name: sealed for name, sealed in POLICIES.items()})
     originals[files["publication:library"]] = "ascent-publication.json"
     packaged = build.get("packageInputs", {})
     package_sources = {}
@@ -339,9 +342,14 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     tools = {name: {"path": str(path), "sha256": digest(path)} for name, path in host.items()}
     out.mkdir(parents=True)
     generations, shared = {}, set()
+    private_transfers = {"copy-on-write": 0, "byte-copy": 0}
     for path, name in originals.items():
         target = relative(out, name)
         target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() or target.is_symlink():
+            if target.is_symlink() or not target.is_file() or digest(target) != before[path]:
+                raise ValueError("sealed resource role collision")
+            continue
         if name.startswith(("runtime/", "python/ascent/")) and GENERATION.fullmatch(path.suffix):
             mode = transfer_generation(path, target)
             if digest(target) != before[path]:
@@ -352,12 +360,16 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
             if mode == "linked-generation":
                 shared.add(target)
         else:
-            shutil.copyfile(path, target)
+            private_transfers[clone_file(path, target)] += 1
     for path, names in package_sources.items():
         for name in names:
             target = relative(out, name)
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
+            if target.exists() or target.is_symlink():
+                if target.is_symlink() or not target.is_file() or digest(target) != before[path]:
+                    raise ValueError("provider source/runtime role collision")
+                continue
+            private_transfers[clone_file(path, target)] += 1
     (out / "ascent-runtime.json").write_text(json.dumps(runtime, sort_keys=True, indent=2) + "\n")
     (out / "ascent-build.json").write_text(json.dumps(build, sort_keys=True, indent=2) + "\n")
     runner = out / "runner.py"
@@ -371,6 +383,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     sealed_files = {path.relative_to(out).as_posix(): digest(path)
                     for path in out.rglob("*") if path.is_file()}
     identity = {"schema": ENGINE_SCHEMA, "files": sealed_files, "hostTools": tools,
+                "privateFileTransfers": {**private_transfers, "hardlinks": False},
                 "resourceOwnership": {"contract": "checked-generation-sharing.v1", "generations": generations,
                                       "boundary": "byte-bound resources; shared generations are not write-isolated"},
                 "providerContract": provider_contract,
@@ -423,6 +436,16 @@ def evaluation_teardown_deadline(recipe, requested_deadline, owner):
 
 def worker(engine):
     from gambit_smp.recipes import load, read_json, run
+    if sys.argv[1] == "runtime-export":
+        from gambit_smp.runtime_artifact import export
+        manifest = execution_identity(engine)
+        request = read_json(Path(sys.argv[2]))
+        root = Path(request["root"])
+        producer = read_json(Path(request["run"]) / "receipt.json")
+        if producer["engineId"] != manifest["engineId"]:
+            raise ValueError("runtime export selected another producer engine")
+        print(json.dumps(export(root, Path(request["run"]), request["step"], Path(request["out"]))))
+        return 0
     if sys.argv[1] == "rules":
         from gambit_smp.evidence_capabilities import native_evaluate
         from gambit_smp.ascent_program import sealed_api_boundary
@@ -779,6 +802,7 @@ def main():
     selection.add_argument("--run")
     selection.add_argument("--read", type=Path)
     selection.add_argument("--export-producer", type=Path)
+    selection.add_argument("--export-runtime", type=Path)
     parser.add_argument("--step")
     parser.add_argument("--input-archive", help="exact historical source-input archive for producer export")
     parser.add_argument("--engine", type=Path)
@@ -813,6 +837,12 @@ def main():
                 parser.error("--export-producer requires --step and a fresh research Evidence --out")
             print(json.dumps(export_reference(ROOT, args.export_producer, args.step, args.out,
                                               input_archive=args.input_archive), indent=2))
+            return 0
+        if args.export_runtime:
+            from gambit_smp.runtime_artifact import supervised_export
+            if args.out is None or args.step is None:
+                parser.error("--export-runtime requires --step and a fresh archive --out")
+            print(json.dumps(supervised_export(ROOT, args.export_runtime.resolve(), args.step, args.out), indent=2))
             return 0
         root = ROOT.resolve()
         if "/" in args.run or args.run.endswith(".recipe.json"):

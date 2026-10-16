@@ -1,80 +1,97 @@
-# Gambit CI modules
+# Gambit CI Through The Research Kernel
 
-`gambit.yml` adapts the pinned upstream `.github/workflows/ci.yml` GNU build
-and `tests/makefile.in` test entrypoints. It does not execute a local developer
-build or the Working session's workspace. All three flags are enabled together.
+The CI-specific dispatcher and module registry have been removed. Workflow jobs
+select data assets in `evidence/research/ci/*.recipe.json` and call the public
+`gambit-smp research` interface. They do not select a Python handler, provide
+arbitrary native argv, or make research/admission decisions.
 
-One build artifact supplies every test job. Each job verifies its checkout SHA
-and every regular source/generated/binary path before running. Logs, actual
-exit status, timeout flag, process-group teardown, configure output, compiler and inventory
-are Actions artifacts, not committed evidence. A failed module does not cancel
-other modules; the summary requires all of them.
+## Data And Execution
 
-The initial CI process caps are 600 seconds for the build and 300 seconds for
-each official test module; the outer job timeout includes checkout and artifact
-transport. These are CI baseline contracts, not changes to any existing research
-receipt, retry admission, or experiment budget. No automatic retry is configured.
+- `three-flag-core.recipe.json`: locked materialization, O3 configuration with
+  all three flags, pre-generated-C seed, one source-regenerated core and terminal
+  Evidence DSL. This is **not full two-pass bootstrap**.
+- Eight module Recipes: the same source lock, a checked imported generation,
+  canonical failure inventory/review policy, official tests and terminal DSL.
+- Unit/stress Recipes declare exact fixtures and distinct GSI/GSC steps using
+  existing `gambit.suite`; both consume the same 300-second whole module budget.
+- `gambit.upstream-tests` invokes the real upstream Make targets, including the
+  actual `make check` rather than reimplementing its prerequisite/cleanup graph.
+  Both execution modes and dependent Make operation scopes are reviewed before
+  launch. Unstarted, DENY, timeout and unknown teardown never count as success.
+- `execution.ss` infers missing steps from actual recorded outcomes. Its answers
+  remain observations, not execution permission, runtime correctness or performance.
+- Framework self-tests use the existing bounded process batch transport through
+  its general observation CLI. `contracts.json` is test-request data, not a
+  research producer or another CI execution kernel.
 
-`modules.json` declares the modules. The CI adapter reuses the framework's
-`process_observation.capture` (whole deadline, reap and process-group probes),
-`source_materialize.materialize` (revision/base/patch/candidate byte checks),
-`gambit_build_primitives.build_seed_core` (shared build capacity, recursive
-failure detection and complete core artifact inventory),
-`native_capabilities.run_suite_groups` (one mode per invocation, isolated test
-workspace, exact inventory, immutable fixture check and per-mode observations),
-`recipes.tree_identity` (complete paths, modes and checked links),
-`suite_primitives.selected_files` and `admitted_suite`; it has no independent
-Bash timeout/exit parser or research verdict logic. Patch contracts use their
-separate 15-second whole budget. Python transports the official make/runner
-calls; candidate reasoning/admission remains in Evidence DSL and sealed kernel.
+## Cross-Job Generation Contract
 
-Modules cover the complete upstream `make check`, GC/C interface/dynamic load,
-compiled execution, interpreted/compiled thread tests and all four explicit
-upstream stress files. Stress is not part of the default unit-test inventory.
-The runner's child interpreter/compiler processes receive the documented
-`GAMBOPT=p2`, not just a processor option on their parent; receipts record it.
-The transport parent uses the existing single-processor runner option; that
-does not reduce the actual fixture/compilation children's `GAMBOPT=p2`.
-GSI and GSC share one 300-second deadline; modes never receive separate caps.
+`research --export-runtime <completed-run> --step source-core --out <fresh.tar>`
+requires an inspected successful sealed producer and exact successful dependency
+closure. It transports the original receipts, stream/process logs, runtime
+identity, full source/generated/binary paths/modes/internal links, source lock,
+source inventory and engine/compiler provenance. Export time is charged against
+the original 600-second build budget; expiry fails rather than resetting it.
 
-Run 38897367565 completed its patched three-flag build, but **all eight native
-modules failed**. The old combined `-gsi -gsc` invocation exceeded the upstream
-file-count progress bar (104% / negative `make-string` length); it is replaced
-by the existing per-mode suite executor, not by changing Gambit test sources.
-Separate native failures remain: `make test5` reports an unscanned compiler
-object; `make test7` terminates with SIGSEGV. Make-based jobs have explicit
-hard-failing CI holds in the module catalog until source-causal review repairs
-those failures. Holds launch no native process and cannot yield a green summary.
-Do not remove them just because the CI transport changed or a local test passed.
-The original TFIB run additionally recorded `exit=-9`, `timeout=true` and
-`group_quiescent=false`; it is not a successful teardown. An executor exception
-retains partial mode/plan records and explicitly marks later modes unstarted.
-Sending SIGKILL alone never establishes process-group quiescence.
+`gambit.runtime-import` consumes a declared input descriptor
+(`runtime-artifact-input.v1`), binds the actual incoming tar SHA, and checks the
+complete archive inventory before extraction. Added, missing, changed, duplicate,
+escaping and special-file entries fail closed. Consumer source bytes, source
+lock, implementation/provider files and compiler/tool bytes must match. Only a
+real source-core is published as `source-runtime`; seeds are never promoted.
+The parent build budget/receipt remains unchanged. This is an independent test
+campaign, not failed-build resumption; each native test still faces its own
+canonical retry gate. The archive is a trusted-host observation, not a signature
+or an authorization token. Portability is not admitted by packaging controls.
 
-The original vendor-only run [38894861703](https://github.com/tao3k/gambit-SMP/actions/runs/38894861703)
-failed with exit 2 (not timeout) in `setup.c:make_global`: `___GLOCELL` expands
-through `___ps`, but that function has no processor-state argument. Stress jobs
-did not run. Its logs/artifact and original baseline remain unchanged.
+Build and native module whole budgets remain 600 and 300 seconds respectively.
+Step ceilings do not reserve or restart these budgets: seed and source-core each
+receive at most the remainder of the same 600-second deadline, and GSI/GSC share
+the same 300-second deadline. Export is supervised by the sealed worker against
+the original producer's monotonic deadline and boot identity, including idle time.
+Missing or cross-boot clock provenance is rejected, not reconstructed from elapsed
+durations. An archive does not create a fresh build budget.
+Patch/framework transport controls retain one shared 15-second batch budget.
+No automatic retry or continue-on-error is configured. All eight module jobs and
+patch contracts are required by the final summary. Raw receipts/logs remain local
+or Actions artifacts, never Git source.
 
-`source.lock.json` now declares a **minimal patched upstream CI candidate**, not
-the Working repair candidate. The exact processor-context fix already present
-in `patches/snapshots/candidate029-notification-source.patch` is reused without
-its other changes. It passes the caller's context through ANSI and K&R forms,
-and keeps single-VM expansion unchanged. `source_materialize` checks its pinned
-base, complete overlay and resulting file SHA before building `.ci/gambit`.
-Vendor and Working are never patched. Temporary real Git metadata supports the
-official release-seed/bootstrap route; no dummy-compiler shortcut is introduced.
-`aclocal`/`autoconf` resolve the installed pkg-config macro before configure.
-Metadata is removed only from that disposable build after completion.
+## Current Evidence Boundary
 
-This is CI qualification, not a research retry/admission producer. No arbitrary
-patch workflow input exists. All jobs bind the same lock, patch and artifact
-identity. Research campaigns still require sealed Recipe/complete failures/typed
-retry review; a CI result must not be imported as authorization or as the full
-Working candidate's acceptance. New native fixtures must be explicit modules
-consuming that campaign's reviewed artifact, not separate hidden builds.
+The migration has not yet passed real hosted execution. The fixed ASCENT revision
+`c8c3c8b4dc3bd5fa4c290dc258646915fdc1b69b` has no downloadable wheel artifact
+in run 38886995055, and the current publication lock binds only macOS arm64.
+The shared setup explicitly forbids building ASCENT from source downstream.
+A published, source-bound Linux wheel and matching publication lock are required;
+missing packaging is an environment/setup failure, not a test pass. Do not fix it
+by injecting a Scheme SDK or weakening wheel/source validation.
 
-Three enabled flags do **not** establish independent multi-VM creation, roots,
-rollback or teardown. Those candidate lifecycle gates, Gerbil, full bootstrap,
-and matched performance acceptance remain separate. Green baseline CI cannot
-be reported as the repair candidate's full native PASS.
+The upstream wheel publication fix is committed at
+`37d8538cbbae189be3316c2e32d30c5aac17bca4` (run 38908711765).
+Its qualified-wheel upload is a prerequisite, not evidence of a completed run.
+The downstream lock remains unchanged until an actual matching artifact and its
+complete source identity have been checked; a source-build fallback is forbidden.
+
+Historical runs remain historical:
+- 38894861703 failed compiling `make_global` without a processor-state argument.
+- 38897367565 built the minimal context patch but all eight native modules failed.
+  TFIB retained exit -9, timeout true and group_quiescent false.
+- 38899270572 built the same minimal source; threads, interrupt and terminate
+  passed, TFIB and interrupt2 failed, and three official Make jobs were held
+  without native launch. The whole run failed.
+  Interrupt2's interpreted child exited with an uncaught exception (HI=70 LO=0);
+  the compiled child terminated with SIGSEGV (HI=0 LO=139). Both suite parents
+  exited 1 without timeout and with quiescent process groups. TFIB instead timed
+  out and did not establish group quiescence. These are distinct native failures,
+  not setup failures or evidence that all tests were launched successfully.
+
+The new Recipes select the complete retained owner-limit source, not that minimal
+slice. `candidate.json` retains the baseline failure and source-change hypothesis;
+it does not prove a unique cause, typed retry eligibility or native success.
+Historical Darwin/FD results cannot be credited to this GNU/Linux candidate.
+`source.lock.json` in this directory remains a frozen historical source input;
+its bytes and old receipts are not rewritten.
+
+Three flags, graph validity and archive/control tests do not establish actual
+multi-VM creation, roots, GC/FFI, rollback, teardown, Gerbil or matched performance.
+Those require real same-candidate test receipts before overall closure.

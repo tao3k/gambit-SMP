@@ -145,7 +145,12 @@ def capture_batch(jobs, *, workers, budget):
                     "deadlineExpired": True, "processBudgetSeconds": None,
                     "observation": None}
         ceiling = min(job["budget"], remaining)
-        observed = capture(job["argv"], job["cwd"], ceiling, job["environment"])
+        try:
+            observed = capture(job["argv"], job["cwd"], ceiling, job["environment"])
+        except OSError as error:
+            return {"started": False, "queuedSeconds": queued, "deadlineExpired": False,
+                    "processBudgetSeconds": ceiling, "observation": None,
+                    "launchError": {"type": type(error).__name__, "message": str(error)}}
         return {"started": True, "queuedSeconds": queued,
                 "deadlineExpired": False, "processBudgetSeconds": ceiling,
                 "observation": asdict(observed)}
@@ -157,3 +162,43 @@ def capture_batch(jobs, *, workers, budget):
         runs = []
     return {"workers": min(workers, len(jobs)), "budgetSeconds": budget,
             "seconds": time.monotonic() - started, "runs": runs}
+
+
+def main():
+    """Host-requested process observation only; not a research capability."""
+    import argparse
+    import json
+    from pathlib import Path
+    from gambit_smp.framework import available_processors
+    from gambit_smp.recipes import fields, read_json
+    parser = argparse.ArgumentParser(description=main.__doc__)
+    parser.add_argument("request", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args()
+    value = read_json(args.request)
+    fields(value, ("schema", "budgetSeconds", "jobs"))
+    if value["schema"] != "process-observation-batch.v1" or not isinstance(value["jobs"], list) or not value["jobs"]:
+        raise ValueError("explicit nonempty process observation batch required")
+    jobs = []
+    for job in value["jobs"]:
+        fields(job, ("argv", "cwd", "budgetSeconds"))
+        if (not isinstance(job["argv"], list) or not job["argv"]
+                or any(not isinstance(arg, str) or "\0" in arg for arg in job["argv"])):
+            raise ValueError("explicit process argv required")
+        jobs.append({"argv": job["argv"], "cwd": Path(job["cwd"]).resolve(strict=True),
+                     "environment": dict(os.environ), "budget": job["budgetSeconds"]})
+    args.out.mkdir(parents=True, exist_ok=False)
+    (args.out / "request.json").write_text(json.dumps(value, indent=2) + "\n")
+    result = capture_batch(jobs, workers=min(available_processors(), len(jobs)), budget=value["budgetSeconds"])
+    result.update(scope="process-observation-only", runtimeAdmitted=False)
+    (args.out / "receipt.json").write_text(json.dumps(result, indent=2) + "\n")
+    for index, row in enumerate(result["runs"]):
+        observed = row["observation"]
+        print(json.dumps({"job": index, "started": row["started"], "observation": observed}), flush=True)
+    return 0 if all(row["started"] and row["observation"]["exit"] == 0
+                    and row["observation"]["timeout"] is False
+                    and row["observation"]["group_quiescent"] is True for row in result["runs"]) else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

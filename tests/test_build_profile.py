@@ -25,20 +25,30 @@ class BuildProfileTests(unittest.TestCase):
         lock.write_text('{}')
         gcc = root / "gcc"
         gcc.write_text('unit compiler identity; never executed')
-        ctx = SimpleNamespace(root=root, tools={"autoconf": "autoconf", "sh": "sh", "gcc": str(gcc)}, env={},
+        source = root / "source"
+        (source / "include").mkdir(parents=True)
+        (source / "include/gambit.h").write_text("unit generated header")
+        (source / "lib").mkdir()
+        (source / "lib/makefile").write_text("define-cond-expand-feature|enable-smp|")
+        def require(name, argv, cwd, cap):
+            calls.append((name, argv, cap))
+            return "#define ___MULTIPLE_VMS\n#define ___MULTIPLE_THREADED_VMS\n" if name == "configuration-macros" else ""
+        ctx = SimpleNamespace(root=root, tools={"aclocal": "aclocal", "autoconf": "autoconf", "sh": "sh", "gcc": str(gcc)}, env={},
             receipt={"steps": [{"id": "source", "arguments": {"sourceLock": "source.lock.json"}}]},
             remaining=lambda: 90,
             bind=lambda paths: bound.extend(paths),
-            require=lambda name, argv, cwd, cap: calls.append((name, argv, cap)),
+            require=require,
             publish=lambda *args: {})
-        with patch("gambit_smp.native_capabilities.clone", return_value=ROOT), \
-             patch("gambit_smp.native_capabilities.compiler"):
+        with patch("gambit_smp.native_capabilities.clone", return_value=source), \
+             patch("gambit_smp.native_capabilities.compiler", return_value=gcc):
             result = configure({"source": {"step": "source", "output": "source"}, "buildProfile": PROFILE}, ctx)
         self.assertEqual([root / PROFILE], bound)
+        self.assertEqual(["aclocal", "autoconf", "configure", "configuration-macros"], [row[0] for row in calls])
         self.assertEqual("-pipe", ctx.env["CFLAGS"])
         self.assertEqual(read_profile(ROOT / PROFILE), result["buildProfile"])
-        self.assertEqual(["sh", "./configure", *result["buildProfile"]["flags"]], calls[-1][1])
-        self.assertEqual(90, calls[-1][2])
+        self.assertEqual(["sh", "./configure", *result["buildProfile"]["flags"]], calls[-2][1])
+        self.assertEqual(90, calls[-2][2])
+        self.assertEqual({"smp": True, "multipleVMs": True, "multipleThreadedVMs": True}, result["effectiveConcurrency"])
 
     def test_pinned_bazel_profile_is_not_the_two_level_experiment(self):
         result = read_profile(ROOT / PROFILE)

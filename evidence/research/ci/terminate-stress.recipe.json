@@ -1,0 +1,127 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "ci-terminate-stress",
+  "scope": "Exact locked three-flag source-core consumption and terminate-stress observations. Independent module budget; no build resumption, native acceptance or performance admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch",
+    "evidence/research/ci/runtime-input.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json"
+      },
+      "budgetSeconds": 20
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/ci/runtime-input.json"
+      },
+      "budgetSeconds": 20
+    },
+    {
+      "id": "gsi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "runtime"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "inventory": "stress",
+        "processors": 2,
+        "jobs": 1
+      },
+      "budgetSeconds": 300
+    },
+    {
+      "id": "gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "runtime"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "inventory": "stress",
+        "processors": 2,
+        "jobs": 1
+      },
+      "budgetSeconds": 300
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "gsi",
+        "gsc"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "ci-compile-execute",
+  "scope": "Exact locked three-flag source-core consumption and compile-execute observations. Independent module budget; no build resumption, native acceptance or performance admission.",
+  "budgetSeconds": 300,
+  "inputs": [
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch",
+    "evidence/research/ci/runtime-input.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/ci/upstream-tests.json",
+    "evidence/research/ci/test-scope.entry.json",
+    "evidence/dsl/upstream-test-scope.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json"
+      },
+      "budgetSeconds": 20
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/ci/runtime-input.json"
+      },
+      "budgetSeconds": 20
+    },
+    {
+      "id": "official",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "runtime"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "targets": [
+          "test5",
+          "test6"
+        ]
+      },
+      "budgetSeconds": 250
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "official"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}
