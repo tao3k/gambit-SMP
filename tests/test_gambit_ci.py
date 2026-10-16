@@ -1,0 +1,88 @@
+"""CI wiring/process contracts, never native runtime acceptance."""
+import importlib.util
+import json
+import re
+from pathlib import Path
+import sys
+import tempfile
+import time
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SPEC = importlib.util.spec_from_file_location("gambit_ci", ROOT / ".github/gambit/runner.py")
+ci = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(ci)
+
+
+class GambitCIContracts(unittest.TestCase):
+    def test_three_flags_together(self):
+        self.assertEqual(("--enable-smp", "--enable-multiple-vms",
+                          "--enable-multiple-threaded-vms"), ci.FLAGS)
+
+    def test_complete_stress_inventory_has_independent_jobs(self):
+        specs = json.loads(ci.CONFIG.read_text())
+        upstream = sorted(path.relative_to(ROOT / "vendor/gambit/tests").as_posix()
+                          for path in (ROOT / "vendor/gambit/tests/unit-tests").rglob("*_stress.scm"))
+        declared = sorted(spec["selection"] for spec in specs.values() if spec.get("stress"))
+        self.assertTrue(upstream)
+        self.assertEqual(upstream, declared)
+        for spec in specs.values():
+            if spec["kind"] == "suite":
+                argv, files = ci.suite_command(ROOT / "vendor/gambit", spec)
+                self.assertTrue(files)
+                self.assertEqual(spec["stress"], "-stress" in argv)
+                self.assertIn("-gsi", argv)
+                self.assertIn("-gsc", argv)
+
+    def test_identity_rejects_revision_missing_extra_and_changed_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.c"
+            source.write_text("original")
+            identity = {"checkout": "one", "files": ci.inventory(root)}
+            ci.verify(root, identity, "one")
+            with self.assertRaisesRegex(ValueError, "checkout"):
+                ci.verify(root, identity, "two")
+            source.write_text("changed")
+            with self.assertRaisesRegex(ValueError, "inventory"):
+                ci.verify(root, identity, "one")
+            source.unlink()
+            with self.assertRaisesRegex(ValueError, "inventory"):
+                ci.verify(root, identity, "one")
+            source.write_text("original")
+            (root / "extra").write_text("unexpected")
+            with self.assertRaisesRegex(ValueError, "inventory"):
+                ci.verify(root, identity, "one")
+
+    def test_process_failure_and_timeout_retain_original_observations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, code, seconds, expected in (
+                    ("failure", "raise SystemExit(7)", 3, False),
+                    ("timeout", "import time; time.sleep(3)", 0.1, True)):
+                output = root / name
+                with self.assertRaises(RuntimeError):
+                    ci.observe([sys.executable, "-c", code], root,
+                               time.monotonic() + seconds, output)
+                receipt = json.loads(output.with_suffix(".json").read_text())
+                self.assertEqual(expected, receipt["timeout"])
+                self.assertTrue(receipt["group_quiescent"])
+                self.assertEqual(-9 if expected else 7, receipt["exit"])
+
+    def test_every_module_is_required_and_uses_one_artifact(self):
+        workflow = (ROOT / ".github/workflows/gambit.yml").read_text()
+        self.assertIn("fail-fast: false", workflow)
+        self.assertNotIn("continue-on-error", workflow)
+        self.assertIn('test "$PATCHES" = success', workflow)
+        self.assertIn('test "$MODULES" = success', workflow)
+        self.assertEqual(2, workflow.count("gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}"))
+        self.assertNotIn("module.sh", workflow)
+        matrix = re.search(r"module: \[(.*)\]", workflow).group(1).split(", ")
+        self.assertEqual(set(json.loads(ci.CONFIG.read_text())) - {"patch-contracts"}, set(matrix))
+
+    def test_official_targets_are_not_replaced_with_local_fixture(self):
+        specs = json.loads(ci.CONFIG.read_text())
+        self.assertEqual(["check"], specs["upstream-check"]["targets"])
+        self.assertEqual(["test7", "test8", "test9"], specs["gc-ffi"]["targets"])
+        self.assertEqual(["test5", "test6"], specs["compile-execute"]["targets"])

@@ -1,0 +1,102 @@
+name: Gambit Three-Flag Modules
+
+on:
+  push:
+    paths: ['vendor/gambit', '.github/workflows/gambit.yml', '.github/gambit/**', 'patches/**', 'src/gambit_smp/source*', 'tests/test_gambit_ci.py', 'tests/test_*overlay.py', 'tests/test_source_materialize.py', 'tests/test_stress_inventory.py']
+  pull_request:
+    paths: ['vendor/gambit', '.github/workflows/gambit.yml', '.github/gambit/**', 'patches/**', 'src/gambit_smp/source*', 'tests/test_gambit_ci.py', 'tests/test_*overlay.py', 'tests/test_source_materialize.py', 'tests/test_stress_inventory.py']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  patch-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: git submodule update --init vendor/gambit
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Patch identity, overlay rejection and exact stress inventory
+        env:
+          PYTHONPATH: src:tests
+        run: python .github/gambit/runner.py patch-contracts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gambit-patch-contracts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/gambit-logs/
+          if-no-files-found: error
+
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch only the pinned Gambit source
+        run: git submodule update --init vendor/gambit
+      - name: Install upstream build prerequisites
+        run: sudo apt-get update && sudo apt-get install -y gcc make texinfo autoconf
+      - name: Build once with all three flags
+        env:
+          PYTHONPATH: src
+        run: python .github/gambit/runner.py build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gambit-build-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/gambit-logs/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/gambit-runtime.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  module:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [upstream-check, gc-ffi, compile-execute, threads, tfib-stress, interrupt-stress, interrupt2-stress, terminate-stress]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/
+      - name: Restore the exact shared build
+        run: tar -xf .ci/gambit-runtime.tar
+      - name: Verify identity and run official module
+        env:
+          MODULE: ${{ matrix.module }}
+          PYTHONPATH: src
+        run: python .github/gambit/runner.py "$MODULE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gambit-${{ matrix.module }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci/gambit-logs/
+          if-no-files-found: error
+
+  summary:
+    if: always()
+    needs: [build, module, patch-contracts]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every module, including stress
+        env:
+          BUILD: ${{ needs.build.result }}
+          MODULES: ${{ needs.module.result }}
+          PATCHES: ${{ needs.patch-contracts.result }}
+        run: |
+          printf 'build=%s modules=%s\n' "$BUILD" "$MODULES" >> "$GITHUB_STEP_SUMMARY"
+          test "$BUILD" = success
+          test "$MODULES" = success
+          test "$PATCHES" = success
