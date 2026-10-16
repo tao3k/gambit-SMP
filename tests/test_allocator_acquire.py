@@ -2,12 +2,14 @@ import unittest
 
 from gambit_smp import allocator_acquire as acquire
 from gambit_smp.framework import ROOT
+from gambit_smp.source_materialize import locked_source
 
 
 class AllocatorAcquireTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = (ROOT / ".data/pstate-init-runtime-027/source/lib/mem.c").read_text()
+        with locked_source(ROOT, "evidence/runtime-source-026.lock.json") as (source, _):
+            cls.source = (source / "lib/mem.c").read_text()
 
     def test_candidate_only_changes_threaded_alloc_acquire(self):
         revised = acquire.candidate(self.source)

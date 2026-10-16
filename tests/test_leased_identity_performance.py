@@ -14,12 +14,13 @@ from gambit_smp import recipes
 
 class LeasedIdentityPerformance(unittest.TestCase):
     def test_same_bytes_same_identity_and_final_sha_three_pairs(self):
+        from ascent.build import runtime_identity
         from gambit_smp.artifact_storage import cache_path
         store = cache_path(ROOT, "fixtures")
         store.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix="leased-hash-pair-", dir=store) as directory:
             target = Path(directory).resolve() / "source"
-            source = ROOT / ".data/research-engine-session-reuse-022/provider-source"
+            source = Path(runtime_identity()["sourceRoot"]).resolve(strict=True)
             shutil.copytree(source, target)
             expected = recipes._tree_identity_uncached(target)
             baseline, candidate = [], []
