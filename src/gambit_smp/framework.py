@@ -109,6 +109,8 @@ def snapshot_fixture(source, out):
 
 def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=None, completion_grace=0,
             progress_check=None):
+    if metadata is not None and not isinstance(metadata, dict):
+        raise ValueError("execution metadata must be a mutable dictionary")
     if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
         raise ValueError("positive finite execution timeout required")
     if (isinstance(completion_grace, bool) or not math.isfinite(completion_grace)

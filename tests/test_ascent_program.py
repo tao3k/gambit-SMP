@@ -9,6 +9,38 @@ from gambit_smp.framework import ROOT
 
 
 class RuleEntryContractTests(unittest.TestCase):
+    def test_checked_inventory_projection_reuses_only_exact_seal_and_declaration(self):
+        from gambit_smp import ascent_program as api
+        api._bound_api_inventory.cache_clear()
+        self.addCleanup(api._bound_api_inventory.cache_clear)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            declaration = root / 'pyproject.toml'
+            declaration.write_text('first declaration')
+            files = {'binding': root / 'binding.py'}
+            build = {'nested': {'value': 'original'}}
+            manifest = {'engineId': 'first', 'files': {'binding.py': 'sha'}}
+            with patch.object(api, 'ROOT', root), patch(
+                    'gambit_smp.ascent_runtime.inventory', return_value=(files, build)) as inventory:
+                token = api._verified_api.set((root, manifest))
+                try:
+                    selected, metadata, _ = api._api_inventory()
+                    selected.clear()
+                    metadata['nested']['value'] = 'caller mutation'
+                    again, metadata, _ = api._api_inventory()
+                    self.assertEqual(again, files)
+                    self.assertEqual(metadata['nested']['value'], 'original')
+                    self.assertEqual(inventory.call_count, 1)
+                    declaration.write_text('changed declaration')
+                    api._api_inventory()
+                    self.assertEqual(inventory.call_count, 2)
+                    manifest = dict(manifest, engineId='second')
+                    api._verified_api.set((root, manifest))
+                    api._api_inventory()
+                    self.assertEqual(inventory.call_count, 3)
+                finally:
+                    api._verified_api.reset(token)
+
     def test_engine_boundary_closes_only_owned_temporary_engines(self):
         from gambit_smp import ascent_program
         for owned, retain, fail in ((True, False, False), (True, False, True),
@@ -45,7 +77,7 @@ class RuleEntryContractTests(unittest.TestCase):
     def test_inventory_uses_only_the_installed_rust_provider(self):
         from gambit_smp import ascent_program
         with tempfile.TemporaryDirectory() as directory:
-            extension = Path(directory) / '_core.abi3.so'
+            extension = Path(directory).resolve() / '_core.abi3.so'
             extension.write_bytes(b'identity transport fixture, not executable')
             build = {'schema': 'ascent.rust-build.v1', 'rayon': True,
                      'sourceInputs': {'file.rs': 'source-sha'}, 'runtimeInputs': {'/module.o1': 'runtime-sha'}}

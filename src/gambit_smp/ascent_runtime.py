@@ -6,6 +6,8 @@ import json
 import hashlib
 from pathlib import Path
 import tomllib
+import platform
+import sys
 
 from gambit_smp.framework import ROOT, digest
 
@@ -13,16 +15,29 @@ from gambit_smp.framework import ROOT, digest
 LIBRARY_LOCK = "evidence/ascent-library.lock.json"
 
 
+def publication_artifact(publication, target=None):
+    target = target or sys.platform + '-' + platform.machine().lower()
+    if 'platform' not in publication:
+        return publication
+    if target == publication['platform']:
+        return publication
+    artifacts = publication.get('artifacts', {})
+    if target not in artifacts:
+        raise ValueError('ASCENT publication has no locked artifact for ' + target)
+    return dict(publication, **artifacts[target])
+
+
 def validate_publication(publication, declared, build, extension_sha):
     """Compare a trusted host's wheel lock, not a fabricated VCS installation."""
     sources = build["sourceInputs"]
+    artifact = publication_artifact(publication)
     source_sha = hashlib.sha256(json.dumps(sources, sort_keys=True,
                                           separators=(",", ":")).encode()).hexdigest()
     if (publication.get("schema") != "ascent-library-wheel-lock.v1"
             or any(publication.get(left) != declared.get(right) for left, right in (
                 ("repository", "git"), ("revision", "rev"), ("subdirectory", "subdirectory")))
             or not declared.get("rev") or not declared.get("git")
-            or publication.get("extensionSha256") != extension_sha
+            or artifact.get("extensionSha256") != extension_sha
             or publication.get("sourceInputsSha256") != source_sha
             or publication.get("sourceInputCount") != len(sources)):
         raise ValueError("ASCENT wheel differs from its published source/artifact lock")

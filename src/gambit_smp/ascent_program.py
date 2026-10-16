@@ -1,6 +1,7 @@
 """Identity-bound native ASCENT programs; no legacy rule-text frontend."""
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
+from functools import lru_cache
 import atexit
 import copy
 import json
@@ -14,7 +15,7 @@ import fcntl
 import stat
 import sys
 
-from gambit_smp.framework import digest
+from gambit_smp.framework import ROOT, digest
 
 INERT_RULE_CONTRACT = "inert-relational-subset.v1"
 
@@ -102,9 +103,50 @@ def _api_inventory():
     admission = construction_admission() if _loaded_identity is None else nullcontext()
     with admission:
         boundary = _verified_api.get()
+    if boundary is not None:
+        root, manifest = boundary
+        # Cache only a projection of bytes checked by this request's full seal
+        # boundary, never a filesystem-validation verdict or query result.
+        files, build, identity = _bound_api_inventory(
+            root, manifest["engineId"], digest(ROOT / "pyproject.toml"))
+        return dict(files), copy.deepcopy(build), identity
+    import importlib
+    import importlib.metadata
+    from ascent.build import runtime_identity
+    from gambit_smp.ascent_runtime import LIBRARY_LOCK, inventory
+    distribution = importlib.metadata.distribution("gerbil-ascent")
+    entries = tuple(str(entry) for entry in distribution.files or ())
+    metadata = tuple((name, str(distribution.locate_file(name)),
+                      digest(Path(distribution.locate_file(name))))
+                     for name in entries if ".dist-info" in name)
+    origins = tuple(str(Path(importlib.import_module(name).__file__).resolve(strict=True))
+                    for name in ("ascent", "ascent._core"))
+    files, build, identity = _installed_api_inventory(
+        inventory, runtime_identity, origins, entries, metadata, digest(ROOT / "pyproject.toml"),
+        digest(ROOT / LIBRARY_LOCK))
+    for path in set(files.values()):
+        if path.resolve(strict=True) != path:
+            raise ValueError("installed ASCENT inventory path became an alias")
+    return dict(files), copy.deepcopy(build), identity
+
+
+@lru_cache(maxsize=2)
+def _installed_api_inventory(inventory, runtime_identity, origins, entries, metadata, declaration_sha, publication_sha):
+    # RECORD/metadata and declaration bytes select a projection. The caller
+    # still hashes every projected source/resource at entry and exit.
+    files, build = inventory(sealed_root=None, verify=False)
+    return files, build, hashlib.sha256(json.dumps(build, sort_keys=True).encode()).hexdigest()
+
+
+@lru_cache(maxsize=2)
+def _bound_api_inventory(root, engine_id, declaration_sha):
     from gambit_smp.ascent_runtime import inventory
-    paths, build = inventory(sealed_root=boundary[0] if boundary is not None else None, verify=False)
-    return paths, build, hashlib.sha256(json.dumps(build, sort_keys=True).encode()).hexdigest()
+    files, build = inventory(sealed_root=root, verify=False)
+    boundary = _verified_api.get()
+    if boundary is None or boundary[0] != root or boundary[1]["engineId"] != engine_id:
+        raise ValueError("ASCENT inventory projection requires its checked seal boundary")
+    _sealed_api_identities(files, root, boundary[1])
+    return files, build, hashlib.sha256(json.dumps(build, sort_keys=True).encode()).hexdigest()
 
 
 def artifact_paths():

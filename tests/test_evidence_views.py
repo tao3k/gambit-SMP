@@ -87,6 +87,18 @@ class EvidenceViewTests(unittest.TestCase):
         self.assertGreater(len(inputs), 950)
 
     def test_real_actions_select_and_observe(self):
+        from gambit_smp.artifact_storage import cache_path, database_path
+        parent = cache_path(ROOT, 'tests')
+        parent.mkdir(parents=True, exist_ok=True)
+        scratch = tempfile.TemporaryDirectory(prefix='evidence-actions-', dir=parent)
+        self.addCleanup(scratch.cleanup)
+        def isolated_database(root, name, previous):
+            if name == 'research-actions/requests.sqlite':
+                return Path(scratch.name) / 'requests.sqlite'
+            return database_path(root, name, previous)
+        isolation = patch('gambit_smp.artifact_storage.database_path', side_effect=isolated_database)
+        isolation.start()
+        self.addCleanup(isolation.stop)
         context = {"views": [VIEW]}
         first = research_actions.discover(ROOT, context)
         repeated = research_actions.discover(ROOT, context)

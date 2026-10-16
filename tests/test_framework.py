@@ -79,6 +79,13 @@ class FrameworkTests(unittest.TestCase):
                     framework.execute(["unused"], framework.ROOT, budget)
             spawn.assert_not_called()
 
+    def test_invalid_metadata_does_not_spawn_an_unowned_process(self):
+        with patch.object(framework.subprocess, 'Popen') as spawn:
+            for metadata in (Path('not-a-receipt'), [], 'invalid'):
+                with self.assertRaisesRegex(ValueError, 'metadata'):
+                    framework.execute(['unused'], framework.ROOT, 1, metadata=metadata)
+            spawn.assert_not_called()
+
     def test_compiler_environment_and_rejection(self):
         with patch.dict(os.environ, dict(SDKROOT="wrong", LIBRARY_PATH="wrong", CPATH="wrong")), \
                 patch.object(framework, "execute", return_value=(0, "gcc (GCC) 16.2", False, 0)) as run:
