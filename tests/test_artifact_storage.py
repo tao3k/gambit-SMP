@@ -2,13 +2,172 @@ import ctypes
 import errno
 from pathlib import Path
 import tempfile
+import subprocess
+import sqlite3
 import unittest
 from unittest.mock import patch
 
 from gambit_smp.artifact_storage import clone_file, transfer_generation, transfer_tree
+from gambit_smp.artifact_storage import cache_path, runtime_output
+from gambit_smp.artifact_storage import database_path, migrate_database, fixture_name, fixture_path
 
 
 class ArtifactStorageTests(unittest.TestCase):
+    def repository(self, directory):
+        root = Path(directory).resolve()
+        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+        return root
+
+    def test_database_migration_preserves_pending_rows_and_original(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            old = root / ".data/state.sqlite"
+            old.parent.mkdir()
+            db = sqlite3.connect(old)
+            db.execute("CREATE TABLE requests (id TEXT, result TEXT)")
+            db.execute("INSERT INTO requests VALUES ('pending', NULL)")
+            db.commit()
+            db.close()
+            before = old.read_bytes()
+            with self.assertRaisesRegex(ValueError, "explicit cache migration"):
+                database_path(root, "state.sqlite", ".data/state.sqlite")
+            target = migrate_database(root, "state.sqlite", ".data/state.sqlite")
+            self.assertEqual(root / ".cache/state.sqlite", target)
+            copied = sqlite3.connect(target)
+            self.addCleanup(copied.close)
+            self.assertEqual([("pending", None)], copied.execute("SELECT * FROM requests").fetchall())
+            self.assertEqual(before, old.read_bytes())
+            self.assertEqual(target, database_path(root, "state.sqlite", ".data/state.sqlite"))
+            with self.assertRaises(ValueError):
+                migrate_database(root, "state.sqlite", ".data/state.sqlite")
+
+    def test_active_database_writer_prevents_migration_and_empty_reset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            old = root / ".data/state.sqlite"
+            old.parent.mkdir()
+            db = sqlite3.connect(old)
+            db.execute("CREATE TABLE state (value TEXT)")
+            db.commit()
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                with self.assertRaises(sqlite3.OperationalError):
+                    migrate_database(root, "state.sqlite", ".data/state.sqlite")
+            finally:
+                db.rollback()
+                db.close()
+            self.assertFalse((root / ".cache/state.sqlite").exists())
+            self.assertFalse((root / ".cache/state.sqlite.migrating").exists())
+
+    def test_fixture_references_keep_old_names_and_bind_new_cache_explicitly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            for name in (".cache/fixtures/run", ".data/fixtures/run"):
+                path = root / name
+                path.mkdir(parents=True)
+                ref = fixture_name(root, path)
+                self.assertEqual(name if name.startswith(".cache") else "run", ref)
+                self.assertEqual(path, fixture_path(root, ref))
+            for name in ("../escape", ".cache/fixtures/../../src"):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    fixture_path(root, name)
+
+    def test_local_cache_path_does_not_create_evidence_or_require_reproduction(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            path = cache_path(root, "ascent/queries/run")
+            self.assertEqual(root / ".cache/ascent/queries/run", path)
+            self.assertFalse(path.exists())
+            self.assertFalse((root / "evidence").exists())
+            for name in ("../evidence", "/tmp/escape", "."):
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    cache_path(root, name)
+
+    def test_cache_alias_cannot_write_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            (root / "evidence").mkdir()
+            (root / ".cache").symlink_to("evidence", target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "alias"):
+                cache_path(root, "run")
+            with self.assertRaisesRegex(ValueError, "cache alias"):
+                runtime_output(root, root / ".cache/run")
+
+    def test_runtime_outputs_stay_outside_git_sources(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            for name in (".cache/graph", ".cache/ci/artifact"):
+                self.assertEqual(root / name, runtime_output(root, root / name))
+            for name in (".", ".data/new-run", ".ci/new-run", "evidence/run", "src/run", "docs/graph", ".git/run", "accidental-log"):
+                with self.subTest(name=name), self.assertRaisesRegex(ValueError, "runtime output"):
+                    runtime_output(root, root / name)
+            self.assertEqual(root.parent / "external-run", runtime_output(root, root.parent / "external-run"))
+
+    def test_ascent_cli_rejects_git_outputs_before_query_or_execution(self):
+        from gambit_smp import agent_context, ascent_review, evidence_index, review_validation
+        cases = ((agent_context, ["--model", "control"]), (ascent_review, []),
+                 (evidence_index, ["--validate"]), (review_validation, []))
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            for module, args in cases:
+                target = root / "evidence/unpublished-run"
+                with self.subTest(module=module.__name__), \
+                     patch.object(module, "ROOT", root, create=True), \
+                     patch.object(evidence_index, "ROOT", root), \
+                     patch("sys.argv", [module.__name__, *args, "--out", str(target)]), \
+                     self.assertRaisesRegex(ValueError, "runtime output"):
+                    module.main()
+                self.assertFalse(target.exists())
+
+    def test_cache_root_is_git_toplevel_not_selected_subdirectory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            nested = root / "src/deep"
+            nested.mkdir(parents=True)
+            expected = root / ".cache/ascent/run"
+            self.assertEqual(expected, cache_path(root, "ascent/run"))
+            with patch.dict("os.environ", {"GIT_WORK_TREE": str(nested), "GIT_DIR": str(root / ".git")}):
+                self.assertEqual(expected, cache_path(nested, "ascent/run"))
+            self.assertEqual(expected, runtime_output(nested, ".cache/ascent/run"))
+            with self.assertRaisesRegex(ValueError, "runtime output"):
+                runtime_output(nested, root / "evidence/log")
+
+    def test_nested_repository_owns_its_cache_not_outer_project(self):
+        with tempfile.TemporaryDirectory() as directory:
+            outer = self.repository(directory)
+            inner = outer / ".data/consumer"
+            inner.mkdir(parents=True)
+            self.repository(inner)
+            self.assertEqual(inner / ".cache/run", cache_path(inner, "run"))
+            self.assertEqual(outer / ".cache/run", cache_path(outer, "run"))
+
+    def test_no_git_repository_does_not_fall_back_to_cwd_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(subprocess.CalledProcessError):
+                cache_path(directory, "run")
+
+    def test_linked_worktree_uses_its_own_git_toplevel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(Path(directory) / "primary")
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=Storage Test",
+                            "-c", "user.email=storage@example.invalid", "commit",
+                            "--allow-empty", "-qm", "storage test"], check=True, capture_output=True)
+            linked = Path(directory).resolve() / "linked"
+            subprocess.run(["git", "-C", str(root), "worktree", "add", "--detach", str(linked)],
+                           check=True, capture_output=True)
+            self.assertEqual(linked / ".cache/run", cache_path(linked, "run"))
+            self.assertEqual(root / ".cache/run", cache_path(root, "run"))
+
+    def test_declared_cache_cannot_alias_an_external_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(Path(directory) / "repo")
+            external = Path(directory).resolve() / "external"
+            external.mkdir()
+            (root / ".cache").symlink_to(external, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "cache alias"):
+                runtime_output(root, ".cache/query")
+            self.assertEqual(external / "query", runtime_output(root, external / "query"))
+
     def test_generation_source_symlink_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -40,7 +40,8 @@ def inventory(directory):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--input", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--input", type=runtime_argument, required=True)
     parser.add_argument("--head", required=True)
     parser.add_argument("--base", required=True)
     args = parser.parse_args()

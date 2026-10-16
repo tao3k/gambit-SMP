@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import sys
+import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
@@ -16,6 +17,7 @@ class ReviewValidationTests(unittest.TestCase):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         (self.root / "tests").mkdir()
         (self.root / "src").mkdir()
         self.source = self.root / "src/source.py"
@@ -158,7 +160,7 @@ class ReviewValidationTests(unittest.TestCase):
 
     def test_parent_retains_cleanup_failure_after_a_passing_test_result(self):
         child, output = self.result()
-        out = self.root / "supervised"
+        out = self.root / ".cache/supervised"
         def failed_worker(*args, **kwargs):
             (out / "tests.log").write_text(output)
             child["log"] = {"path": "tests.log", "sha256": digest(out / "tests.log")}
@@ -173,7 +175,7 @@ class ReviewValidationTests(unittest.TestCase):
 
     def test_timeout_without_a_completed_result_is_preserved(self):
         with patch("gambit_smp.review_validation.execute", return_value=(-9, "incomplete\n", True, 10)):
-            path, _ = supervise(self.root, "full", "model", self.root / "timeout", 10)
+            path, _ = supervise(self.root, "full", "model", self.root / ".cache/timeout", 10)
         checked = load(self.root, path, self.inputs, self.engine)
         self.assertEqual("TIMEOUT", checked["status"])
         self.assertFalse(checked["frameworkValidated"])

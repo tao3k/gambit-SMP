@@ -6,6 +6,7 @@ from pathlib import Path
 import tempfile
 import threading
 import sys
+import subprocess
 import unittest
 import uuid
 from unittest.mock import patch
@@ -44,6 +45,7 @@ class ActionInferenceTests(unittest.TestCase):
         from gambit_smp.framework import digest
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             study = json.loads((ROOT / "evidence/scenarios/sigbus-origin/study.json").read_text())
             # A test study asks for a field actually present in the original
             # SIGBUS receipt, not a fabricated allocation measurement.
@@ -163,6 +165,7 @@ class ActionInferenceTests(unittest.TestCase):
         from gambit_smp.framework import digest
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             study = json.loads((ROOT / "evidence/scenarios/sigbus-origin/study.json").read_text())
             for name in {ref["path"] for ref in study["references"]}:
                 path = root / name
@@ -261,6 +264,7 @@ class ActionTransportTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         self.snapshot = {"revision": "rev", "sourceIdentity": "source", "context": {"engine": "/unused", "recipes": ["one"]},
                          "inputs": {}, "backend": {}, "recordedOutcomes": [],
                          "actions": [{"id": "run", "recipe": "one",

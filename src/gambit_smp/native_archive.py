@@ -716,7 +716,8 @@ def validate(root, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--observed-parent-exit", type=int,
                         help="omit only for failed histories whose parent exit was not recorded")
     parser.add_argument("--identity", type=Path, help="exact candidate identity required for scoped suite archival")

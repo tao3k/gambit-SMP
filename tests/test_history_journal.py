@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -21,6 +22,7 @@ class HistoryJournalTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
 
     def append(self, value, scope="task"):
         return history.append_observation(self.root, scope, {"fixture": value},

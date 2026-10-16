@@ -419,8 +419,8 @@ def artifact_path(out, descriptor, *, root=None):
     if literal.is_symlink():
         raise ValueError("managed workspace cannot be a symlink alias")
     workspace = relative(root, descriptor["workspace"])
-    if not workspace.is_relative_to(root.resolve() / ".data/fixtures"):
-        raise ValueError("managed workspace outside fixture store")
+    from gambit_smp.artifact_storage import fixture_root
+    fixture_root(root, workspace)
     return workspace
 
 
@@ -633,13 +633,13 @@ class ExecutionContext:
             descriptor["identity"] = tree_identity(path)
             if (self.receipt.get("workspacePolicy") == "in-place" and
                     kind in {"source-tree", "configured-tree", "seed-runtime", "source-runtime"}):
-                from gambit_smp.artifact_storage import seal_workspace_state
+                from gambit_smp.artifact_storage import cache_path, seal_workspace_state
                 bindings = {Path(key).relative_to(self.root).as_posix(): sha
                             for key, sha in self.receipt["inputs"].items()
                             if Path(key).is_relative_to(self.root)
                             and not any(part.casefold() in CACHE_PARTS for part in Path(key).relative_to(self.root).parts)}
                 run_key = hashlib.sha256(self.out.relative_to(self.root).as_posix().encode()).hexdigest()
-                target = (self.root / "evidence/research/workspace-states" /
+                target = (cache_path(self.root, "research/workspace-states") /
                           self.receipt["recipe"] / run_key / (self.directory.name + "-" + name + ".json"))
                 descriptor["stateEvidence"] = seal_workspace_state(self.root, path, target, bindings)
         else:
@@ -1003,7 +1003,8 @@ def main():
     selection.add_argument("--list", action="store_true")
     selection.add_argument("--run", metavar="RECIPE")
     selection.add_argument("--read", type=Path, metavar="RUN_DIRECTORY")
-    parser.add_argument("--out", type=Path)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument)
     parser.add_argument("--prior", type=Path, help="retain a previous failure and require an input/tool delta without budget expansion")
     parser.add_argument("--quint", type=Path, default=Path(shutil.which("quint") or "quint"))
     parser.add_argument("--node", type=Path, default=Path(shutil.which("node") or "node"))

@@ -29,7 +29,8 @@ def _inputs(root, paths):
 
 
 def _outcomes(root):
-    path = Path(root) / ".data/research-actions/requests.sqlite"
+    from gambit_smp.artifact_storage import database_path
+    path = database_path(root, "research-actions/requests.sqlite", ".data/research-actions/requests.sqlite")
     if not path.exists():
         return []
     with closing(sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True)) as db:
@@ -340,9 +341,10 @@ def discover(root, context):
 
 
 def _database(root):
-    directory = Path(root) / ".data/research-actions"
-    directory.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(directory / "requests.sqlite", timeout=1)
+    from gambit_smp.artifact_storage import database_path
+    path = database_path(root, "research-actions/requests.sqlite", ".data/research-actions/requests.sqlite")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=1)
     db.execute("CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, body TEXT NOT NULL, result TEXT)")
     db.commit()
     return db
@@ -392,7 +394,8 @@ def select(root, snapshot, action, inputs, request_id, *, authorize_execution=Fa
             raise ValueError("STALE backend or action outcomes before reservation")
         db.execute("INSERT INTO requests VALUES (?, ?, NULL)", (request_id, encoded))
         db.commit()
-        out = Path(root).resolve() / ".data/research-actions" / request_id
+        from gambit_smp.artifact_storage import cache_path
+        out = cache_path(root, "research-actions/" + request_id)
         try:
             if selected.get("operation"):
                 result = _execute_action(Path(root).resolve(), selected, current, out, started=started)

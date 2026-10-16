@@ -2,6 +2,7 @@
 import json
 import math
 from pathlib import Path
+from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
 import shutil
 import sys
 
@@ -211,8 +212,7 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     from gambit_smp.recipes import read_json
     from gambit_smp.research_kernel import inspect, manifest_paths
     root, run = root.resolve(), run.resolve(strict=True)
-    if not run.is_relative_to(root / ".data/fixtures"):
-        raise ValueError("completed producer must belong to this project's fixture store")
+    fixture_root(root, run)
     outer = read_json(run / "receipt.json")
     child = read_json(run / "run/receipt.json")
     if (outer.get("timeout") is not False or outer.get("parentReaped") is not True
@@ -257,7 +257,7 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
         raise ValueError("all three concurrency flags must be observed in the producer")
     manifest = manifest_paths(Path(outer["engine"]))
     source_lock = materialized["arguments"]["sourceLock"]
-    reference = {"schema": SCHEMA, "run": run.relative_to(root / ".data/fixtures").as_posix(),
+    reference = {"schema": SCHEMA, "run": fixture_name(root, run),
                  "outerReceiptSha256": digest(run / "receipt.json"),
                  "childReceiptSha256": digest(run / "run/receipt.json"),
                  "step": step_id, "stepReceiptSha256": digest(run / "run" / step_id / "step-receipt.json"),
@@ -333,7 +333,7 @@ def reuse_materialized_source(lock_path, ctx):
             if explicit:
                 raise ValueError("explicit completed producer does not match the source lock")
             continue
-        run = relative(ctx.root / ".data/fixtures", proof["run"])
+        run = fixture_path(ctx.root, proof["run"])
         archive = proof.get("inputArchive", {}).get("path")
         actual, _, bootstrap, materialized = completed(ctx.root, run, proof["step"], input_archive=archive,
                                                       workspace_context=ctx if ctx.receipt.get("workspacePolicy") == "in-place" else None)
@@ -388,7 +388,7 @@ def prevent_duplicate_configuration(args, ctx, *, stage="configure"):
             continue
         if proof.get("sourceLockSha256") != lock_sha or proof.get("gccSha256") != gcc_sha:
             continue
-        run = relative(ctx.root / ".data/fixtures", proof["run"])
+        run = fixture_path(ctx.root, proof["run"])
         actual, _, step, _ = completed(ctx.root, run, proof["step"],
                                       input_archive=proof.get("inputArchive", {}).get("path"))
         if actual != proof:
@@ -417,7 +417,7 @@ def reuse(args, ctx):
                    "stepReceiptSha256", "engineId", "sourceLock", "sourceLockSha256", "gccSha256"), ("inputArchive", "completionRevalidation"))
     if proof["schema"] != SCHEMA:
         raise ValueError("typed completed bootstrap reference required")
-    run = relative(ctx.root / ".data/fixtures", proof["run"])
+    run = fixture_path(ctx.root, proof["run"])
     history = proof.get("inputArchive")
     archive_paths = []
     if history is not None:

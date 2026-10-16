@@ -42,7 +42,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--kernel-source", type=Path, required=True)
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     args = parser.parse_args()
     source = args.kernel_source.resolve()
     code = boundary(source.read_text())

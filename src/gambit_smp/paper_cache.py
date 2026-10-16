@@ -150,13 +150,15 @@ def cache(paper, directory, refresh=False, allow_ocr=False, expected_pdf=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "evidence/papers.json")
-    parser.add_argument("--cache", type=Path, default=ROOT / ".data/papers")
+    from gambit_smp.artifact_storage import cache_path, runtime_output
+    parser.add_argument("--cache", type=Path, default=cache_path(ROOT, "papers"))
     parser.add_argument("--lock", type=Path, default=LOCK,
                         help="tracked source URL/PDF hash and Markdown/Org notes")
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--ocr-scanned", action="store_true",
                         help="explicit OCR fallback for scanned PDFs of at most 16 pages")
     args = parser.parse_args()
+    args.cache = runtime_output(ROOT, args.cache)
     manifest = json.loads(args.manifest.read_text())
     if manifest["schema"] != "gambit-smp-papers.v1":
         parser.error("unsupported paper manifest")

@@ -169,12 +169,14 @@ def main():
     import argparse
     import json
     from pathlib import Path
-    from gambit_smp.framework import available_processors
+    from gambit_smp.framework import ROOT, available_processors
+    from gambit_smp.artifact_storage import runtime_output
     from gambit_smp.recipes import fields, read_json
     parser = argparse.ArgumentParser(description=main.__doc__)
     parser.add_argument("request", type=Path)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    args.out = runtime_output(ROOT, args.out)
     value = read_json(args.request)
     fields(value, ("schema", "budgetSeconds", "jobs"))
     if value["schema"] != "process-observation-batch.v1" or not isinstance(value["jobs"], list) or not value["jobs"]:

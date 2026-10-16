@@ -173,7 +173,8 @@ def main():
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--toolchain-receipt", type=Path, required=True)
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--timeout", type=float, required=True,
                         help="bounded whole-suite budget for each mode, not a per-file gate")
     parser.add_argument("--mode", choices=("gsi", "gsc"), action="append")

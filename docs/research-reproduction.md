@@ -46,7 +46,7 @@ PYTHONPATH=src python3 -m gambit_smp.source_provision \
 
 Each preparation command requires a fresh destination; choose one alternative,
 not both against the same directory. The default cache is ignored
-`.data/source-cache/gambit.git`. Cache paths are transport, not source identities
+`.cache/source-cache/gambit.git`. Cache paths are transport, not source identities
 or committed evidence. Initialization verifies fsck, canonical URL, commit SHA,
 complete tree-inventory SHA, commit parents and base-file SHA before admitting a
 checkout. Git transports real shallow metadata; the provisioner no longer

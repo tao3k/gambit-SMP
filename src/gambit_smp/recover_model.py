@@ -43,7 +43,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True)
     parser.add_argument("--from-dir", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     args = parser.parse_args()
     cases_path = ROOT / "models/gambit/cases.json"
     case = next(row for row in json.loads(cases_path.read_text())["cases"] if row["id"] == args.case)

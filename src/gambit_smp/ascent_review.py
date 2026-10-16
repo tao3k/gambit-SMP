@@ -283,6 +283,10 @@ def main():
     args = parser.parse_args()
     if args.graph_out and not args.model:
         parser.error("--graph-out requires --model")
+    from gambit_smp.artifact_storage import runtime_output
+    args.out = runtime_output(evidence_index.ROOT, args.out)
+    if args.graph_out:
+        args.graph_out = runtime_output(evidence_index.ROOT, args.graph_out)
     proposal = json.loads(args.proposal.read_text()) if args.proposal else None
     result = run_review(evidence_index.ROOT, args.failure, proposal, args.model,
                         args.proposal, args.validation, campaign_paths=args.campaign,

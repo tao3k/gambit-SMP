@@ -625,7 +625,8 @@ def main():
     parser.add_argument("--mem-source", type=Path)
     parser.add_argument("--runtime-header", type=Path)
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--case", choices=("vm_activity_log_abort", "vm_resize_rollback", "shutdown_error_handoff", "mark_array_slot_ownership", "checked_negate_return", "sync_resource_retirement", "continuation_chunk_frontier", "pstate_os_mem_transaction", "pstate_setup_transaction"), default="vm_resize_rollback")
     parser.add_argument("--patch", type=Path)
     parser.add_argument("--model-receipt", type=Path)

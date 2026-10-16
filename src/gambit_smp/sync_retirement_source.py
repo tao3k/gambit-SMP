@@ -38,7 +38,8 @@ def main():
     source_args.add_argument("--source", type=Path)
     source_args.add_argument("--source-lock", help="versioned submodule/overlay source lock")
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     args = parser.parse_args()
     if args.source_lock:
         with locked_source(ROOT, args.source_lock) as (tree, inputs):

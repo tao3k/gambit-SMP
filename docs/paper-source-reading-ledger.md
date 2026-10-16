@@ -31,7 +31,7 @@ Source references below are candidate026, pinned by the protocol manifests.
 They are not assertions about current upstream master. No section below grants
 runtime acceptance or an end-to-end speedup.
 
-Use the integrity-checked `.data/papers/<id>/` cache. New primary sources are
+Use the integrity-checked `.cache/papers/<id>/` cache. New primary sources are
 listed in `evidence/papers-audit-expansion.json`; existing sources remain in
 `evidence/papers.json`. New IDs are separate to avoid changing Working's paper
 inventory concurrently. Publication metadata is confirmed through the Gambit

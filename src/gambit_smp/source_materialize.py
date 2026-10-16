@@ -60,7 +60,10 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES):
     if not overlay:
         raise ValueError("empty source snapshot delta")
     # Prove the generated overlay restores exactly these bytes before publishing.
-    with tempfile.TemporaryDirectory(dir=ROOT / ".data") as temporary:
+    from gambit_smp.artifact_storage import cache_path
+    scratch = cache_path(ROOT, "source-materialize")
+    scratch.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=scratch) as temporary:
         target = Path(temporary)
         for name in sorted(selected):
             data = subprocess.check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
@@ -163,7 +166,8 @@ def locked_source(root, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--lock", type=Path, default=LOCK)
-    parser.add_argument("--out", type=Path)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument)
     parser.add_argument("--export-candidate", type=Path,
                         help="explicit one-time source snapshot export, not a repair admission")
     parser.add_argument("--patch", type=Path)

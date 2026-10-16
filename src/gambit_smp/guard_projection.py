@@ -270,7 +270,8 @@ def campaign(out, sufficient=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--sufficient", action="store_true",
                         help="include conservative original expression/RHS definedness, not guard-only coverage")
     args = parser.parse_args()

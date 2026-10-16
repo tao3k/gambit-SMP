@@ -25,7 +25,8 @@ class HistoryProtocolTests(unittest.TestCase):
         sources = sorted((ROOT / "models/library").glob("HistoryJournal*.qnt"))
         inputs = {str(path): digest(path) for path in sources}
         inputs.update({str(jar): digest(jar), str(Path(quint).resolve()): digest(Path(quint).resolve())})
-        archive = Path(os.environ.get("GAMBIT_SMP_TEST_ARTIFACTS", str(ROOT / ".data/history-protocol")))
+        from gambit_smp.artifact_storage import cache_path
+        archive = Path(os.environ.get("GAMBIT_SMP_TEST_ARTIFACTS", str(cache_path(ROOT, "history-protocol"))))
         archive.mkdir(parents=True, exist_ok=True)
         out = Path(tempfile.mkdtemp(prefix="run-", dir=archive))
         print("History protocol raw archive:", out, flush=True)

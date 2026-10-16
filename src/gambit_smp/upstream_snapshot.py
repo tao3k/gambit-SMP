@@ -182,7 +182,8 @@ def export_triage(cache, target):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--cache", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--cache", type=runtime_argument, required=True)
     parser.add_argument("--discover", action="store_true")
     parser.add_argument("--window-files", action="store_true",
                         help="inventory changed files for every PR in the cached creation window")

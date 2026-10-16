@@ -45,7 +45,8 @@ def lineage(workflow, *, task=None, branch="workspace", selection="all", policy=
 
 @contextmanager
 def _database(root):
-    path = Path(root) / ".data/reasoning/history.sqlite3"
+    from gambit_smp.artifact_storage import database_path
+    path = database_path(root, "reasoning/history.sqlite3", ".data/reasoning/history.sqlite3")
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path, isolation_level=None)) as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]

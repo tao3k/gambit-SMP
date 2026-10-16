@@ -254,7 +254,8 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
 
 def supervise(root, profile, model, out, timeout):
     """The parent records the real exit after native runtime teardown."""
-    out = Path(out)
+    from gambit_smp.artifact_storage import runtime_output
+    out = runtime_output(root, out)
     out.mkdir(parents=True, exist_ok=False)
     command = [sys.executable, "-m", "gambit_smp.review_validation", "--worker",
                "--profile", profile, "--out", str(out.resolve())]
@@ -292,6 +293,8 @@ def main():
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
+    from gambit_smp.artifact_storage import runtime_output
+    args.out = runtime_output(ROOT, args.out)
     if args.out.exists() and not args.worker:
         parser.error("validation output directory must be new")
     if not args.worker:

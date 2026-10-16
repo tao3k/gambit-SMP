@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ class SeedCheckpointTransportTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         self.out = self.root / "out"
         directory = self.out / "checkpoint"
         directory.mkdir(parents=True)

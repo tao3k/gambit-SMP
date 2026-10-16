@@ -141,6 +141,8 @@ def main():
         return 0 if summary["status"] == "CURRENT" and summary["frameworkValidated"] else 2
     if args.out is None or args.out.exists():
         parser.error("--model requires a new --out directory")
+    from gambit_smp.artifact_storage import runtime_output
+    args.out = runtime_output(ROOT, args.out)
     args.out.mkdir(parents=True, exist_ok=False)
     from gambit_smp.ascent_review import run_review
     from gambit_smp.review_validation import supervise

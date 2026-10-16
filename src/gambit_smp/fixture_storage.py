@@ -25,7 +25,7 @@ def source_trees(root):
 def source_capacity(destination):
     destination = Path(destination).resolve()
     managed = next((parent for parent in destination.parents
-                    if parent.name == "fixtures" and parent.parent.name == ".data"), None)
+                    if parent.name == "fixtures" and parent.parent.name in {".cache", ".data"}), None)
     if managed is None:
         yield
         return
@@ -40,9 +40,10 @@ def source_capacity(destination):
 
 def prune(root, keep, archive, *, apply=False, targets=None, discard=None):
     root = Path(root).resolve(strict=True)
-    if not (root.name == "fixtures" and root.parent.name == ".data" or root.name == ".data"):
+    if not (root.name == "fixtures" and root.parent.name in {".cache", ".data"}
+            or root.name in {".cache", ".data"}):
         raise ValueError("cleanup is restricted to project data stores")
-    if root.name == ".data" and targets is None:
+    if root.name in {".cache", ".data"} and targets is None:
         raise ValueError("explicit cleanup targets required")
     with (root / ".source-capacity.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -193,7 +194,8 @@ def main():
     parser.add_argument("--target", type=Path, action="append")
     parser.add_argument("--discard-bindings", type=Path,
                         help="exact caller-reviewed reproducible source path/SHA map")
-    parser.add_argument("--archive", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--archive", type=runtime_argument, required=True)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     discard = None if args.discard_bindings is None else json.loads(args.discard_bindings.read_text())

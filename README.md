@@ -15,7 +15,8 @@ repair work. This repository is not an accepted replacement runtime.
 | `tests/` | Framework unit and integration tests, separate from native Gambit fixtures |
 | `evidence/` | Datalog rules, generated relationships and portable upstream inventory |
 | `docs/` | Architecture, classified report audit, assumptions and validation boundaries |
-| `.data/` | Ignored local checker/runtime outputs, never official repair evidence by itself |
+| `.cache/` | New local logs, generated contexts, validation outputs and replaceable workspace inventories; not Git evidence |
+| `.data/` | Historical local workspaces retained in place; new logs and journals use `.cache/` |
 
 ## Local Checks
 
@@ -30,7 +31,7 @@ identity-bound Agent handoff linking Catalog entries, receipts and open gates.
 uv sync --locked
 uv run --locked python -m unittest discover -s tests
 uv run --locked gambit-smp evidence --validate
-uv run --locked gambit-smp evidence --out .data/evidence-query-001
+uv run --locked gambit-smp evidence --validate --out .cache/ascent/evidence-query-001
 ```
 
 Quint checks additionally require Quint 0.33.0, Java and its TLC backend:
@@ -47,6 +48,7 @@ Do not use a global installed runtime to validate a build-tree candidate.
 Primary-source papers can be downloaded once with
 `uv run --locked gambit-smp papers`; later runs check hashes offline.
 See `docs/paper-cache.md` for local text search and cache boundaries.
+See [storage boundaries](docs/storage-boundaries.md) for Git Evidence versus local output.
 Pinned Gambit source, versioned Markdown paper notes and cache-independent input
 checks are documented in [research reproduction](docs/research-reproduction.md).
 Use `PYTHONPATH=src python3 -m gambit_smp.reproduction_check --require-committed`

@@ -91,7 +91,8 @@ def reusable_check(directory, manifest, case, variant, invariant, initializer, s
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / "evidence/protocol-extensions.json")
-    parser.add_argument("--out", required=True, type=Path)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", required=True, type=runtime_argument)
     parser.add_argument("--case")
     parser.add_argument("--resume-from", type=Path,
                         help="reuse same-model checks; reparse valid negative-control logs without rerunning TLC")

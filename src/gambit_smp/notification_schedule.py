@@ -34,7 +34,8 @@ def matched(policy, point, actual):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
     out = args.out.resolve()

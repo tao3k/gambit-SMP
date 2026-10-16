@@ -4,12 +4,174 @@ from contextlib import contextmanager
 import errno
 import fcntl
 import hashlib
+from functools import lru_cache
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 from pathlib import Path
+
+
+@lru_cache(maxsize=128)
+def _repository_root(directory):
+    # Cache path routing only, never source verification or evidence admission.
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    result = subprocess.run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+                            env=environment, capture_output=True, text=True, check=True)
+    return Path(result.stdout.rstrip("\n")).resolve(strict=True)
+
+
+def repository_root(directory):
+    """Use Git's worktree root, including nested repositories and worktrees."""
+    return _repository_root(Path(directory).resolve(strict=True))
+
+
+def cache_path(root, name):
+    """Local, replaceable storage; never promote a path into Evidence."""
+    root = repository_root(root)
+    name = Path(name)
+    if name.is_absolute() or ".." in name.parts or not name.parts:
+        raise ValueError("cache name must be a bounded relative path")
+    path = (root / ".cache" / name).resolve()
+    if not path.is_relative_to(root / ".cache"):
+        raise ValueError("cache alias escapes local cache")
+    return path
+
+
+def runtime_output(root, path):
+    """In-repository execution writes only ignored stores, not source assets.
+
+    Explicit external temporary/artifact directories are also supported. Existing
+    Existing .data/.ci observations are read in place, not new output locations.
+    """
+    root, path = repository_root(root), Path(path)
+    if not path.is_absolute() and path.parts and path.parts[0] == ".cache":
+        path = root / path
+    declared_cache = path.is_absolute() and path.is_relative_to(root / ".cache")
+    path = path.resolve()
+    if declared_cache and not path.is_relative_to(root / ".cache"):
+        raise ValueError("cache alias escapes local cache")
+    if path.is_relative_to(root):
+        parts = path.relative_to(root).parts
+        if not parts or parts[0] != ".cache":
+            raise ValueError("runtime output requires .cache/ (or an external local directory), not Git source")
+    return path
+
+
+def runtime_argument(value):
+    """Argparse path type shared by runtime-only adapters."""
+    from gambit_smp.framework import ROOT
+    return runtime_output(ROOT, value)
+
+
+def database_path(root, name, previous):
+    """Never replace pending operational history with a fresh empty database."""
+    target = cache_path(root, name)
+    old = repository_root(root) / previous
+    if old.exists() and not target.exists():
+        raise ValueError("local database requires explicit cache migration: " + str(old))
+    return target
+
+
+def migrate_database(root, name, previous):
+    """Explicit consistent SQLite backup; keep the original and refuse overwrite."""
+    import sqlite3
+    from contextlib import closing
+    root = repository_root(root)
+    old, target = root / previous, cache_path(root, name)
+    if (old.is_symlink() or not old.is_file() or target.exists()
+            or not old.is_relative_to(root / ".data")):
+        raise ValueError("existing private local database and fresh cache target required")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    stage = target.with_name(target.name + ".migrating")
+    with stage.open("xb"):
+        pass
+    try:
+        with closing(sqlite3.connect(old, timeout=0, isolation_level=None)) as lock:
+            lock.execute("BEGIN IMMEDIATE")
+            try:
+                with closing(sqlite3.connect(old.as_uri() + "?mode=ro", uri=True)) as source, \
+                     closing(sqlite3.connect(stage)) as destination:
+                    source.backup(destination)
+                    schema = "SELECT type,name,tbl_name,sql FROM sqlite_master ORDER BY type,name"
+                    if (destination.execute("PRAGMA integrity_check").fetchone() != ("ok",)
+                            or source.execute(schema).fetchall() != destination.execute(schema).fetchall()):
+                        raise ValueError("local database migration differs from original")
+                    for (table,) in source.execute("SELECT name FROM sqlite_master WHERE type='table'"):
+                        count = 'SELECT COUNT(*) FROM "' + table.replace('"', '""') + '"'
+                        if source.execute(count).fetchone() != destination.execute(count).fetchone():
+                            raise ValueError("local database migration lost rows")
+                os.link(stage, target)
+            finally:
+                lock.rollback()
+    finally:
+        stage.unlink()
+    return target
+
+
+def fixture_root(root, path):
+    """New cache custody or the exact historical fixture store, never an alias."""
+    root, path = Path(root).resolve(strict=True), Path(path).resolve()
+    for name in (".cache/fixtures", ".data/fixtures"):
+        store = root / name
+        if path != store and path.is_relative_to(store):
+            return store
+    raise ValueError("runtime must belong to this project's fixture store")
+
+
+def fixture_name(root, run):
+    root = Path(root).resolve(strict=True)
+    store = fixture_root(root, run)
+    base = root if store == root / ".cache/fixtures" else store
+    return Path(run).resolve().relative_to(base).as_posix()
+
+
+def fixture_path(root, name):
+    """Cache references are explicit root paths; old receipt names stay unchanged."""
+    from gambit_smp.framework import relative
+    root = Path(root).resolve(strict=True)
+    base = root if Path(name).parts[:2] == (".cache", "fixtures") else root / ".data/fixtures"
+    path = relative(base, name)
+    fixture_root(root, path)
+    return path
+
+
+def archived_record(root, reference):
+    """Read explicitly indexed historical bytes, not a source/cache alias."""
+    from gambit_smp.framework import relative
+    root = repository_root(root)
+    index = json.loads((root / "evidence/storage-history.json").read_bytes())
+    if index.get("schema") != "git-record-archive.v1":
+        raise ValueError("typed historical record archive required")
+    name = reference["path"]
+    relative(root, name)
+    row = index["records"].get(name)
+    if row is None or row["sha256"] != reference["sha256"]:
+        raise ValueError("historical record not bound by archive")
+    revision, blob = index["revision"], row["gitBlob"]
+    if any(len(value) != 40 or any(c not in "0123456789abcdef" for c in value)
+           for value in (revision, blob)):
+        raise ValueError("fixed Git record identity required")
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    def git(*args):
+        return subprocess.check_output(["git", "-C", str(root), *args], env=environment,
+                                       stderr=subprocess.PIPE)
+    if git("rev-parse", revision + ":" + name).decode().strip() != blob:
+        raise ValueError("historical record does not belong to pinned revision")
+    raw = git("cat-file", "blob", blob)
+    if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+        raise ValueError("historical record digest mismatch")
+    target = cache_path(root, "history/git/" + reference["sha256"] + "/record.json")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with target.open("xb") as stream:
+            stream.write(raw)
+    except FileExistsError:
+        if target.read_bytes() != raw:
+            raise ValueError("historical record cache changed")
+    return raw
 
 
 @contextmanager
@@ -20,11 +182,11 @@ def workspace_lease(root, source, expected_identity, *, broken_links=None, ident
     if source.is_symlink():
         raise ValueError("workspace root cannot be a symlink")
     source = source.resolve(strict=True)
-    if not source.is_relative_to(root / ".data/fixtures"):
-        raise ValueError("mutable workspace must belong to the fixture store")
+    fixture_root(root, source)
     identity = (source.stat().st_dev, source.stat().st_ino)
     key = hashlib.sha256(str(source).encode()).hexdigest()
-    store = root / ".data/workspace-leases"
+    store = (cache_path(root, "workspace-leases") if fixture_root(root, source).parent.name == ".cache"
+             else root / ".data/workspace-leases")
     store.mkdir(parents=True, exist_ok=True)
     lock_path = store / (key + ".lock")
     flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
@@ -101,7 +263,9 @@ def quarantine_workspace(root, source, process_records):
     """Do not let advisory-lock release erase an unquiesced child process."""
     root, source = Path(root).resolve(strict=True), Path(source).resolve(strict=True)
     key = hashlib.sha256(str(source).encode()).hexdigest()
-    target = root / ".data/workspace-leases" / (key + ".quarantine.json")
+    store = (cache_path(root, "workspace-leases") if fixture_root(root, source).parent.name == ".cache"
+             else root / ".data/workspace-leases")
+    target = store / (key + ".quarantine.json")
     record = {"schema": "workspace-process-quarantine.v1",
               "workspace": source.relative_to(root).as_posix(),
               "reason": "process-group-not-quiescent", "runtimeAdmitted": False,
@@ -128,8 +292,9 @@ def seal_workspace_state(root, source, destination, bindings):
     from gambit_smp.recipes import source_path, tree_identity
     root = Path(root).resolve(strict=True)
     destination = Path(destination).resolve()
-    if not destination.is_relative_to(root / "evidence"):
-        raise ValueError("workspace state must be retained in Evidence")
+    if not (destination.is_relative_to(root / "evidence") or
+            destination.is_relative_to(cache_path(root, "research/workspace-states"))):
+        raise ValueError("workspace state requires the local state cache or explicit Evidence destination")
     if not bindings:
         raise ValueError("source/configuration input bindings required")
     for name, expected in bindings.items():
@@ -153,12 +318,16 @@ def seal_workspace_state(root, source, destination, bindings):
 def checked_workspace_state(root, reference, expected_identity, *, input_bindings=None):
     """Check retained evidence without upgrading absent bytes into a runtime."""
     from gambit_smp.framework import digest, relative
-    from gambit_smp.recipes import read_json, source_path
+    from gambit_smp.recipes import source_path
     root = Path(root).resolve(strict=True)
     path = relative(root, reference["path"])
-    if not path.is_relative_to(root / "evidence") or digest(path) != reference["sha256"]:
+    if not (path.is_relative_to(root / "evidence") or
+            path.is_relative_to(cache_path(root, "research/workspace-states"))):
         raise ValueError("retained workspace state changed")
-    record = read_json(path)
+    raw = path.read_bytes() if path.is_file() else archived_record(root, reference)
+    if hashlib.sha256(raw).hexdigest() != reference["sha256"]:
+        raise ValueError("retained workspace state changed")
+    record = json.loads(raw)
     if (record.get("schema") != "retained-workspace-state.v1"
             or record.get("identity") != expected_identity
             or record.get("runtimeAdmitted") is not False or not record.get("bindings")):

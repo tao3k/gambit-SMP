@@ -3,6 +3,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 
 from gambit_smp.framework import available_processors, digest
@@ -17,6 +18,7 @@ class ContinuationLedgerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         evidence = self.root / "evidence"
         evidence.mkdir()
         self.lock = evidence / "source.lock.json"

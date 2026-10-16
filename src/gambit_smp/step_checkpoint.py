@@ -6,6 +6,7 @@ runtime. Native adapters and Evidence rules must authorize any consumption.
 import hashlib
 import json
 from pathlib import Path
+from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
 
 from gambit_smp.framework import digest, relative
 
@@ -147,8 +148,7 @@ def observe_journal(root, run, target, *, historical=False):
     from gambit_smp.research_kernel import manifest_paths
     from gambit_smp.recipes import read_json, inspect_outputs
     root, run = root.resolve(strict=True), run.resolve(strict=True)
-    if not run.is_relative_to(root / ".data/fixtures"):
-        raise ValueError("same-project journal checkpoint required")
+    fixture_root(root, run)
     outer_path = run / "receipt.json"
     raw = outer_path.read_bytes()
     outer = json.loads(raw)
@@ -196,7 +196,7 @@ def observe_journal(root, run, target, *, historical=False):
         raise ValueError("journal checkpoint has no typed artifacts")
     if outer_path.read_bytes() != raw or digest(path) != reference["sha256"]:
         raise ValueError("journal producer changed during observation")
-    return {"schema": "successful-stage-journal.v1", "run": run.relative_to(root / ".data/fixtures").as_posix(),
+    return {"schema": "successful-stage-journal.v1", "run": fixture_name(root, run),
             "outerReceiptSha256": hashlib.sha256(raw).hexdigest(), "engineId": outer["engineId"],
             "step": target, "stageReferences": {
                 name: {**ref, "path": Path(ref["path"]).relative_to(root).as_posix()}
@@ -209,8 +209,7 @@ def observe(root, run, target):
     """Bind the original generator, all inputs/artifacts and successful closure."""
     from gambit_smp.research_kernel import inspect, manifest_paths
     root, run = root.resolve(strict=True), run.resolve(strict=True)
-    if not run.is_relative_to(root / ".data/fixtures"):
-        raise ValueError("same-project fixture-store checkpoint required")
+    fixture_root(root, run)
     outer_path, child_path = run / "receipt.json", run / "run/receipt.json"
     outer_raw, child_raw = outer_path.read_bytes(), child_path.read_bytes()
     outer, child = json.loads(outer_raw), json.loads(child_raw)
@@ -239,7 +238,7 @@ def observe(root, run, target):
         if not isinstance(descriptor.get("type"), str):
             raise ValueError("checkpoint output type missing")
         relative(run / "run", descriptor["path"])
-    proof = {"schema": SCHEMA, "run": run.relative_to(root / ".data/fixtures").as_posix(),
+    proof = {"schema": SCHEMA, "run": fixture_name(root, run),
              "outerReceiptSha256": hashlib.sha256(outer_raw).hexdigest(),
              "childReceiptSha256": child_sha, "engineId": outer["engineId"], "step": target,
              "ancestry": [{"id": row["id"], "observationContentId": content_id(row)} for row in closure],
@@ -254,7 +253,7 @@ def observe(root, run, target):
 def bound(root, reference, *, historical=False):
     """Reject changed or legacy references; never reconstruct missing closure."""
     if isinstance(reference, dict) and reference.get("schema") == "successful-stage-journal.v1":
-        run = relative(root / ".data/fixtures", reference["run"])
+        run = fixture_path(root, reference["run"])
         proof, outer, closure, engine = observe_journal(root, run, reference["step"], historical=historical)
         if proof != reference:
             raise ValueError("successful-stage journal reference drift")
@@ -264,7 +263,7 @@ def bound(root, reference, *, historical=False):
                 "resumptionAuthorized"}
     if not isinstance(reference, dict) or set(reference) != expected or reference["schema"] != SCHEMA:
         raise ValueError("complete typed successful-step reference required")
-    run = relative(root / ".data/fixtures", reference["run"])
+    run = fixture_path(root, reference["run"])
     result = observe(root, run, reference["step"])
     if result[0] != reference:
         raise ValueError("successful-step checkpoint reference drift")
@@ -280,7 +279,7 @@ def expenditures(root, checkpoint, records, *, historical_only=False):
     for record in records:
         if not isinstance(record, dict) or set(record) != {"run", "sha256"}:
             raise ValueError("typed expenditure record required")
-        path = relative(root / ".data/fixtures", record["run"]) / "receipt.json"
+        path = fixture_path(root, record["run"]) / "receipt.json"
         raw = path.read_bytes()
         sha = hashlib.sha256(raw).hexdigest()
         if sha != record["sha256"] or sha in by_sha:
@@ -433,13 +432,13 @@ def import_seed(args, ctx):
         raise ValueError("in-place checkpoint source lock differs from its producer")
     if tree_identity(source) != expected_source:
         raise ValueError("consumer locked source differs from checkpoint source")
-    run = relative(ctx.root / ".data/fixtures", proof["run"])
+    run = fixture_path(ctx.root, proof["run"])
     stage_inputs = ([relative(ctx.root, row["path"]) for row in proof["stageReferences"].values()]
                     + [run / "run-header.json"] if proof.get("schema") == "successful-stage-journal.v1"
                     else [run / "run/receipt.json"])
     ctx.bind([reference_path, run / "receipt.json", *stage_inputs,
               source_path(ctx.root, args["buildProfile"]),
-              *[relative(ctx.root / ".data/fixtures", r["run"]) / "receipt.json"
+              *[fixture_path(ctx.root, r["run"]) / "receipt.json"
                 for r in reference.get("expenditures", [])],
               *([relative(ctx.root, reference["ledger"]["path"])] if "ledger" in reference else [])])
     from gambit_smp.recipes import artifact_path

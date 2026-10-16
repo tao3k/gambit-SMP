@@ -20,7 +20,8 @@ def main():
     parser.add_argument("--runtime", type=Path, required=True)
     parser.add_argument("--toolchain-receipt", type=Path, required=True)
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--timeout", type=float, required=True)
     parser.add_argument("selection")
     args = parser.parse_args()

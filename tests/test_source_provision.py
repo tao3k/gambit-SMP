@@ -82,6 +82,7 @@ class SourceProvisionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root, record, manifest = self.fixture(directory)
             target = root / ".data/source.lock.json"
+            target.parent.mkdir(exist_ok=True)
             target.write_bytes((root / record["sourceLock"]).read_bytes())
             (root / "alias.json").symlink_to(target)
             record["sourceLock"] = "alias.json"

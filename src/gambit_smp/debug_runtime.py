@@ -152,7 +152,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gambit", type=Path, required=True)
     parser.add_argument("--toolchain-receipt", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--program", choices=("gsi", "gsc"), default="gsi")
     parser.add_argument("--capture-script", type=Path)
     parser.add_argument("--capture-existing", action="store_true",

@@ -15,6 +15,7 @@ class HistoryRecoveryTests(unittest.TestCase):
     def test_process_exit_between_append_and_analysis_preserves_pending_and_recovers(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             backend = {}
             catalog = load_component_catalog(history.RULES.parent / "components.json", entry="history",
                                               constructor="make-history", trusted=True)

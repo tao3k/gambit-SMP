@@ -3,6 +3,7 @@ from contextlib import closing
 from pathlib import Path
 import sqlite3
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +16,7 @@ class NativeHistoryTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         self.rules = self.root / "claims.ss"
         self.rules.write_text("(ascent-fragment (relation fact ((value symbol?))) "
                               "(relation claim ((value symbol?))) ((claim X) <-- (fact X)))")
@@ -53,7 +55,7 @@ class NativeHistoryTests(unittest.TestCase):
         first = self.observe(rows, inputs)
         with self.assertRaisesRegex(EngineError, "source fact budget exceeded"):
             self.observe(rows, inputs, limits=FactLimits(input=4096))
-        with closing(sqlite3.connect(self.root / ".data/reasoning/history.sqlite3")) as db:
+        with closing(sqlite3.connect(self.root / ".cache/reasoning/history.sqlite3")) as db:
             self.assertEqual(db.execute("SELECT id FROM heads WHERE scope='test'").fetchone()[0],
                              first["observation"])
             self.assertEqual(db.execute("SELECT count(*) FROM observations").fetchone()[0], 1)
@@ -74,7 +76,7 @@ class NativeHistoryTests(unittest.TestCase):
         self.assertEqual(third["previousObservation"], second["observation"])
         self.assertEqual(third["delta"]["added"], [("claims", ["new-claim"])])
         self.assertIn(("new-evidence",), third["delta"]["addedInputs"])
-        with closing(sqlite3.connect(self.root / ".data/reasoning/history.sqlite3")) as db:
+        with closing(sqlite3.connect(self.root / ".cache/reasoning/history.sqlite3")) as db:
             self.assertEqual(db.execute("SELECT count(*) FROM observations").fetchone()[0], 2)
 
     def test_repeat_within_complete_input_bound_retains_native_path(self):
@@ -92,7 +94,7 @@ class NativeHistoryTests(unittest.TestCase):
 
     def test_corrupt_observation_is_rejected(self):
         self.observe([["known-failure"]])
-        with closing(sqlite3.connect(self.root / ".data/reasoning/history.sqlite3")) as db, db:
+        with closing(sqlite3.connect(self.root / ".cache/reasoning/history.sqlite3")) as db, db:
             row = db.execute("SELECT id,body FROM observations").fetchone()
             changed = json.loads(row[1])
             changed["queries"] = {}
@@ -111,7 +113,7 @@ class NativeHistoryTests(unittest.TestCase):
         with patch('ascent.build.runtime_identity', return_value=identity):
             with self.assertRaises(FileNotFoundError):
                 self.observe([["known-failure"]])
-        self.assertFalse((self.root / ".data/reasoning/history.sqlite3").exists())
+        self.assertFalse((self.root / ".cache/reasoning/history.sqlite3").exists())
 
     def test_changed_loaded_implementation_fails_closed(self):
         with patch("gambit_smp.ascent_program._loaded_identity", {"ascent._core": "stale"}):

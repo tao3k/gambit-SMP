@@ -175,7 +175,8 @@ def main():
     parser.add_argument("--baseline", required=True)
     parser.add_argument("--delta", required=True)
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("--out", required=True, type=Path)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", required=True, type=runtime_argument)
     args = parser.parse_args()
     result = compose(ROOT, args.baseline, args.delta, args.manifest)
     args.out.mkdir(parents=True, exist_ok=False)

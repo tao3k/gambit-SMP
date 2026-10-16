@@ -46,7 +46,8 @@ def main():
     parser.add_argument("--gcc", type=Path, required=True)
     parser.add_argument("--model-receipt", type=Path, required=True,
                         help="original handoff receipt with its complete local logs")
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     args = parser.parse_args()
     source, header = args.source.resolve(strict=True), args.header.resolve(strict=True)
     audit = json.loads((ROOT / "evidence/research-audit.json").read_text())

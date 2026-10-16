@@ -301,7 +301,8 @@ def campaign(manifest, out, selected=None, jobs=None, timeout=90):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=ROOT / MANIFEST)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--step", action="append", help="filtered partial obligations, never complete preservation")
     parser.add_argument("--jobs", type=int)
     args = parser.parse_args()

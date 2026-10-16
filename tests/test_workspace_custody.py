@@ -4,6 +4,7 @@ import hashlib
 import io
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import tarfile
 import time
@@ -20,6 +21,7 @@ class WorkspaceCustodyTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         self.source = self.root / ".data/fixtures/current/source"
         self.source.mkdir(parents=True)
         (self.source / "unit.c").write_text("int x;\n")
@@ -161,7 +163,22 @@ class WorkspaceCustodyTests(unittest.TestCase):
                 context.workspace_leases.close()
         self.assertNotEqual(references[0]["path"], references[1]["path"])
         for reference in references:
+            self.assertTrue(reference["path"].startswith(".cache/research/workspace-states/"))
             self.assertEqual(digest(self.root / reference["path"]), reference["sha256"])
+        self.assertFalse((self.root / "evidence/research/workspace-states").exists())
+
+    def test_cached_state_loss_is_unknown_not_an_admitted_runtime(self):
+        out = self.source.parent
+        directory = out / "step"
+        directory.mkdir()
+        receipt = {"recipe": "cache-custody", "workspacePolicy": "in-place",
+                   "inputs": {str(self.lock): digest(self.lock)}, "steps": []}
+        context = ExecutionContext(self.root, out, directory, {}, time.monotonic() + 10, {}, receipt, {})
+        outputs = context.publish("source", "source-tree", self.source)
+        receipt["steps"].append({"id": "step", "outcome": "PASS", "outputs": outputs})
+        (self.root / outputs["source"]["stateEvidence"]["path"]).unlink()
+        self.assertEqual("UNKNOWN", inspect_outputs(out, receipt["steps"], root=self.root)["status"])
+        self.assertTrue(self.source.is_dir())
 
     def archive(self, extra=None):
         archive = self.root / "archive.tar"
@@ -239,6 +256,44 @@ class WorkspaceCustodyTests(unittest.TestCase):
         self.assertTrue(state["recordedStateBound"])
         self.assertFalse(state["currentBytesEstablished"])
         self.assertFalse(state["runtimeAdmitted"])
+
+    def test_explicit_git_archive_resolves_original_reference_without_changing_sha(self):
+        reference = self.seal()
+        identity = tree_identity(self.source)
+        original = (self.root / reference["path"]).read_bytes()
+        subprocess.run(["git", "-C", str(self.root), "add", "evidence"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Storage Test",
+                        "-c", "user.email=storage@example.invalid", "commit", "-qm", "record"],
+                       check=True, capture_output=True)
+        def git(*args):
+            return subprocess.check_output(["git", "-C", str(self.root), *args], text=True).strip()
+        revision = git("rev-parse", "HEAD")
+        index = {"schema": "git-record-archive.v1", "revision": revision, "records": {
+            reference["path"]: {"sha256": reference["sha256"],
+                                "gitBlob": git("rev-parse", revision + ":" + reference["path"])}}}
+        (self.root / "evidence/storage-history.json").write_text(json.dumps(index))
+        (self.root / reference["path"]).unlink()
+        state = checked_workspace_state(self.root, reference, identity)
+        self.assertTrue(state["recordedStateBound"])
+        self.assertFalse(state["runtimeAdmitted"])
+        cache = self.root / ".cache/history/git" / reference["sha256"] / "record.json"
+        self.assertEqual(original, cache.read_bytes())
+        cache.unlink()
+        self.assertEqual(state, checked_workspace_state(self.root, reference, identity))
+        cache.write_text("not the original bytes")
+        with self.assertRaisesRegex(ValueError, "cache changed"):
+            checked_workspace_state(self.root, reference, identity)
+
+    def test_all_migrated_repository_records_keep_pinned_git_bytes(self):
+        from gambit_smp.artifact_storage import archived_record
+        from gambit_smp.framework import ROOT
+        index = json.loads((ROOT / "evidence/storage-history.json").read_bytes())
+        self.assertEqual(54, sum(name.startswith("evidence/research/workspace-states/")
+                                 for name in index["records"]))
+        for name, row in index["records"].items():
+            with self.subTest(path=name):
+                raw = archived_record(ROOT, {"path": name, "sha256": row["sha256"]})
+                self.assertEqual(row["sha256"], hashlib.sha256(raw).hexdigest())
 
     def test_state_cannot_be_overwritten_or_rebound(self):
         identity, reference = tree_identity(self.source), self.seal()

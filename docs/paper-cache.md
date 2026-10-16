@@ -15,11 +15,11 @@ Download locked primary-source PDFs and derive a searchable Markdown cache:
 ```sh
 uv run --locked gambit-smp papers
 uv run --locked gambit-smp papers --manifest evidence/papers-audit-expansion.json
-rg -n -C 3 'forwarding|termination|contention' docs/papers .data/papers/*/paper.md
+rg -n -C 3 'forwarding|termination|contention' docs/papers .cache/papers/*/paper.md
 ```
 
 The tracked paper manifests list sources; the separate lock pins their bytes.
-New ignored `.data/papers/<id>/` entries contain `paper.pdf`, derived `paper.md`
+New ignored `.cache/papers/<id>/` entries contain `paper.pdf`, derived `paper.md`
 and a portable receipt binding their digests, sizes and extracted page count.
 Ordinary reruns verify cached bytes without network access. Identity or content
 drift fails closed; even `--refresh` must reproduce the locked PDF hash. Updating
@@ -31,7 +31,7 @@ Markdown is disposable; reviewed notes are the versioned model input. Receipts
 do not claim publication-version authenticity or a runtime proof.
 
 Poppler's `pdftotext` is required. PDFs and extracted full text are not committed
-or uploaded by CI. Removing `.data/papers/` reclaims only this reproducible cache;
+or uploaded by CI. Removing `.cache/papers/` reclaims only this reproducible cache;
 it does not remove models, counterexamples or tracked source analysis. Legacy
 v1 `paper.txt` caches remain readable only to preserve historical hash-bound
 evidence. New caches never create TXT; old receipts are not rewritten as if a

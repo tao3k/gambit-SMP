@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ class ObservationBindingsTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         (self.root / "evidence").mkdir()
         self.receipt = {"accepted": False, "fixture": "fixture.scm", "fixtureSha256": "a" * 64,
                         "identitySha256": "b" * 64,
@@ -140,7 +142,7 @@ class ObservationBindingsTests(unittest.TestCase):
         (self.root / "evidence/dsl/catalog.ss").write_text(
             "(def (make-catalog) (make-recorded-module "
             "(ascent-fragment (relation input ((value symbol?)))) '(input)))")
-        out = self.root / "retained-query"
+        out = self.root / ".cache/retained-query"
         with patch.object(index, "ROOT", self.root), \
                 patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
                 patch.object(index, "query", return_value={}), \

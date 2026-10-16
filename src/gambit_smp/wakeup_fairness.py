@@ -70,7 +70,8 @@ def audit(ir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ir", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     args = parser.parse_args()
     observation = audit(json.loads(args.ir.read_text()))
     args.out.mkdir(parents=True, exist_ok=False)

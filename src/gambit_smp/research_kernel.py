@@ -815,6 +815,11 @@ def main():
     parser.add_argument("--provider-sources", type=Path,
                         help="validated engine archive for exact provider build inputs")
     args = parser.parse_args()
+    from gambit_smp.artifact_storage import runtime_output
+    if args.seal:
+        args.seal = runtime_output(ROOT, args.seal)
+    if args.out and not args.export_producer:
+        args.out = runtime_output(ROOT, args.out)
     try:
         if args.seal:
             if args.gcc is None or args.ascent_api is None:

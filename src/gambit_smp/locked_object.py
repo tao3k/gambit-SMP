@@ -158,7 +158,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-lock", required=True)
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--target", choices=("object", "seed-core"), default="object")
     parser.add_argument("--c-opt", choices=("0", "1", "2", "3"), default="1")
     parser.add_argument("--rts-opt", choices=("0", "1", "2", "3"))

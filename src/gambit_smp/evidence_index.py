@@ -525,6 +525,9 @@ def main():
                       help="validate current available inputs; missing local context stays pending")
     parser.add_argument("--out", type=Path)
     args = parser.parse_args()
+    if args.out:
+        from gambit_smp.artifact_storage import runtime_output
+        args.out = runtime_output(ROOT, args.out)
     current = export()
     path = ROOT / "evidence/relations.json"
     serialized = json.dumps(current, indent=2) + "\n"

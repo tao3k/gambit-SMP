@@ -146,7 +146,8 @@ def main():
     parser.add_argument("--source-lock", type=Path,
                         help="versioned source authority for sealed seed identities without revision")
     parser.add_argument("--gcc", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--timeout", type=float, required=True,
                         help="whole source-bootstrap budget, not a package performance gate")
     parser.add_argument("--target", choices=("from-scratch", "core"), default="from-scratch")

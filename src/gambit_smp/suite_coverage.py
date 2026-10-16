@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.recipes import read_json
@@ -74,8 +75,7 @@ def checked_suite_coverage(run):
     from gambit_smp.research_kernel import inspect
     run = Path(run).resolve(strict=True)
     root = ROOT.resolve()
-    if not run.is_relative_to(root / ".data/fixtures"):
-        raise ValueError("current project's sealed fixture run required")
+    fixture_root(root, run)
     before = digest(run / "receipt.json")
     outer, child = read_json(run / "receipt.json"), read_json(run / "run/receipt.json")
     if (outer.get("outcome") != "PASS" or outer.get("exit") != 0
@@ -101,7 +101,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run", required=True, type=Path)
     parser.add_argument("--contract", required=True)
-    parser.add_argument("--out", required=True, type=Path)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", required=True, type=runtime_argument)
     args = parser.parse_args()
     contract_path = source_path(ROOT, args.contract)
     contract_sha = digest(contract_path)
@@ -113,8 +114,7 @@ def main():
         raise ValueError("typed suite coverage contract required")
     rules = [source_path(ROOT, path) for path in contract["rules"]]
     out = args.out.resolve()
-    if (not any(out.is_relative_to(ROOT.resolve() / prefix) for prefix in (".data", "evidence/source-results"))
-            or out.exists()):
+    if out.exists():
         raise ValueError("fresh same-project coverage output required")
     bindings = {str(path.relative_to(ROOT)): digest(path)
                 for path in [contract_path, *rules, Path(__file__).resolve()]}

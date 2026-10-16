@@ -36,7 +36,8 @@ def generated(source, case, blocked):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--timeout", type=float, default=90)
     args = parser.parse_args()
     if not 0 < args.timeout < float("inf"):

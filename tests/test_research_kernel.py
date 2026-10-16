@@ -93,6 +93,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         for name, data in {"evidence/source.lock.json": b"{}", "patches/fix.patch": b"patch",
                            "models/fixture.c": b"int main(void) { return 0; }\n",
                            "evidence/rules.ss": b"(ascent-fragment)"}.items():
@@ -188,7 +189,7 @@ class ResearchGraphTests(unittest.TestCase):
             self.assertEqual(7, cli.main(["--historical-reproduction", "source-unit"]))
 
     def test_research_run_executes_declared_recipe_without_extra_native_switch(self):
-        arguments = ["research", "--run", "declared", "--engine", "seal", "--out", "result"]
+        arguments = ["research", "--run", "declared", "--engine", "seal", "--out", ".cache/result"]
         with patch("sys.argv", arguments), \
                 patch.object(recipes, "discover", return_value={"declared": self.path}), \
                 patch.object(research_kernel, "run_sealed", return_value={"outcome": "PASS"}) as launched, \
@@ -198,7 +199,8 @@ class ResearchGraphTests(unittest.TestCase):
 
     def test_explicit_recipe_validates_its_closure_without_global_discovery(self):
         self.load()
-        arguments = ["research", "--run", "evidence/control.recipe.json", "--engine", "seal", "--out", "result"]
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        arguments = ["research", "--run", "evidence/control.recipe.json", "--engine", "seal", "--out", ".cache/result"]
         with patch("sys.argv", arguments), patch.object(research_kernel, "ROOT", self.root), \
                 patch.object(recipes, "discover", side_effect=AssertionError("unrelated graph")), \
                 patch.object(research_kernel, "run_sealed", return_value={"outcome": "PASS"}) as launched, \
@@ -207,7 +209,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(self.path.resolve(), launched.call_args.args[1])
 
     def test_research_run_still_requires_sealed_engine(self):
-        with patch("sys.argv", ["research", "--run", "declared", "--out", "result"]), \
+        with patch("sys.argv", ["research", "--run", "declared", "--out", ".cache/result"]), \
                 patch.object(recipes, "discover", return_value={"declared": self.path}), \
                 patch.object(research_kernel, "run_sealed") as launched, \
                 patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
@@ -559,6 +561,7 @@ class EngineSealTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
         self.binding = self.root / "python/ascent"
         self.binding.mkdir(parents=True)
         (self.binding / "__init__.py").write_text("unit fixture, not an executable provider")
@@ -999,6 +1002,7 @@ class ProcessObservationTests(unittest.TestCase):
         import sys
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             context = recipes.ExecutionContext(root, root, root, {}, time.monotonic() + 5, {}, {"engine": {}}, {})
             text = context.require("identity", [sys.executable, "-c",
                 "import sys; print('identity'); print('warning', file=sys.stderr)"], root, 5)

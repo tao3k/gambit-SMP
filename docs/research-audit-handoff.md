@@ -71,7 +71,7 @@ local/overflow work and reactivation before stealing. These are design inputs,
 not evidence that Gambit's implementation satisfies the same protocol.
 See [GHC parallel GC](https://simonmar.github.io/bib/papers/parallel-gc.pdf)
 and [HotSpot parallel GC](https://www.usenix.org/event/jvm01/full_papers/flood/flood.pdf).
-Use the cached PDFs/text in `.data/papers/`; no repeated download is needed.
+Use the cached PDFs/text in `.cache/papers/`; no repeated download is needed.
 
 The missing executable interface should carry:
 

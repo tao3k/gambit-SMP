@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -20,6 +21,7 @@ class StageCheckpointPipelineTests(unittest.TestCase):
     def test_journal_settlement_and_same_workspace_consumption(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
             evidence = root / "evidence"
             evidence.mkdir()
             lock = evidence / "source.lock.json"

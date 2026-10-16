@@ -9,7 +9,7 @@ import subprocess
 from gambit_smp.framework import ROOT, digest, relative
 
 MANIFEST = "evidence/runtime-source-provisioning.json"
-DEFAULT_CACHE = ".data/source-cache/gambit.git"
+DEFAULT_CACHE = ".cache/source-cache/gambit.git"
 
 
 def git(root, *args):
@@ -19,7 +19,7 @@ def git(root, *args):
 
 def input_path(root, name):
     path = relative(root, name)
-    if ".data" in path.relative_to(root.resolve()).parts or not path.is_file():
+    if any(part in {".data", ".cache"} for part in path.relative_to(root.resolve()).parts) or not path.is_file():
         raise ValueError("source lock must be a repository input, not a cache")
     return path
 
@@ -102,7 +102,8 @@ def initialize(root, manifest=MANIFEST, *, cache=None, offline=False):
     checkout = relative(root, record["submodule"])
     if checkout.exists() and (not checkout.is_dir() or any(checkout.iterdir())):
         raise ValueError("fresh unpopulated submodule required; existing checkout is never modified")
-    cache = (root / DEFAULT_CACHE if cache is None else Path(cache)).resolve()
+    from gambit_smp.artifact_storage import cache_path
+    cache = (cache_path(root, DEFAULT_CACHE.removeprefix(".cache/")) if cache is None else Path(cache)).resolve()
     if not cache.exists():
         if offline:
             raise ValueError("offline source cache missing; prepare the pinned objects before disconnecting")
@@ -141,9 +142,10 @@ def initialize(root, manifest=MANIFEST, *, cache=None, offline=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", default=MANIFEST)
-    parser.add_argument("--cache", type=Path, help="verified bare Git object cache; never a source-lock input")
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--cache", type=runtime_argument, help="verified bare Git object cache; never a source-lock input")
     parser.add_argument("--offline", action="store_true", help="reject a missing cache without network access")
-    parser.add_argument("--prepare-cache", type=Path, help="prepare a fresh portable Git object cache")
+    parser.add_argument("--prepare-cache", type=runtime_argument, help="prepare a fresh portable Git object cache")
     parser.add_argument("--from-repository", type=Path, help="transfer verified local objects instead of fetching upstream")
     args = parser.parse_args()
     try:

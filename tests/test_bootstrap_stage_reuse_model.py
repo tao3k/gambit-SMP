@@ -44,10 +44,15 @@ class BootstrapStageReuseModelTests(unittest.TestCase):
             historical_root = Path(directory).resolve()
             for name in manifest["contextInputs"]:
                 source = frozen if name == "src/gambit_smp/step_checkpoint.py" else ROOT / name
-                self.assertEqual(digest(source), manifest["contextInputs"][name])
+                if name == "src/gambit_smp/recipe_continuation.py":
+                    from gambit_smp.artifact_storage import archived_record
+                    data = archived_record(ROOT, {"path": name, "sha256": manifest["contextInputs"][name]})
+                else:
+                    self.assertEqual(digest(source), manifest["contextInputs"][name])
+                    data = source.read_bytes()
                 target = historical_root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, target)
+                target.write_bytes(data)
             for name, sha in receipt["modelSources"].items():
                 target = historical_root / "models/gambit" / Path(name).name
                 target.parent.mkdir(parents=True, exist_ok=True)

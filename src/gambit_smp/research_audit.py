@@ -267,7 +267,8 @@ def main():
     group.add_argument("--check", action="store_true")
     group.add_argument("--proposal", type=Path)
     parser.add_argument("--ascent-api", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--out", type=Path)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument)
     args = parser.parse_args()
     base = index.export()
     facts, inputs = load_audit(ROOT, base)

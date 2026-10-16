@@ -118,7 +118,7 @@ class BootstrapRuntimeTests(unittest.TestCase):
 
     def test_serializer_repair_requires_snapshot_proof_before_reading_runtime(self):
         argv = ["gambit_smp.bootstrap_runtime.py", "--runtime", "missing", "--toolchain-receipt", "missing",
-                "--gcc", "missing", "--out", "unused", "--timeout", "1", "--target", "core",
+                "--gcc", "missing", "--out", ".cache/unused", "--timeout", "1", "--target", "core",
                 "--patch", "missing", "--model-receipt", "missing", "--patch-model", "gc_table_serialization"]
         with patch("sys.argv", argv), patch("sys.stderr", new_callable=StringIO) as stderr:
             with self.assertRaises(SystemExit) as result:
@@ -128,7 +128,7 @@ class BootstrapRuntimeTests(unittest.TestCase):
 
     def test_pipe_repair_requires_companion_proof_before_reading_runtime(self):
         argv = ["gambit_smp.bootstrap_runtime.py", "--runtime", "missing", "--toolchain-receipt", "missing",
-                "--gcc", "missing", "--out", "unused", "--timeout", "1", "--target", "core",
+                "--gcc", "missing", "--out", ".cache/unused", "--timeout", "1", "--target", "core",
                 "--patch", "missing", "--model-receipt", "missing", "--patch-model", "pipe_wait"]
         with patch("sys.argv", argv), patch("sys.stderr", new_callable=StringIO) as stderr:
             with self.assertRaises(SystemExit) as result:

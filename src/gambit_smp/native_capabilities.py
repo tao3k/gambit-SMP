@@ -94,7 +94,7 @@ def validate_materialize(args, inputs):
     if "workspace" in args:
         name = args["workspace"]
         if (not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts
-                or not name.startswith(".data/fixtures/") or ".git" in Path(name).parts):
+                or not name.startswith((".cache/fixtures/", ".data/fixtures/")) or ".git" in Path(name).parts):
             raise ValueError("explicit managed fixture workspace required")
     if "cacheReceipt" in args and ("workspace" not in args or args["cacheReceipt"] not in inputs):
         raise ValueError("workspace cache requires a declared custody receipt")

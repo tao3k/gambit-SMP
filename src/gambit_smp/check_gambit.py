@@ -83,7 +83,8 @@ def reuse_model_receipt(path, case, model_directory=MODELS):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, required=True)
+    from gambit_smp.artifact_storage import runtime_argument
+    parser.add_argument("--out", type=runtime_argument, required=True)
     parser.add_argument("--case", choices=[c["id"] for c in json.loads((MODELS / "cases.json").read_text())["cases"]])
     parser.add_argument("--quint", default="quint")
     parser.add_argument("--timeout", type=float, default=90)
