@@ -206,6 +206,7 @@ class GambitCIContracts(unittest.TestCase):
         self.assertNotIn(".github/gambit/runner.py", workflow)
         self.assertIn("research --export-runtime", workflow)
         self.assertIn("research --run", workflow)
+        self.assertIn("matrix.module == 'threads' && 30", workflow)
         modules = re.search(r"module: \[(.*)\]", workflow).group(1).split(", ")
         for name in modules:
             self.recipe(name)
