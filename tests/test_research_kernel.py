@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import sys
 import subprocess
+import tarfile
 import time
 import types
 import unittest
@@ -802,6 +803,23 @@ class EngineSealTests(unittest.TestCase):
         source.write_bytes(b"independent source mutation")
         with self.assertRaisesRegex(ValueError, 'runtime resource drift'):
             research_kernel.manifest_paths(self.root / "engine")
+
+    def test_portable_seal_survives_archive_transfer_without_inode_authority(self):
+        source = self.generation()
+        manifest = self.seal(portable=True)
+        target = self.generation_target(source)
+        self.assertNotEqual(source.stat().st_ino, target.stat().st_ino)
+        self.assertEqual("copied", manifest["resourceOwnership"]["generations"][
+            target.relative_to(self.root / "engine").as_posix()]["mode"])
+        archive = self.root / "engine.tar"
+        with tarfile.open(archive, "w") as tree:
+            tree.add(self.root / "engine", arcname="engine")
+        with tempfile.TemporaryDirectory() as temporary:
+            with tarfile.open(archive) as tree:
+                tree.extractall(temporary, filter="data")
+            restored = research_kernel.manifest_paths(Path(temporary) / "engine")
+            self.assertEqual(manifest["engineId"], restored["engineId"])
+            self.assertEqual(manifest["files"], restored["files"])
 
     def test_unknown_link_io_error_is_not_silently_copied(self):
         import errno

@@ -154,6 +154,8 @@ class GambitCIContracts(unittest.TestCase):
         self.assertIn('test "$PATCHES" = success', workflow)
         self.assertIn('test "$MODULES" = success', workflow)
         self.assertEqual(2, workflow.count("gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}"))
+        self.assertEqual(2, workflow.count("gambit-engine-${{ github.run_id }}-${{ github.run_attempt }}"))
+        self.assertIn("--portable-seal", workflow)
         self.assertFalse((ROOT / ".github/gambit/runner.py").exists())
         self.assertNotIn(".github/gambit/runner.py", workflow)
         self.assertIn("research --export-runtime", workflow)

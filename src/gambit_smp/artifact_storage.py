@@ -411,7 +411,7 @@ def adopt_source_archive(workspace, archive, files, cache_files):
                 target.chmod(member.mode & 0o777)
 
 
-def transfer_generation(source, destination):
+def transfer_generation(source, destination, *, portable=False):
     """Transfer a checked immutable generation; caller seals and hashes bytes.
 
     This deliberately differs from mutable workspace transfers, which must
@@ -422,6 +422,9 @@ def transfer_generation(source, destination):
         raise ValueError("regular nonsymlink generation required")
     if destination.exists() or destination.is_symlink():
         raise FileExistsError(destination)
+    if portable:
+        shutil.copyfile(source, destination)
+        return "copied"
     try:
         os.link(source, destination, follow_symlinks=False)
         return "linked-generation"
