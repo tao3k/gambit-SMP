@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -180,6 +181,21 @@ class GambitCIContracts(unittest.TestCase):
             for path in ("evidence/dsl/**", "evidence/native-failures.json",
                          "evidence/fixtures/**/source.lock.json", "pyproject.toml", "uv.lock"):
                 self.assertIn("'" + path + "'", paths)
+
+    def test_known_failure_observations_are_committed_with_complete_archives(self):
+        from gambit_smp.native_archive import validate
+
+        failures = json.loads((ROOT / "evidence/native-failures.json").read_text())
+        observations = {row["observation"] for row in failures["failures"] if "observation" in row}
+        for name in observations:
+            with self.subTest(observation=name):
+                tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", name],
+                                         cwd=ROOT, capture_output=True)
+                self.assertEqual(0, tracked.returncode, "historical observation must be committed")
+                observed = json.loads((ROOT / name).read_text())
+                archive = observed["archive"]["path"]
+                self.assertEqual(observed["archive"]["sha256"], digest(ROOT / archive))
+                validate(ROOT, archive)
 
 
 if __name__ == "__main__":
