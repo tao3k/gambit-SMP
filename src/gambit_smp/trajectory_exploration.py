@@ -3,7 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
-from gambit_smp.framework import digest
+from gambit_smp.framework import ROOT, digest
 from gambit_smp.reasoning_history import (append_trajectory_attempt,
                                           fingerprint, read_trajectory_attempts)
 
@@ -101,7 +101,7 @@ def inspect(root, scope, snapshot, action_id, engine, *, through=None):
     packet, retained = _replay(root, scope, snapshot, engine,
                                through=through, proposed=proposed)
     catalog = load_component_catalog(
-        Path(__file__).resolve().parents[2] / "evidence/dsl/trajectory-review.components.json",
+        ROOT / "evidence/dsl/trajectory-review.components.json",
         entry="trajectory-review", constructor="make-trajectory-review", trusted=True)
     facts = {
         "comparison": [(row["earlierEvent"], row["relation"])
