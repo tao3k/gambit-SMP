@@ -10,7 +10,11 @@
     "evidence/research/execution/entry.json",
     "evidence/dsl/execution.ss",
     "evidence/native-failures.json",
-    "evidence/research/suite-review-rules.ss"
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/current-source-full-bootstrap/interpreted-intent.json",
+    "evidence/research/smp-threaded-vm-native-grid/global-cleanup-interpreted-causal-evidence.json",
+    "evidence/research/current-source-full-bootstrap/compiled-complete-intent.json",
+    "evidence/research/current-source-full-bootstrap/compiled-semantic-review.json"
   ],
   "steps": [
     {
@@ -38,10 +42,24 @@
       "budgetSeconds": 20
     },
     {
+      "id": "review-gsi",
+      "capability": "gambit.review",
+      "dependsOn": ["runtime"],
+      "arguments": {
+        "runtime": {"step": "runtime", "output": "runtime"},
+        "identity": {"step": "runtime", "output": "identity"},
+        "intent": "evidence/research/current-source-full-bootstrap/interpreted-intent.json",
+        "target": "gsi",
+        "failureIds": ["018-thread-interrupt"]
+      },
+      "budgetSeconds": 15
+    },
+    {
       "id": "gsi",
       "capability": "gambit.suite",
       "dependsOn": [
-        "runtime"
+        "runtime",
+        "review-gsi"
       ],
       "arguments": {
         "runtime": {
@@ -54,6 +72,7 @@
         },
         "failures": "evidence/native-failures.json",
         "reviewRules": "evidence/research/suite-review-rules.ss",
+        "retryReview": {"step": "review-gsi", "output": "review"},
         "mode": "gsi",
         "regime": "whole-parallel",
         "selection": [
@@ -93,10 +112,24 @@
       "budgetSeconds": 300
     },
     {
+      "id": "review-gsc",
+      "capability": "gambit.review",
+      "dependsOn": ["runtime"],
+      "arguments": {
+        "runtime": {"step": "runtime", "output": "runtime"},
+        "identity": {"step": "runtime", "output": "identity"},
+        "intent": "evidence/research/current-source-full-bootstrap/compiled-complete-intent.json",
+        "target": "gsc",
+        "failureIds": ["021-thread-start-completion"]
+      },
+      "budgetSeconds": 15
+    },
+    {
       "id": "gsc",
       "capability": "gambit.suite",
       "dependsOn": [
-        "runtime"
+        "runtime",
+        "review-gsc"
       ],
       "arguments": {
         "runtime": {
@@ -109,6 +142,7 @@
         },
         "failures": "evidence/native-failures.json",
         "reviewRules": "evidence/research/suite-review-rules.ss",
+        "retryReview": {"step": "review-gsc", "output": "review"},
         "mode": "gsc",
         "regime": "whole-parallel",
         "selection": [
@@ -153,7 +187,9 @@
       "dependsOn": [
         "candidate",
         "runtime",
+        "review-gsi",
         "gsi",
+        "review-gsc",
         "gsc"
       ],
       "arguments": {

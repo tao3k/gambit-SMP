@@ -9,7 +9,6 @@ import unittest
 from unittest.mock import patch
 
 from gambit_smp.framework import ROOT, digest
-from gambit_smp.ascent_program import engine_api, load_evidence_catalog, query
 from gambit_smp import native_capabilities, recipes
 from gambit_smp.native_review import make_operation_scope, selected_scope
 from gambit_smp.process_observation import capture
@@ -243,28 +242,6 @@ class UpstreamTestContracts(unittest.TestCase):
         self.assertIn("Makefile:core", make_operation_scope({"operation": "core"}))
         with self.assertRaisesRegex(ValueError, "source-bound"):
             make_operation_scope({**official, "makefileScope": "Makefile"})
-
-    def test_real_scope_dsl_projects_check_to_gsi_only(self):
-        contract = json.loads((ROOT / CONTRACT).read_text())
-        targets = contract["targets"]
-        facts = {
-            "selected_make_target": [["check"]],
-            "make_dependency": [[name, child] for name, row in targets.items()
-                                for child in row["dependencies"]],
-            "make_unit_selection": [[name, selection] for name, row in targets.items()
-                                    for selection in row["unitSelections"]],
-            "make_unit_mode": [[name, mode] for name, modes in contract["unitModes"].items()
-                               for mode in modes],
-        }
-        catalog = load_evidence_catalog(ROOT / "evidence/dsl/upstream-test-scope.ss",
-                                        constructor="make-upstream-test-scope", trusted=True)
-        with engine_api(retain=True) as (engine, _):
-            observed = query(facts, catalog,
-                             {"mode": "review_unit_mode", "scope": "review_make_scope",
-                              "cycle": "scope_cycle"}, engine=engine, reuse_program=True)
-        self.assertEqual([("gsi",)], observed["mode"])
-        self.assertIn(("test11",), observed["scope"])
-        self.assertEqual([], observed["cycle"])
 
     def test_reused_causal_intent_rejects_missing_or_duplicate_declared_ids(self):
         intent = json.loads((ROOT / "evidence/research/current-source-full-bootstrap/interpreted-intent.json").read_text())

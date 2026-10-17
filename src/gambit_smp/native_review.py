@@ -669,14 +669,14 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
              "environment_observation", "environment_control", "resource_plan_observation", "whole_budget_interval",
              "review_original_file", "review_current_file", "compiler_probe_failure", "compiler_options_observation",
              "compiler_configuration_observation", "failure_campaign_file", "failure_campaign_closed",
-             "current_campaign_file")
+             "current_campaign_file", "budget_toolchain_distinct")
     facts = {name: [] for name in names}
     facts["retry_marker"] = [[True]]
     inputs = {args["failures"]: digest(manifest), args["reviewRules"]: digest(rules)}
     selected = {str(path) for path in files}
     facts["current_campaign_file"] = [[name] for name in sorted(selected)]
     selected.update(make_operation_scope(args))
-    overlaps, failures = [], {}
+    overlaps, failures, budget_compilers = [], {}, []
     seen = set()
     for failure in declared["failures"]:
         if failure["id"] in seen:
@@ -696,12 +696,28 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         facts["selected_failure"].append([route])
         facts["failure_category"].append([route, failure.get("category", "unknown")])
         facts["failure_scope"].append([route, failure["file"]])
+        original_compiler = prior.get("compiler", prior.get("compilerVersion"))
+        if (failure.get("category") == "budget" and failure["file"] == "tests/run-unit-tests.scm"
+                and isinstance(original_compiler, str) and original_compiler.strip()):
+            budget_compilers.append((route, original_compiler.splitlines()[0]))
         recorded_files = failure_campaign_files(prior)
         if recorded_files is not None:
             facts["failure_campaign_closed"].append([route])
             facts["failure_campaign_file"].extend([route, name] for name in recorded_files)
         failures[route] = (failure, prior)
         overlaps.append(route)
+    comparisons = []
+    if budget_compilers:
+        output = ctx.require("budget-compiler-version", [ctx.tools["gcc"], "--version"], ctx.root, 10)
+        version = output.splitlines()[0] if output.splitlines() else ""
+        if "gcc" not in version.lower() or "clang" in version.lower():
+            raise ValueError("GNU GCC budget comparison requires current compiler identity")
+        for route, original in budget_compilers:
+            distinct = original != version
+            comparisons.append({"route": route, "original": original, "current": version,
+                                "comparable": not distinct})
+            if distinct:
+                facts["budget_toolchain_distinct"].append([route])
     current = campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget)
     if document is None and "retryReview" in args:
         if isinstance(args["retryReview"], dict):
@@ -752,6 +768,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
             "knownSelectedFailures": [row[0] for row in answers["selected"]],
             "knownScopeCandidates": overlaps, "disjointCampaignFailures": [row[0] for row in disjoint],
             "answers": answers, "inputs": inputs,
-            "facts": facts, "runtimeAdmitted": False, "executionAuthorized": False,
+            "facts": facts, "budgetCompilerComparisons": comparisons,
+            "runtimeAdmitted": False, "executionAuthorized": False,
             "policyProgram": "research-suite-review.v1",
             "scope": "Conditional investigation eligibility only. Host authorization and full native results remain independent."}
