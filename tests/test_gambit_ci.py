@@ -176,7 +176,6 @@ class GambitCIContracts(unittest.TestCase):
         self.assertEqual(2, len(filters))
         for paths in filters:
             for path in ("evidence/dsl/**", "evidence/native-failures.json",
-                         "evidence/ascent-library.lock.json",
                          "evidence/fixtures/**/source.lock.json", "pyproject.toml", "uv.lock"):
                 self.assertIn("'" + path + "'", paths)
 

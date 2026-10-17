@@ -20,10 +20,13 @@ repair work. This repository is not an accepted replacement runtime.
 
 ## Local Checks
 
-Evidence inference requires the ASCENT CFFI API build; there is no Python
-Datalog fallback. Point a local binding path at the selected ASCENT checkout's
-`python` project and set `PYTHONPATH` to its receipt-bound native API directory.
-See [native setup](integrations/ascent/README.md).
+Evidence inference uses the ASCENT Rust/PyO3 package pinned by `uv.lock`;
+there is no Python Datalog fallback or downstream Scheme compile workflow.
+The package RECORD and compiled source inventory are checked at load time;
+`uv` owns dependency resolution. Older CFFI
+receipts and setup sections remain historical, not the active loading contract.
+See [Agentic AI interface](docs/agentic-evidence-interface.md) for the structured
+`discover/select/observe` entry and progressive evidence/explanation access.
 `gambit-smp agent-context` validates the evidence pipeline and emits an
 identity-bound Agent handoff linking Catalog entries, receipts and open gates.
 

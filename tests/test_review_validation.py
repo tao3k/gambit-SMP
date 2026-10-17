@@ -1,18 +1,22 @@
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import sys
+import time
 import subprocess
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from gambit_smp.framework import digest
-from gambit_smp.review_validation import load, run_suite, supervise
+from gambit_smp.review_validation import asset_files, changed_inputs, load, run_suite, supervise
 
 
 class ReviewValidationTests(unittest.TestCase):
+    validation_after_domains = True
+
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -36,6 +40,49 @@ class ReviewValidationTests(unittest.TestCase):
     def result(self):
         return run_suite(self.root, unittest.defaultTestLoader.loadTestsFromModule(self.module),
                          self.inputs, self.engine, "evidence-review")
+
+    def test_ci_configuration_is_bound_and_same_length_changes_are_detected(self):
+        name = ".github/actions/framework/action.yml"
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"source-a")
+        self.inputs[name] = digest(path)
+        self.assertEqual(asset_files(self.root), [name])
+        saved, _ = self.result()
+        self.assertTrue(saved["frameworkValidated"])
+        path.write_bytes(b"source-b")
+        self.assertEqual(changed_inputs(self.root, self.inputs), [name])
+        path.unlink()
+        self.assertEqual(changed_inputs(self.root, self.inputs), [name])
+        self.assertEqual(asset_files(self.root), [])
+
+    def test_new_ci_configuration_invalidates_a_running_validation(self):
+        original = self.module.Fixture.test_pass
+
+        def add_configuration(test):
+            path = self.root / ".github/workflows/added.yml"
+            path.parent.mkdir(parents=True)
+            path.write_text("jobs: {}\n")
+            original(test)
+
+        with patch.object(self.module.Fixture, "test_pass", add_configuration):
+            saved, _ = self.result()
+        self.assertFalse(saved["frameworkValidated"])
+        self.assertEqual(saved["changedInputs"], [".github/workflows/added.yml"])
+
+    def test_lean_proofs_and_toolchain_are_validation_inputs(self):
+        names = ("models/library/lean/Proof.lean", "models/library/lean/lean-toolchain")
+        for name in names:
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("original\n")
+            self.inputs[name] = digest(path)
+        self.assertEqual(asset_files(self.root), sorted(names))
+        saved, _ = self.result()
+        self.assertTrue(saved["frameworkValidated"])
+        for name in names:
+            (self.root / name).write_text("modified\n")
+        self.assertEqual(changed_inputs(self.root, self.inputs), sorted(names))
 
     def receipt(self, result=None):
         result, output = result or self.result()
@@ -78,6 +125,45 @@ class ReviewValidationTests(unittest.TestCase):
         self.assertEqual(partial.getvalue(), "test_actual (Fixture) ... ")
         self.assertNotIn("PASS", partial.getvalue())
 
+    def test_domain_submission_precedes_local_tests_and_failure_still_denies(self):
+        self.check_domain_schedule(False)
+
+    def test_heavy_tests_wait_for_domains_without_losing_failure_or_inventory(self):
+        self.check_domain_schedule(True)
+
+    def check_domain_schedule(self, deferred):
+        events = []
+        pool = MagicMock()
+        future = MagicMock()
+        denied = {"passed": False, "outcomes": {}, "expectedTestIds": [], "lanes": []}
+        def submit(*args, **kwargs):
+            events.append("submitted")
+            self.assertLessEqual(kwargs["started"], time.monotonic())
+            return future
+        def collect():
+            events.append("collected")
+            return denied
+        def local(fixture):
+            fixture.assertEqual(events, ["submitted", "collected"] if deferred else ["submitted"])
+            events.append("local")
+        pool.submit.side_effect = submit
+        future.result.side_effect = collect
+        self.module.Fixture.test_pass = local
+        self.module.Fixture.validation_after_domains = deferred
+        suite = unittest.defaultTestLoader.loadTestsFromModule(self.module)
+        with patch("gambit_smp.validation_domains.partition", return_value=(suite, [({}, [])])), \
+                patch("gambit_smp.review_validation.ProcessPoolExecutor", return_value=pool) as executor, \
+                patch.dict(os.environ, {"GAMBIT_SMP_TEST_ENGINE": str(self.root / "engine")}):
+            result, _ = run_suite(self.root, suite, self.inputs, self.engine, "full", domain_out=self.root / "domains")
+        self.assertEqual(events, ["submitted", "collected", "local"] if deferred else ["submitted", "local", "collected"])
+        self.assertEqual(executor.call_args.kwargs["mp_context"].get_start_method(), "spawn")
+        self.assertFalse(result["frameworkValidated"])
+        self.assertEqual(result["executionDomains"], [denied])
+        self.assertTrue(result["completeTestInventory"])
+        self.assertEqual(result["validationSchedule"]["deferredTestIds"],
+                         result["expectedTestIds"] if deferred else [])
+        pool.shutdown.assert_called_once_with(wait=True, cancel_futures=True)
+
     def test_new_python_module_invalidates_an_old_test_inventory(self):
         path = self.receipt()
         (self.root / "src/new.py").write_text("new module\n")
@@ -108,7 +194,10 @@ class ReviewValidationTests(unittest.TestCase):
     def test_actual_collection_binds_executed_native_dsl_before_validation(self):
         from gambit_smp.ascent_review import collect
         from gambit_smp.framework import ROOT
-        inputs = collect(ROOT.resolve(), task_model="gc_recursive_queue_wait")[1]
+        from gambit_smp.protocol_evidence import facts as protocol_facts
+        with patch("gambit_smp.protocol_evidence.facts", wraps=protocol_facts) as observed:
+            inputs = collect(ROOT.resolve(), task_model="gc_recursive_queue_wait")[1]
+        self.assertEqual(observed.call_count, 1)
         for name in ("catalog", "review", "history"):
             path = "evidence/dsl/" + name + ".ss"
             self.assertEqual(digest(ROOT / path), inputs[path])
@@ -117,6 +206,13 @@ class ReviewValidationTests(unittest.TestCase):
                                          constructor="make-catalog", trusted=True)
         for path, sha in catalog["sourceInputs"].items():
             self.assertEqual(inputs[str(Path(path).relative_to(ROOT))], sha)
+
+    def test_review_rejects_a_catalog_without_bound_protocol_inventory(self):
+        from gambit_smp.ascent_review import collect
+        with patch("gambit_smp.ascent_review.evidence_index.export",
+                   return_value={"inputs": {}, "facts": {}}):
+            with self.assertRaisesRegex(ValueError, "complete protocol inventory"):
+                collect(self.root)
 
     def test_uncovered_or_changed_dsl_is_not_a_current_validation(self):
         dsl = self.root / "evidence/dsl/catalog.ss"

@@ -107,13 +107,12 @@ def _api_inventory():
         root, manifest = boundary
         # Cache only a projection of bytes checked by this request's full seal
         # boundary, never a filesystem-validation verdict or query result.
-        files, build, identity = _bound_api_inventory(
-            root, manifest["engineId"], digest(ROOT / "pyproject.toml"))
+        files, build, identity = _bound_api_inventory(root, manifest["engineId"])
         return dict(files), copy.deepcopy(build), identity
     import importlib
     import importlib.metadata
     from ascent.build import runtime_identity
-    from gambit_smp.ascent_runtime import LIBRARY_LOCK, inventory
+    from gambit_smp.ascent_runtime import inventory
     distribution = importlib.metadata.distribution("gerbil-ascent")
     entries = tuple(str(entry) for entry in distribution.files or ())
     metadata = tuple((name, str(distribution.locate_file(name)),
@@ -122,24 +121,41 @@ def _api_inventory():
     origins = tuple(str(Path(importlib.import_module(name).__file__).resolve(strict=True))
                     for name in ("ascent", "ascent._core"))
     files, build, identity = _installed_api_inventory(
-        inventory, runtime_identity, origins, entries, metadata, digest(ROOT / "pyproject.toml"),
-        digest(ROOT / LIBRARY_LOCK))
-    for path in set(files.values()):
-        if path.resolve(strict=True) != path:
-            raise ValueError("installed ASCENT inventory path became an alias")
+        inventory, runtime_identity, origins, entries, metadata)
+    _check_inventory_paths(files.values())
     return dict(files), copy.deepcopy(build), identity
 
 
+def _check_inventory_paths(paths):
+    """Check every path component once per boundary, without following aliases."""
+    checked = set()
+    for path in set(paths):
+        if not path.is_absolute() or '..' in path.parts:
+            raise ValueError("installed ASCENT inventory path became an alias")
+        pending = []
+        component = path
+        while component not in checked:
+            pending.append(component)
+            parent = component.parent
+            if parent == component:
+                break
+            component = parent
+        for component in reversed(pending):
+            if stat.S_ISLNK(component.lstat().st_mode):
+                raise ValueError("installed ASCENT inventory path became an alias")
+            checked.add(component)
+
+
 @lru_cache(maxsize=2)
-def _installed_api_inventory(inventory, runtime_identity, origins, entries, metadata, declaration_sha, publication_sha):
-    # RECORD/metadata and declaration bytes select a projection. The caller
+def _installed_api_inventory(inventory, runtime_identity, origins, entries, metadata):
+    # RECORD/metadata bytes select a projection. The caller
     # still hashes every projected source/resource at entry and exit.
     files, build = inventory(sealed_root=None, verify=False)
     return files, build, hashlib.sha256(json.dumps(build, sort_keys=True).encode()).hexdigest()
 
 
 @lru_cache(maxsize=2)
-def _bound_api_inventory(root, engine_id, declaration_sha):
+def _bound_api_inventory(root, engine_id):
     from gambit_smp.ascent_runtime import inventory
     files, build = inventory(sealed_root=root, verify=False)
     boundary = _verified_api.get()
@@ -227,7 +243,9 @@ def _api_entry(engine, retain):
     if _loaded_identity is not None and identities != _loaded_identity:
         if retain and _retained_owner == (os.getpid(), threading.get_ident()):
             close_retained_queries()
-        raise ValueError("ASCENT implementation changed in the loaded process")
+        changed = sorted(name for name in identities.keys() | _loaded_identity.keys()
+                         if identities.get(name) != _loaded_identity.get(name))
+        raise ValueError("ASCENT implementation changed in the loaded process: " + ", ".join(changed))
     owned = engine is None
     # Never hold a permit across the caller's body: it can wait on a sealed
     # child that needs its own initialization or source-construction permit.

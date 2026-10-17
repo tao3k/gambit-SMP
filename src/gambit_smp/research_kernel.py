@@ -309,7 +309,6 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     originals[ROOT / POLICY] = "policy/suite-review-rules.ss"
     from gambit_smp.upstream_tests import POLICIES
     originals.update({ROOT / name: sealed for name, sealed in POLICIES.items()})
-    originals[files["publication:library"]] = "ascent-publication.json"
     packaged = build.get("packageInputs", {})
     package_sources = {}
     for name, sha in packaged.items():

@@ -28,20 +28,16 @@ New protocol assertions live in QNT/native research assets and native ASCENT
 rules, not new Python adapter branches. Python owns mechanical typed transport,
 identity and process observation.
 
-### Fixed Library Wheel
+### Locked Library Dependency
 
-ASCENT is installed as a fixed Rust/PyO3 wheel, not an editable test-support
-package. `evidence/ascent-library.lock.json` binds the published Git revision,
-wheel archive SHA, extension SHA and complete source-inventory identity.
-The installer records the actual wheel URL; it must not be rewritten into a
-fictional Git installation. At publication, the trusted host checks every
-packaged source payload against its pinned Git blob (including the bridge).
-At consumption, the installed binary and full per-path source/resource SHAs
-are checked against the lock and RECORD. The inventory digest supplements,
-and does not replace, those per-path checks. This is a host-reviewed artifact
-lock, not a signed build attestation or native-correctness admission.
+`uv sync --locked` installs the Git-pinned Rust/PyO3 ASCENT package. The
+project declaration and `uv.lock` own dependency resolution; the framework
+does not reimplement it. At consumption, the installed binary and full per-path
+source/resource SHAs are checked against the package RECORD and ASCENT's
+compiled source inventory. This is source and installation consistency,
+not a signed build attestation or native-correctness admission.
 
-The seal carries an immutable copy of that lock. Downstream execution needs
+The seal carries the installed package files and their build-input inventory. Downstream execution needs
 neither the original wheel/build directory nor a Scheme SDK, compiler or VM.
 Temporary Engines close at their owning boundary; explicitly retained Engines
 are reused and closed at process exit. Historical v1 seal files remain evidence

@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import tempfile
 import sys
@@ -568,9 +569,6 @@ class EngineSealTests(unittest.TestCase):
         (self.binding / "_core.abi3.so").write_bytes(b"unit fixture extension")
         self.extension_sha = sha(b"unit fixture extension")
         self.api = self.binding
-        metadata = self.root / "python/gerbil_ascent-0.1.0.dist-info/direct_url.json"
-        metadata.parent.mkdir()
-        metadata.write_text('{"url":"unit-fixture"}')
         self.source_root = self.binding / "_sources"
         self.source_root.mkdir()
         self.source = self.source_root / "example.ss"
@@ -583,16 +581,6 @@ class EngineSealTests(unittest.TestCase):
             "sourceRoot": str(self.source_root),
             "sourceInputs": {"example.ss": sha(self.source.read_bytes())},
             "runtimeInputs": {str(resource): sha(resource.read_bytes())}}))
-        from gambit_smp.ascent_runtime import LIBRARY_LOCK
-        (self.root / 'pyproject.toml').write_text((research_kernel.ROOT / 'pyproject.toml').read_text())
-        publication = json.loads((research_kernel.ROOT / LIBRARY_LOCK).read_text())
-        inputs = json.loads(self.receipt.read_text())['sourceInputs']
-        publication.update(extensionSha256=self.extension_sha, sourceInputCount=len(inputs),
-                           sourceInputsSha256=sha(json.dumps(inputs, sort_keys=True,
-                                                            separators=(',', ':')).encode()))
-        lock = self.root / LIBRARY_LOCK
-        lock.parent.mkdir(parents=True)
-        lock.write_text(json.dumps(publication))
 
     def test_no_sdk_environment_is_required_or_recorded(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -721,14 +709,12 @@ class EngineSealTests(unittest.TestCase):
                 raise ModuleNotFoundError('no installed ASCENT provider; no fallback')
             return types.SimpleNamespace(__file__=str(self.binding / (
                 '__init__.py' if name == 'ascent' else '_core.abi3.so')))
-        entry = Path('gerbil_ascent-0.1.0.dist-info/direct_url.json')
         extension = importlib.metadata.PackagePath('ascent/_core.abi3.so')
         extension.hash = importlib.metadata.FileHash('sha256=' + base64.urlsafe_b64encode(
             bytes.fromhex(self.extension_sha)).decode().rstrip('='))
-        distribution = types.SimpleNamespace(files=[entry, extension],
+        distribution = types.SimpleNamespace(files=[extension],
             locate_file=lambda path: self.root / 'python' / path)
         with patch('ascent.build.runtime_identity', side_effect=lambda: json.loads(self.receipt.read_text())), \
-                patch.object(ascent_runtime, 'ROOT', self.root), \
                 patch.object(ascent_runtime.importlib, 'import_module', side_effect=installed), \
                 patch.object(ascent_runtime.importlib.metadata, 'distribution', return_value=distribution), \
                 patch("gambit_smp.provider_contract.inspect_provider", side_effect=probe_error,

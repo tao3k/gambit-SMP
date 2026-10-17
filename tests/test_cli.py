@@ -70,8 +70,6 @@ class CommandTests(unittest.TestCase):
 
     def test_no_legacy_python_entrypoints_remain(self):
         self.assertFalse((ROOT / "tools").exists())
-        self.assertTrue((ROOT / "uv.lock").is_file())
-        self.assertTrue((ROOT / "pyproject.toml").is_file())
 
 
 if __name__ == "__main__":
