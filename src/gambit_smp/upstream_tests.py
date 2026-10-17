@@ -16,7 +16,7 @@ def validate(args, inputs):
     from gambit_smp.recipes import fields
     from gambit_smp.native_capabilities import reference
     fields(args, ("runtime", "identity", "targets", "failures", "reviewRules"),
-           ("reviews", "environmentProbe"))
+           ("reviews", "environmentProbe", "additionalFixtures"))
     reference(args["runtime"])
     reference(args["identity"])
     if "environmentProbe" in args:
@@ -29,6 +29,19 @@ def validate(args, inputs):
             or args["reviewRules"] not in inputs or not args["reviewRules"].endswith(".ss")
             or not set(POLICIES) <= set(inputs)):
         raise ValueError("canonical failures, sealed policy and scope sources required")
+    fixtures = args.get("additionalFixtures", {})
+    if not isinstance(fixtures, dict):
+        raise ValueError("hash-bound additional fixtures required")
+    for name, item in fixtures.items():
+        if (not isinstance(name, str) or not name.endswith(".scm")
+                or Path(name).is_absolute() or ".." in Path(name).parts
+                or not isinstance(item, dict)):
+            raise ValueError("contained Scheme fixture name required")
+        fields(item, ("source", "sha256"))
+        if (item["source"] not in inputs or not item["source"].endswith(".scm")
+                or not isinstance(item["sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
+            raise ValueError("declared hash-bound Scheme test fixture required")
     if "reviews" in args:
         reviews = args["reviews"]
         if (not isinstance(reviews, dict) or not reviews or not set(reviews) <= {"gsi", "gsc"}
@@ -89,7 +102,7 @@ def scope_contract(ctx, runtime):
     return contract, makefile
 
 
-def infer_scope(ctx, contract, makefile, targets):
+def infer_scope(ctx, contract, makefile, targets, *, unit_root=None):
     """Use the same sealed Make closure for bound review and actual execution."""
     from gambit_smp.suite_primitives import selected_files
     from gambit_smp.evidence_capabilities import evaluate_observations
@@ -114,12 +127,12 @@ def infer_scope(ctx, contract, makefile, targets):
         raise ValueError("inferred review scope escaped its source contract")
     selections = sorted(row[0] for row in inferred["selection"])
     modes = [mode for mode in ("gsi", "gsc") if [mode] in inferred["mode"]]
-    files = selected_files(makefile.parent / "unit-tests", selections, inventory="unit") if selections else []
+    files = selected_files(unit_root or makefile.parent / "unit-tests", selections, inventory="unit") if selections else []
     return makefile, operations, files, modes, inferred
 
 
 def execute(args, ctx):
-    from gambit_smp.native_capabilities import clone, compiler
+    from gambit_smp.native_capabilities import additional_fixtures, clone, compiler
     from gambit_smp.native_review import preflight
     from gambit_smp.recipes import read_json
     from gambit_smp.suite_primitives import check_runtime
@@ -131,6 +144,7 @@ def execute(args, ctx):
     check_runtime(original, identity)
     compiler(ctx)
     runtime = clone(ctx, args["runtime"], "source-runtime")
+    additional_fixtures(args, ctx, runtime / "tests/unit-tests")
     contract, makefile = scope_contract(ctx, runtime)
     fixture_inputs = {path: digest(path) for path in makefile.parent.rglob("*")
                       if path.is_file() and path.suffix in {".scm", ".c", ".h", ".in"}}

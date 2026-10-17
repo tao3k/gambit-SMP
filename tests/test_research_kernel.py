@@ -436,7 +436,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(header["clockEpoch"])
         self.assertFalse(header["executionCompleted"])
         self.assertNotIn("outcome", header)
-        self.assertEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"])
+        self.assertAlmostEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"], places=9)
         self.assertEqual(header["request"], {key: value for key, value in request.items() if key != "journal"})
         self.assertFalse((out / "receipt.json").exists())
         retained = read_journal(self.root, request["journal"]["scope"])

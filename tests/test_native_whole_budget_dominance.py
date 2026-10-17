@@ -109,7 +109,7 @@ class WholeBudgetDominanceTests(unittest.TestCase):
         facts = {"retry_marker": [[True]], "known_failure": [["budget", "gsc"], ["assertion", "gsc"]],
                  "selected_failure": [["budget"], ["assertion"]],
                  "failure_category": [["budget", "budget"], ["assertion", "assertion"]],
-                 "failure_scope": [["budget", "tests/run-unit-tests.scm"],
+                 "failure_scope": [["budget", "03-number/_num.scm"],
                                    ["assertion", "06-thread/thread_start.scm"]],
                  "budget_toolchain_distinct": [["budget"], ["assertion"]]}
         with engine_api(retain=True) as (engine, _):

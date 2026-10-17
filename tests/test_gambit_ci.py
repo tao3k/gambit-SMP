@@ -175,7 +175,11 @@ class GambitCIContracts(unittest.TestCase):
         failures = recipes.read_json(ROOT / "evidence/native-failures.json")["failures"]
         for mode in ("gsi", "gsc"):
             args = by_id[mode]["arguments"]
-            files = selected_files(ROOT / "vendor/gambit/tests/unit-tests", args["selection"])
+            ctx = Mock()
+            ctx.artifact.return_value = ROOT / "vendor/gambit"
+            files = [Path(name) for name in native_capabilities.expected_suite_inventory(args, ctx)]
+            self.assertEqual(len(selected_files(ROOT / "vendor/gambit/tests/unit-tests", ["."])) + 5,
+                             len(files))
             selected = {str(path) for path in files}
             overlapping = set()
             for failure in failures:
@@ -212,6 +216,13 @@ class GambitCIContracts(unittest.TestCase):
             _, steps = self.recipe(name)
             step = next(step for step in steps if step["capability"] == "gambit.upstream-tests")
             self.assertEqual(targets, step["arguments"]["targets"])
+            if name == "upstream-check":
+                fixtures = step["arguments"]["additionalFixtures"]
+                self.assertEqual({"12-os/process_spawn.scm"}, set(fixtures))
+                fixture = fixtures["12-os/process_spawn.scm"]
+                self.assertEqual(digest(ROOT / fixture["source"]), fixture["sha256"])
+                selected = selected_files(ROOT / "vendor/gambit/tests/unit-tests", ["."])
+                self.assertNotIn(Path("12-os/process_spawn.scm"), selected)
             self.assertEqual("evidence/native-failures.json", step["arguments"]["failures"])
 
     def test_policy_and_dependency_changes_trigger_native_workflow(self):

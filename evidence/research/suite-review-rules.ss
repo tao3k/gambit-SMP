@@ -72,7 +72,7 @@
     (failure_category R (lit 'budget)) (failure_scope R (lit 'tests/run-unit-tests.scm))
     (failure_campaign_closed R) (current_campaign_file F) (not (failure_campaign_overlap R)))
   ((failure_campaign_disjoint R M) <-- (known_failure R M) (selected_failure R)
-    (failure_category R (lit 'budget)) (failure_scope R (lit 'tests/run-unit-tests.scm))
+    (failure_category R (lit 'budget))
     (budget_toolchain_distinct R))
   ((selected_known_failure R M) <-- (known_failure R M) (selected_failure R)
     (not (failure_campaign_disjoint R M)))

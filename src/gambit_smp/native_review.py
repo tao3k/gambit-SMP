@@ -697,8 +697,8 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         facts["failure_category"].append([route, failure.get("category", "unknown")])
         facts["failure_scope"].append([route, failure["file"]])
         original_compiler = prior.get("compiler", prior.get("compilerVersion"))
-        if (failure.get("category") == "budget" and failure["file"] == "tests/run-unit-tests.scm"
-                and isinstance(original_compiler, str) and original_compiler.strip()):
+        if (failure.get("category") == "budget" and isinstance(original_compiler, str)
+                and original_compiler.strip()):
             budget_compilers.append((route, original_compiler.splitlines()[0]))
         recorded_files = failure_campaign_files(prior)
         if recorded_files is not None:
@@ -732,13 +732,25 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
                 raise ValueError("bound review intent changed")
             inputs[intent["path"]] = intent["sha256"]
             ctx.bind([review_path])
+            successor = bound_document.get("sourceSuccessor")
+            if successor is not None:
+                from gambit_smp.recipes import fields, source_path
+                fields(successor, ("path", "sha256"))
+                source = source_path(ctx.root, successor["path"])
+                if digest(source) != successor["sha256"]:
+                    raise ValueError("bound source successor changed")
+                inputs[successor["path"]] = successor["sha256"]
+                ctx.bind([source])
             document, producer_binding = bound_document["document"], True
         else:
             review_path = source_path(ctx.root, args["retryReview"])
             inputs[args["retryReview"]] = digest(review_path)
             document = read_json(review_path)
     if document is not None:
-        project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs,
+        distinct = {route for route, in facts["budget_toolchain_distinct"]}
+        reviewable = {**document, "failures": [entry for entry in document["failures"]
+                                              if entry["id"] not in distinct]}
+        project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
     ctx.bind(ctx.root / name for name in inputs)
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):

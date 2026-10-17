@@ -91,6 +91,30 @@ class UpstreamTestContracts(unittest.TestCase):
                                                 "gsc": {"step": "another-review"}}}, inputs)
         validate({**self.args, "reviews": {"gsi": {"step": "review-gsi", "output": "review"}}}, inputs)
 
+    def test_official_make_runs_hash_bound_additional_fixture(self):
+        source = self.root / "models/process_spawn.scm"
+        source.parent.mkdir()
+        source.write_text("(display \"fixture\")\n")
+        fixture = {"12-os/process_spawn.scm": {"source": "models/process_spawn.scm",
+                    "sha256": digest(source)}}
+        args = {**self.args, "additionalFixtures": fixture}
+        inputs = [args["failures"], args["reviewRules"], *POLICIES, "models/process_spawn.scm"]
+        validate(args, inputs)
+        self.makefile("test1:\n\t@test -f unit-tests/12-os/process_spawn.scm\n"
+                      "test5:\n\t@test -f unit-tests/12-os/process_spawn.scm\n")
+        ctx = Context(self.root)
+        execute(args, ctx)
+        self.assertEqual(source.read_bytes(),
+                         (self.root / "runtime/tests/unit-tests/12-os/process_spawn.scm").read_bytes())
+        self.assertEqual("PASS", self.observations(ctx)["outcome"])
+        with self.assertRaisesRegex(ValueError, "cannot replace upstream"):
+            native_capabilities.additional_fixtures(args, ctx, self.root / "runtime/tests/unit-tests")
+        source.write_text("drift\n")
+        with self.assertRaisesRegex(ValueError, "drift"):
+            native_capabilities.additional_fixtures(args, ctx, self.root / "other-unit-tests")
+        with self.assertRaises(ValueError):
+            validate({**args, "additionalFixtures": {"../escape.scm": next(iter(fixture.values()))}}, inputs)
+
     def test_multiple_targets_use_one_real_make_and_one_scoped_review_per_mode(self):
         self.makefile("test1:\n\t@echo interpreter-transport-control\ntest5:\n\t@echo compiler-transport-control\n")
         ctx = Context(self.root)
@@ -264,7 +288,8 @@ class UpstreamTestContracts(unittest.TestCase):
         (unit / "thread_start.scm").write_text("(display 1)\n")
         (unit / "thread_stress.scm").write_text("(display 2)\n")
         ctx = Context(self.root)
-        tiny_args = {key: value for key, value in args.items() if key != "fileBudgetSeconds"}
+        tiny_args = {key: value for key, value in args.items()
+                     if key not in {"fileBudgetSeconds", "additionalFixtures"}}
         with patch.object(ctx, "artifact", return_value=source):
             self.assertEqual(["06-thread/thread_start.scm"],
                              native_capabilities.expected_suite_inventory(tiny_args, ctx))
@@ -274,8 +299,54 @@ class UpstreamTestContracts(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "file budget escaped"):
                 native_capabilities.expected_suite_inventory(
                     {**tiny_args, "fileBudgetSeconds": {"06-thread/missing.scm": 10}}, ctx)
+            with self.assertRaisesRegex(ValueError, "extend the selected inventory"):
+                native_capabilities.expected_suite_inventory(
+                    {**tiny_args, "additionalFixtures": {"06-thread/thread_start.scm": {}}}, ctx)
         with self.assertRaisesRegex(ValueError, "per-file controls"):
-            native_capabilities.validate_suite({**args, "additionalFixtures": {}}, recipe["inputs"])
+            native_capabilities.validate_suite({**args, "compilerPhaseFiles": []}, recipe["inputs"])
+
+    def test_source_successor_only_rebinds_the_reviewed_line_and_current_bytes(self):
+        line = "     ? ___FIXNEGP_NOTFALSEP(var,x) \\"
+        paths = {
+            "base": self.root / "evidence/base.json",
+            "lock": self.root / "evidence/lock.json",
+            "old": self.root / "patches/old.patch",
+            "new": self.root / "patches/new.patch",
+            "source": self.root / "candidate/include/gambit.h.in",
+        }
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        paths["old"].write_text("+" + line + "\n")
+        paths["new"].write_text("+" + line + "\n")
+        paths["source"].write_text("header\n" + line + "\n")
+        intent = {"schema": "current-producer-review-intent.v1", "failures": [
+            {"id": "known", "changes": [{"id": "repair", "kind": "source", "path": "include/gambit.h.in",
+                                            "before": "a" * 64, "after": "b" * 64}], "budget": {"pointer": "unchanged"}}]}
+        paths["base"].write_text(json.dumps(intent))
+        paths["lock"].write_text(json.dumps({"files": {"include/gambit.h.in": {
+            "candidateSha256": digest(paths["source"])}}, "patch": "patches/new.patch",
+            "patchSha256": digest(paths["new"])}))
+        successor = {"schema": "current-source-successor-review.v1",
+            "baseIntent": {"path": "evidence/base.json", "sha256": digest(paths["base"])},
+            "sourceLock": {"path": "evidence/lock.json", "sha256": digest(paths["lock"])},
+            "priorPatch": {"path": "patches/old.patch", "sha256": digest(paths["old"])},
+            "failureId": "known", "changeId": "repair", "file": "include/gambit.h.in",
+            "priorAfter": "b" * 64, "currentAfter": digest(paths["source"]), "retainedLine": line}
+        ctx = Context(self.root)
+        ctx.receipt["plannedSteps"] = [{"id": "candidate", "capability": "gambit.materialize",
+                                         "arguments": {"sourceLock": "evidence/lock.json"}}]
+        args = {"expectedSource": {"step": "candidate", "output": "source"}}
+        with patch.object(ctx, "artifact", return_value=self.root / "candidate"):
+            revised = native_capabilities.bind_source_successor(intent, successor, ctx, args, "evidence/base.json")
+            self.assertEqual("b" * 64, intent["failures"][0]["changes"][0]["after"])
+            self.assertEqual(digest(paths["source"]), revised["failures"][0]["changes"][0]["after"])
+            self.assertEqual(intent["failures"][0]["budget"], revised["failures"][0]["budget"])
+            with self.assertRaisesRegex(ValueError, "unrelated causal claims"):
+                native_capabilities.bind_source_successor(intent, {**successor, "priorAfter": "c" * 64},
+                                                          ctx, args, "evidence/base.json")
+            paths["source"].write_text("changed header\n")
+            with self.assertRaisesRegex(ValueError, "materialized candidate"):
+                native_capabilities.bind_source_successor(intent, successor, ctx, args, "evidence/base.json")
 
     def test_bound_upstream_review_uses_exact_declared_failure_slice(self):
         intent_name = "evidence/research/current-source-full-bootstrap/interpreted-intent.json"
@@ -295,3 +366,32 @@ class UpstreamTestContracts(unittest.TestCase):
         document = self.preflight.call_args.kwargs["document"]
         self.assertEqual(["018-thread-interrupt"], [row["id"] for row in document["failures"]])
         self.assertEqual("tests/makefile", self.preflight.call_args.args[1]["makefileScope"])
+
+    def test_bound_upstream_review_includes_the_official_additional_fixture(self):
+        intent_name = "evidence/research/current-source-full-bootstrap/interpreted-intent.json"
+        intent_path = self.root / intent_name
+        intent_path.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / intent_name, intent_path)
+        source = self.root / "models/process_spawn.scm"
+        source.parent.mkdir()
+        source.write_text("(display \"fixture\")\n")
+        (self.root / "runtime/tests/unit-tests/12-os").mkdir(parents=True)
+        self.makefile("test1:\n\t@true\ntest5:\n\t@true\n")
+        target_args = {**self.args, "additionalFixtures": {
+            "12-os/process_spawn.scm": {"source": "models/process_spawn.scm", "sha256": digest(source)}}}
+        ctx = Context(self.root)
+        ctx.receipt["plannedSteps"] = [{"id": "official", "capability": "gambit.upstream-tests",
+                                         "arguments": target_args, "budgetSeconds": 250}]
+        args = {"runtime": self.args["runtime"], "identity": self.args["identity"],
+                "intent": intent_name, "target": "official", "mode": "gsi",
+                "failureIds": ["018-thread-interrupt"]}
+        scope = {"scope": [["test1"], ["test5"]], "selection": [["12-os"]],
+                 "mode": [["gsi"]], "cycle": []}
+        with patch("gambit_smp.evidence_capabilities.evaluate_observations", return_value=scope), \
+             patch("gambit_smp.native_review.campaign", return_value={"mode": "gsi"}):
+            native_capabilities.bind_review(args, ctx)
+        call = self.preflight.call_args
+        self.assertEqual([Path("12-os/process_spawn.scm")], call.args[4])
+        self.assertEqual(source.read_bytes(),
+                         (call.args[5] / "12-os/process_spawn.scm").read_bytes())
+        self.assertFalse((self.root / "runtime/tests/unit-tests/12-os/process_spawn.scm").exists())

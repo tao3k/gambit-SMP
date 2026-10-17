@@ -213,7 +213,7 @@ def validate_suite(args, inputs):
         raise ValueError("exactly one explicit or source-bound suite inventory required")
     if source_bound:
         reference(args["expectedSource"])
-        if any(key in args for key in ("observationFiles", "additionalFixtures", "compilerPhaseFiles")):
+        if any(key in args for key in ("observationFiles", "compilerPhaseFiles")):
             raise ValueError("per-file controls require an explicit declared inventory")
     if "observationFiles" in args:
         from gambit_smp.suite_observations import validate
@@ -279,7 +279,7 @@ def validate_suite(args, inputs):
         budget(group["budgetSeconds"])
         grouped.update(names)
     fixtures = args.get("additionalFixtures", {})
-    if not isinstance(fixtures, dict) or not set(fixtures) <= set(args.get("expectedFiles", [])):
+    if not isinstance(fixtures, dict) or (not source_bound and not set(fixtures) <= set(args["expectedFiles"])):
         raise ValueError("additional fixtures must belong to the exact selected inventory")
     for name, item in fixtures.items():
         fields(item, ("source", "sha256"))
@@ -766,13 +766,17 @@ def object_build(args, ctx):
 
 
 def validate_review(args, inputs):
-    fields(args, ("runtime", "identity", "intent", "target"), ("environmentProbe", "mode", "failureIds"))
+    fields(args, ("runtime", "identity", "intent", "target"),
+           ("environmentProbe", "mode", "failureIds", "sourceSuccessor"))
     reference(args["runtime"])
     reference(args["identity"])
     if "environmentProbe" in args:
         reference(args["environmentProbe"])
     if args["intent"] not in inputs or not args["intent"].endswith(".json") or not isinstance(args["target"], str):
         raise ValueError("declared review intent and target step required")
+    if "sourceSuccessor" in args and (args["sourceSuccessor"] not in inputs
+                                      or not args["sourceSuccessor"].endswith(".json")):
+        raise ValueError("source successor must be a declared review input")
     if "mode" in args and args["mode"] not in {"gsi", "gsc"}:
         raise ValueError("official review requires one native mode")
     if "failureIds" in args:
@@ -792,6 +796,60 @@ def select_review_intent(intent, failure_ids):
     return {**intent, "failures": selected}
 
 
+def bind_source_successor(intent, successor, ctx, target_args, intent_path):
+    from copy import deepcopy
+    from gambit_smp.recipes import read_json, source_path
+
+    fields(successor, ("schema", "baseIntent", "sourceLock", "priorPatch", "failureId",
+                       "changeId", "file", "priorAfter", "currentAfter", "retainedLine"))
+    if successor["schema"] != "current-source-successor-review.v1":
+        raise ValueError("typed source successor required")
+    for key in ("baseIntent", "sourceLock", "priorPatch"):
+        fields(successor[key], ("path", "sha256"))
+        path = source_path(ctx.root, successor[key]["path"])
+        if digest(path) != successor[key]["sha256"]:
+            raise ValueError("source successor reference drift: " + key)
+        ctx.bind([path])
+    if successor["baseIntent"] != {"path": intent_path, "sha256": digest(ctx.root / intent_path)}:
+        raise ValueError("source successor must bind the unchanged base intent")
+    ref = target_args.get("expectedSource")
+    if ref is None:
+        raise ValueError("source successor requires a source-bound native suite")
+    producer = next((row for row in ctx.receipt["plannedSteps"] if row["id"] == ref["step"]), None)
+    if (producer is None or producer["capability"] != "gambit.materialize"
+            or producer["arguments"]["sourceLock"] != successor["sourceLock"]["path"]):
+        raise ValueError("source successor must bind the current materialized producer")
+    lock = read_json(ctx.root / successor["sourceLock"]["path"])
+    file = successor["file"]
+    after = successor["currentAfter"]
+    if (not isinstance(file, str) or not isinstance(after, str)
+            or lock.get("files", {}).get(file, {}).get("candidateSha256") != after):
+        raise ValueError("source successor must match the current source lock")
+    source = ctx.artifact(ref, "source-tree")
+    actual = relative(source, file)
+    current_patch = source_path(ctx.root, lock["patch"])
+    if digest(actual) != after or digest(current_patch) != lock["patchSha256"]:
+        raise ValueError("source successor differs from the materialized candidate")
+    line = successor["retainedLine"]
+    prior_patch = ctx.root / successor["priorPatch"]["path"]
+    if (not isinstance(line, str) or not line.strip() or "\n" in line
+            or ("+" + line) not in prior_patch.read_text()
+            or ("+" + line) not in current_patch.read_text()
+            or line not in actual.read_text()):
+        raise ValueError("source successor did not retain the reviewed repair line")
+    ctx.bind([actual, current_patch])
+    revised = deepcopy(intent)
+    rows = [row for row in revised["failures"] if row["id"] == successor["failureId"]]
+    if len(rows) != 1:
+        raise ValueError("source successor requires one selected failure")
+    changes = [change for change in rows[0]["changes"] if change["id"] == successor["changeId"]]
+    if (len(changes) != 1 or changes[0]["kind"] != "source" or changes[0]["path"] != file
+            or changes[0]["after"] != successor["priorAfter"]):
+        raise ValueError("source successor cannot alter unrelated causal claims")
+    changes[0]["after"] = after
+    return revised
+
+
 def expected_suite_inventory(args, ctx):
     if "expectedSource" not in args:
         return args["expectedFiles"]
@@ -799,6 +857,13 @@ def expected_suite_inventory(args, ctx):
     source = ctx.artifact(args["expectedSource"], "source-tree")
     files = [str(path) for path in selected_files(source / "tests/unit-tests", args["selection"],
                                                    inventory=args.get("inventory", "unit"))]
+    for name in args.get("additionalFixtures", {}):
+        path = Path(name)
+        if (name in files or not any(path.is_relative_to(Path(selection)) for selection in args["selection"])
+                or path.name.endswith("_stress.scm") != (args.get("inventory", "unit") == "stress")):
+            raise ValueError("source-bound fixture must extend the selected inventory exactly once")
+        files.append(name)
+    files.sort()
     selected = set(files)
     if any(not set(group["files"]) <= selected for group in args.get("groupBudgetSeconds", {}).values()):
         raise ValueError("group budget escaped the source-bound suite inventory")
@@ -869,16 +934,28 @@ def bind_review(args, ctx):
         raise ValueError("typed causal intent required")
     intent = select_review_intent(intent, args.get("failureIds"))
     target_args = target["arguments"]
+    successor_path = None
+    if "sourceSuccessor" in args:
+        successor_path = source_path(ctx.root, args["sourceSuccessor"])
+        ctx.bind([successor_path])
+        intent = bind_source_successor(intent, read_json(successor_path), ctx, target_args, args["intent"])
     if target["capability"] == "gambit.bootstrap":
         selection, tested_unit = [Path("makefile")], runtime
         target_args = {**target_args, "mode": "bootstrap", "regime": "build-step", "operation": "from-scratch"}
     elif target["capability"] == "gambit.upstream-tests":
         from gambit_smp.upstream_tests import infer_scope, scope_contract
         contract, makefile = scope_contract(ctx, runtime)
-        _, operations, selection, modes, _ = infer_scope(ctx, contract, makefile, target_args["targets"])
+        tested_unit = makefile.parent / "unit-tests"
+        if target_args.get("additionalFixtures"):
+            copied = ctx.directory / "test-fixtures"
+            storage = transfer_tree(tested_unit, copied)
+            ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-fixtures", **storage})
+            tested_unit = copied
+            additional_fixtures(target_args, ctx, tested_unit)
+        _, operations, selection, modes, _ = infer_scope(
+            ctx, contract, makefile, target_args["targets"], unit_root=tested_unit)
         if args["mode"] not in modes:
             raise ValueError("review mode absent from source-bound official test closure")
-        tested_unit = makefile.parent / "unit-tests"
         target_args = {**target_args, "mode": args["mode"], "regime": "upstream-make",
                        "operation": " ".join(target_args["targets"]), "operations": operations,
                        "requestedOperations": target_args["targets"], "unitModes": modes,
@@ -905,6 +982,8 @@ def bind_review(args, ctx):
     output = ctx.directory / "bound-review.json"
     output.write_text(json.dumps({"schema": "bound-native-review.v1", "document": document,
         "candidateReceiptSha256": digest(identity), "intent": {"path": args["intent"], "sha256": digest(intent_path)},
+        **({"sourceSuccessor": {"path": args["sourceSuccessor"], "sha256": digest(successor_path)}}
+           if successor_path is not None else {}),
         "policyResult": result, "runtimeAdmitted": False}, indent=2) + "\n")
     return {"reviewDecision": result["decision"], "target": args["target"],
             "outputs": ctx.publish("review", "bound-native-review", output)}
