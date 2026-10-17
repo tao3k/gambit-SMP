@@ -1,8 +1,8 @@
 {
   "schema": "evidence-recipe.v2",
   "id": "ci-threads",
-  "scope": "Exact locked three-flag source-core consumption and threads observations. Independent module budget; no build resumption, native acceptance or performance admission.",
-  "budgetSeconds": 300,
+  "scope": "Exact locked three-flag source-core consumption and full GSI/GSC unit suites, including threads. Inventory derives from the same materialized source; original per-mode and group budgets remain unchanged. No build resumption or performance admission.",
+  "timeoutPolicy": {"mode": "per-stage", "overheadSeconds": 30},
   "inputs": [
     "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
     "patches/fixtures/darwin-stack-trip-owner-limit.patch",
@@ -14,7 +14,9 @@
     "evidence/research/current-source-full-bootstrap/interpreted-intent.json",
     "evidence/research/smp-threaded-vm-native-grid/global-cleanup-interpreted-causal-evidence.json",
     "evidence/research/current-source-full-bootstrap/compiled-complete-intent.json",
-    "evidence/research/current-source-full-bootstrap/compiled-semantic-review.json"
+    "evidence/research/current-source-full-bootstrap/compiled-semantic-review.json",
+    "models/gambit/native/host_environment_probe.scm",
+    "evidence/research/smp-threaded-vm-native-grid/environment-causal-evidence.json"
   ],
   "steps": [
     {
@@ -42,15 +44,28 @@
       "budgetSeconds": 20
     },
     {
+      "id": "environment-probe",
+      "capability": "gambit.probe",
+      "dependsOn": ["runtime"],
+      "arguments": {
+        "runtime": {"step": "runtime", "output": "runtime"},
+        "identity": {"step": "runtime", "output": "identity"},
+        "program": "models/gambit/native/host_environment_probe.scm",
+        "operations": ["udp-open", "process-pipe-sort", "user-info"]
+      },
+      "budgetSeconds": 10
+    },
+    {
       "id": "review-gsi",
       "capability": "gambit.review",
-      "dependsOn": ["runtime"],
+      "dependsOn": ["candidate", "runtime", "environment-probe"],
       "arguments": {
         "runtime": {"step": "runtime", "output": "runtime"},
         "identity": {"step": "runtime", "output": "identity"},
         "intent": "evidence/research/current-source-full-bootstrap/interpreted-intent.json",
         "target": "gsi",
-        "failureIds": ["018-thread-interrupt"]
+        "failureIds": ["018-thread-interrupt", "018-write-shared", "018-table-search", "018-suite-budget", "018-udp-permission", "019-prim-port-budget", "current-host-identity-environment"],
+        "environmentProbe": {"step": "environment-probe", "output": "observation"}
       },
       "budgetSeconds": 15
     },
@@ -58,7 +73,9 @@
       "id": "gsi",
       "capability": "gambit.suite",
       "dependsOn": [
+        "candidate",
         "runtime",
+        "environment-probe",
         "review-gsi"
       ],
       "arguments": {
@@ -75,52 +92,25 @@
         "retryReview": {"step": "review-gsi", "output": "review"},
         "mode": "gsi",
         "regime": "whole-parallel",
-        "selection": [
-          "06-thread"
-        ],
-        "expectedFiles": [
-          "06-thread/current_processor.scm",
-          "06-thread/current_thread.scm",
-          "06-thread/issue_174.scm",
-          "06-thread/issue_216.scm",
-          "06-thread/make_mutex.scm",
-          "06-thread/make_thread.scm",
-          "06-thread/mutex_lock.scm",
-          "06-thread/mutex_race.scm",
-          "06-thread/mutex_race_timeout.scm",
-          "06-thread/mutex_unlock_plain.scm",
-          "06-thread/processorp.scm",
-          "06-thread/thread.scm",
-          "06-thread/thread_init.scm",
-          "06-thread/thread_interrupt.scm",
-          "06-thread/thread_join.scm",
-          "06-thread/thread_name.scm",
-          "06-thread/thread_quantum.scm",
-          "06-thread/thread_sleep.scm",
-          "06-thread/thread_specific.scm",
-          "06-thread/thread_start.scm",
-          "06-thread/thread_state.scm",
-          "06-thread/thread_terminate.scm",
-          "06-thread/thread_thread_group.scm",
-          "06-thread/thread_yield.scm",
-          "06-thread/threadp.scm"
-        ],
+        "selection": ["."],
+        "expectedSource": {"step": "candidate", "output": "source"},
         "inventory": "unit",
-        "processors": 2,
-        "jobs": 1
+        "fileBudgetSeconds": {"13-modules/prim_port.scm": 20},
+        "environmentProbe": {"step": "environment-probe", "output": "observation"}
       },
       "budgetSeconds": 300
     },
     {
       "id": "review-gsc",
       "capability": "gambit.review",
-      "dependsOn": ["runtime"],
+      "dependsOn": ["candidate", "runtime", "environment-probe"],
       "arguments": {
         "runtime": {"step": "runtime", "output": "runtime"},
         "identity": {"step": "runtime", "output": "identity"},
         "intent": "evidence/research/current-source-full-bootstrap/compiled-complete-intent.json",
         "target": "gsc",
-        "failureIds": ["021-thread-start-completion"]
+        "failureIds": ["019-fxmul-compiled", "021-thread-start-completion", "026-compiled-atomic-num-budget", "026-vector-family-budget", "023-compiled-atomic-budget", "023-vector-increment-type", "023-compiled-atomic-udp-permission", "019-compiled-parallel-budget", "021-numeric-compiler-phase-budget", "020-compiled-balanced-budget"],
+        "environmentProbe": {"step": "environment-probe", "output": "observation"}
       },
       "budgetSeconds": 15
     },
@@ -128,7 +118,9 @@
       "id": "gsc",
       "capability": "gambit.suite",
       "dependsOn": [
+        "candidate",
         "runtime",
+        "environment-probe",
         "review-gsc"
       ],
       "arguments": {
@@ -145,39 +137,27 @@
         "retryReview": {"step": "review-gsc", "output": "review"},
         "mode": "gsc",
         "regime": "whole-parallel",
-        "selection": [
-          "06-thread"
-        ],
-        "expectedFiles": [
-          "06-thread/current_processor.scm",
-          "06-thread/current_thread.scm",
-          "06-thread/issue_174.scm",
-          "06-thread/issue_216.scm",
-          "06-thread/make_mutex.scm",
-          "06-thread/make_thread.scm",
-          "06-thread/mutex_lock.scm",
-          "06-thread/mutex_race.scm",
-          "06-thread/mutex_race_timeout.scm",
-          "06-thread/mutex_unlock_plain.scm",
-          "06-thread/processorp.scm",
-          "06-thread/thread.scm",
-          "06-thread/thread_init.scm",
-          "06-thread/thread_interrupt.scm",
-          "06-thread/thread_join.scm",
-          "06-thread/thread_name.scm",
-          "06-thread/thread_quantum.scm",
-          "06-thread/thread_sleep.scm",
-          "06-thread/thread_specific.scm",
-          "06-thread/thread_start.scm",
-          "06-thread/thread_state.scm",
-          "06-thread/thread_terminate.scm",
-          "06-thread/thread_thread_group.scm",
-          "06-thread/thread_yield.scm",
-          "06-thread/threadp.scm"
-        ],
+        "selection": ["."],
+        "expectedSource": {"step": "candidate", "output": "source"},
         "inventory": "unit",
-        "processors": 2,
-        "jobs": 1
+        "fileBudgetSeconds": {
+          "01-fixnum/fxmul.scm": 20,
+          "03-number/_num.scm": 90
+        },
+        "environmentProbe": {"step": "environment-probe", "output": "observation"},
+        "groupBudgetSeconds": {
+          "thread-completion": {
+            "files": [
+              "06-thread/thread_init.scm",
+              "06-thread/thread_interrupt.scm",
+              "06-thread/thread_join.scm",
+              "06-thread/thread_start.scm",
+              "06-thread/thread_state.scm",
+              "06-thread/thread_terminate.scm"
+            ],
+            "budgetSeconds": 120
+          }
+        }
       },
       "budgetSeconds": 300
     },
@@ -187,6 +167,7 @@
       "dependsOn": [
         "candidate",
         "runtime",
+        "environment-probe",
         "review-gsi",
         "gsi",
         "review-gsc",

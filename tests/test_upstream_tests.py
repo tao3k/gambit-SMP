@@ -254,6 +254,29 @@ class UpstreamTestContracts(unittest.TestCase):
             native_capabilities.select_review_intent({**intent, "failures": [*intent["failures"], intent["failures"][0]]},
                                                      ["018-thread-interrupt"])
 
+    def test_source_bound_suite_inventory_is_exact_and_has_no_per_file_waiver(self):
+        recipe = json.loads((ROOT / "evidence/research/ci/threads.recipe.json").read_text())
+        args = next(step["arguments"] for step in recipe["steps"] if step["id"] == "gsi")
+        native_capabilities.validate_suite(args, recipe["inputs"])
+        source = self.root / "candidate"
+        unit = source / "tests/unit-tests/06-thread"
+        unit.mkdir(parents=True)
+        (unit / "thread_start.scm").write_text("(display 1)\n")
+        (unit / "thread_stress.scm").write_text("(display 2)\n")
+        ctx = Context(self.root)
+        tiny_args = {key: value for key, value in args.items() if key != "fileBudgetSeconds"}
+        with patch.object(ctx, "artifact", return_value=source):
+            self.assertEqual(["06-thread/thread_start.scm"],
+                             native_capabilities.expected_suite_inventory(tiny_args, ctx))
+            group = {"thread-completion": {"files": ["06-thread/missing.scm"], "budgetSeconds": 120}}
+            with self.assertRaisesRegex(ValueError, "group budget escaped"):
+                native_capabilities.expected_suite_inventory({**tiny_args, "groupBudgetSeconds": group}, ctx)
+            with self.assertRaisesRegex(ValueError, "file budget escaped"):
+                native_capabilities.expected_suite_inventory(
+                    {**tiny_args, "fileBudgetSeconds": {"06-thread/missing.scm": 10}}, ctx)
+        with self.assertRaisesRegex(ValueError, "per-file controls"):
+            native_capabilities.validate_suite({**args, "additionalFixtures": {}}, recipe["inputs"])
+
     def test_bound_upstream_review_uses_exact_declared_failure_slice(self):
         intent_name = "evidence/research/current-source-full-bootstrap/interpreted-intent.json"
         intent_path = self.root / intent_name

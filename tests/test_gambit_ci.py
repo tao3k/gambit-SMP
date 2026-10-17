@@ -11,10 +11,10 @@ import unittest
 from unittest.mock import Mock, patch
 
 from gambit_smp import native_capabilities, recipes
-from gambit_smp.framework import ROOT, digest, apply_untracked_patch
+from gambit_smp.framework import ROOT, digest, apply_untracked_patch, available_processors
 from gambit_smp.process_observation import capture
 from gambit_smp.source_capabilities import validate_source_lock
-from gambit_smp.suite_primitives import selected_files
+from gambit_smp.suite_primitives import capacity, selected_files
 
 DIRECTORY = ROOT / "evidence/research/ci"
 
@@ -133,20 +133,61 @@ class GambitCIContracts(unittest.TestCase):
         self.assertEqual("p2\n", result.stdout)
         self.assertEqual(0, result.exit)
 
-    def test_modes_use_existing_suite_executor_and_one_shared_deadline(self):
+    def test_modes_use_existing_suite_executor_and_independent_original_deadlines(self):
         recipe, steps = self.recipe("threads")
         modes = [step for step in steps if step["capability"] == "gambit.suite"]
-        self.assertEqual(300, recipe["budgetSeconds"])
-        self.assertNotIn("timeoutPolicy", recipe)
+        self.assertEqual({"mode": "per-stage", "overheadSeconds": 30}, recipe["timeoutPolicy"])
+        self.assertEqual(sum(step["budgetSeconds"] for step in steps) + 30, recipe["budgetSeconds"])
         self.assertEqual([300, 300], [step["budgetSeconds"] for step in modes])
         self.assertEqual(["gsi", "gsc"], [step["arguments"]["mode"] for step in modes])
         for step in modes:
             self.assertIs(recipes.CAPABILITIES[step["capability"]].executor, native_capabilities.suite)
             args = step["arguments"]
-            self.assertEqual(2, args["processors"])
-            self.assertEqual(1, args["jobs"])
+            self.assertNotIn("processors", args)
+            self.assertNotIn("jobs", args)
+            self.assertEqual({"step": "candidate", "output": "source"}, args["expectedSource"])
             selected = selected_files(ROOT / "vendor/gambit/tests/unit-tests", args["selection"])
-            self.assertEqual(sorted(map(str, selected)), sorted(args["expectedFiles"]))
+            self.assertIn("06-thread/thread_start.scm", map(str, selected))
+            self.assertGreater(len(selected), 25)
+            population, jobs = capacity(available_processors(), len(selected), True)
+            self.assertLessEqual(jobs * (population + 1), max(2, available_processors()))
+
+    def test_suite_inventory_must_bind_the_runtime_source(self):
+        _, steps = self.recipe("threads")
+        by_id = {step["id"]: step for step in steps}
+        suite = by_id["gsi"]
+        review = by_id["review-gsi"]
+        native_capabilities.graph(suite, by_id, recipes.CAPABILITIES)
+        native_capabilities.graph(review, by_id, recipes.CAPABILITIES)
+        forged = {**suite, "arguments": {**suite["arguments"],
+                  "expectedSource": {"step": "other", "output": "source"}}}
+        with self.assertRaisesRegex(ValueError, "runtime's exact materialized candidate"):
+            native_capabilities.graph(forged, by_id, recipes.CAPABILITIES)
+        detached = {**review, "dependsOn": ["runtime", "environment-probe"]}
+        with self.assertRaisesRegex(ValueError, "source-bound inventory producer"):
+            native_capabilities.graph(detached, by_id, recipes.CAPABILITIES)
+
+    def test_full_suite_review_declares_every_overlapping_historical_route(self):
+        from gambit_smp.native_review import failure_modes, selected_scope
+
+        _, steps = self.recipe("threads")
+        by_id = {step["id"]: step for step in steps}
+        failures = recipes.read_json(ROOT / "evidence/native-failures.json")["failures"]
+        for mode in ("gsi", "gsc"):
+            args = by_id[mode]["arguments"]
+            files = selected_files(ROOT / "vendor/gambit/tests/unit-tests", args["selection"])
+            selected = {str(path) for path in files}
+            overlapping = set()
+            for failure in failures:
+                if not selected_scope(failure["file"], selected, files):
+                    continue
+                modes = failure_modes(recipes.read_json(ROOT / failure["receipt"]))
+                if not modes or mode in modes:
+                    overlapping.add(failure["id"])
+            review = by_id["review-" + mode]["arguments"]
+            self.assertEqual(overlapping, set(review["failureIds"]))
+            intent = recipes.read_json(ROOT / review["intent"])
+            self.assertLessEqual(overlapping, {row["id"] for row in intent["failures"]})
 
     def test_every_module_is_required_and_uses_one_artifact(self):
         workflow = (ROOT / ".github/workflows/gambit.yml").read_text()

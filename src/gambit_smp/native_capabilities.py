@@ -102,6 +102,21 @@ def graph(step, by_id, registry):
                     or producer["arguments"].get("target") != step["id"]
                     or producer["arguments"].get("mode") != mode):
                 raise ValueError("official test requires its matching per-mode bound review producer")
+    if step["capability"] == "gambit.suite" and "expectedSource" in step["arguments"]:
+        ref = step["arguments"]["expectedSource"]
+        reference(ref)
+        producer = by_id.get(ref["step"])
+        runtime = by_id.get(step["arguments"]["runtime"]["step"])
+        if (producer is None or producer["capability"] != "gambit.materialize"
+                or ref["output"] != "source" or ref["step"] not in step["dependsOn"]
+                or runtime is None or runtime["capability"] != "gambit.runtime-import"
+                or runtime["arguments"]["source"] != ref):
+            raise ValueError("suite inventory source must be the runtime's exact materialized candidate")
+    if step["capability"] == "gambit.review":
+        target = by_id[step["arguments"]["target"]]
+        ref = target["arguments"].get("expectedSource")
+        if ref is not None and ref["step"] not in step["dependsOn"]:
+            raise ValueError("review must depend on the same source-bound inventory producer")
 
 
 def validate_materialize(args, inputs):
@@ -190,9 +205,16 @@ def fixture_parameters(args):
 
 
 def validate_suite(args, inputs):
-    fields(args, ("runtime", "identity", "mode", "regime", "selection", "expectedFiles"),
-           ("processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles"))
+    fields(args, ("runtime", "identity", "mode", "regime", "selection"),
+           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles"))
     fixture_parameters(args)
+    source_bound = "expectedSource" in args
+    if source_bound == ("expectedFiles" in args):
+        raise ValueError("exactly one explicit or source-bound suite inventory required")
+    if source_bound:
+        reference(args["expectedSource"])
+        if any(key in args for key in ("observationFiles", "additionalFixtures", "compilerPhaseFiles")):
+            raise ValueError("per-file controls require an explicit declared inventory")
     if "observationFiles" in args:
         from gambit_smp.suite_observations import validate
         validate(args["observationFiles"], args["expectedFiles"])
@@ -211,7 +233,7 @@ def validate_suite(args, inputs):
         raise ValueError("explicit suite mode required")
     if args["regime"] not in {"whole-sequential", "whole-parallel", "atomic-coverage"}:
         raise ValueError("explicit suite budget regime required")
-    for field in ("selection", "expectedFiles"):
+    for field in ("selection",) if source_bound else ("selection", "expectedFiles"):
         value = args[field]
         if (not isinstance(value, list) or not value or any(not isinstance(name, str) or
                 Path(name).is_absolute() or ".." in Path(name).parts for name in value)
@@ -228,7 +250,7 @@ def validate_suite(args, inputs):
     elif "batchBudgetSeconds" in args:
         raise ValueError("batch budget belongs only to atomic coverage")
     caps = args.get("fileBudgetSeconds", {})
-    if not isinstance(caps, dict) or not set(caps) <= set(args["expectedFiles"]):
+    if not isinstance(caps, dict) or (not source_bound and not set(caps) <= set(args["expectedFiles"])):
         raise ValueError("file budgets must belong to the exact selected inventory")
     from gambit_smp.recipes import budget
     for cap in caps.values():
@@ -250,13 +272,14 @@ def validate_suite(args, inputs):
         fields(group, ("files", "budgetSeconds"))
         names = group["files"]
         if (not isinstance(names, list) or not names or any(not isinstance(item, str) for item in names)
-                or len(set(names)) != len(names) or not set(names) <= set(args["expectedFiles"])
+                or len(set(names)) != len(names)
+                or not source_bound and not set(names) <= set(args["expectedFiles"])
                 or grouped.intersection(names) or set(caps).intersection(names)):
             raise ValueError("group budgets require disjoint exact selected file inventories")
         budget(group["budgetSeconds"])
         grouped.update(names)
     fixtures = args.get("additionalFixtures", {})
-    if not isinstance(fixtures, dict) or not set(fixtures) <= set(args["expectedFiles"]):
+    if not isinstance(fixtures, dict) or not set(fixtures) <= set(args.get("expectedFiles", [])):
         raise ValueError("additional fixtures must belong to the exact selected inventory")
     for name, item in fixtures.items():
         fields(item, ("source", "sha256"))
@@ -769,6 +792,21 @@ def select_review_intent(intent, failure_ids):
     return {**intent, "failures": selected}
 
 
+def expected_suite_inventory(args, ctx):
+    if "expectedSource" not in args:
+        return args["expectedFiles"]
+    from gambit_smp.suite_primitives import selected_files
+    source = ctx.artifact(args["expectedSource"], "source-tree")
+    files = [str(path) for path in selected_files(source / "tests/unit-tests", args["selection"],
+                                                   inventory=args.get("inventory", "unit"))]
+    selected = set(files)
+    if any(not set(group["files"]) <= selected for group in args.get("groupBudgetSeconds", {}).values()):
+        raise ValueError("group budget escaped the source-bound suite inventory")
+    if not set(args.get("fileBudgetSeconds", {})) <= selected:
+        raise ValueError("file budget escaped the source-bound suite inventory")
+    return files
+
+
 def validate_probe(args, inputs):
     fields(args, ("runtime", "identity", "program", "operations"))
     reference(args["runtime"])
@@ -854,7 +892,7 @@ def bind_review(args, ctx):
             tested_unit = copied / "unit-tests"
             additional_fixtures(target_args, ctx, tested_unit)
         selection = selected_files(tested_unit, target_args["selection"], inventory=target_args.get("inventory", "unit"))
-        if sorted(map(str, selection)) != sorted(target_args["expectedFiles"]):
+        if sorted(map(str, selection)) != sorted(expected_suite_inventory(target_args, ctx)):
             raise ValueError("review target exact fixture inventory mismatch")
     current = campaign(ctx, target_args, runtime, identity, selection,
                        tested_unit, suite_budget=target["budgetSeconds"])
@@ -908,7 +946,7 @@ def suite(args, ctx):
     storage = transfer_tree(runtime / "tests", copied, dirs_exist_ok=True)
     additional_fixtures(args, ctx, copied / "unit-tests")
     files = selected_files(copied / "unit-tests", args["selection"], inventory=args.get("inventory", "unit"))
-    if sorted(str(path) for path in files) != sorted(args["expectedFiles"]):
+    if sorted(str(path) for path in files) != sorted(expected_suite_inventory(args, ctx)):
         raise ValueError("suite selected inventory differs from exact declared files")
     if "engine" not in ctx.receipt:
         raise ValueError("suite execution requires the sealed native-rule review lane")
