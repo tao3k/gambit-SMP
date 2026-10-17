@@ -95,7 +95,7 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             rows = list(pool.map(verify, variants))
         for variant, row, trace, log in rows:
-            self.assertTrue(row["accepted"], variant + "\n" + log[-2500:])
+            self.assertTrue(row["accepted"], variant + "\n" + str(row) + "\n" + log[-2500:])
             self.assertFalse(row["timeout"])
             if variant == "Checked":
                 self.assertEqual(row["states"]["queued"], 0)

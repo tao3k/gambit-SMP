@@ -42,7 +42,7 @@ class HistoryProtocolTests(unittest.TestCase):
             (directory / "receipt.json").write_text(json.dumps(dict(row, trace=trace, inputs=inputs,
                                                                      logSHA=digest(directory / "checker.log")), indent=2))
             rows.append(row)
-            self.assertTrue(row["accepted"], str(directory) + "\n" + log[-3000:])
+            self.assertTrue(row["accepted"], str(directory) + "\n" + str(row) + "\n" + log[-3000:])
             self.assertFalse(row["timeout"])
             if variant == "Checked":
                 self.assertEqual(row["states"]["queued"], 0)
