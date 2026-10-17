@@ -3,45 +3,9 @@ import importlib
 import importlib.metadata
 import base64
 import json
-import hashlib
 from pathlib import Path
-import tomllib
-import platform
-import sys
 
-from gambit_smp.framework import ROOT, digest
-
-
-LIBRARY_LOCK = "evidence/ascent-library.lock.json"
-
-
-def publication_artifact(publication, target=None):
-    target = target or sys.platform + '-' + platform.machine().lower()
-    if 'platform' not in publication:
-        return publication
-    if target == publication['platform']:
-        return publication
-    artifacts = publication.get('artifacts', {})
-    if target not in artifacts:
-        raise ValueError('ASCENT publication has no locked artifact for ' + target)
-    return dict(publication, **artifacts[target])
-
-
-def validate_publication(publication, declared, build, extension_sha):
-    """Compare a trusted host's wheel lock, not a fabricated VCS installation."""
-    sources = build["sourceInputs"]
-    artifact = publication_artifact(publication)
-    source_sha = hashlib.sha256(json.dumps(sources, sort_keys=True,
-                                          separators=(",", ":")).encode()).hexdigest()
-    if (publication.get("schema") != "ascent-library-wheel-lock.v1"
-            or any(publication.get(left) != declared.get(right) for left, right in (
-                ("repository", "git"), ("revision", "rev"), ("subdirectory", "subdirectory")))
-            or not declared.get("rev") or not declared.get("git")
-            or artifact.get("extensionSha256") != extension_sha
-            or publication.get("sourceInputsSha256") != source_sha
-            or publication.get("sourceInputCount") != len(sources)):
-        raise ValueError("ASCENT wheel differs from its published source/artifact lock")
-    return publication
+from gambit_smp.framework import digest
 
 
 def require_packaged_runtime(build, package_root):
@@ -56,14 +20,16 @@ def require_packaged_runtime(build, package_root):
         raise ValueError("ASCENT runtime/package inventory keys disagree")
     for name, expected in resources.items():
         path = Path(name)
-        if (not path.is_absolute() or ".." in path.parts or path.is_symlink()
-                or not path.resolve(strict=True).is_relative_to(package_root)):
+        canonical = None
+        if path.is_absolute() and ".." not in path.parts and not path.is_symlink():
+            canonical = path.resolve(strict=True)
+        if canonical is None or not canonical.is_relative_to(package_root):
             raise ValueError("ASCENT package depends on an external runtime resource: " + name
                              + "; fix Library packaging, not downstream SDK configuration")
         if packaged:
             relative = Path(mapping[name])
             if (relative.is_absolute() or ".." in relative.parts
-                    or package_root / relative != path.resolve(strict=True)
+                    or package_root / relative != canonical
                     or packaged.get(mapping[name]) != expected):
                 raise ValueError("ASCENT runtime/package resource binding mismatch: " + name)
         if digest(path) != expected:
@@ -106,22 +72,17 @@ def inventory(*, sealed_root=None, verify=True):
             if relative.is_absolute() or ".." in relative.parts:
                 raise ValueError("invalid installed ASCENT wheel resource path")
             path = Path(distribution.locate_file(entry))
-            if path.is_symlink() or not path.resolve(strict=True).is_relative_to(files["ascent"].parent.parent):
+            canonical = path.resolve(strict=True)
+            if path.is_symlink() or not canonical.is_relative_to(files["ascent"].parent.parent):
                 raise ValueError("installed ASCENT wheel resource escaped its distribution")
             expected = base64.urlsafe_b64decode(entry.hash.value + "===").hex()
             if verify and digest(path) != expected:
                 raise ValueError("installed ASCENT wheel resource differs from its RECORD")
             installed_inputs[str(entry)] = expected
-            files["package:" + str(entry)] = path.resolve(strict=True)
-    if "distribution:direct_url.json" not in files:
-        raise ValueError("ASCENT installation provenance required")
+            files["package:" + str(entry)] = canonical
     if extension_sha is None or len(extension_sha) != 64 or (
             verify and digest(files["ascent._core"]) != extension_sha):
         raise ValueError("installed ASCENT extension does not match its RECORD")
-    publication = (sealed_root / "ascent-publication.json" if sealed_root is not None else ROOT / LIBRARY_LOCK)
-    declared = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["uv"]["sources"]["gerbil-ascent"]
-    validate_publication(json.loads(publication.read_text()), declared, build, extension_sha)
-    files["publication:library"] = publication
     if sealed_root is None:
         configured = build.get("sourceRoot")
         if not configured:

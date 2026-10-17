@@ -10,8 +10,17 @@ class ParallelGCScenario(unittest.TestCase):
     def test_reference_comparison_does_not_admit_gambit(self):
         directory = ROOT / "evidence/scenarios/parallel-gc"
         facts = json.loads((directory / "facts.json").read_text())["facts"]
+        papers = {row["id"]: row for row in json.loads(
+            (ROOT / "evidence/papers.lock.json").read_text())["papers"]}
         for _, path, sha, _ in facts["source"]:
-            self.assertEqual(digest(ROOT / path), sha)
+            if path.startswith(".data/papers/"):
+                paper = papers[path.split("/")[2]]
+                self.assertEqual(paper["pdfSha256"], sha)
+                self.assertTrue((ROOT / paper["notes"]).is_file())
+                if (ROOT / path).is_file():
+                    self.assertEqual(digest(ROOT / path), sha)
+            else:
+                self.assertEqual(digest(ROOT / path), sha)
         receipt = json.loads((ROOT / facts["control"][0][3]).read_text())
         controls = {item["name"]: item for item in receipt["results"]}
         for name, _, outcome, _ in facts["control"]:

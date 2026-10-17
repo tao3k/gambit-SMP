@@ -107,9 +107,17 @@ def discover(root, context):
     actions = []
     references = {}
     views = []
-    from gambit_smp.evidence_views import load as load_view
+    from gambit_smp.evidence_views import load as load_view, registry as view_registry
     if not isinstance(context.get("views", []), list):
         raise ValueError("explicit Evidence view inventory required")
+    if context.get("views"):
+        _, registry_inputs = view_registry(root)
+        if registry_inputs:
+            registry_path = root / "evidence/views.json"
+            paths.append(registry_path)
+            retired = {row["path"] for row in json.loads(registry_path.read_text()).get("historical", [])}
+            if retired.intersection(context["views"]):
+                raise ValueError("historical Evidence view is not a current action input")
     for name in context.get("views", []):
         view, _, _, bound_view = load_view(root, name)
         if any(row["id"] == view["id"] for row in views):

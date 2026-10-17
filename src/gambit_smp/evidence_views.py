@@ -6,16 +6,32 @@ from gambit_smp.framework import digest
 
 
 def registry(root):
+    from gambit_smp.recipes import source_path
     path = Path(root) / "evidence/views.json"
     if not path.exists():
         return [], {}
     document = json.loads(path.read_text())
-    if (set(document) != {"schema", "views"} or document["schema"] != "ascent.evidence-views.v1"
+    if (set(document) not in ({"schema", "views"}, {"schema", "views", "historical"})
+            or document["schema"] != "ascent.evidence-views.v1"
             or not isinstance(document["views"], list)
             or any(type(name) is not str for name in document["views"])
             or len(set(document["views"])) != len(document["views"])):
         raise ValueError("unique explicit Evidence view registry required")
-    return document["views"], {str(path.resolve()): digest(path)}
+    inputs = {str(path.resolve()): digest(path)}
+    historical = document.get("historical", [])
+    if (not isinstance(historical, list)
+            or any(not isinstance(row, dict) or set(row) != {"path", "sha256"}
+                   or type(row["path"]) is not str or type(row["sha256"]) is not str
+                   for row in historical)
+            or len({row["path"] for row in historical}) != len(historical)
+            or set(document["views"]) & {row["path"] for row in historical}):
+        raise ValueError("historical views must be distinct from current views")
+    for row in historical:
+        source = source_path(Path(root), row["path"])
+        if digest(source) != row["sha256"]:
+            raise ValueError("historical Evidence view changed: " + row["path"])
+        inputs[str(source)] = row["sha256"]
+    return document["views"], inputs
 
 
 def load(root, name):
@@ -24,6 +40,14 @@ def load(root, name):
     from gambit_smp.ascent_program import load_component_catalog
     root = Path(root).resolve()
     path = source_path(root, name)
+    registry_path = root / "evidence/views.json"
+    if registry_path.is_file():
+        registered = json.loads(registry_path.read_text())
+        for row in registered.get("historical", []):
+            if row["path"] == name:
+                if digest(path) != row["sha256"]:
+                    raise ValueError("historical Evidence view changed: " + name)
+                raise ValueError("historical Evidence view is not current: " + name)
     document = json.loads(path.read_text())
     if (set(document) != {"schema", "id", "manifest", "entry", "constructor", "facts", "queries", "references"}
             or document["schema"] != "ascent.evidence-view.v1"):

@@ -281,7 +281,7 @@ def manifest_paths(engine):
     return manifest
 
 
-def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
+def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, portable=False):
     from gambit_smp.artifact_storage import transfer_generation, clone_file
     from gambit_smp.recipes import tool_files
     from gambit_smp.native_review import POLICY
@@ -309,7 +309,6 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     originals[ROOT / POLICY] = "policy/suite-review-rules.ss"
     from gambit_smp.upstream_tests import POLICIES
     originals.update({ROOT / name: sealed for name, sealed in POLICIES.items()})
-    originals[files["publication:library"]] = "ascent-publication.json"
     packaged = build.get("packageInputs", {})
     package_sources = {}
     for name, sha in packaged.items():
@@ -358,7 +357,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
                 raise ValueError("sealed resource role collision")
             continue
         if name.startswith(("runtime/", "python/ascent/")) and GENERATION.fullmatch(path.suffix):
-            mode = transfer_generation(path, target)
+            mode = transfer_generation(path, target, portable=portable)
             if digest(target) != before[path]:
                 raise ValueError("runtime generation changed during transfer")
             info = target.stat(follow_symlinks=False)
@@ -821,7 +820,11 @@ def main():
     parser.add_argument("--ascent-api", type=Path)
     parser.add_argument("--provider-sources", type=Path,
                         help="validated engine archive for exact provider build inputs")
+    parser.add_argument("--portable-seal", action="store_true",
+                        help="copy sealed generations for transport to another host job")
     args = parser.parse_args()
+    if args.portable_seal and not args.seal:
+        parser.error("--portable-seal requires --seal")
     from gambit_smp.artifact_storage import runtime_output
     if args.seal:
         args.seal = runtime_output(ROOT, args.seal)
@@ -832,7 +835,8 @@ def main():
             if args.gcc is None or args.ascent_api is None:
                 parser.error("--seal requires host-selected --gcc and --ascent-api")
             manifest = seal(args.seal, gcc=args.gcc, quint=args.quint, node=args.node,
-                            ascent_api=args.ascent_api, provider_sources=args.provider_sources)
+                            ascent_api=args.ascent_api, provider_sources=args.provider_sources,
+                            portable=args.portable_seal)
             print(json.dumps({"engineId": manifest["engineId"], "files": len(manifest["files"])}))
             return 0
         if args.read:

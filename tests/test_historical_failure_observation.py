@@ -12,7 +12,7 @@ from gambit_smp.native_review import historical_observation
 from gambit_smp.ascent_program import engine_api, load_catalog, query
 
 
-ARCHIVE = "evidence/source-results/fixtures/thread-completion-contract/bootstrap-second-core-history"
+ARCHIVE = "tests/fixtures/historical-bootstrap/bootstrap-second-core-history"
 ORIGINAL = "evidence/model-results/bootstrap-018-deny.json"
 PAIRS = [("status", "/status", "/status"), ("exit", "/exit", "/steps/0/exit"),
          ("timeout", "/timeout", "/steps/0/timeout"),

@@ -3,6 +3,7 @@ import unittest
 from gambit_smp import evidence_index as index
 from gambit_smp import protocol_evidence as evidence
 from gambit_smp import verify_protocols as verify
+from tests.protocol_current import assert_current_status
 
 
 class GCNotificationLockOrderTests(unittest.TestCase):
@@ -32,8 +33,8 @@ class GCNotificationLockOrderTests(unittest.TestCase):
 
     def test_registered_checked_models_do_not_grant_native_admission(self):
         facts, _ = evidence.facts(index.ROOT)
-        checked = {row[0] for row in facts["protocol_checked"]}
-        self.assertTrue({"gc_wait_count_restore", "gc_notification_lock_order"} <= checked)
+        assert_current_status(self, index.ROOT, "evidence/gc-notification-lock-order.json", facts)
+        assert_current_status(self, index.ROOT, "evidence/gc-wait-count-restore.json", facts)
         self.assertIn(("gc_notification_lock_order", "gc_wait_count_restore"),
                       facts["protocol_composes"])
         self.assertNotIn("native_observation", facts)

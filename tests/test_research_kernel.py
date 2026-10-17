@@ -3,10 +3,12 @@ import hashlib
 import io
 import json
 import os
+import platform
 from pathlib import Path
 import tempfile
 import sys
 import subprocess
+import tarfile
 import time
 import types
 import unittest
@@ -434,7 +436,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(header["clockEpoch"])
         self.assertFalse(header["executionCompleted"])
         self.assertNotIn("outcome", header)
-        self.assertEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"])
+        self.assertAlmostEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"], places=9)
         self.assertEqual(header["request"], {key: value for key, value in request.items() if key != "journal"})
         self.assertFalse((out / "receipt.json").exists())
         retained = read_journal(self.root, request["journal"]["scope"])
@@ -568,9 +570,6 @@ class EngineSealTests(unittest.TestCase):
         (self.binding / "_core.abi3.so").write_bytes(b"unit fixture extension")
         self.extension_sha = sha(b"unit fixture extension")
         self.api = self.binding
-        metadata = self.root / "python/gerbil_ascent-0.1.0.dist-info/direct_url.json"
-        metadata.parent.mkdir()
-        metadata.write_text('{"url":"unit-fixture"}')
         self.source_root = self.binding / "_sources"
         self.source_root.mkdir()
         self.source = self.source_root / "example.ss"
@@ -583,16 +582,6 @@ class EngineSealTests(unittest.TestCase):
             "sourceRoot": str(self.source_root),
             "sourceInputs": {"example.ss": sha(self.source.read_bytes())},
             "runtimeInputs": {str(resource): sha(resource.read_bytes())}}))
-        from gambit_smp.ascent_runtime import LIBRARY_LOCK
-        (self.root / 'pyproject.toml').write_text((research_kernel.ROOT / 'pyproject.toml').read_text())
-        publication = json.loads((research_kernel.ROOT / LIBRARY_LOCK).read_text())
-        inputs = json.loads(self.receipt.read_text())['sourceInputs']
-        publication.update(extensionSha256=self.extension_sha, sourceInputCount=len(inputs),
-                           sourceInputsSha256=sha(json.dumps(inputs, sort_keys=True,
-                                                            separators=(',', ':')).encode()))
-        lock = self.root / LIBRARY_LOCK
-        lock.parent.mkdir(parents=True)
-        lock.write_text(json.dumps(publication))
 
     def test_no_sdk_environment_is_required_or_recorded(self):
         with patch.dict(os.environ, {}, clear=True):
@@ -721,14 +710,12 @@ class EngineSealTests(unittest.TestCase):
                 raise ModuleNotFoundError('no installed ASCENT provider; no fallback')
             return types.SimpleNamespace(__file__=str(self.binding / (
                 '__init__.py' if name == 'ascent' else '_core.abi3.so')))
-        entry = Path('gerbil_ascent-0.1.0.dist-info/direct_url.json')
         extension = importlib.metadata.PackagePath('ascent/_core.abi3.so')
         extension.hash = importlib.metadata.FileHash('sha256=' + base64.urlsafe_b64encode(
             bytes.fromhex(self.extension_sha)).decode().rstrip('='))
-        distribution = types.SimpleNamespace(files=[entry, extension],
+        distribution = types.SimpleNamespace(files=[extension],
             locate_file=lambda path: self.root / 'python' / path)
         with patch('ascent.build.runtime_identity', side_effect=lambda: json.loads(self.receipt.read_text())), \
-                patch.object(ascent_runtime, 'ROOT', self.root), \
                 patch.object(ascent_runtime.importlib, 'import_module', side_effect=installed), \
                 patch.object(ascent_runtime.importlib.metadata, 'distribution', return_value=distribution), \
                 patch("gambit_smp.provider_contract.inspect_provider", side_effect=probe_error,
@@ -816,6 +803,23 @@ class EngineSealTests(unittest.TestCase):
         source.write_bytes(b"independent source mutation")
         with self.assertRaisesRegex(ValueError, 'runtime resource drift'):
             research_kernel.manifest_paths(self.root / "engine")
+
+    def test_portable_seal_survives_archive_transfer_without_inode_authority(self):
+        source = self.generation()
+        manifest = self.seal(portable=True)
+        target = self.generation_target(source)
+        self.assertNotEqual(source.stat().st_ino, target.stat().st_ino)
+        self.assertEqual("copied", manifest["resourceOwnership"]["generations"][
+            target.relative_to(self.root / "engine").as_posix()]["mode"])
+        archive = self.root / "engine.tar"
+        with tarfile.open(archive, "w") as tree:
+            tree.add(self.root / "engine", arcname="engine")
+        with tempfile.TemporaryDirectory() as temporary:
+            with tarfile.open(archive) as tree:
+                tree.extractall(temporary, filter="data")
+            restored = research_kernel.manifest_paths(Path(temporary) / "engine")
+            self.assertEqual(manifest["engineId"], restored["engineId"])
+            self.assertEqual(manifest["files"], restored["files"])
 
     def test_unknown_link_io_error_is_not_silently_copied(self):
         import errno

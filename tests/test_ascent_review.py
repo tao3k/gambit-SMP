@@ -213,6 +213,10 @@ class EvidenceProjectionTest(unittest.TestCase):
             log.write_text("missing completion evidence\n")
             with self.assertRaisesRegex(ValueError, "raw log identity mismatch"):
                 bindings(root, base, [], "snapshot")
+            log.unlink()
+            specs, _ = bindings(root, base, [], "snapshot")
+            self.assertTrue(specs["m:" + digest(receipt)]["rawLogEvidencePending"])
+            self.assertNotEqual(specs["m:" + digest(receipt)]["binding"], "raw-log-revalidated")
 
 
 if __name__ == "__main__":

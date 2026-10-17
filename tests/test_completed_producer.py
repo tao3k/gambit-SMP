@@ -378,6 +378,22 @@ class CompletedProducerTests(unittest.TestCase):
         lock.write_text('{"different": true}')
         self.assertIsNone(producer.reuse_materialized_source(lock, ctx))
 
+    def test_missing_historical_cache_does_not_block_fresh_materialization(self):
+        self.save("evidence/research/completed.json", self.reference())
+        shutil.rmtree(self.root / ".data")
+        ctx = self.duplicate_context()
+        self.assertIsNone(producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx))
+
+    def test_explicit_completed_producer_requires_its_runtime(self):
+        selected = "evidence/research/completed.json"
+        self.save(selected, self.reference())
+        shutil.rmtree(self.root / ".data")
+        ctx = self.duplicate_context()
+        ctx.receipt["steps"].append({"id": "reuse", "capability": "gambit.completed-runtime",
+            "arguments": {"source": {"step": "source", "output": "source"}, "producer": selected}})
+        with self.assertRaisesRegex(ValueError, "runtime is unavailable"):
+            producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx)
+
     def test_materialized_source_reference_drift_cannot_trigger_rebuild(self):
         proof = self.reference()
         proof["childReceiptSha256"] = "0" * 64

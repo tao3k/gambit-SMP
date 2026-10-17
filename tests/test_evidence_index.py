@@ -120,7 +120,8 @@ class EvidenceTests(unittest.TestCase):
                          {row[0] for row in exported["facts"]["model"]})
         self.assertIn("gc_work_closure", {row[0] for row in exported["facts"]["model"]})
         from gambit_smp.check_gambit import reuse_model_receipt
-        from gambit_smp.review_inputs import _raw_log_attestations, _checked_raw_logs
+        from gambit_smp.review_inputs import (_raw_log_attestations, _checked_raw_logs,
+                                               checked_model_input_closure)
         expected_models = {case["id"]: case for case in cases if "modelReceipt" in case}
         actual_models = exported["facts"]["model_receipt"]
         self.assertEqual(len(expected_models), len(actual_models))
@@ -140,6 +141,15 @@ class EvidenceTests(unittest.TestCase):
             self.assertTrue(all(row["sourceStable"] is True for row in rows))
             entry = attestations.get((name, case["modelReceipt"], sha))
             if entry is not None:
+                closure = checked_model_input_closure(index.ROOT, json.loads(path.read_text()))
+                self.assertTrue(all(index.digest(index.ROOT / source) == expected
+                                    for source, expected in closure.items()))
+                missing = [row["path"] for row in entry["logs"]
+                           if not (index.ROOT / row["path"]).is_file()]
+                if missing:
+                    with self.assertRaises(OSError):
+                        _checked_raw_logs(index.ROOT, name, case["modelReceipt"], sha, entry)
+                    continue
                 bound = _checked_raw_logs(index.ROOT, name, case["modelReceipt"], sha, entry)
                 self.assertTrue(all(index.digest(index.ROOT / source) == expected for source, expected in bound.items()))
         self.assertEqual(33, len(exported["facts"]["report_snapshot"]))

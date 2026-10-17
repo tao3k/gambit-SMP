@@ -1,26 +1,29 @@
 name: Install the source-bound Python framework
-description: Install packaged dependencies only; never compile a downstream Scheme Library
+description: Install the locked Python project and its ASCENT dependency
 runs:
   using: composite
   steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: tao3k/gerbil-ascent
+        ref: 3a5525376206ddea41ed91ed5a6dcd3374b3eab1
+        path: .cache/ci/ascent-sdk
+    - uses: actions/cache@v4
+      with:
+        path: ${{ runner.temp }}/gerbil-release-archive
+        key: ascent-gerbil-release-${{ runner.os }}-${{ runner.arch }}-3a5525376206ddea41ed91ed5a6dcd3374b3eab1
+    - name: Install the pinned Gerbil SDK required by ASCENT
+      shell: bash
+      env:
+        GERBIL_RELEASE_ARCHIVE_CACHE: ${{ runner.temp }}/gerbil-release-archive
+      run: bash .cache/ci/ascent-sdk/tools/ci/install-gerbil-v19-release.sh "${RUNNER_TEMP}/gerbil-sdk"
     - uses: actions/setup-python@v5
       with:
         python-version: '3.14'
     - uses: astral-sh/setup-uv@v6
       with:
         version: '0.11.3'
-    - name: Download the locked qualified Library wheel
-      uses: actions/download-artifact@v4
-      with:
-        repository: tao3k/gerbil-ascent
-        run-id: 38908711765
-        artifact-ids: 12049643102
-        github-token: ${{ github.token }}
-        path: .cache/ci/library
-        merge-multiple: true
-    - name: Install the framework without compiling its Library dependency
+        enable-cache: true
+    - name: Install locked framework dependencies
       shell: bash
-      run: uv sync --locked --python 3.14 --no-editable --no-install-package gerbil-ascent
-    - name: Install the hash-locked binary Library (no dependencies or source builds)
-      shell: bash
-      run: uv pip install --python .venv/bin/python --no-deps --no-build --require-hashes -r integrations/ascent/ci-linux.requirements.txt
+      run: uv sync --locked --python 3.14 --no-editable

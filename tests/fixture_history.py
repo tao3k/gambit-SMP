@@ -29,5 +29,10 @@ def historical_observation(test, fixture, root=ROOT):
     for name, expected in summary["inputs"].items():
         # Only the fixed, individually recovered historical inputs are remapped.
         archived = row["archives"].get(name, name)
-        test.assertEqual(expected, digest(local(archived)), name)
+        source = local(archived)
+        history = Path("evidence/source-results/fixture-history")
+        if not source.is_file() and Path(archived).is_relative_to(history):
+            source = local(str(Path("tests/fixtures/fixture-history") /
+                               Path(archived).relative_to(history)))
+        test.assertEqual(expected, digest(source), name)
     return summary

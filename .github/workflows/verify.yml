@@ -1,6 +1,7 @@
 name: Verify Evidence Framework
 on:
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
@@ -8,7 +9,7 @@ permissions:
 jobs:
   framework:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:
@@ -18,6 +19,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install the pinned Lean compiler for the proof controls
+        run: |
+          curl --fail --location --silent --show-error https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+          "$HOME/.elan/bin/elan" toolchain install "$(cat models/library/lean/lean-toolchain)"
       - name: Install fixed formal verification tools into local cache
         run: |
           mkdir -p .cache/ci/formal/apalache
@@ -26,7 +36,10 @@ jobs:
           echo '93fef2f381d30465eff906a2d6afa3358cb2c9adf6a8aad3bec0ded4f45432bb  .cache/ci/formal/apalache.tgz' | sha256sum --check
           tar -xzf .cache/ci/formal/apalache.tgz --strip-components=1 -C .cache/ci/formal/apalache
           echo '880c0b2b72354816f12e9a9755829f2907071e9a181ffea1937954c23d54739d  .cache/ci/formal/apalache/lib/apalache.jar' | sha256sum --check
+          mkdir -p .cache/ci/formal/quint-home/apalache-dist-0.62.1
+          ln -s "$GITHUB_WORKSPACE/.cache/ci/formal/apalache" .cache/ci/formal/quint-home/apalache-dist-0.62.1/apalache
           echo "$GITHUB_WORKSPACE/.cache/ci/formal/quint/node_modules/.bin" >> "$GITHUB_PATH"
+          echo "QUINT_HOME=$GITHUB_WORKSPACE/.cache/ci/formal/quint-home" >> "$GITHUB_ENV"
           echo "QUINT_TLC_JAR=$GITHUB_WORKSPACE/.cache/ci/formal/apalache/lib/apalache.jar" >> "$GITHUB_ENV"
       - name: Seal the fixed framework and installed Library
         run: uv run --no-sync gambit-smp research --seal .cache/ci/engine --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"

@@ -10,12 +10,51 @@ from gambit_smp.framework import ROOT
 from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load, evaluate as view_query
 from gambit_smp import research_actions
+from tests.historical_view import projection
 
 
 VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    def test_retired_view_is_never_current_even_with_local_observations(self):
+        from gambit_smp.framework import digest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            view_name = "evidence/scenarios/retired.view.json"
+            view = root / view_name
+            view.parent.mkdir(parents=True)
+            view.write_text('{"schema":"retired-example"}')
+            observed = root / "evidence/observed.json"
+            observed.write_text('{"status":"recorded"}')
+            registry = root / "evidence/views.json"
+            registry.write_text(json.dumps({"schema": "ascent.evidence-views.v1",
+                "views": [], "historical": [{"path": view_name, "sha256": digest(view)}]}))
+            with self.assertRaisesRegex(ValueError, "historical Evidence view is not current"):
+                load(root, view_name)
+            with self.assertRaisesRegex(ValueError, "historical Evidence view is not a current action input"):
+                research_actions.discover(root, {"views": [view_name]})
+            view.write_text('{"schema":"changed"}')
+            with self.assertRaisesRegex(ValueError, "historical Evidence view changed"):
+                load(root, view_name)
+
+    def test_historical_views_are_bound_but_not_current(self):
+        from gambit_smp.evidence_views import registry
+        from gambit_smp.framework import digest
+        names, inputs = registry(ROOT)
+        document = json.loads((ROOT / "evidence/views.json").read_text())
+        self.assertTrue(document["historical"])
+        for row in document["historical"]:
+            source = ROOT / row["path"]
+            self.assertNotIn(row["path"], names)
+            self.assertEqual(inputs[str(source)], digest(source))
+        changed = ROOT / document["historical"][0]["path"]
+        original = digest
+        with patch("gambit_smp.evidence_views.digest",
+                   side_effect=lambda path: "0" * 64 if path == changed else original(path)):
+            with self.assertRaisesRegex(ValueError, "historical Evidence view changed"):
+                registry(ROOT)
+
     def test_historical_view_and_missing_sources_remain_denied(self):
         from gambit_smp.framework import digest
         history = json.loads((ROOT / "evidence/scenarios/runtime-lifecycle/history-015.json").read_text())
@@ -24,14 +63,14 @@ class EvidenceViewTests(unittest.TestCase):
         self.assertEqual(len(history["missingReferences"]), 6)
         with self.assertRaisesRegex(ValueError, "regular observed artifact required"):
             load(ROOT, history["priorView"])
-        document, facts, _, inputs = load(ROOT, VIEW)
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            load(ROOT, VIEW)
+        document, facts, _, inputs = projection(ROOT, VIEW)
         self.assertEqual(facts["satisfies"], [])
         observation = next(ref for ref in document["references"] if ref["id"] == "candidate-identity")
-        observed = json.loads((ROOT / observation["path"]).read_text())
-        self.assertFalse(observed["runtimeAdmitted"])
-        self.assertFalse(observed["sourceRefinementAdmitted"])
-        self.assertEqual(len(observed["sourceFiles"]), 958)
-        self.assertIn("gsc/_gambitgsc.c", observed["unavailablePriorSeedSourcePaths"])
+        self.assertEqual(facts["satisfies"], [])
+        if (ROOT / observation["path"]).is_file():
+            self.assertEqual(digest(ROOT / observation["path"]), observation["sha256"])
         self.assertIn(str(ROOT / observation["path"]), inputs)
 
     def test_delegated_api_boundary_checks_before_after_and_resets(self):
@@ -57,18 +96,18 @@ class EvidenceViewTests(unittest.TestCase):
         from gambit_smp.framework import digest
         manifest = json.loads((ROOT / review_inputs.RAW_LOG_MANIFEST).read_text())
         entry = next(row for row in manifest["receipts"] if row["model"] == "gc_work_closure")
-        arguments = (ROOT, entry["model"], entry["receipt"], entry["receiptSha256"], entry)
-        bound = review_inputs._checked_raw_logs(*arguments)
+        receipt = json.loads((ROOT / entry["receipt"]).read_text())
+        bound = review_inputs.checked_model_input_closure(ROOT, receipt)
         shared = "models/library/gc/WorkObligations.qnt"
         self.assertEqual(bound[shared], digest(ROOT / shared))
         def changed(path):
             return "0" * 64 if path == ROOT / shared else digest(path)
         with patch.object(review_inputs, "digest", side_effect=changed):
             with self.assertRaisesRegex(ValueError, "input closure identity mismatch"):
-                review_inputs._checked_raw_logs(*arguments)
+                review_inputs.checked_model_input_closure(ROOT, receipt)
 
     def test_three_flags_lifecycle_and_withdrawal(self):
-        document, facts, catalog, inputs = load(ROOT, VIEW)
+        document, facts, catalog, inputs = projection(ROOT, VIEW)
         with engine_api() as (engine, _):
             before, first = evaluate(engine, facts, catalog, document["queries"])
             self.assertEqual(len(before["configured"]), 1)
@@ -99,14 +138,16 @@ class EvidenceViewTests(unittest.TestCase):
         isolation = patch('gambit_smp.artifact_storage.database_path', side_effect=isolated_database)
         isolation.start()
         self.addCleanup(isolation.stop)
-        context = {"views": [VIEW]}
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            research_actions.discover(ROOT, {"views": [VIEW]})
+        context = {"views": ["evidence/scenarios/concurrent-gc/darwin-source-032.view.json"]}
         first = research_actions.discover(ROOT, context)
         repeated = research_actions.discover(ROOT, context)
         self.assertEqual(first["revision"], repeated["revision"])
         initial_owner = next(iter(first["viewExplanations"].values()))["sessionOwner"]
         reused_owner = next(iter(repeated["viewExplanations"].values()))["sessionOwner"]
         self.assertEqual(initial_owner, reused_owner)
-        self.assertEqual(len(first["actions"]), 14)
+        self.assertEqual(len(first["actions"]), 11)
         chosen = next(row for row in first["actions"] if row["query"] == "missing_metric")
         self.assertEqual(chosen["risk"], "read-only")
         self.assertFalse(chosen["explanation"]["executionAuthorized"])

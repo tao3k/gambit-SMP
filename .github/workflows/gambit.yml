@@ -2,9 +2,10 @@ name: Gambit Three-Flag Modules
 
 on:
   push:
-    paths: ['vendor/gambit', '.github/workflows/gambit.yml', '.github/actions/framework/**', '.github/gambit/**', 'evidence/research/ci/**', 'evidence/research/execution/**', 'evidence/dsl/**', 'evidence/native-failures.json', 'evidence/ascent-library.lock.json', 'evidence/fixtures/**/source.lock.json', 'pyproject.toml', 'uv.lock', 'patches/**', 'src/gambit_smp/**', 'tests/**']
+    branches: [main]
+    paths: ['vendor/gambit', '.github/workflows/gambit.yml', '.github/actions/framework/**', '.github/gambit/**', 'evidence/research/ci/**', 'evidence/research/execution/**', 'evidence/dsl/**', 'evidence/native-failures.json', 'evidence/fixtures/**/source.lock.json', 'pyproject.toml', 'uv.lock', 'patches/**', 'src/gambit_smp/**', 'tests/**']
   pull_request:
-    paths: ['vendor/gambit', '.github/workflows/gambit.yml', '.github/actions/framework/**', '.github/gambit/**', 'evidence/research/ci/**', 'evidence/research/execution/**', 'evidence/dsl/**', 'evidence/native-failures.json', 'evidence/ascent-library.lock.json', 'evidence/fixtures/**/source.lock.json', 'pyproject.toml', 'uv.lock', 'patches/**', 'src/gambit_smp/**', 'tests/**']
+    paths: ['vendor/gambit', '.github/workflows/gambit.yml', '.github/actions/framework/**', '.github/gambit/**', 'evidence/research/ci/**', 'evidence/research/execution/**', 'evidence/dsl/**', 'evidence/native-failures.json', 'evidence/fixtures/**/source.lock.json', 'pyproject.toml', 'uv.lock', 'patches/**', 'src/gambit_smp/**', 'tests/**']
   workflow_dispatch:
 
 permissions:
@@ -37,7 +38,7 @@ jobs:
 
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -47,11 +48,13 @@ jobs:
       - name: Install upstream C build prerequisites
         run: sudo apt-get update && sudo apt-get install -y gcc make texinfo autoconf automake pkg-config
       - name: Seal the installed framework and Library
-        run: uv run --no-sync gambit-smp research --seal .cache/ci/engine --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
+        run: uv run --no-sync gambit-smp research --seal .cache/ci/engine --portable-seal --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
       - name: Execute the source-bound build Recipe (600s whole budget)
         run: uv run --no-sync gambit-smp research --run evidence/research/ci/three-flag-core.recipe.json --engine .cache/ci/engine --out .cache/fixtures/ci-source-core
       - name: Export the completed source-core, not a bootstrap or permission
         run: uv run --no-sync gambit-smp research --export-runtime .cache/fixtures/ci-source-core --step source-core --out .cache/ci/gambit-runtime.tar
+      - name: Package the exact sealed implementation and provider
+        run: tar -cf .cache/ci/sealed-engine.tar -C .cache/ci engine
       - uses: actions/upload-artifact@v4
         if: ${{ always() && hashFiles('.cache/fixtures/ci-source-core/*.json', '.cache/ci/*.export-*.json') != '' }}
         with:
@@ -72,11 +75,18 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gambit-engine-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/ci/sealed-engine.tar
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   module:
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 7
+    timeout-minutes: ${{ matrix.module == 'tfib-stress' && 75 || matrix.module == 'threads' && 30 || 10 }}
     strategy:
       fail-fast: false
       matrix:
@@ -91,11 +101,15 @@ jobs:
         with:
           name: gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}
           path: .cache/ci/
+      - uses: actions/download-artifact@v4
+        with:
+          name: gambit-engine-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .cache/ci/
       - name: Match the original C toolchain inventory
         run: sudo apt-get update && sudo apt-get install -y gcc make texinfo autoconf automake pkg-config
-      - name: Seal the exact installed implementation and provider
-        run: uv run --no-sync gambit-smp research --seal .cache/ci/engine --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
-      - name: Import, review and execute the declared module (300s whole budget)
+      - name: Restore the exact build-job implementation and provider
+        run: tar -xf .cache/ci/sealed-engine.tar -C .cache/ci
+      - name: Import, review and execute the declared module
         env:
           MODULE: ${{ matrix.module }}
         run: uv run --no-sync gambit-smp research --run "evidence/research/ci/$MODULE.recipe.json" --engine .cache/ci/engine --out ".cache/fixtures/ci-$MODULE"

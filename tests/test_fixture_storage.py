@@ -73,6 +73,18 @@ class FixtureStorageTests(unittest.TestCase):
             with source_capacity(first):
                 self.assertEqual(2, len(source_trees(root)))
 
+    def test_same_fixture_can_advance_through_multiple_source_stages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / ".cache/fixtures"
+            self.tree(root / "current/run/candidate/source")
+            self.tree(root / "current/run/configure/source")
+            with source_capacity(root / "current/run/seed/source"):
+                self.tree(root / "current/run/seed/source")
+            self.tree(root / "baseline/source")
+            with self.assertRaisesRegex(ValueError, "limit is 2"):
+                with source_capacity(root / "unrelated/source"):
+                    self.fail("third independent fixture was admitted")
+
     def test_prune_preserves_failure_evidence_and_kept_source(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / ".data/fixtures"

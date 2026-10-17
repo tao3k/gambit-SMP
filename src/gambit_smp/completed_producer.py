@@ -334,6 +334,10 @@ def reuse_materialized_source(lock_path, ctx):
                 raise ValueError("explicit completed producer does not match the source lock")
             continue
         run = fixture_path(ctx.root, proof["run"])
+        if not run.exists():
+            if explicit:
+                raise ValueError("explicit completed producer runtime is unavailable")
+            continue
         archive = proof.get("inputArchive", {}).get("path")
         actual, _, bootstrap, materialized = completed(ctx.root, run, proof["step"], input_archive=archive,
                                                       workspace_context=ctx if ctx.receipt.get("workspacePolicy") == "in-place" else None)
