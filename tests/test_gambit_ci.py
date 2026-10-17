@@ -189,13 +189,22 @@ class GambitCIContracts(unittest.TestCase):
         observations = {row["observation"] for row in failures["failures"] if "observation" in row}
         for name in observations:
             with self.subTest(observation=name):
-                tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", name],
-                                         cwd=ROOT, capture_output=True)
-                self.assertEqual(0, tracked.returncode, "historical observation must be committed")
                 observed = json.loads((ROOT / name).read_text())
                 archive = observed["archive"]["path"]
                 self.assertEqual(observed["archive"]["sha256"], digest(ROOT / archive))
-                validate(ROOT, archive)
+                inputs = validate(ROOT, archive)
+                for path in (name, *inputs):
+                    tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", path],
+                                             cwd=ROOT, capture_output=True)
+                    self.assertEqual(0, tracked.returncode, "historical evidence must be committed: " + path)
+
+    def test_tfib_stress_uses_inactivity_watchdog_not_whole_wall_budget(self):
+        raw = json.loads((DIRECTORY / "tfib-stress.recipe.json").read_text())
+        self.assertNotIn("budgetSeconds", raw)
+        self.assertEqual("progress", raw["timeoutPolicy"]["mode"])
+        caps = {step["id"]: step["budgetSeconds"] for step in raw["steps"]}
+        self.assertEqual(1800, caps["gsi"])
+        self.assertEqual(1800, caps["gsc"])
 
 
 if __name__ == "__main__":
