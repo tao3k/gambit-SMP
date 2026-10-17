@@ -9,6 +9,9 @@ import unittest
 from unittest.mock import patch
 
 from gambit_smp.framework import ROOT, digest
+from gambit_smp.ascent_program import engine_api, load_evidence_catalog, query
+from gambit_smp import native_capabilities, recipes
+from gambit_smp.native_review import make_operation_scope, selected_scope
 from gambit_smp.process_observation import capture
 from gambit_smp.upstream_tests import execute, validate, scope_contract, POLICIES, CONTRACT
 
@@ -49,13 +52,15 @@ class UpstreamTestContracts(unittest.TestCase):
             "identity": {"step": "runtime", "output": "identity"}, "targets": ["test1", "test5"],
             "failures": "evidence/native-failures.json", "reviewRules": "evidence/rules.ss"}
         self.contract = {"targets": {name: {"executable": True, "dependencies": [], "unitSelections": []}
-                                     for name in self.args["targets"]}}
+                                     for name in self.args["targets"]},
+                         "unitModes": {"test1": ["gsi"], "test5": ["gsc"]}}
         for target, replacement in (("gambit_smp.native_capabilities.clone", self.root / "runtime"),
                                     ("gambit_smp.native_capabilities.compiler", Path("/usr/bin/cc")),
                                     ("gambit_smp.suite_primitives.check_runtime", None),
                                     ("gambit_smp.native_review.preflight", {"decision": "NOT_REQUIRED"}),
                                     ("gambit_smp.evidence_capabilities.evaluate_observations",
-                                     {"scope": [["test1"], ["test5"]], "selection": [], "cycle": []})):
+                                     {"scope": [["test1"], ["test5"]], "selection": [],
+                                      "mode": [["gsi"], ["gsc"]], "cycle": []})):
             manager = patch(target, return_value=replacement)
             self.addCleanup(manager.stop)
             handle = manager.start()
@@ -83,7 +88,9 @@ class UpstreamTestContracts(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(self.args, [self.args["failures"], self.args["reviewRules"]])
         with self.assertRaises(ValueError):
-            validate({**self.args, "reviews": {"gsi": {"step": "old-review", "output": "review"}}}, inputs)
+            validate({**self.args, "reviews": {"gsi": {"step": "old-review", "output": "wrong"},
+                                                "gsc": {"step": "another-review"}}}, inputs)
+        validate({**self.args, "reviews": {"gsi": {"step": "review-gsi", "output": "review"}}}, inputs)
 
     def test_multiple_targets_use_one_real_make_and_one_scoped_review_per_mode(self):
         self.makefile("test1:\n\t@echo interpreter-transport-control\ntest5:\n\t@echo compiler-transport-control\n")
@@ -105,6 +112,43 @@ class UpstreamTestContracts(unittest.TestCase):
         execute({**self.args, "reviews": {"gsi": "evidence/gsi.json", "gsc": "evidence/gsc.json"}}, ctx)
         self.assertEqual(["evidence/gsi.json", "evidence/gsc.json"],
                          [call.args[1]["retryReview"] for call in self.preflight.call_args_list])
+
+    def test_bound_reviews_are_kept_per_mode(self):
+        self.makefile("test1:\n\t@echo one\ntest5:\n\t@echo five\n")
+        ctx = Context(self.root)
+        reviews = {mode: {"step": "review-" + mode, "output": "review"}
+                   for mode in ("gsi", "gsc")}
+        execute({**self.args, "reviews": reviews}, ctx)
+        self.assertEqual([reviews["gsi"], reviews["gsc"]],
+                         [call.args[1]["retryReview"] for call in self.preflight.call_args_list])
+
+    def test_bound_review_graph_rejects_cross_mode_or_missing_dependency(self):
+        source = {"id": "runtime", "capability": "gambit.runtime-import", "arguments": {},
+                  "dependsOn": []}
+        runtime = {"step": "runtime", "output": "runtime"}
+        identity = {"step": "runtime", "output": "identity"}
+        reviews = {}
+        steps = [source]
+        for mode in ("gsi", "gsc"):
+            name = "review-" + mode
+            steps.append({"id": name, "capability": "gambit.review", "dependsOn": ["runtime"],
+                          "arguments": {"runtime": runtime, "identity": identity,
+                                        "target": "official", "mode": mode}})
+            reviews[mode] = {"step": name, "output": "review"}
+        official = {"id": "official", "capability": "gambit.upstream-tests",
+                    "dependsOn": ["runtime", "review-gsi", "review-gsc"],
+                    "arguments": {"runtime": runtime, "identity": identity, "reviews": reviews}}
+        steps.append(official)
+        by_id = {step["id"]: step for step in steps}
+        for step in steps[1:]:
+            native_capabilities.graph(step, by_id, recipes.CAPABILITIES)
+        official["arguments"]["reviews"] = {"gsi": reviews["gsc"], "gsc": reviews["gsi"]}
+        with self.assertRaises(ValueError):
+            native_capabilities.graph(official, by_id, recipes.CAPABILITIES)
+        official["arguments"]["reviews"] = reviews
+        official["dependsOn"].remove("review-gsi")
+        with self.assertRaises(ValueError):
+            native_capabilities.graph(official, by_id, recipes.CAPABILITIES)
 
     def test_denied_review_is_not_a_started_or_successful_test(self):
         self.makefile("test1:\n\t@echo forbidden\ntest5:\n\t@echo forbidden\n")
@@ -180,3 +224,74 @@ class UpstreamTestContracts(unittest.TestCase):
             (self.root / CONTRACT).write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError, "sealed"):
                 scope_contract(ctx, self.root / "runtime")
+
+    def test_official_check_unit_mode_has_source_witness(self):
+        source = (ROOT / "vendor/gambit/tests/makefile.in").read_text()
+        contract = json.loads((ROOT / CONTRACT).read_text())
+        self.assertEqual({"test11": ["gsi"]}, contract["unitModes"])
+        self.assertIn("test11:\n\t@echo \"------------ TEST 11 (run unit tests)\"\n\t$(MAKE) ut\n", source)
+        unit_recipe = source.split("ut ut-C:\n", 1)[1].split("\nut-js:", 1)[0]
+        self.assertIn("-f ./run-unit-tests.scm", unit_recipe)
+        self.assertNotIn("-gsc", unit_recipe)
+
+    def test_root_core_failure_is_not_tests_makefile_core(self):
+        official = {"regime": "upstream-make", "makefileScope": "tests/makefile",
+                    "operations": ["check", "core"], "requestedOperations": ["check"]}
+        scope = make_operation_scope(official)
+        self.assertIn("tests/makefile:core", scope)
+        self.assertFalse(selected_scope("Makefile:core", scope, []))
+        self.assertIn("Makefile:core", make_operation_scope({"operation": "core"}))
+        with self.assertRaisesRegex(ValueError, "source-bound"):
+            make_operation_scope({**official, "makefileScope": "Makefile"})
+
+    def test_real_scope_dsl_projects_check_to_gsi_only(self):
+        contract = json.loads((ROOT / CONTRACT).read_text())
+        targets = contract["targets"]
+        facts = {
+            "selected_make_target": [["check"]],
+            "make_dependency": [[name, child] for name, row in targets.items()
+                                for child in row["dependencies"]],
+            "make_unit_selection": [[name, selection] for name, row in targets.items()
+                                    for selection in row["unitSelections"]],
+            "make_unit_mode": [[name, mode] for name, modes in contract["unitModes"].items()
+                               for mode in modes],
+        }
+        catalog = load_evidence_catalog(ROOT / "evidence/dsl/upstream-test-scope.ss",
+                                        constructor="make-upstream-test-scope", trusted=True)
+        with engine_api(retain=True) as (engine, _):
+            observed = query(facts, catalog,
+                             {"mode": "review_unit_mode", "scope": "review_make_scope",
+                              "cycle": "scope_cycle"}, engine=engine, reuse_program=True)
+        self.assertEqual([("gsi",)], observed["mode"])
+        self.assertIn(("test11",), observed["scope"])
+        self.assertEqual([], observed["cycle"])
+
+    def test_reused_causal_intent_rejects_missing_or_duplicate_declared_ids(self):
+        intent = json.loads((ROOT / "evidence/research/current-source-full-bootstrap/interpreted-intent.json").read_text())
+        selected = native_capabilities.select_review_intent(intent, ["018-thread-interrupt"])
+        self.assertEqual(["018-thread-interrupt"], [row["id"] for row in selected["failures"]])
+        self.assertEqual(len(intent["failures"]), 10)
+        with self.assertRaisesRegex(ValueError, "failure scope"):
+            native_capabilities.select_review_intent(intent, ["not-recorded"])
+        with self.assertRaisesRegex(ValueError, "failure scope"):
+            native_capabilities.select_review_intent({**intent, "failures": [*intent["failures"], intent["failures"][0]]},
+                                                     ["018-thread-interrupt"])
+
+    def test_bound_upstream_review_uses_exact_declared_failure_slice(self):
+        intent_name = "evidence/research/current-source-full-bootstrap/interpreted-intent.json"
+        intent_path = self.root / intent_name
+        intent_path.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / intent_name, intent_path)
+        self.makefile("test1:\n\t@echo one\ntest5:\n\t@echo five\n")
+        target_args = {**self.args, "reviews": {"gsi": {"step": "review", "output": "review"}}}
+        ctx = Context(self.root)
+        ctx.receipt["plannedSteps"] = [{"id": "official", "capability": "gambit.upstream-tests",
+                                         "arguments": target_args, "budgetSeconds": 250}]
+        args = {"runtime": self.args["runtime"], "identity": self.args["identity"],
+                "intent": intent_name, "target": "official", "mode": "gsi",
+                "failureIds": ["018-thread-interrupt"]}
+        with patch("gambit_smp.native_review.campaign", return_value={"mode": "gsi"}):
+            native_capabilities.bind_review(args, ctx)
+        document = self.preflight.call_args.kwargs["document"]
+        self.assertEqual(["018-thread-interrupt"], [row["id"] for row in document["failures"]])
+        self.assertEqual("tests/makefile", self.preflight.call_args.args[1]["makefileScope"])

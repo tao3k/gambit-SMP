@@ -71,6 +71,17 @@ class WholeBudgetDominanceTests(unittest.TestCase):
         self.facts["requested_budget"] = [["old", "suite-step", 300001]]
         self.assertEqual([("DENY",)], self.evaluate()["decision"])
 
+    def test_official_make_bridge_requires_containment_and_original_cap(self):
+        self.facts["budget_regime"] = [["old", "whole-sequential", "upstream-make"]]
+        self.facts["required_budget"] = [["old", "suite-step"]]
+        self.facts["original_budget"] = [["old", "suite-step", 300000]]
+        self.assertEqual([("RETRY_ELIGIBLE",)], self.evaluate()["decision"])
+        self.facts["review_current_file"] = [["old", "a"]]
+        self.assertEqual([("DENY",)], self.evaluate()["decision"])
+        self.facts["review_current_file"] = [["old", "a"], ["old", "b"]]
+        self.facts["requested_budget"] = [["old", "suite-step", 300001]]
+        self.assertEqual([("DENY",)], self.evaluate()["decision"])
+
 
 if __name__ == "__main__":
     unittest.main()

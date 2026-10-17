@@ -179,6 +179,22 @@ def selected_scope(name, selected, fixtures):
             not path.suffix and any(path in Path(file).parents for file in selected))
 
 
+def make_operation_scope(args):
+    if "operations" not in args:
+        return {"Makefile:" + args["operation"]} if args.get("operation") is not None else set()
+    operations = args["operations"]
+    if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
+            or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)
+                   for name in operations)
+            or not isinstance(args.get("requestedOperations"), list)
+            or not set(args["requestedOperations"]) <= set(operations)):
+        raise ValueError("exact inferred and requested operation inventories required")
+    makefile_scope = args.get("makefileScope")
+    if args.get("regime") != "upstream-make" or makefile_scope != "tests/makefile":
+        raise ValueError("source-bound official Makefile operation scope required")
+    return {makefile_scope + ":" + name for name in operations}
+
+
 def failure_campaign_files(receipt):
     """Project closed recorded inventories; unknown or malformed scope stays open."""
     if (receipt.get("schema") not in {"gambit-upstream-suite.v1", "gambit-upstream-atomic-coverage.v1"}
@@ -248,7 +264,8 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
         observation = ctx.artifact(args["environmentProbe"], "current-producer-observation")
         result.update(environmentProbe=args["environmentProbe"], environmentObservationSha256=digest(observation))
     if "operations" in args:
-        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"])
+        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"],
+                      unitModes=args["unitModes"], makefileScope=args["makefileScope"])
     return result
 
 
@@ -430,7 +447,8 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
         original_files = previous.get("selectedFiles")
         exact_whole = regime in whole_regimes and current["regime"] in whole_regimes
         exact_atomic = regime == current["regime"] == "atomic-coverage"
-        if (current["regime"] in whole_regimes and not current.get("operation")
+        if ((current["regime"] in whole_regimes and not current.get("operation")
+             or current["regime"] == "upstream-make" and current["mode"] in current.get("unitModes", []))
                 and isinstance(original_files, list) and original_files
                 and all(isinstance(name, str) for name in original_files)
                 and len(set(original_files)) == len(original_files)):
@@ -657,16 +675,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     inputs = {args["failures"]: digest(manifest), args["reviewRules"]: digest(rules)}
     selected = {str(path) for path in files}
     facts["current_campaign_file"] = [[name] for name in sorted(selected)]
-    if args.get("operation") is not None:
-        selected.add("Makefile:" + args["operation"])
-    if "operations" in args:
-        operations = args["operations"]
-        if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
-                or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) for name in operations)
-                or not isinstance(args.get("requestedOperations"), list)
-                or not set(args["requestedOperations"]) <= set(operations)):
-            raise ValueError("exact inferred and requested operation inventories required")
-        selected.update("Makefile:" + name for name in operations)
+    selected.update(make_operation_scope(args))
     overlaps, failures = [], {}
     seen = set()
     for failure in declared["failures"]:

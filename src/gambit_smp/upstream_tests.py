@@ -15,9 +15,12 @@ POLICIES = {CONTRACT: "policy/upstream-tests.json", ENTRY: "policy/upstream-test
 def validate(args, inputs):
     from gambit_smp.recipes import fields
     from gambit_smp.native_capabilities import reference
-    fields(args, ("runtime", "identity", "targets", "failures", "reviewRules"), ("reviews",))
+    fields(args, ("runtime", "identity", "targets", "failures", "reviewRules"),
+           ("reviews", "environmentProbe"))
     reference(args["runtime"])
     reference(args["identity"])
+    if "environmentProbe" in args:
+        reference(args["environmentProbe"])
     targets = args["targets"]
     if (not isinstance(targets, list) or not targets or len(targets) != len(set(targets))
             or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) for name in targets)):
@@ -29,9 +32,13 @@ def validate(args, inputs):
     if "reviews" in args:
         reviews = args["reviews"]
         if (not isinstance(reviews, dict) or not reviews or not set(reviews) <= {"gsi", "gsc"}
-                or any(not isinstance(path, str) or path not in inputs or not path.endswith(".json")
+                or any(not (isinstance(path, str) and path in inputs and path.endswith(".json")
+                            or isinstance(path, dict) and set(path) == {"step", "output"})
                        for path in reviews.values())):
             raise ValueError("declared per-mode typed review documents required")
+        for path in reviews.values():
+            if isinstance(path, dict):
+                reference(path)
 
 
 def scope_contract(ctx, runtime):
@@ -46,7 +53,7 @@ def scope_contract(ctx, runtime):
             raise ValueError("test scope policy differs from the sealed implementation")
         ctx.bind([path])
     contract = read_json(source_path(ctx.root, CONTRACT))
-    fields(contract, ("schema", "template", "makefile", "targets", "scope"))
+    fields(contract, ("schema", "template", "makefile", "targets", "unitModes", "scope"))
     fields(contract["template"], ("path", "sha256"))
     template = relative(runtime, contract["template"]["path"])
     if contract["schema"] != "upstream-make-test-contract.v1" or digest(template) != contract["template"]["sha256"]:
@@ -71,16 +78,51 @@ def scope_contract(ctx, runtime):
         if (not isinstance(selections, list) or len(selections) != len(set(selections))
                 or any(not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts for name in selections)):
             raise ValueError("typed unit-suite containment required")
+    modes = contract["unitModes"]
+    if (not isinstance(modes, dict) or any(
+            name not in targets or not targets[name]["unitSelections"]
+            or not isinstance(selected, list) or not selected or len(selected) != len(set(selected))
+            or not set(selected) <= {"gsi", "gsc"}
+            for name, selected in modes.items())):
+        raise ValueError("source-bound unit-mode declarations required")
     ctx.bind([template, makefile])
     return contract, makefile
+
+
+def infer_scope(ctx, contract, makefile, targets):
+    """Use the same sealed Make closure for bound review and actual execution."""
+    from gambit_smp.suite_primitives import selected_files
+    from gambit_smp.evidence_capabilities import evaluate_observations
+    declarations = contract["targets"]
+    if any(name not in declarations or declarations[name]["executable"] is not True for name in targets):
+        raise ValueError("requested official target is not declared executable")
+    if any((makefile.parent / name).exists() for name in targets):
+        raise ValueError("official non-file test target is shadowed by a filesystem entry")
+    projected = {
+        "selected_make_target": [[name] for name in targets],
+        "make_dependency": [[name, parent] for name, row in declarations.items() for parent in row["dependencies"]],
+        "make_unit_selection": [[name, selection] for name, row in declarations.items() for selection in row["unitSelections"]]}
+    projected["make_unit_mode"] = [[name, mode] for name, modes in contract["unitModes"].items() for mode in modes]
+    inferred = evaluate_observations(ctx, [], projected,
+        {"scope": "review_make_scope", "selection": "review_unit_selection",
+         "mode": "review_unit_mode", "cycle": "scope_cycle"},
+        "upstream-review-scope", dsl=ENTRY)
+    if inferred["cycle"] or not inferred["scope"]:
+        raise ValueError("native test scope is cyclic or missing")
+    operations = sorted(row[0] for row in inferred["scope"])
+    if not set(targets) <= set(operations) or not set(operations) <= declarations.keys():
+        raise ValueError("inferred review scope escaped its source contract")
+    selections = sorted(row[0] for row in inferred["selection"])
+    modes = [mode for mode in ("gsi", "gsc") if [mode] in inferred["mode"]]
+    files = selected_files(makefile.parent / "unit-tests", selections, inventory="unit") if selections else []
+    return makefile, operations, files, modes, inferred
 
 
 def execute(args, ctx):
     from gambit_smp.native_capabilities import clone, compiler
     from gambit_smp.native_review import preflight
     from gambit_smp.recipes import read_json
-    from gambit_smp.suite_primitives import check_runtime, selected_files
-    from gambit_smp.evidence_capabilities import evaluate_observations
+    from gambit_smp.suite_primitives import check_runtime
     if "engine" not in ctx.receipt:
         raise ValueError("upstream tests require the sealed review lane")
     original = ctx.artifact(args["runtime"], "source-runtime")
@@ -90,12 +132,6 @@ def execute(args, ctx):
     compiler(ctx)
     runtime = clone(ctx, args["runtime"], "source-runtime")
     contract, makefile = scope_contract(ctx, runtime)
-    declarations = contract["targets"]
-    if any(name not in declarations or declarations[name]["executable"] is not True for name in args["targets"]):
-        raise ValueError("requested official target is not declared executable")
-    # A pre-existing file could let Make skip a non-phony test target.
-    if any((makefile.parent / name).exists() for name in args["targets"]):
-        raise ValueError("official non-file test target is shadowed by a filesystem entry")
     fixture_inputs = {path: digest(path) for path in makefile.parent.rglob("*")
                       if path.is_file() and path.suffix in {".scm", ".c", ".h", ".in"}}
     ctx.bind([identity_path])
@@ -111,28 +147,18 @@ def execute(args, ctx):
         output.write_text(json.dumps(observed, indent=2) + "\n")
     retain()
     try:
-        projected = {
-            "selected_make_target": [[name] for name in args["targets"]],
-            "make_dependency": [[name, parent] for name, row in declarations.items() for parent in row["dependencies"]],
-            "make_unit_selection": [[name, selection] for name, row in declarations.items() for selection in row["unitSelections"]]}
-        inferred = evaluate_observations(ctx, [], projected,
-            {"scope": "review_make_scope", "selection": "review_unit_selection", "cycle": "scope_cycle"},
-            "upstream-review-scope", dsl=ENTRY)
+        _, operations, files, modes, inferred = infer_scope(ctx, contract, makefile, args["targets"])
         observed["scopeInference"] = inferred
         retain()
-        if inferred["cycle"] or not inferred["scope"]:
-            raise ValueError("native test scope is cyclic or missing")
-        operations = sorted(row[0] for row in inferred["scope"])
-        if not set(args["targets"]) <= set(operations) or not set(operations) <= declarations.keys():
-            raise ValueError("inferred review scope escaped its source contract")
-        selections = sorted(row[0] for row in inferred["selection"])
-        files = selected_files(makefile.parent / "unit-tests", selections, inventory="unit") if selections else []
-        for mode in ("gsi", "gsc"):
+        for mode in modes:
             review = {key: args[key] for key in ("failures", "reviewRules")}
             if mode in args.get("reviews", {}):
                 review["retryReview"] = args["reviews"][mode]
             review.update(mode=mode, regime="upstream-make", operation=" ".join(args["targets"]),
-                          operations=operations, requestedOperations=args["targets"])
+                          operations=operations, requestedOperations=args["targets"], unitModes=modes,
+                          makefileScope=makefile.relative_to(runtime).as_posix())
+            if "environmentProbe" in args:
+                review["environmentProbe"] = args["environmentProbe"]
             result = preflight(ctx, review, runtime, identity_path, files, makefile.parent / "unit-tests",
                                label="retry-review-" + mode)
             observed["reviews"].append(result)

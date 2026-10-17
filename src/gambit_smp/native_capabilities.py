@@ -72,13 +72,17 @@ def graph(step, by_id, registry):
     if step["capability"] == "gambit.review":
         args = step["arguments"]
         target = by_id.get(args["target"])
-        if (target is None or target["capability"] not in {"gambit.suite", "gambit.bootstrap"}
+        upstream = target is not None and target["capability"] == "gambit.upstream-tests"
+        expected = (target["arguments"].get("reviews", {}).get(args.get("mode")) if upstream else
+                    target["arguments"].get("retryReview") if target is not None else None)
+        if (target is None or target["capability"] not in {"gambit.suite", "gambit.bootstrap", "gambit.upstream-tests"}
+                or (args.get("mode") in {"gsi", "gsc"}) != upstream
                 or step["id"] not in target["dependsOn"]
-                or target["arguments"].get("retryReview") != {"step": step["id"], "output": "review"}
+                or expected != {"step": step["id"], "output": "review"}
                 or any(target["arguments"][key] != args[key] for key in ("runtime", "identity"))
                 or target["arguments"].get("environmentProbe") != args.get("environmentProbe")
                 or args["runtime"]["step"] != args["identity"]["step"]):
-            raise ValueError("review must bind one matching same-producer downstream suite or bootstrap")
+            raise ValueError("review must bind one matching same-producer downstream native target")
     if step["capability"] in {"gambit.suite", "gambit.bootstrap"} and isinstance(step["arguments"].get("retryReview"), dict):
         ref = step["arguments"]["retryReview"]
         reference(ref)
@@ -87,6 +91,17 @@ def graph(step, by_id, registry):
                 or producer["capability"] != "gambit.review" or ref["output"] != "review"
                 or producer["arguments"]["target"] != step["id"]):
             raise ValueError("suite requires its declared bound review producer")
+    if step["capability"] == "gambit.upstream-tests":
+        for mode, ref in step["arguments"].get("reviews", {}).items():
+            if not isinstance(ref, dict):
+                continue
+            reference(ref)
+            producer = by_id.get(ref["step"])
+            if (producer is None or ref["step"] not in step["dependsOn"]
+                    or producer["capability"] != "gambit.review" or ref["output"] != "review"
+                    or producer["arguments"].get("target") != step["id"]
+                    or producer["arguments"].get("mode") != mode):
+                raise ValueError("official test requires its matching per-mode bound review producer")
 
 
 def validate_materialize(args, inputs):
@@ -728,13 +743,30 @@ def object_build(args, ctx):
 
 
 def validate_review(args, inputs):
-    fields(args, ("runtime", "identity", "intent", "target"), ("environmentProbe",))
+    fields(args, ("runtime", "identity", "intent", "target"), ("environmentProbe", "mode", "failureIds"))
     reference(args["runtime"])
     reference(args["identity"])
     if "environmentProbe" in args:
         reference(args["environmentProbe"])
     if args["intent"] not in inputs or not args["intent"].endswith(".json") or not isinstance(args["target"], str):
         raise ValueError("declared review intent and target step required")
+    if "mode" in args and args["mode"] not in {"gsi", "gsc"}:
+        raise ValueError("official review requires one native mode")
+    if "failureIds" in args:
+        ids = args["failureIds"]
+        if (not isinstance(ids, list) or not ids or len(ids) != len(set(ids))
+                or any(not isinstance(value, str) or not value for value in ids)):
+            raise ValueError("unique nonempty failure review scope required")
+
+
+def select_review_intent(intent, failure_ids):
+    if failure_ids is None:
+        return intent
+    ids = set(failure_ids)
+    selected = [row for row in intent["failures"] if row.get("id") in ids]
+    if len(selected) != len(ids) or {row["id"] for row in selected} != ids:
+        raise ValueError("declared failure scope must match unique causal intent entries")
+    return {**intent, "failures": selected}
 
 
 def validate_probe(args, inputs):
@@ -797,10 +829,22 @@ def bind_review(args, ctx):
     fields(intent, ("schema", "failures"))
     if intent["schema"] != "current-producer-review-intent.v1" or not isinstance(intent["failures"], list):
         raise ValueError("typed causal intent required")
+    intent = select_review_intent(intent, args.get("failureIds"))
     target_args = target["arguments"]
     if target["capability"] == "gambit.bootstrap":
         selection, tested_unit = [Path("makefile")], runtime
         target_args = {**target_args, "mode": "bootstrap", "regime": "build-step", "operation": "from-scratch"}
+    elif target["capability"] == "gambit.upstream-tests":
+        from gambit_smp.upstream_tests import infer_scope, scope_contract
+        contract, makefile = scope_contract(ctx, runtime)
+        _, operations, selection, modes, _ = infer_scope(ctx, contract, makefile, target_args["targets"])
+        if args["mode"] not in modes:
+            raise ValueError("review mode absent from source-bound official test closure")
+        tested_unit = makefile.parent / "unit-tests"
+        target_args = {**target_args, "mode": args["mode"], "regime": "upstream-make",
+                       "operation": " ".join(target_args["targets"]), "operations": operations,
+                       "requestedOperations": target_args["targets"], "unitModes": modes,
+                       "makefileScope": makefile.relative_to(runtime).as_posix()}
     else:
         tested_unit = runtime / "tests/unit-tests"
         if target_args.get("additionalFixtures"):
