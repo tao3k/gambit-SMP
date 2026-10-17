@@ -133,11 +133,11 @@ class GambitCIContracts(unittest.TestCase):
         self.assertEqual("p2\n", result.stdout)
         self.assertEqual(0, result.exit)
 
-    def test_modes_use_existing_suite_executor_and_independent_original_deadlines(self):
+    def test_modes_use_existing_suite_executor_and_independent_progress_windows(self):
         recipe, steps = self.recipe("threads")
         modes = [step for step in steps if step["capability"] == "gambit.suite"]
-        self.assertEqual({"mode": "per-stage", "overheadSeconds": 30}, recipe["timeoutPolicy"])
-        self.assertEqual(sum(step["budgetSeconds"] for step in steps) + 30, recipe["budgetSeconds"])
+        self.assertEqual({"mode": "progress", "overheadSeconds": 30}, recipe["timeoutPolicy"])
+        self.assertEqual(max(step["budgetSeconds"] for step in steps) + 30, recipe["budgetSeconds"])
         self.assertEqual([300, 300], [step["budgetSeconds"] for step in modes])
         self.assertEqual(["gsi", "gsc"], [step["arguments"]["mode"] for step in modes])
         for step in modes:

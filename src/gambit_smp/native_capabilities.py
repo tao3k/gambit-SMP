@@ -944,14 +944,14 @@ def bind_review(args, ctx):
         target_args = {**target_args, "mode": "bootstrap", "regime": "build-step", "operation": "from-scratch"}
     elif target["capability"] == "gambit.upstream-tests":
         from gambit_smp.upstream_tests import infer_scope, scope_contract
+        if target_args.get("additionalFixtures"):
+            copied = ctx.directory / "source"
+            storage = transfer_tree(runtime, copied)
+            ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-runtime", **storage})
+            runtime = copied
+            additional_fixtures(target_args, ctx, runtime / "tests/unit-tests")
         contract, makefile = scope_contract(ctx, runtime)
         tested_unit = makefile.parent / "unit-tests"
-        if target_args.get("additionalFixtures"):
-            copied = ctx.directory / "test-fixtures"
-            storage = transfer_tree(tested_unit, copied)
-            ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-fixtures", **storage})
-            tested_unit = copied
-            additional_fixtures(target_args, ctx, tested_unit)
         _, operations, selection, modes, _ = infer_scope(
             ctx, contract, makefile, target_args["targets"], unit_root=tested_unit)
         if args["mode"] not in modes:

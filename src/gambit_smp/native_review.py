@@ -251,7 +251,9 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
             "runtimeTreeId": content_id(tree_identity(runtime)),
             "failureInventorySha256": digest(ctx.root / "evidence/native-failures.json"),
             "reviewRulesSha256": digest(ctx.root / args["reviewRules"]),
-            "regime": args["regime"], "selectedFiles": {str(file): digest(tested_unit / file) for file in files},
+            "regime": args["regime"],
+            "watchdogMode": "no-progress" if ctx.receipt.get("timeoutPolicy", {}).get("mode") == "progress" else "wall-clock",
+            "selectedFiles": {str(file): digest(tested_unit / file) for file in files},
             "operation": args.get("operation"),
             "suiteBudgetSeconds": step["budgetSeconds"] if suite_budget is None else suite_budget,
             "recipeBudgetSeconds": ctx.receipt["budgetSeconds"],
@@ -669,7 +671,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
              "environment_observation", "environment_control", "resource_plan_observation", "whole_budget_interval",
              "review_original_file", "review_current_file", "compiler_probe_failure", "compiler_options_observation",
              "compiler_configuration_observation", "failure_campaign_file", "failure_campaign_closed",
-             "current_campaign_file", "budget_toolchain_distinct")
+             "current_campaign_file", "budget_toolchain_distinct", "budget_watchdog_distinct")
     facts = {name: [] for name in names}
     facts["retry_marker"] = [[True]]
     inputs = {args["failures"]: digest(manifest), args["reviewRules"]: digest(rules)}
@@ -700,6 +702,10 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         if (failure.get("category") == "budget" and isinstance(original_compiler, str)
                 and original_compiler.strip()):
             budget_compilers.append((route, original_compiler.splitlines()[0]))
+        if (failure.get("category") == "budget"
+                and ctx.receipt.get("timeoutPolicy", {}).get("mode") == "progress"
+                and prior.get("timeoutPolicy", {}).get("mode") != "progress"):
+            facts["budget_watchdog_distinct"].append([route])
         recorded_files = failure_campaign_files(prior)
         if recorded_files is not None:
             facts["failure_campaign_closed"].append([route])
@@ -747,7 +753,8 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
             inputs[args["retryReview"]] = digest(review_path)
             document = read_json(review_path)
     if document is not None:
-        distinct = {route for route, in facts["budget_toolchain_distinct"]}
+        distinct = {route for relation in ("budget_toolchain_distinct", "budget_watchdog_distinct")
+                    for route, in facts[relation]}
         reviewable = {**document, "failures": [entry for entry in document["failures"]
                                               if entry["id"] not in distinct]}
         project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,

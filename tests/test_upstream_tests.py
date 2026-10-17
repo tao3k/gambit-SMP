@@ -388,6 +388,8 @@ class UpstreamTestContracts(unittest.TestCase):
         scope = {"scope": [["test1"], ["test5"]], "selection": [["12-os"]],
                  "mode": [["gsi"]], "cycle": []}
         with patch("gambit_smp.evidence_capabilities.evaluate_observations", return_value=scope), \
+             patch("gambit_smp.upstream_tests.scope_contract",
+                   side_effect=lambda ctx, runtime: (self.contract, runtime / "tests/makefile")), \
              patch("gambit_smp.native_review.campaign", return_value={"mode": "gsi"}):
             native_capabilities.bind_review(args, ctx)
         call = self.preflight.call_args
@@ -395,3 +397,8 @@ class UpstreamTestContracts(unittest.TestCase):
         self.assertEqual(source.read_bytes(),
                          (call.args[5] / "12-os/process_spawn.scm").read_bytes())
         self.assertFalse((self.root / "runtime/tests/unit-tests/12-os/process_spawn.scm").exists())
+        self.assertNotEqual(call.args[2], self.root / "runtime")
+        official_runtime = self.root / "official-runtime"
+        shutil.copytree(self.root / "runtime", official_runtime)
+        native_capabilities.additional_fixtures(target_args, ctx, official_runtime / "tests/unit-tests")
+        self.assertEqual(recipes.tree_identity(call.args[2]), recipes.tree_identity(official_runtime))

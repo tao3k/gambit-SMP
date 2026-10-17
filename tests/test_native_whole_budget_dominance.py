@@ -119,6 +119,18 @@ class WholeBudgetDominanceTests(unittest.TestCase):
         self.assertEqual([("budget", "gsc")], observed["disjoint"])
         self.assertEqual([("assertion", "gsc")], observed["review"])
 
+    def test_watchdog_migration_invalidates_only_historical_budget_comparison(self):
+        facts = {"retry_marker": [[True]], "known_failure": [["budget", "gsc"], ["assertion", "gsc"]],
+                 "selected_failure": [["budget"], ["assertion"]],
+                 "failure_category": [["budget", "budget"], ["assertion", "assertion"]],
+                 "budget_watchdog_distinct": [["budget"], ["assertion"]]}
+        with engine_api(retain=True) as (engine, _):
+            observed = query(facts, self.catalog,
+                             {"disjoint": "failure_campaign_disjoint", "review": "review_required"},
+                             engine=engine, reuse_program=True)
+        self.assertEqual([("budget", "gsc")], observed["disjoint"])
+        self.assertEqual([("assertion", "gsc")], observed["review"])
+
 
 if __name__ == "__main__":
     unittest.main()

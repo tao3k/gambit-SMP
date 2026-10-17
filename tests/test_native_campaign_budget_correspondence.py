@@ -38,18 +38,6 @@ class NativeCampaignBudgetPolicyTests(unittest.TestCase):
     def test_exact_whole_topology_only_grants_conditional_review(self):
         self.assertEqual([("RETRY_ELIGIBLE",)], self.evaluate()["decision"])
 
-    def test_compiler_cost_disjoint_model_keeps_assertions_reviewed(self):
-        quint = shutil.which("quint")
-        self.assertIsNotNone(quint, "actual Quint required")
-        model = ROOT / "models/gambit/native_budget_toolchain_scope.qnt"
-        result = capture([quint, "test", str(model), "--main", "native_budget_toolchain_scope",
-                          "--backend", "typescript", "--seed", "0x219a", "--max-samples", "50"],
-                         ROOT, 15, dict(os.environ))
-        self.assertEqual(0, result.exit, result.stdout + result.stderr)
-        self.assertFalse(result.timeout)
-        for name in ("distinctBudgetTest", "assertionReviewTest", "assertionDisjointControlTest"):
-            self.assertIn(name, result.stdout)
-
     def test_same_whole_regime_requires_exact_scope(self):
         for regime in ("whole-sequential", "whole-parallel"):
             with self.subTest(regime=regime):
@@ -82,3 +70,18 @@ class NativeCampaignBudgetPolicyTests(unittest.TestCase):
         self.assertEqual([("DENY",)], self.evaluate()["decision"])
         self.facts["exact_atomic_inventory"] = [["old"]]
         self.assertEqual([("RETRY_ELIGIBLE",)], self.evaluate()["decision"])
+
+
+class NativeBudgetToolchainModelTests(unittest.TestCase):
+    def test_compiler_cost_disjoint_model_keeps_assertions_reviewed(self):
+        quint = shutil.which("quint")
+        self.assertIsNotNone(quint, "actual Quint required")
+        model = ROOT / "models/gambit/native_budget_toolchain_scope.qnt"
+        result = capture([quint, "test", str(model), "--main", "native_budget_toolchain_scope",
+                          "--backend", "typescript", "--seed", "0x219a", "--max-samples", "50"],
+                         ROOT, 15, dict(os.environ))
+        self.assertEqual(0, result.exit, result.stdout + result.stderr)
+        self.assertFalse(result.timeout)
+        for name in ("distinctBudgetTest", "watchdogBudgetTest", "assertionReviewTest",
+                     "assertionDisjointControlTest"):
+            self.assertIn(name, result.stdout)
