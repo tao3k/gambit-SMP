@@ -50,7 +50,7 @@ def _database(root):
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path, isolation_level=None)) as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1):
+        if version not in (0, 1, 2, 3):
             raise ValueError("unknown history database schema version")
         if version == 0:
             db.execute("BEGIN IMMEDIATE")
@@ -64,10 +64,108 @@ def _database(root):
                 db.execute("CREATE TABLE IF NOT EXISTS head_analyses (scope TEXT PRIMARY KEY, attempt TEXT NOT NULL)")
                 db.execute("PRAGMA user_version=1")
                 db.commit()
+                version = 1
+            except BaseException:
+                db.rollback()
+                raise
+        if version == 1:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("CREATE TABLE IF NOT EXISTS trajectory_attempts "
+                           "(id TEXT PRIMARY KEY, scope TEXT NOT NULL, body TEXT NOT NULL)")
+                db.execute("CREATE INDEX IF NOT EXISTS trajectory_attempts_scope "
+                           "ON trajectory_attempts(scope)")
+                db.execute("PRAGMA user_version=2")
+                db.commit()
+                version = 2
+            except BaseException:
+                db.rollback()
+                raise
+        if version == 2:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("ALTER TABLE trajectory_attempts ADD COLUMN request_handle TEXT")
+                db.execute("UPDATE trajectory_attempts SET request_handle="
+                           "json_extract(body,'$.observation.handle')")
+                db.execute("CREATE UNIQUE INDEX trajectory_attempts_request "
+                           "ON trajectory_attempts(scope,request_handle)")
+                db.execute("PRAGMA user_version=3")
+                db.commit()
             except BaseException:
                 db.rollback()
                 raise
         yield db
+
+
+def append_trajectory_attempt(root, scope, source_identity, candidate, *, observation,
+                              snapshot_identity, purpose=None):
+    """Persist an observed attempt without admitting its action or result."""
+    if not isinstance(scope, str) or not scope or not isinstance(source_identity, str) or not source_identity:
+        raise ValueError("trajectory scope and source identity required")
+    required = {"questionIdentity", "operationIdentity", "inputIdentity"}
+    optional = {"scopeIdentity", "toolIdentity", "modelIdentity", "proposalIdentity"}
+    if (not isinstance(candidate, dict) or set(candidate) - required - optional
+            or any(not isinstance(candidate.get(key), str) or not candidate[key]
+                   for key in required)
+            or any(not isinstance(value, str) or not value for value in candidate.values())
+            or (purpose is not None and (not isinstance(purpose, str) or not purpose))
+            or not isinstance(observation, dict)
+            or set(observation) != {"handle", "status", "outcome", "resultIdentity"}
+            or any(not isinstance(value, str) or not value for value in observation.values())):
+        raise ValueError("typed trajectory candidate required")
+    if (not isinstance(snapshot_identity, str) or len(snapshot_identity) != 64
+            or any(char not in "0123456789abcdef" for char in snapshot_identity)):
+        raise ValueError("trajectory snapshot identity required")
+    body = dict(schema="gambit-trajectory-attempt.v1", id=uuid.uuid4().hex,
+                scope=scope, sourceIdentity=source_identity, candidate=candidate,
+                observation=observation, snapshotIdentity=snapshot_identity,
+                purpose=purpose, executionAuthorized=False)
+    with _database(root) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            row = db.execute("SELECT id,body FROM trajectory_attempts "
+                             "WHERE scope=? AND request_handle=?",
+                             (scope, observation["handle"])).fetchone()
+            if row is not None:
+                previous = json.loads(row[1])
+                if (fingerprint(previous) != row[0] or
+                        {key: value for key, value in previous.items() if key != "id"}
+                        != {key: value for key, value in body.items() if key != "id"}):
+                    raise ValueError("trajectory request handle changed identity")
+                db.commit()
+                return previous
+            db.execute("INSERT INTO trajectory_attempts(id,scope,request_handle,body) "
+                       "VALUES (?,?,?,?)",
+                       (fingerprint(body), scope, observation["handle"], canonical(body)))
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+    return body
+
+
+def read_trajectory_attempts(root, scope):
+    """Replay distinct observed attempts in insertion order across restarts."""
+    if not isinstance(scope, str) or not scope:
+        raise ValueError("trajectory scope required")
+    with _database(root) as db:
+        rows = db.execute("SELECT id,request_handle,body FROM trajectory_attempts "
+                          "WHERE scope=? ORDER BY rowid", (scope,))
+        result = []
+        for identity, handle, encoded in rows:
+            body = json.loads(encoded)
+            if (fingerprint(body) != identity or body.get("schema") != "gambit-trajectory-attempt.v1"
+                    or body.get("scope") != scope or body.get("executionAuthorized") is not False
+                    or set(body.get("observation", {})) != {"handle", "status", "outcome", "resultIdentity"}
+                    or body["observation"]["handle"] != handle):
+                raise ValueError("historical trajectory attempt identity mismatch")
+            snapshot_identity = body.get("snapshotIdentity")
+            if (snapshot_identity is not None and
+                    (not isinstance(snapshot_identity, str) or len(snapshot_identity) != 64
+                     or any(char not in "0123456789abcdef" for char in snapshot_identity))):
+                raise ValueError("historical trajectory snapshot identity mismatch")
+            result.append(body)
+        return result
 
 
 def _head(db, scope):

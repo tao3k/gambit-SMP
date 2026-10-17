@@ -244,14 +244,7 @@ def _checked_raw_logs(root, model, receipt_path, receipt_sha, entry):
     expected = {row["name"]: row for row in logs}
     bound = {RAW_LOG_MANIFEST: digest(local(root, RAW_LOG_MANIFEST)),
              receipt_path: receipt_sha, snapshot_path: model_sha}
-    closure = receipt.get("inputClosure", {})
-    if not isinstance(closure, dict):
-        raise ValueError("raw model input closure must be a path/hash mapping")
-    for name, expected_sha in closure.items():
-        if (not isinstance(name, str) or not name.startswith("models/")
-                or Path(name).suffix != ".qnt" or digest(local(root, name)) != expected_sha):
-            raise ValueError("raw model input closure identity mismatch")
-        bound[name] = expected_sha
+    bound.update(checked_model_input_closure(root, receipt))
     for row in rows:
         item = expected[row["log"]]
         path = item["path"]
@@ -273,6 +266,20 @@ def _checked_raw_logs(root, model, receipt_path, receipt_sha, entry):
         bound[path] = item["sha256"]
     for name in VERIFIER_MODULES:
         bound[name] = digest(local(root, name))
+    return bound
+
+
+def checked_model_input_closure(root, receipt):
+    """Check source imports without claiming that retained model logs passed."""
+    closure = receipt.get("inputClosure", {})
+    if not isinstance(closure, dict):
+        raise ValueError("raw model input closure must be a path/hash mapping")
+    bound = {}
+    for name, expected_sha in closure.items():
+        if (not isinstance(name, str) or not name.startswith("models/")
+                or Path(name).suffix != ".qnt" or digest(local(root, name)) != expected_sha):
+            raise ValueError("raw model input closure identity mismatch")
+        bound[name] = expected_sha
     return bound
 
 

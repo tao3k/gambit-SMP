@@ -40,6 +40,14 @@ def load(root, name):
     from gambit_smp.ascent_program import load_component_catalog
     root = Path(root).resolve()
     path = source_path(root, name)
+    registry_path = root / "evidence/views.json"
+    if registry_path.is_file():
+        registered = json.loads(registry_path.read_text())
+        for row in registered.get("historical", []):
+            if row["path"] == name:
+                if digest(path) != row["sha256"]:
+                    raise ValueError("historical Evidence view changed: " + name)
+                raise ValueError("historical Evidence view is not current: " + name)
     document = json.loads(path.read_text())
     if (set(document) != {"schema", "id", "manifest", "entry", "constructor", "facts", "queries", "references"}
             or document["schema"] != "ascent.evidence-view.v1"):
