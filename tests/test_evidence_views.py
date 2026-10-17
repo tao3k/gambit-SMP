@@ -16,6 +16,23 @@ VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    def test_historical_views_are_bound_but_not_current(self):
+        from gambit_smp.evidence_views import registry
+        from gambit_smp.framework import digest
+        names, inputs = registry(ROOT)
+        document = json.loads((ROOT / "evidence/views.json").read_text())
+        self.assertTrue(document["historical"])
+        for row in document["historical"]:
+            source = ROOT / row["path"]
+            self.assertNotIn(row["path"], names)
+            self.assertEqual(inputs[str(source)], digest(source))
+        changed = ROOT / document["historical"][0]["path"]
+        original = digest
+        with patch("gambit_smp.evidence_views.digest",
+                   side_effect=lambda path: "0" * 64 if path == changed else original(path)):
+            with self.assertRaisesRegex(ValueError, "historical Evidence view changed"):
+                registry(ROOT)
+
     def test_historical_view_and_missing_sources_remain_denied(self):
         from gambit_smp.framework import digest
         history = json.loads((ROOT / "evidence/scenarios/runtime-lifecycle/history-015.json").read_text())

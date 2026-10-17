@@ -293,8 +293,11 @@ def bindings(root, base, observations, snapshot_identity):
         path = model_paths[model]
         inputs, level, superseded = _record(root, path, receipt, model)
         attestation = raw_logs.get((model, path, receipt))
+        raw_logs_present = (attestation is not None and all(
+            _archived(root, row["path"]).is_file() for row in attestation["logs"]))
         if attestation is not None:
             used_raw_logs.add((model, path, receipt))
+        if raw_logs_present:
             for name in list(inputs):
                 if _verifier_input(name):
                     del inputs[name]
@@ -302,7 +305,7 @@ def bindings(root, base, observations, snapshot_identity):
             level = "raw-log-revalidated"
         specs[model + ":" + receipt] = {"path": path, "inputs": inputs,
                                         "binding": level, "supersededVerifierInputs": superseded,
-                                        "rawLogEvidencePending": attestation is None,
+                                        "rawLogEvidencePending": not raw_logs_present,
                                         "checks": _checks(root, path, model, inputs),
                                         "depends": []}
     if set(raw_logs) != used_raw_logs:
