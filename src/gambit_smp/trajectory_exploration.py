@@ -273,7 +273,7 @@ def clues(root, scope, snapshot, question, engine, *, proposed=(), bindings=(),
                 historicalClues=historical)
 
 
-def repository_clues(root: str | Path = ".", question: str | None = None,
+def repository_clues(root: str | Path = ".", question: str | Sequence[str] | None = None,
                      engine: object = None, *,
                      bindings: Sequence[tuple[str, str]] = (), expansions: Sequence[str] = (),
                      checkpoint: object = None, display_bytes: int = 8192,
@@ -323,7 +323,9 @@ def repository_clues(root: str | Path = ".", question: str | None = None,
     polarity,role,source), factor(id,digest,name,value), link(from,to,label,id,
     digest), attested(id,digest,receipt), binding(name,value). bindings are facts
     supplied as (name, value) string pairs to that declaration, not Python keyword
-    matching. expansions is a sequence of arbitrary additional claim strings.
+    matching. With bindings and no selector, the repository's optional registered
+    Scheme selection is used; an explicit selector replaces that default.
+    expansions is a sequence of arbitrary additional claim strings.
 
     The Library's (include clue-selection-schema) declares those input schemas
     without adding rules. With it, relation clauses declare only additional
@@ -398,6 +400,16 @@ def repository_clues(root: str | Path = ".", question: str | None = None,
 
     root = Path(root).resolve()
     names, inputs = registry(root)
+    if bindings and selector is None:
+        if question:
+            raise ValueError("use an exact question or relational bindings, not both")
+        document = json.loads((root / "evidence/views.json").read_text())
+        selection = document.get("selection")
+        if selection is None:
+            raise ValueError("bindings require a Scheme selector or registered selection")
+        path = source_path(root, selection["source"])
+        selector = path.read_text()
+        constructor = selection["constructor"]
     views = []
     for name in names:
         path = source_path(root, name)
@@ -425,9 +437,7 @@ def repository_clues(root: str | Path = ".", question: str | None = None,
         request["bindings"] = list(bindings)
         result = owner.slice_selected([selector], constructor, request)
     else:
-        if bindings:
-            raise ValueError("bindings require a caller-authored --select relation query")
-        request["questions"] = [question] if question else []
+        request["questions"] = [question] if isinstance(question, str) else list(question or ())
         result = owner.slice(request)
     _current(snapshot)
     result["brief"]["inputIdentity"] = snapshot["sourceIdentity"]
@@ -500,8 +510,8 @@ def catalog(root, context_path=None, *, factor=None):
 def argument_parser():
     parser = argparse.ArgumentParser(
         prog="gambit-smp trajectory", description=__doc__,
-        epilog="clues evaluates caller-authored Scheme/Datalog relation queries directly over registered Evidence. "
-               "Its --help exposes source relation signatures. No catalog or Context selection is required. "
+        epilog="clues reads a Scheme request over registered Evidence. "
+               "No flag inventory, catalog or Context selection is required. "
                "context reads retained scoped history only. Reads neither choose nor authorize actions.")
     operations = parser.add_subparsers(dest="operation", required=True)
     inventory = operations.add_parser("catalog", help="discover contexts, queries and declared factors",
@@ -527,52 +537,27 @@ def argument_parser():
                 operation.add_argument("--scope", help="required with --context; caller-chosen persistent investigation name")
         if name == "clues":
             operation.formatter_class = argparse.RawDescriptionHelpFormatter
-            operation.epilog = """Registered Evidence is already loaded; no file or catalog lookup is required.
-Write a caller-owned Scheme/Datalog declaration; its variables discover claims
-and factors without knowing their identifiers. Example (change the predicates):
+            operation.epilog = """Registered Evidence is already loaded. Supply one inert Scheme association list,
+or read it from standard input. Bindings are relational anchors, not keywords:
 
-  (define-evidence (query)
-    (sources clue factor binding) (outputs question matched)
-    (include clue-selection-schema)
-    (relation question (claim))
-    (relation matched (claim id digest))
-    ((matched C I D) <-- (clue I D C _ _ _)
-      (factor I D N V) (binding N V))
-    ((question C) <-- (matched C _ _)))
+  ((bindings (("NAME" "VALUE"))))
 
-Pass the declaration as --select; --binding NAME VALUE supplies binding facts.
-This example joins any supplied factor; conjunction, negation, recursive paths,
-additional witnesses and arbitrary alternative predicates remain caller-owned.
-Available read-only sources:
-  clue(id,digest,claim,polarity,role,source)
-  factor(id,digest,name,value)  link(from,to,label,id,digest)
-  attested(id,digest,receipt)   binding(name,value)
-Bare symbols are variables, _ is a wildcard, (lit "text") is a constant.
-Rules use ((head ...) <-- (body ...) ...); (not (relation ...)) requires bound
-variables. Recursive rules must reach a finite fixed point. Source relations
-cannot be rule heads. question(claim) is required; other outputs carry traces.
---question instead reads an exact claim; it is not natural-language matching.
+The registered downstream Scheme association derives the evidence scope.
+Include (checkpoint "TOKEN") to reuse displayed evidence across processes and
+scope changes. Omission requests a fresh read; it is not automatic continuation.
+Include (expand ("CLAIM-OR-REFERENCE")) for arbitrary evidence expansion.
+Result: inert Scheme data containing brief evidence and its checkpoint token.
 
-The result is inert Scheme data: brief evidence and an opaque checkpoint token.
-Separate calls start fresh unless checkpoint is passed with --checkpoint;
-changing scope is not automatic continuation. Reuse it across processes or
-selectors; --expand accepts arbitrary claim or returned boundary references.
-Only displayed bodies are acknowledged. Deferred references retain traceability;
-the same selector and checkpoint expose unseen details. A cache miss replays
-evidence honestly. --bytes bounds presentation, never inference or exploration.
-Returned evidence neither chooses an action nor grants execution authority.
+The same request accepts questions, selector, constructor and displayBytes.
+selector is caller-written Scheme/Datalog, replacing the registered association;
+its variables may discover facts without prior identifiers. The complete DSL
+contract is in Python help(gambit_smp.repository_clues), not a second query engine.
+Presentation capacity never limits inference or exploration. Only complete shown
+units are acknowledged; hidden evidence keeps expandable references. Reads do
+not choose actions, close the hypothesis space or grant execution authority.
 """
-            operation.add_argument("--question", help="optional exact claim to read without a selector")
-            operation.add_argument("--binding", nargs=2, action="append", default=[],
-                metavar=("NAME", "VALUE"), help="factor supplied as binding(name,value) to --select")
-            operation.add_argument("--select", help="caller-owned Scheme declaration; source/term contract below")
-            operation.add_argument("--constructor", default="query", help="constructor in --select")
-            operation.add_argument("--expand", action="append", default=[],
-                                   help="read an arbitrary claim or a returned boundary reference")
-            operation.add_argument("--bytes", type=int, default=8192,
-                                   help="per-exchange presentation capacity; never a search or inference limit")
-            operation.add_argument("--checkpoint",
-                        help="prior clue-read token; omission starts a fresh read, not automatic continuation")
+            operation.add_argument("declaration", nargs="?", default="-",
+                                   help="Scheme request; omission or '-' reads standard input")
         if name == "submit":
             operation.epilog = ("Each clue has id, claim, polarity (support/counter), source, and optional "
                 "factors as [name,value] pairs. Use clueJournal.prefix from a current context or clues read. "
@@ -594,42 +579,32 @@ def main():
         print(ClueExchange.render(catalog(ROOT, args.context, factor=args.factor)))
         return
     if args.operation == "clues":
-        if not (args.question or args.select or args.expand):
-            parser.error("clues requires --select, an exact --question, or --expand")
-        if args.binding and not args.select:
-            parser.error("--binding requires a caller-authored --select relation query")
         from gambit_smp.ascent_program import engine_api
         from ascent.trajectory import ClueExchange
-
+        import sys
+        source = sys.stdin.read() if args.declaration == "-" else args.declaration
+        request = ClueExchange.parse_request(source)
+        if not any(request.get(key) for key in ("bindings", "questions", "selector", "expand")):
+            parser.error("a relational anchor, selector, exact question or expansion is required")
         with engine_api() as (engine, _):
-            packet = repository_clues(ROOT, args.question, engine, bindings=args.binding,
-                expansions=args.expand, checkpoint=args.checkpoint, display_bytes=args.bytes,
-                selector=args.select, constructor=args.constructor)
+            packet = repository_clues(ROOT, request.get("questions"), engine,
+                bindings=request.get("bindings", ()), expansions=request.get("expand", ()),
+                checkpoint=request.get("checkpoint"), display_bytes=request.get("displayBytes", 8192),
+                selector=request.get("selector"), constructor=request.get("constructor", "query"))
         print(ClueExchange.render(packet))
         return
     if args.request:
         if any(getattr(args, field, None) for field in (
-                "scope", "question", "view", "query", "binding", "clues_file", "clues_json", "expected_prefix")):
+                "scope", "clues_file", "clues_json", "expected_prefix")):
             parser.error("--request owns all request fields")
         request = json.loads(args.request.read_text())
     else:
-        if args.operation not in ("context", "clues", "submit") or (
-                args.operation != "clues" and not args.scope):
-            parser.error("context and submit require --scope; clues can read repository Evidence without one")
+        if args.operation not in ("context", "submit") or not args.scope:
+            parser.error("context and submit require --scope")
         from gambit_smp.research_actions import discover
         snapshot = discover(ROOT, json.loads(args.context.read_text()))
         request = dict(scope=args.scope, snapshot=snapshot)
-        if args.operation == "clues":
-            if args.view is not None or args.query is not None:
-                if not args.view or not args.query or args.question or args.binding:
-                    parser.error("--view and --query are a pair, separate from --question and --binding")
-                args.question = None
-            if not args.question and not args.view:
-                parser.error("clues requires --question or --view with --query")
-            request.update(question=args.question, bindings=args.binding)
-            if args.view:
-                request.update(view=args.view, query=args.query)
-        elif args.operation == "submit":
+        if args.operation == "submit":
             if bool(args.clues_file) == bool(args.clues_json) or args.expected_prefix is None:
                 parser.error("submit requires one of --clues-file/--clues-json and --expected-prefix")
             request.update(clues=json.loads(args.clues_file.read_text() if args.clues_file
@@ -647,15 +622,10 @@ def main():
         result = record(ROOT, request["scope"], request["snapshot"], request["action"],
                         request["handle"], purpose=request.get("purpose"))
     else:
-        if args.operation == "clues":
-            required = {"scope", "snapshot", "question"}
-            if not required.issubset(request) or set(request) - required - {"proposed", "bindings", "view", "query"}:
-                raise ValueError("clues requires scope, snapshot, question and optional proposed/bindings")
-        else:
-            required = common if args.operation == "inspect" else {"scope", "snapshot"}
-            if set(request) not in (required, required | {"through"}):
-                raise ValueError(args.operation + " requires " + ", ".join(sorted(required))
-                                 + " and optional through")
+        required = common if args.operation == "inspect" else {"scope", "snapshot"}
+        if set(request) not in (required, required | {"through"}):
+            raise ValueError(args.operation + " requires " + ", ".join(sorted(required))
+                             + " and optional through")
         from gambit_smp.ascent_program import engine_api
 
         with engine_api() as (engine, _):
@@ -665,12 +635,6 @@ def main():
             elif args.operation == "inspect":
                 result = inspect(ROOT, request["scope"], request["snapshot"],
                                  request["action"], engine, through=request.get("through"))
-            elif request.get("view"):
-                result = read_view(ROOT, request["snapshot"], request["view"], request["query"], engine)
-            else:
-                result = clues(ROOT, request["scope"], request["snapshot"],
-                               request["question"], engine, proposed=request.get("proposed", []),
-                               bindings=request.get("bindings", []))
     from ascent.trajectory import ClueExchange
     print(ClueExchange.render(result))
 

@@ -17,6 +17,56 @@ VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    def test_checked_reference_metadata_is_a_configurable_native_source(self):
+        from gambit_smp.framework import digest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            folder = root / "evidence"
+            folder.mkdir()
+            record = folder / "record.json"
+            record.write_text('{"observation":"retained"}')
+            (folder / "sources.ss").write_text('''(define-evidence (make)
+              (sources origin) (outputs origin)
+              (relation origin ((id string?) (path string?) (digest string?))))''')
+            (folder / "components.json").write_text(json.dumps({
+                "schema": "ascent.evidence-components.v1", "components": [
+                    {"id": "sources", "source": "sources.ss", "exports": ["make"], "dependencies": []}]}))
+            document = {"schema": "ascent.evidence-view.v1", "id": "metadata",
+                        "manifest": "evidence/components.json", "entry": "sources", "constructor": "make",
+                        "facts": {"origin": {"references": True}}, "queries": {"origins": "origin"},
+                        "references": [{"id": "record", "path": "evidence/record.json",
+                                        "sha256": digest(record), "pointer": None}]}
+            path = folder / "view.json"
+            path.write_text(json.dumps(document))
+            with engine_api() as (engine, _):
+                result = view_query(root, "evidence/view.json", engine)
+            self.assertEqual(result["answers"]["origins"], [("record", "evidence/record.json", digest(record))])
+            record.write_text('{"observation":"changed"}')
+            with self.assertRaisesRegex(ValueError, "reference changed"):
+                load(root, "evidence/view.json")
+
+    def test_registered_selection_is_byte_bound_without_loading_code(self):
+        from gambit_smp.evidence_views import registry
+        from gambit_smp.framework import digest
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "evidence/selection.ss"
+            source.parent.mkdir()
+            source.write_text("not executable during registry discovery")
+            declaration = {"schema": "ascent.evidence-views.v1", "views": [],
+                           "selection": {"source": "evidence/selection.ss", "constructor": "query"}}
+            path = root / "evidence/views.json"
+            path.write_text(json.dumps(declaration))
+            _, first = registry(root)
+            self.assertEqual(first[str(source.resolve())], digest(source))
+            source.write_text("different declaration")
+            _, changed = registry(root)
+            self.assertNotEqual(first, changed)
+            declaration["selection"]["source"] = "../outside.ss"
+            path.write_text(json.dumps(declaration))
+            with self.assertRaises(ValueError):
+                registry(root)
+
     def test_retired_view_is_never_current_even_with_local_observations(self):
         from gambit_smp.framework import digest
         with tempfile.TemporaryDirectory() as directory:

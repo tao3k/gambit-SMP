@@ -11,13 +11,21 @@ def registry(root):
     if not path.exists():
         return [], {}
     document = json.loads(path.read_text())
-    if (set(document) not in ({"schema", "views"}, {"schema", "views", "historical"})
+    if (not {"schema", "views"} <= set(document)
+            or set(document) - {"schema", "views", "historical", "selection"}
             or document["schema"] != "ascent.evidence-views.v1"
             or not isinstance(document["views"], list)
             or any(type(name) is not str for name in document["views"])
             or len(set(document["views"])) != len(document["views"])):
         raise ValueError("unique explicit Evidence view registry required")
     inputs = {str(path.resolve()): digest(path)}
+    if "selection" in document:
+        selection = document["selection"]
+        if (not isinstance(selection, dict) or set(selection) != {"source", "constructor"}
+                or any(not isinstance(value, str) or not value for value in selection.values())):
+            raise ValueError("Evidence selection requires a Scheme source and constructor")
+        source = source_path(Path(root), selection["source"])
+        inputs[str(source)] = digest(source)
     historical = document.get("historical", [])
     if (not isinstance(historical, list)
             or any(not isinstance(row, dict) or set(row) != {"path", "sha256"}
@@ -83,8 +91,15 @@ def load(root, name):
         if type(value) not in (str, bool, int, float):
             raise ValueError("scalar view cell or exact reference required")
         return value
-    facts = {relation: [[cell(value) for value in row] for row in rows]
-             for relation, rows in document["facts"].items()}
+    facts = {}
+    for relation, rows in document["facts"].items():
+        if isinstance(rows, dict):
+            if set(rows) != {"references"} or rows["references"] is not True:
+                raise ValueError("explicit checked-reference metadata binding required")
+            facts[relation] = [[ref["id"], ref["path"], ref["sha256"]]
+                               for ref in document["references"]]
+        else:
+            facts[relation] = [[cell(value) for value in row] for row in rows]
     catalog = load_component_catalog(source_path(root, document["manifest"]),
         entry=document["entry"], constructor=document["constructor"], trusted=True)
     inputs.update(catalog["sourceInputs"])

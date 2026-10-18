@@ -52,7 +52,7 @@ HISTORICAL_PRODUCERS = frozenset({"source-unit", "ffi-source-unit", "sync-schedu
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, epilog=
-        "trajectory clues: caller-authored Scheme/Datalog queries over registered Evidence; "
+        "trajectory clues: Scheme requests over registered Evidence and caller-owned DSL; "
         "source-bound, expandable incremental slices. Python API: "
         "gambit_smp.repository_clues and gambit_smp.engine_api. "
         "Reads do not select or authorize actions.")

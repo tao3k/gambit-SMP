@@ -16,11 +16,10 @@
   ((link C Target Label I D) <-- (clue I D C _ _ _) (edge I Target Label))
   ((inventory N V) <-- (factor _ _ N V)))
 
-;;; This application's policy: all requested factors must match one clue.
-;;; Other downstream contexts can declare a different navigation View.
+;;; This application's optional policy; all factors must match one witness.
 (define-evidence (make-stack-entry-navigation)
   (sources clue factor binding)
-  (outputs question matched unknown_binding)
+  (outputs question matched unknown_binding conjunction_gap)
   (relation clue ((id string?) (digest string?) (claim string?)
                   (polarity string?) (role string?) (source string?)))
   (relation factor ((id string?) (digest string?) (name string?) (value string?)))
@@ -32,6 +31,8 @@
   (relation has_binding (name))
   (relation has_match (name value))
   (relation unknown_binding (name value))
+  (relation matched_binding (name value))
+  (relation conjunction_gap (name value))
   ((has_binding N) <-- (binding N _))
   ((witnessed I D N V) <-- (binding N V) (factor I D N V))
   ((missing I D N V) <-- (clue I D _ _ _ _) (binding N V)
@@ -39,5 +40,7 @@
   ((matched C I D Role) <-- (has_binding _) (clue I D C _ Role _)
     (not (missing I D _ _)))
   ((question C) <-- (matched C _ _ _))
-  ((has_match N V) <-- (binding N V) (factor _ _ N V))
-  ((unknown_binding N V) <-- (binding N V) (not (has_match N V))))
+  ((has_match N V) <-- (binding N V) (clue I D _ _ _ _) (factor I D N V))
+  ((unknown_binding N V) <-- (binding N V) (not (has_match N V)))
+  ((matched_binding N V) <-- (matched _ I D _) (binding N V) (factor I D N V))
+  ((conjunction_gap N V) <-- (has_match N V) (not (matched_binding N V))))

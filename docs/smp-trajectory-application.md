@@ -5,6 +5,41 @@ This is the downstream Gambit SMP application of the generic design in
 finite protocol model live upstream; this document does not define them.
 Neither document is a native correctness, performance, or agent-efficiency result.
 
+## Core Design: Evidence Before Action
+
+The upstream Scheme design framework defines evidence-driven progressive
+discovery as a Library invariant, not an SMP-specific prompt. A query exposes
+relevant facts, support and counterevidence, source/applicability conditions,
+unknowns and expansion references before projecting possible capabilities.
+It never specifies a next action or restricts the Agent's hypotheses.
+
+SMP supplies declarative anchors and associations through its existing DSL and
+View registry. Python only transports them into the existing Session/Clue
+exchange. Shared defaults are configuration, not a mandatory Navigator: callers
+may replace predicates, widen scope and expand arbitrary claims. A first-query
+hit requires an actual applicable association and current attested evidence;
+missing associations remain explicit. Conditions must match one observation
+ID/digest, never a mixture of different records with the same claim.
+
+The optional `selection` entry in the existing `evidence/views.json` binds a
+repository Scheme source and constructor. It removes file/constructor discovery
+from ordinary anchor queries, without inventing another interface. Domain
+extensions change View facts and DSL; Python performs only byte/path transport.
+Registration loads declarations, not executable hooks, and never authenticates
+a claim or grants execution permission. Existing source identities invalidate
+read hints when a declaration changes; historical evidence remains retained.
+
+A View source may bind `{"references": true}` instead of duplicating its
+checked reference metadata as hand-maintained rows. The loader transports
+`(id, path, sha256)` for that View's verified references into the named source
+relation. Scheme still decides every join and applicability condition. This
+metadata binding does not authenticate a native result or execute a hook.
+
+Checkpoint hints remember displayed units, not research permission or progress.
+Continuation must preserve expandable unseen evidence; cache loss cannot erase
+historical receipts or reset SMP milestones. Model, interface and Agent-use
+checks do not replace bootstrap and original native stress qualification.
+
 The [supervision review](trajectory-supervision-feedback.md) records observed
 Agent integration failures and the DSL-first extension boundary; raw tool
 transcripts remain local cache rather than a second evidence authority.
@@ -17,9 +52,10 @@ The installed Python framework entrypoint is:
 .venv/bin/gambit-smp trajectory clues --help
 ```
 
-CLI help and Python `help(repository_clues)` share one contract, including source
-schemas, term syntax, result shapes and read semantics. This document does not
-maintain another copy of that signature or grammar. `gambit_smp.engine_api` and
+CLI help exposes the concise Scheme request. Python `help(repository_clues)`
+expands the same contract's source schemas, term syntax, result shapes and read
+semantics. This document does not maintain another copy of that signature or
+grammar. `gambit_smp.engine_api` and
 `gambit_smp.repository_clues` remain public for Python consumers.
 
 Caller-authored Scheme/Datalog queries run over registered Evidence in ASCENT's
@@ -30,7 +66,7 @@ fixed investigation path is supplied.
 
 The CLI transports the Library's inert Scheme packet directly, including the
 traceable `brief` and a short opaque `checkpoint` token. The same token works
-across processes through `--checkpoint`; no caller-managed JSON file is involved.
+across processes through a request's `checkpoint`; no caller-managed JSON file is involved.
 It acknowledges complete displayed families and complete derived relation
 results, not hidden details. The existing history cache stores these read hints
 separately from evidence observations and admission. Missing hints cause explicit
@@ -444,13 +480,15 @@ the partial factor vocabulary. Metadata discovery does not run sealed native
 execution admission. A context without a Clue projection still has readable
 View metadata; it does not acquire a fabricated Clue capability.
 
-The current query interface is `trajectory clues --select DECLARATION`, or
-`--question CLAIM` for an exact claim. It reads the registered Evidence source
-relations directly; selecting a Context is not part of this interface.
-`--binding NAME VALUE` supplies source facts to the caller-authored declaration.
+The query interface is `trajectory clues 'SCHEME_REQUEST'`, or the same request
+on standard input. Its `bindings` supply anchor facts to the registered DSL;
+`questions` reads exact claims, and an optional `selector` replaces the default
+with caller-written Scheme/Datalog. Selecting a Context is not required.
 Unknown names, values and claims remain allowed. The CLI renders inert Scheme
 data through the upstream Library, with no fake row observations or JSON-valued
-row factors. The former Context/View query CLI was removed from `clues`.
+row factors. Query flags and the former Context/View query branches are removed,
+not retained as aliases. ASCENT's bounded datum reader decodes the request;
+Python neither parses Scheme nor reimplements its inference.
 
 Identity scopes are explicit: `catalogIdentity` binds catalog metadata,
 `contextIdentity` binds the host's recorded context, the native exchange's
@@ -644,17 +682,15 @@ submissions with source identity and a compare-and-swap prefix. Agent fields
 cannot supply an attestation, and a changed source keeps prior submissions
 inspectable as history.
 
-Read a scoped slice through the context's declared Navigator:
+Read an anchored slice through the registered association:
 
 ```sh
 .venv/bin/gambit-smp trajectory clues \
-  --context evidence/scenarios/stack-header/action-context.json \
-  --scope stack-entry-investigation --question stack-entry \
-  --binding entity stack-entry --binding candidate current-formal
+  '((bindings (("entity" "stack-entry") ("candidate" "current-formal"))))'
 ```
 
-`--question` reads an exact claim. With bindings it labels the investigation,
-while the caller's Scheme rules interpret the supplied factors. Neighbor
+`questions` reads exact claims; `bindings` supplies facts to the registered or
+caller-written Scheme association. Neighbor
 targets are exact claims for another read. A previously unseen factor can enter
 as data; an empty match stays unknown. The help and native `sourceIdentity` and `selectorIdentity` bind the query to
 its projection and selector sources; vocabularies remain partial.

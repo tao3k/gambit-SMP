@@ -8,7 +8,101 @@ The generic ownership review belongs upstream in ASCENT:
 `docs/trajectory-supervision-feedback.md`. This file records its SMP application.
 Existing protocol and usage remain in [the application document](smp-trajectory-application.md).
 
+## Evidence-Driven Entry Qualification
+
+The query entry now accepts one inert Scheme request or standard input. Query
+flags and the unreachable Context/View dispatch branches are removed, not kept
+as aliases. The existing registry binds the optional downstream association;
+ASCENT's existing bounded reader decodes request data. Python does not parse
+Scheme or select an investigation path. Domain predicates remain downstream.
+
+The earlier flag-entry session `071bfb72-e8d5-47df-8308-676d81b7ccb8` first
+queried at tool call eight and later expanded without a checkpoint. Its initial
+and continuation windows hit their declared turn limits. Preserve those failed
+integration windows; do not label them native failures or silently erase them.
+
+After full frozen-framework qualification (1,712 passes, zero skips), session
+`f41bb127-6480-40b0-bb2a-4d528d02038d` used the Scheme entry. Tool call one tried
+an inherited startup-rule path that was absent; call two read CLI help; call
+three made its first related query and hit the registered candidate evidence.
+No factor/query recipe or checkpoint instruction was supplied in its task.
+The project instruction describes only the general interface and read semantics.
+
+Its first packet contained 32 internal evidence items. The second query passed
+that packet's checkpoint, expanded a parent claim and returned 9 added / 32
+retained / 0 removed items in rescope mode. It then used the updated checkpoint
+for a further caller-chosen expansion. Items are Library facts/factors/links,
+not native tests or milestone completions. These observed calls establish a
+successful scoped read/continuation, not deterministic Agent compliance, lower
+total research cost, a final diagnosis or SMP correctness. The eight-turn window
+ended at its harness limit; final investigative closure was not established.
+
+The bootstrap producer was separately exported through the existing strict
+exporter. Its portable observation is registered in the same candidate View
+using only Evidence data and edges: complete two-pass bootstrap is established,
+while original stress and crash causality remain open. No Python domain branch
+or native pass is inferred from that registration. A changed source generation
+must rebase read hints, not erase earlier failed evidence or reset milestones.
+
+The first data-only bootstrap registration was incomplete: its checked reference
+was declared but not copied into the projection's input relation, so an actual
+query still returned only the earlier three claims. This is retained as a failed
+registration observation, not a Library hit. The configurable checked-reference
+source binding removes that duplicate maintenance. Its native test uses an
+unrelated source relation name and verifies changed reference bytes reject;
+the real candidate test additionally requires the bootstrap claim to be visible.
+
+Final qualification after this generic transport correction passed 1,713/1,713
+tests, zero failures/errors/skips and no changed inputs, with natural exit zero
+in 147.500 seconds. This is framework qualification, not a Gambit stress time.
+The frozen engine identity is
+`28215315522030f82258115bce02b22f07cb0696611564ab6726c60431cfd158`.
+
+The same Grok session then completed a five-turn continuation successfully.
+Only Evidence availability was announced; no factors, query declaration or
+next action was supplied. Its first call queried the registered candidate,
+matched four observations, then read the new bootstrap record. Subsequent
+expansions passed the newly returned checkpoints. Its final public conclusion
+kept the parent SIGSEGV on lock `f0507df3...`, the candidate bootstrap on
+`7e59221a...`, and original stress/crash causality explicitly unproved. Thus it
+used the new evidence without turning bootstrap success into native acceptance.
+This closes the observed discovery/read-continuation case, not all Agent behavior
+or the SMP milestone. Deliberate source auditing and unknown exploratory queries
+remain permitted; no route blacklist or mandatory action sequence was introduced.
+
+Raw transcript hashes (local cache; only public tool calls/results and final
+claims were used for this audit): initial flag window
+`8e09ef110cabe1dfb597ce9a2764bc5cf78b97ab6925ecc5c1d4c1409e53714b`;
+its continuation
+`e84b5b08dc40bffd31c3edc48e3a1c9949838b4baa78ef8a088f87e086c0b3c1`;
+Scheme-entry window
+`5c2ab1fca48f8c061cb298dd73fc9084a3b9337ab05d94fbc0a5cd84aaae6067`;
+successful new-Evidence continuation
+`6d1cea949860a4030a025f4beb6b2084c2e910866d41f24b9fef19678be49720`.
+
 ## Observations, Not An Efficiency Claim
+
+### Published Dependency Requalification
+
+ASCENT PR #1 contains commit
+`e1fa92a58a71231ca6b6663fa190416ac71d57bd`. Both package declarations lock
+that revision. `uv sync --locked` replaced the local-source installation;
+installed distribution metadata confirms the same Git commit, not a file URL.
+The locked installation's sealed engine is
+`c9512ba7b89d8d5e54e5802c1fd30368ddff20438465f29667503d281389ddfe`.
+Complete framework requalification passed 1,713/1,713 tests with zero
+failures/errors/skips, unchanged inputs and natural exit zero in 191.417 seconds.
+The receipt remains a local cache artifact, not a portable native-stress pass.
+
+The locked-version Grok continuation reached the registered candidate through
+the same Scheme request entry. Its first attempt stopped on missing read-only
+Git identity permissions; the session-local permission correction did not alter
+the query. The resumed six-turn window queried candidate evidence but then spent
+calls rediscovering installation details and ended at its turn bound. Preserve
+that incomplete investigation; it does not establish native advancement or a
+research-cost improvement. The earlier successful checkpoint continuation and
+this later incomplete window are distinct observations. Cumulative SMP progress
+remains 6/12 pending original stress and the other native obligations.
 
 The cached `grok-smp-debug-projection-public-events.jsonl` trace contains 26
 assistant messages and 64 public tool calls, zero terminal calls and zero

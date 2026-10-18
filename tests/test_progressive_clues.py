@@ -1,6 +1,6 @@
 """Real Scheme queries across current failure, historical evidence and new hypotheses."""
 import json
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import io
 import subprocess
 import sys
@@ -159,7 +159,8 @@ class ProgressiveClueTests(EvidenceCacheTestCase):
         selector = (ROOT / "evidence/scenarios/stack-header/clues.ss").read_text()
         result = repository_clues(ROOT, selector=selector,
             constructor="make-stack-entry-navigation",
-            bindings=[("mechanism", "debug-control-point-id-remapping")])
+            bindings=[("mechanism", "debug-control-point-id-remapping"),
+                      ("candidate", "stack-entry-contract")])
         brief = result["brief"]
         self.assertEqual(brief["association"]["unknown_binding"], [])
         self.assertEqual(brief["association"]["question"], [
@@ -265,12 +266,10 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         inventory = self.help("catalog")
         self.assertIn("catalog", root)
         self.assertNotIn("--clues-json", root)
-        self.assertIn("--binding", query)
-        self.assertIn("--select", query)
-        self.assertIn("Separate calls start fresh unless checkpoint", query)
+        self.assertIn("Scheme request", query)
+        self.assertIn("(checkpoint", query)
         self.assertIn("not automatic continuation", query)
-        self.assertIn("(include clue-selection-schema)", query)
-        self.assertIn("factor(id,digest,name,value)", query)
+        self.assertIn("relational anchors", query)
         self.assertIn("inert Scheme data", query)
         self.assertNotIn("Result shape:", query)
         self.assertNotIn("list[dict]", query)
@@ -282,6 +281,81 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         self.assertNotIn("--question", hypothesis)
         self.assertIn("--factor", inventory)
         self.assertNotIn("--scope", inventory)
+
+    def test_scheme_selector_uses_the_existing_native_query_and_checkpoint(self):
+        from gambit_smp.trajectory_exploration import main
+        from gambit_smp import trajectory_exploration as module
+        output = io.StringIO()
+        path = "evidence/scenarios/stack-header/clues.ss"
+        from ascent.trajectory import ClueExchange
+        declaration = ClueExchange.render(dict(selector=(ROOT / path).read_text(),
+            constructor="make-stack-entry-navigation",
+            bindings=[["mechanism", "debug-control-point-id-remapping"]]))
+        argv = ["trajectory", "clues", declaration]
+        with patch.object(sys, "argv", argv), redirect_stdout(output), \
+                patch.object(module, "repository_clues", wraps=repository_clues) as query:
+            main()
+        self.assertEqual(query.call_args.kwargs["selector"], (ROOT / path).read_text())
+        self.assertIn("entry-contract-debug-label-mapping-consistent", output.getvalue())
+        self.assertIn("clue-read:", output.getvalue())
+
+    def test_query_has_one_declaration_and_no_optional_investigation_flags(self):
+        parser = argument_parser()
+        operations = next(action for action in parser._actions if action.dest == "operation")
+        query = operations.choices["clues"]
+        options = [option for action in query._actions for option in action.option_strings]
+        self.assertEqual(options, ["-h", "--help"])
+
+    def test_registered_anchors_hit_without_context_or_constructor_discovery(self):
+        first = repository_clues(ROOT, bindings=[
+            ["candidate", "c-continuation-debug-projection"]])
+        self.assertTrue(first["brief"]["families"])
+        self.assertIn("debug-projection-source-integrated",
+                      first["brief"]["scopeReference"]["claims"])
+        self.assertIn("debug-projection-bootstrap-complete",
+                      first["brief"]["scopeReference"]["claims"])
+        second = repository_clues(ROOT, bindings=[
+            ["candidate", "c-continuation-debug-projection"]],
+            checkpoint=first["checkpoint"])
+        old = {row["claim"] for row in first["brief"]["families"]}
+        self.assertTrue(old.isdisjoint(row["claim"] for row in second["brief"]["families"]))
+        self.assertEqual(first["brief"]["sourceIdentity"], second["brief"]["sourceIdentity"])
+
+    def test_registered_anchors_leave_unknown_factors_explicit(self):
+        result = repository_clues(ROOT, bindings=[["unlisted-factor", "new-hypothesis"]])
+        self.assertFalse(result["brief"]["families"])
+        self.assertIn("new-hypothesis", json.dumps(result))
+        self.assertFalse(result["brief"]["executionAuthorized"])
+
+    def test_explicit_selector_replaces_registered_policy(self):
+        result = repository_clues(ROOT, selector=FACTOR_QUERY, bindings=[
+            ["candidate", "c-continuation-debug-projection"],
+            ["unlisted-factor", "new-hypothesis"]])
+        # This caller chooses disjunction instead of the registered conjunction.
+        self.assertTrue(result["brief"]["families"])
+
+    def test_exact_question_cannot_silently_drop_anchor_bindings(self):
+        with self.assertRaisesRegex(ValueError, "not both"):
+            repository_clues(ROOT, "claim", bindings=[["candidate", "candidate"]])
+
+    def test_cli_anchor_uses_registered_dsl(self):
+        from gambit_smp.trajectory_exploration import main
+        output = io.StringIO()
+        argv = ["trajectory", "clues",
+                '((bindings (("candidate" "c-continuation-debug-projection"))))']
+        with patch.object(sys, "argv", argv), redirect_stdout(output):
+            main()
+        self.assertIn("debug-projection-source-integrated", output.getvalue())
+        self.assertIn("clue-read:", output.getvalue())
+
+    def test_scheme_stdin_uses_the_same_request_reader(self):
+        from gambit_smp.trajectory_exploration import main
+        output = io.StringIO()
+        declaration = '((questions ("manual-label-base-mismatch-is-unexplored")))'
+        with patch.object(sys, "argv", ["trajectory", "clues"]), \
+                patch.object(sys, "stdin", io.StringIO(declaration)), redirect_stdout(output):
+            main()
+        self.assertIn("manual-label-base-mismatch-is-unexplored", output.getvalue())
 
     def test_unscoped_catalog_reads_only_context_declarations(self):
         with patch("gambit_smp.research_actions.discover", side_effect=AssertionError("no inference")):
@@ -408,8 +482,9 @@ print(json.dumps(result))'''
         claim = "manual-label-base-mismatch-is-unexplored"
         first = repository_clues(ROOT, claim)
         output = io.StringIO()
-        with patch("sys.argv", ["trajectory", "clues", "--question", claim,
-                                "--checkpoint", first["checkpoint"]]), redirect_stdout(output):
+        from ascent.trajectory import ClueExchange
+        declaration = ClueExchange.render(dict(questions=[claim], checkpoint=first["checkpoint"]))
+        with patch("sys.argv", ["trajectory", "clues", declaration]), redirect_stdout(output):
             main()
         rendered = output.getvalue()
         self.assertIn(first["checkpoint"], rendered)
