@@ -556,7 +556,8 @@ Result: inert Scheme data containing brief evidence and its checkpoint token.
 The same request accepts questions, selector, constructor and displayBytes.
 selector is caller-written Scheme/Datalog, replacing the registered association;
 its variables may discover facts without prior identifiers. The complete DSL
-contract is in Python help(gambit_smp.repository_clues), not a second query engine.
+contract is available with: from gambit_smp import repository_clues; help(repository_clues).
+repository_clues is a callable export, not an importable submodule.
 Presentation capacity never limits inference or exploration. Only complete shown
 units are acknowledged; hidden evidence keeps expandable references. Reads do
 not choose actions, close the hypothesis space or grant execution authority.

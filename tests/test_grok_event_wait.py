@@ -1,14 +1,15 @@
 import json
-import select
+import os
 import sys
 import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gambit_smp.grok_event_wait import classify, event_path, wait_for_event
+from gambit_smp.grok_event_wait import _file_notifications, classify, event_path, wait_for_event
 
 
 class GrokEventWaitTest(unittest.TestCase):
@@ -40,7 +41,6 @@ class GrokEventWaitTest(unittest.TestCase):
         self.assertEqual(path.parent.name, "01a149f9-3af5-7803-8b71-8ac73fc8834c")
         self.assertIn("%2Ftmp%2Fexample%20workspace", str(path))
 
-    @unittest.skipUnless(hasattr(select, "kqueue"), "Darwin kqueue required")
     def test_waits_for_kernel_file_notification(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "events.jsonl"
@@ -63,7 +63,6 @@ class GrokEventWaitTest(unittest.TestCase):
             self.assertEqual(event["type"], "permission_requested")
             self.assertEqual(event["tool_name"], "run_terminal_command")
 
-    @unittest.skipUnless(hasattr(select, "kqueue"), "Darwin kqueue required")
     def test_historical_unresolved_permission_returns_immediately(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "events.jsonl"
@@ -73,7 +72,6 @@ class GrokEventWaitTest(unittest.TestCase):
             }) + "\n", encoding="utf-8")
             self.assertEqual(wait_for_event(path, 2)["type"], "permission_requested")
 
-    @unittest.skipUnless(hasattr(select, "kqueue"), "Darwin kqueue required")
     def test_immediately_resolved_permission_does_not_wake_supervisor(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "events.jsonl"
@@ -96,6 +94,32 @@ class GrokEventWaitTest(unittest.TestCase):
             finally:
                 timer.join()
             self.assertEqual(event["type"], "supervision_quiet")
+
+    def test_backend_setup_failure_closes_the_log_descriptor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "events.jsonl"
+            path.touch()
+            with patch("gambit_smp.grok_event_wait._file_notifications", side_effect=OSError("watch")), \
+                    patch("gambit_smp.grok_event_wait.os.close", wraps=os.close) as close:
+                with self.assertRaisesRegex(OSError, "watch"):
+                    wait_for_event(path, 1)
+                descriptor = close.call_args.args[0]
+            with self.assertRaises(OSError):
+                os.fstat(descriptor)
+
+    def test_linux_watch_failure_releases_the_notification_descriptor(self):
+        libc = MagicMock()
+        libc.inotify_init1.return_value = 137
+        libc.inotify_add_watch.return_value = -1
+        with patch("gambit_smp.grok_event_wait.sys.platform", "linux"), \
+                patch("ctypes.CDLL", return_value=libc), \
+                patch("ctypes.get_errno", return_value=13), \
+                patch("os.O_CLOEXEC", 0x80000, create=True), \
+                patch("gambit_smp.grok_event_wait.os.close") as close:
+            with self.assertRaisesRegex(OSError, "inotify_add_watch"):
+                with _file_notifications(Path("events.jsonl"), 0):
+                    self.fail("failed watch must not be usable")
+            close.assert_called_once_with(137)
 
 
 if __name__ == "__main__":

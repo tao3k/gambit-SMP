@@ -54,7 +54,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, epilog=
         "trajectory clues: Scheme requests over registered Evidence and caller-owned DSL; "
         "source-bound, expandable incremental slices. Python API: "
-        "gambit_smp.repository_clues and gambit_smp.engine_api. "
+        "from gambit_smp import repository_clues, engine_api (callables, not submodules). "
         "Reads do not select or authorize actions.")
     parser.add_argument("--root", type=Path, help="research checkout containing models and evidence")
     parser.add_argument("--historical-reproduction", action="store_true",

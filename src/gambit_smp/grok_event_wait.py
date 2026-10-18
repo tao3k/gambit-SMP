@@ -7,6 +7,7 @@ import select
 import sys
 import time
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote
 
@@ -37,11 +38,50 @@ def classify(events: list[dict], pending: list[dict]) -> dict | None:
     return pending[-1] if pending else notable
 
 
+@contextmanager
+def _file_notifications(path, fd):
+    if sys.platform.startswith("linux"):
+        import ctypes
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.inotify_init1.argtypes = [ctypes.c_int]
+        libc.inotify_init1.restype = ctypes.c_int
+        libc.inotify_add_watch.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_uint32]
+        libc.inotify_add_watch.restype = ctypes.c_int
+        notify = libc.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        if notify < 0:
+            raise OSError(ctypes.get_errno(), "inotify_init1")
+        try:
+            # Linux UAPI: MODIFY, CLOSE_WRITE, DELETE_SELF, MOVE_SELF.
+            mask = 0x00000002 | 0x00000008 | 0x00000400 | 0x00000800
+            if libc.inotify_add_watch(notify, os.fsencode(path), mask) < 0:
+                raise OSError(ctypes.get_errno(), "inotify_add_watch", str(path))
+
+            def wait(timeout):
+                if not select.select([notify], [], [], timeout)[0]:
+                    return False
+                os.read(notify, 65536)
+                return True
+
+            yield wait
+        finally:
+            os.close(notify)
+    elif hasattr(select, "kqueue"):
+        watcher = select.kqueue()
+        try:
+            watcher.control([select.kevent(
+                fd, filter=select.KQ_FILTER_VNODE,
+                flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
+                fflags=select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND,
+            )], 0, 0)
+            yield lambda timeout: bool(watcher.control(None, 1, timeout))
+        finally:
+            watcher.close()
+    else:
+        raise RuntimeError("grok-wait requires kernel file notifications")
+
+
 def wait_for_event(path: Path, quiet_seconds: float) -> dict:
-    if not hasattr(select, "kqueue"):
-        raise RuntimeError("grok-wait requires Darwin kqueue")
     fd = os.open(path, os.O_RDONLY)
-    watcher = select.kqueue()
     pending: list[dict] = []
     remainder = b""
 
@@ -65,33 +105,21 @@ def wait_for_event(path: Path, quiet_seconds: float) -> dict:
         return pending[-1] if pending else None
 
     try:
-        watcher.control(
-            [
-                select.kevent(
-                    fd,
-                    filter=select.KQ_FILTER_VNODE,
-                    flags=select.KQ_EV_ADD | select.KQ_EV_CLEAR,
-                    fflags=select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND,
-                )
-            ],
-            0,
-            0,
-        )
-        classify(drain(), pending)
-        if event := unresolved_permission():
-            return event
-        deadline = time.monotonic() + quiet_seconds if quiet_seconds > 0 else None
-        while True:
-            timeout = max(0, deadline - time.monotonic()) if deadline else None
-            if not watcher.control(None, 1, timeout):
-                return {"type": "supervision_quiet", "quiet_seconds": quiet_seconds}
-            event = classify(drain(), pending)
-            if pending:
-                event = unresolved_permission()
-            if event is not None:
+        with _file_notifications(path, fd) as wait:
+            classify(drain(), pending)
+            if event := unresolved_permission():
                 return event
+            deadline = time.monotonic() + quiet_seconds if quiet_seconds > 0 else None
+            while True:
+                timeout = max(0, deadline - time.monotonic()) if deadline else None
+                if not wait(timeout):
+                    return {"type": "supervision_quiet", "quiet_seconds": quiet_seconds}
+                event = classify(drain(), pending)
+                if pending:
+                    event = unresolved_permission()
+                if event is not None:
+                    return event
     finally:
-        watcher.close()
         os.close(fd)
 
 

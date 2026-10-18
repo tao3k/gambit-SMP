@@ -7,7 +7,8 @@ downstream compilation is needed.
 The request is Scheme data: `((bindings (("NAME" "VALUE"))))`. Bindings jointly
 match one observation identity, not keywords. The registered Scheme association
 derives scope; a caller-written `selector` may use arbitrary Scheme/Datalog.
-`help(gambit_smp.repository_clues)` documents that DSL.
+Python callers use `from gambit_smp import repository_clues` and
+`help(repository_clues)`; this is a function, not a submodule.
 
 Results contain `brief` and `checkpoint`. `(checkpoint "TOKEN")` continues
 acknowledged evidence across processes/scopes; omission explicitly requests a
