@@ -2,12 +2,14 @@ import unittest
 
 from gambit_smp.framework import ROOT
 from gambit_smp.gc_queue_binding import inspect
+from gambit_smp.source_materialize import locked_source
 
 
 class GCQueueBindingTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.source = (ROOT / ".data/pstate-init-runtime-027/source/lib/mem.c").read_text()
+        with locked_source(ROOT, "evidence/runtime-source.lock.json") as (source, _):
+            cls.source = (source / "lib/mem.c").read_text()
 
     def test_current_reviewed_source_observes_only_existing_policy(self):
         observed = inspect(self.source)

@@ -4,16 +4,17 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
 from gambit_smp import native_capabilities, recipes
-from gambit_smp.framework import ROOT, digest, apply_untracked_patch
+from gambit_smp.framework import ROOT, digest, apply_untracked_patch, available_processors
 from gambit_smp.process_observation import capture
 from gambit_smp.source_capabilities import validate_source_lock
-from gambit_smp.suite_primitives import selected_files
+from gambit_smp.suite_primitives import capacity, selected_files
 
 DIRECTORY = ROOT / "evidence/research/ci"
 
@@ -132,20 +133,65 @@ class GambitCIContracts(unittest.TestCase):
         self.assertEqual("p2\n", result.stdout)
         self.assertEqual(0, result.exit)
 
-    def test_modes_use_existing_suite_executor_and_one_shared_deadline(self):
+    def test_modes_use_existing_suite_executor_and_independent_progress_windows(self):
         recipe, steps = self.recipe("threads")
         modes = [step for step in steps if step["capability"] == "gambit.suite"]
-        self.assertEqual(300, recipe["budgetSeconds"])
-        self.assertNotIn("timeoutPolicy", recipe)
+        self.assertEqual({"mode": "progress", "overheadSeconds": 30}, recipe["timeoutPolicy"])
+        self.assertEqual(max(step["budgetSeconds"] for step in steps) + 30, recipe["budgetSeconds"])
         self.assertEqual([300, 300], [step["budgetSeconds"] for step in modes])
         self.assertEqual(["gsi", "gsc"], [step["arguments"]["mode"] for step in modes])
         for step in modes:
             self.assertIs(recipes.CAPABILITIES[step["capability"]].executor, native_capabilities.suite)
             args = step["arguments"]
-            self.assertEqual(2, args["processors"])
-            self.assertEqual(1, args["jobs"])
+            self.assertNotIn("processors", args)
+            self.assertNotIn("jobs", args)
+            self.assertEqual({"step": "candidate", "output": "source"}, args["expectedSource"])
             selected = selected_files(ROOT / "vendor/gambit/tests/unit-tests", args["selection"])
-            self.assertEqual(sorted(map(str, selected)), sorted(args["expectedFiles"]))
+            self.assertIn("06-thread/thread_start.scm", map(str, selected))
+            self.assertGreater(len(selected), 25)
+            population, jobs = capacity(available_processors(), len(selected), True)
+            self.assertLessEqual(jobs * (population + 1), max(2, available_processors()))
+
+    def test_suite_inventory_must_bind_the_runtime_source(self):
+        _, steps = self.recipe("threads")
+        by_id = {step["id"]: step for step in steps}
+        suite = by_id["gsi"]
+        review = by_id["review-gsi"]
+        native_capabilities.graph(suite, by_id, recipes.CAPABILITIES)
+        native_capabilities.graph(review, by_id, recipes.CAPABILITIES)
+        forged = {**suite, "arguments": {**suite["arguments"],
+                  "expectedSource": {"step": "other", "output": "source"}}}
+        with self.assertRaisesRegex(ValueError, "runtime's exact materialized candidate"):
+            native_capabilities.graph(forged, by_id, recipes.CAPABILITIES)
+        detached = {**review, "dependsOn": ["runtime", "environment-probe"]}
+        with self.assertRaisesRegex(ValueError, "source-bound inventory producer"):
+            native_capabilities.graph(detached, by_id, recipes.CAPABILITIES)
+
+    def test_full_suite_review_declares_every_overlapping_historical_route(self):
+        from gambit_smp.native_review import failure_modes, selected_scope
+
+        _, steps = self.recipe("threads")
+        by_id = {step["id"]: step for step in steps}
+        failures = recipes.read_json(ROOT / "evidence/native-failures.json")["failures"]
+        for mode in ("gsi", "gsc"):
+            args = by_id[mode]["arguments"]
+            ctx = Mock()
+            ctx.artifact.return_value = ROOT / "vendor/gambit"
+            files = [Path(name) for name in native_capabilities.expected_suite_inventory(args, ctx)]
+            self.assertEqual(len(selected_files(ROOT / "vendor/gambit/tests/unit-tests", ["."])) + 5,
+                             len(files))
+            selected = {str(path) for path in files}
+            overlapping = set()
+            for failure in failures:
+                if not selected_scope(failure["file"], selected, files):
+                    continue
+                modes = failure_modes(recipes.read_json(ROOT / failure["receipt"]))
+                if not modes or mode in modes:
+                    overlapping.add(failure["id"])
+            review = by_id["review-" + mode]["arguments"]
+            self.assertEqual(overlapping, set(review["failureIds"]))
+            intent = recipes.read_json(ROOT / review["intent"])
+            self.assertLessEqual(overlapping, {row["id"] for row in intent["failures"]})
 
     def test_every_module_is_required_and_uses_one_artifact(self):
         workflow = (ROOT / ".github/workflows/gambit.yml").read_text()
@@ -154,10 +200,13 @@ class GambitCIContracts(unittest.TestCase):
         self.assertIn('test "$PATCHES" = success', workflow)
         self.assertIn('test "$MODULES" = success', workflow)
         self.assertEqual(2, workflow.count("gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}"))
+        self.assertEqual(2, workflow.count("gambit-engine-${{ github.run_id }}-${{ github.run_attempt }}"))
+        self.assertIn("--portable-seal", workflow)
         self.assertFalse((ROOT / ".github/gambit/runner.py").exists())
         self.assertNotIn(".github/gambit/runner.py", workflow)
         self.assertIn("research --export-runtime", workflow)
         self.assertIn("research --run", workflow)
+        self.assertIn("matrix.module == 'threads' && 30", workflow)
         modules = re.search(r"module: \[(.*)\]", workflow).group(1).split(", ")
         for name in modules:
             self.recipe(name)
@@ -168,6 +217,13 @@ class GambitCIContracts(unittest.TestCase):
             _, steps = self.recipe(name)
             step = next(step for step in steps if step["capability"] == "gambit.upstream-tests")
             self.assertEqual(targets, step["arguments"]["targets"])
+            if name == "upstream-check":
+                fixtures = step["arguments"]["additionalFixtures"]
+                self.assertEqual({"12-os/process_spawn.scm"}, set(fixtures))
+                fixture = fixtures["12-os/process_spawn.scm"]
+                self.assertEqual(digest(ROOT / fixture["source"]), fixture["sha256"])
+                selected = selected_files(ROOT / "vendor/gambit/tests/unit-tests", ["."])
+                self.assertNotIn(Path("12-os/process_spawn.scm"), selected)
             self.assertEqual("evidence/native-failures.json", step["arguments"]["failures"])
 
     def test_policy_and_dependency_changes_trigger_native_workflow(self):
@@ -178,6 +234,30 @@ class GambitCIContracts(unittest.TestCase):
             for path in ("evidence/dsl/**", "evidence/native-failures.json",
                          "evidence/fixtures/**/source.lock.json", "pyproject.toml", "uv.lock"):
                 self.assertIn("'" + path + "'", paths)
+
+    def test_known_failure_observations_are_committed_with_complete_archives(self):
+        from gambit_smp.native_archive import validate
+
+        failures = json.loads((ROOT / "evidence/native-failures.json").read_text())
+        observations = {row["observation"] for row in failures["failures"] if "observation" in row}
+        for name in observations:
+            with self.subTest(observation=name):
+                observed = json.loads((ROOT / name).read_text())
+                archive = observed["archive"]["path"]
+                self.assertEqual(observed["archive"]["sha256"], digest(ROOT / archive))
+                inputs = validate(ROOT, archive)
+                for path in (name, *inputs):
+                    tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "--", path],
+                                             cwd=ROOT, capture_output=True)
+                    self.assertEqual(0, tracked.returncode, "historical evidence must be committed: " + path)
+
+    def test_tfib_stress_uses_inactivity_watchdog_not_whole_wall_budget(self):
+        raw = json.loads((DIRECTORY / "tfib-stress.recipe.json").read_text())
+        self.assertNotIn("budgetSeconds", raw)
+        self.assertEqual("progress", raw["timeoutPolicy"]["mode"])
+        caps = {step["id"]: step["budgetSeconds"] for step in raw["steps"]}
+        self.assertEqual(1800, caps["gsi"])
+        self.assertEqual(1800, caps["gsc"])
 
 
 if __name__ == "__main__":

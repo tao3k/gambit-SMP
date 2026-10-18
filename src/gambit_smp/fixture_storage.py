@@ -33,8 +33,10 @@ def source_capacity(destination):
     with (managed / ".source-capacity.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         trees = source_trees(managed)
-        if len(trees) >= 2 and destination not in trees:
-            raise ValueError("fixture source limit is 2: reuse or prune an inactive tree first")
+        fixtures = {tree.relative_to(managed).parts[0] for tree in trees}
+        fixture = destination.relative_to(managed).parts[0]
+        if len(fixtures) >= 2 and fixture not in fixtures:
+            raise ValueError("fixture source limit is 2: reuse or prune an inactive fixture first")
         yield
 
 

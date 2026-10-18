@@ -281,7 +281,7 @@ def manifest_paths(engine):
     return manifest
 
 
-def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
+def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, portable=False):
     from gambit_smp.artifact_storage import transfer_generation, clone_file
     from gambit_smp.recipes import tool_files
     from gambit_smp.native_review import POLICY
@@ -357,7 +357,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
                 raise ValueError("sealed resource role collision")
             continue
         if name.startswith(("runtime/", "python/ascent/")) and GENERATION.fullmatch(path.suffix):
-            mode = transfer_generation(path, target)
+            mode = transfer_generation(path, target, portable=portable)
             if digest(target) != before[path]:
                 raise ValueError("runtime generation changed during transfer")
             info = target.stat(follow_symlinks=False)
@@ -768,6 +768,19 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
 
 def inspect(out, *, input_archive=None):
     from gambit_smp.recipes import inspect_run, read_json
+    if (out / "engine.json").is_file():
+        if input_archive is not None or (out / "receipt.json").exists():
+            raise ValueError("engine inspection requires an unambiguous seal, not a run or input archive")
+        manifest = manifest_paths(out)
+        dependencies = {name for name in manifest["hostTools"] if name.startswith("quint-file:")}
+        return {"artifactKind": "sealed-engine", "engineId": manifest["engineId"],
+                "hostTools": {name: row for name, row in manifest["hostTools"].items()
+                              if name not in dependencies},
+                "hostToolDependencyCount": len(dependencies),
+                "capabilities": manifest["capabilities"],
+                "identityStatus": "CURRENT", "executionLaunched": False,
+                "runtimeAdmitted": False, "releaseAdmitted": False,
+                "sourceRefinementAdmitted": False}
     receipt = read_json(out / "receipt.json")
     if receipt.get("schema") != "sealed-research-run.v1":
         raise ValueError("sealed research receipt required")
@@ -806,7 +819,8 @@ def main():
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--seal", type=Path)
     selection.add_argument("--run")
-    selection.add_argument("--read", type=Path)
+    selection.add_argument("--read", type=Path,
+                           help="validate and inspect a sealed engine or retained research run; never execute")
     selection.add_argument("--export-producer", type=Path)
     selection.add_argument("--export-runtime", type=Path)
     parser.add_argument("--step")
@@ -820,7 +834,11 @@ def main():
     parser.add_argument("--ascent-api", type=Path)
     parser.add_argument("--provider-sources", type=Path,
                         help="validated engine archive for exact provider build inputs")
+    parser.add_argument("--portable-seal", action="store_true",
+                        help="copy sealed generations for transport to another host job")
     args = parser.parse_args()
+    if args.portable_seal and not args.seal:
+        parser.error("--portable-seal requires --seal")
     from gambit_smp.artifact_storage import runtime_output
     if args.seal:
         args.seal = runtime_output(ROOT, args.seal)
@@ -831,7 +849,8 @@ def main():
             if args.gcc is None or args.ascent_api is None:
                 parser.error("--seal requires host-selected --gcc and --ascent-api")
             manifest = seal(args.seal, gcc=args.gcc, quint=args.quint, node=args.node,
-                            ascent_api=args.ascent_api, provider_sources=args.provider_sources)
+                            ascent_api=args.ascent_api, provider_sources=args.provider_sources,
+                            portable=args.portable_seal)
             print(json.dumps({"engineId": manifest["engineId"], "files": len(manifest["files"])}))
             return 0
         if args.read:

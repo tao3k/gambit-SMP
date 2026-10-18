@@ -6,7 +6,7 @@ runtime. Native adapters and Evidence rules must authorize any consumption.
 import hashlib
 import json
 from pathlib import Path
-from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
+from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
 
 from gambit_smp.framework import digest, relative
 
@@ -148,7 +148,7 @@ def observe_journal(root, run, target, *, historical=False):
     from gambit_smp.research_kernel import manifest_paths
     from gambit_smp.recipes import read_json, inspect_outputs
     root, run = root.resolve(strict=True), run.resolve(strict=True)
-    fixture_root(root, run)
+    observation_root(root, run)
     outer_path = run / "receipt.json"
     raw = outer_path.read_bytes()
     outer = json.loads(raw)
@@ -209,7 +209,7 @@ def observe(root, run, target):
     """Bind the original generator, all inputs/artifacts and successful closure."""
     from gambit_smp.research_kernel import inspect, manifest_paths
     root, run = root.resolve(strict=True), run.resolve(strict=True)
-    fixture_root(root, run)
+    observation_root(root, run)
     outer_path, child_path = run / "receipt.json", run / "run/receipt.json"
     outer_raw, child_raw = outer_path.read_bytes(), child_path.read_bytes()
     outer, child = json.loads(outer_raw), json.loads(child_raw)

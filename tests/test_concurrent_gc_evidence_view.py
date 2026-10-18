@@ -6,6 +6,7 @@ from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load
 from gambit_smp.framework import ROOT
 from gambit_smp import research_actions
+from tests.historical_view import projection
 
 VIEW = "evidence/scenarios/concurrent-gc/fdset-captured-032.view.json"
 
@@ -32,11 +33,14 @@ class ConcurrentGCViewTests(unittest.TestCase):
         expected = {ref["id"]: ref["sha256"] for ref in original["references"]}
         for ref in captured["references"]:
             self.assertEqual(ref["sha256"], expected[ref["id"]])
-            self.assertEqual(digest(ROOT / ref["path"]), ref["sha256"])
             self.assertTrue(ref["path"].startswith("evidence/source-results/view-custody/"))
+            if (ROOT / ref["path"]).is_file():
+                self.assertEqual(digest(ROOT / ref["path"]), ref["sha256"])
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            load(ROOT, VIEW)
 
     def test_flags_model_sources_and_unclosed_native_obligations(self):
-        document, facts, catalog, inputs = load(ROOT, VIEW)
+        document, facts, catalog, inputs = projection(ROOT, VIEW)
         self.assertGreaterEqual(len(inputs), 30)
         with engine_api() as (engine, _):
             before, first = evaluate(engine, facts, catalog, document["queries"])
@@ -58,7 +62,10 @@ class ConcurrentGCViewTests(unittest.TestCase):
             self.assertGreater(last["sourceGeneration"], first["sourceGeneration"])
 
     def test_actual_action_discovery_selection_and_observation(self):
-        catalog = research_actions.discover(ROOT, {"views": [VIEW]})
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            research_actions.discover(ROOT, {"views": [VIEW]})
+        current = "evidence/scenarios/concurrent-gc/darwin-source-032.view.json"
+        catalog = research_actions.discover(ROOT, {"views": [current]})
         self.assertEqual(len(catalog["actions"]), 11)
         selected = next(r for r in catalog["actions"] if r["query"] == "missing_metric")
         self.assertEqual(selected["risk"], "read-only")

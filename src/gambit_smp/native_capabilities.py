@@ -72,13 +72,17 @@ def graph(step, by_id, registry):
     if step["capability"] == "gambit.review":
         args = step["arguments"]
         target = by_id.get(args["target"])
-        if (target is None or target["capability"] not in {"gambit.suite", "gambit.bootstrap"}
+        upstream = target is not None and target["capability"] == "gambit.upstream-tests"
+        expected = (target["arguments"].get("reviews", {}).get(args.get("mode")) if upstream else
+                    target["arguments"].get("retryReview") if target is not None else None)
+        if (target is None or target["capability"] not in {"gambit.suite", "gambit.bootstrap", "gambit.upstream-tests"}
+                or (args.get("mode") in {"gsi", "gsc"}) != upstream
                 or step["id"] not in target["dependsOn"]
-                or target["arguments"].get("retryReview") != {"step": step["id"], "output": "review"}
+                or expected != {"step": step["id"], "output": "review"}
                 or any(target["arguments"][key] != args[key] for key in ("runtime", "identity"))
                 or target["arguments"].get("environmentProbe") != args.get("environmentProbe")
                 or args["runtime"]["step"] != args["identity"]["step"]):
-            raise ValueError("review must bind one matching same-producer downstream suite or bootstrap")
+            raise ValueError("review must bind one matching same-producer downstream native target")
     if step["capability"] in {"gambit.suite", "gambit.bootstrap"} and isinstance(step["arguments"].get("retryReview"), dict):
         ref = step["arguments"]["retryReview"]
         reference(ref)
@@ -87,6 +91,33 @@ def graph(step, by_id, registry):
                 or producer["capability"] != "gambit.review" or ref["output"] != "review"
                 or producer["arguments"]["target"] != step["id"]):
             raise ValueError("suite requires its declared bound review producer")
+    if step["capability"] == "gambit.upstream-tests":
+        for mode, ref in step["arguments"].get("reviews", {}).items():
+            if not isinstance(ref, dict):
+                continue
+            reference(ref)
+            producer = by_id.get(ref["step"])
+            if (producer is None or ref["step"] not in step["dependsOn"]
+                    or producer["capability"] != "gambit.review" or ref["output"] != "review"
+                    or producer["arguments"].get("target") != step["id"]
+                    or producer["arguments"].get("mode") != mode):
+                raise ValueError("official test requires its matching per-mode bound review producer")
+    if step["capability"] == "gambit.suite" and "expectedSource" in step["arguments"]:
+        ref = step["arguments"]["expectedSource"]
+        reference(ref)
+        producer = by_id.get(ref["step"])
+        runtime = by_id.get(step["arguments"]["runtime"]["step"])
+        if (producer is None or producer["capability"] != "gambit.materialize"
+                or ref["output"] != "source" or ref["step"] not in step["dependsOn"]
+                or runtime is None or runtime["capability"] not in {
+                    "gambit.runtime-import", "gambit.completed-runtime"}
+                or runtime["arguments"]["source"] != ref):
+            raise ValueError("suite inventory source must be the runtime's exact materialized candidate")
+    if step["capability"] == "gambit.review":
+        target = by_id[step["arguments"]["target"]]
+        ref = target["arguments"].get("expectedSource")
+        if ref is not None and ref["step"] not in step["dependsOn"]:
+            raise ValueError("review must depend on the same source-bound inventory producer")
 
 
 def validate_materialize(args, inputs):
@@ -175,9 +206,16 @@ def fixture_parameters(args):
 
 
 def validate_suite(args, inputs):
-    fields(args, ("runtime", "identity", "mode", "regime", "selection", "expectedFiles"),
-           ("processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles"))
+    fields(args, ("runtime", "identity", "mode", "regime", "selection"),
+           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles"))
     fixture_parameters(args)
+    source_bound = "expectedSource" in args
+    if source_bound == ("expectedFiles" in args):
+        raise ValueError("exactly one explicit or source-bound suite inventory required")
+    if source_bound:
+        reference(args["expectedSource"])
+        if any(key in args for key in ("observationFiles", "compilerPhaseFiles")):
+            raise ValueError("per-file controls require an explicit declared inventory")
     if "observationFiles" in args:
         from gambit_smp.suite_observations import validate
         validate(args["observationFiles"], args["expectedFiles"])
@@ -196,7 +234,7 @@ def validate_suite(args, inputs):
         raise ValueError("explicit suite mode required")
     if args["regime"] not in {"whole-sequential", "whole-parallel", "atomic-coverage"}:
         raise ValueError("explicit suite budget regime required")
-    for field in ("selection", "expectedFiles"):
+    for field in ("selection",) if source_bound else ("selection", "expectedFiles"):
         value = args[field]
         if (not isinstance(value, list) or not value or any(not isinstance(name, str) or
                 Path(name).is_absolute() or ".." in Path(name).parts for name in value)
@@ -213,7 +251,7 @@ def validate_suite(args, inputs):
     elif "batchBudgetSeconds" in args:
         raise ValueError("batch budget belongs only to atomic coverage")
     caps = args.get("fileBudgetSeconds", {})
-    if not isinstance(caps, dict) or not set(caps) <= set(args["expectedFiles"]):
+    if not isinstance(caps, dict) or (not source_bound and not set(caps) <= set(args["expectedFiles"])):
         raise ValueError("file budgets must belong to the exact selected inventory")
     from gambit_smp.recipes import budget
     for cap in caps.values():
@@ -235,13 +273,14 @@ def validate_suite(args, inputs):
         fields(group, ("files", "budgetSeconds"))
         names = group["files"]
         if (not isinstance(names, list) or not names or any(not isinstance(item, str) for item in names)
-                or len(set(names)) != len(names) or not set(names) <= set(args["expectedFiles"])
+                or len(set(names)) != len(names)
+                or not source_bound and not set(names) <= set(args["expectedFiles"])
                 or grouped.intersection(names) or set(caps).intersection(names)):
             raise ValueError("group budgets require disjoint exact selected file inventories")
         budget(group["budgetSeconds"])
         grouped.update(names)
     fixtures = args.get("additionalFixtures", {})
-    if not isinstance(fixtures, dict) or not set(fixtures) <= set(args["expectedFiles"]):
+    if not isinstance(fixtures, dict) or (not source_bound and not set(fixtures) <= set(args["expectedFiles"])):
         raise ValueError("additional fixtures must belong to the exact selected inventory")
     for name, item in fixtures.items():
         fields(item, ("source", "sha256"))
@@ -728,13 +767,110 @@ def object_build(args, ctx):
 
 
 def validate_review(args, inputs):
-    fields(args, ("runtime", "identity", "intent", "target"), ("environmentProbe",))
+    fields(args, ("runtime", "identity", "intent", "target"),
+           ("environmentProbe", "mode", "failureIds", "sourceSuccessor"))
     reference(args["runtime"])
     reference(args["identity"])
     if "environmentProbe" in args:
         reference(args["environmentProbe"])
     if args["intent"] not in inputs or not args["intent"].endswith(".json") or not isinstance(args["target"], str):
         raise ValueError("declared review intent and target step required")
+    if "sourceSuccessor" in args and (args["sourceSuccessor"] not in inputs
+                                      or not args["sourceSuccessor"].endswith(".json")):
+        raise ValueError("source successor must be a declared review input")
+    if "mode" in args and args["mode"] not in {"gsi", "gsc"}:
+        raise ValueError("official review requires one native mode")
+    if "failureIds" in args:
+        ids = args["failureIds"]
+        if (not isinstance(ids, list) or not ids or len(ids) != len(set(ids))
+                or any(not isinstance(value, str) or not value for value in ids)):
+            raise ValueError("unique nonempty failure review scope required")
+
+
+def select_review_intent(intent, failure_ids):
+    if failure_ids is None:
+        return intent
+    ids = set(failure_ids)
+    selected = [row for row in intent["failures"] if row.get("id") in ids]
+    if len(selected) != len(ids) or {row["id"] for row in selected} != ids:
+        raise ValueError("declared failure scope must match unique causal intent entries")
+    return {**intent, "failures": selected}
+
+
+def bind_source_successor(intent, successor, ctx, target_args, intent_path):
+    from copy import deepcopy
+    from gambit_smp.recipes import read_json, source_path
+
+    fields(successor, ("schema", "baseIntent", "sourceLock", "priorPatch", "failureId",
+                       "changeId", "file", "priorAfter", "currentAfter", "retainedLine"))
+    if successor["schema"] != "current-source-successor-review.v1":
+        raise ValueError("typed source successor required")
+    for key in ("baseIntent", "sourceLock", "priorPatch"):
+        fields(successor[key], ("path", "sha256"))
+        path = source_path(ctx.root, successor[key]["path"])
+        if digest(path) != successor[key]["sha256"]:
+            raise ValueError("source successor reference drift: " + key)
+        ctx.bind([path])
+    if successor["baseIntent"] != {"path": intent_path, "sha256": digest(ctx.root / intent_path)}:
+        raise ValueError("source successor must bind the unchanged base intent")
+    ref = target_args.get("expectedSource")
+    if ref is None:
+        raise ValueError("source successor requires a source-bound native suite")
+    producer = next((row for row in ctx.receipt["plannedSteps"] if row["id"] == ref["step"]), None)
+    if (producer is None or producer["capability"] != "gambit.materialize"
+            or producer["arguments"]["sourceLock"] != successor["sourceLock"]["path"]):
+        raise ValueError("source successor must bind the current materialized producer")
+    lock = read_json(ctx.root / successor["sourceLock"]["path"])
+    file = successor["file"]
+    after = successor["currentAfter"]
+    if (not isinstance(file, str) or not isinstance(after, str)
+            or lock.get("files", {}).get(file, {}).get("candidateSha256") != after):
+        raise ValueError("source successor must match the current source lock")
+    source = ctx.artifact(ref, "source-tree")
+    actual = relative(source, file)
+    current_patch = source_path(ctx.root, lock["patch"])
+    if digest(actual) != after or digest(current_patch) != lock["patchSha256"]:
+        raise ValueError("source successor differs from the materialized candidate")
+    line = successor["retainedLine"]
+    prior_patch = ctx.root / successor["priorPatch"]["path"]
+    if (not isinstance(line, str) or not line.strip() or "\n" in line
+            or ("+" + line) not in prior_patch.read_text()
+            or ("+" + line) not in current_patch.read_text()
+            or line not in actual.read_text()):
+        raise ValueError("source successor did not retain the reviewed repair line")
+    ctx.bind([actual, current_patch])
+    revised = deepcopy(intent)
+    rows = [row for row in revised["failures"] if row["id"] == successor["failureId"]]
+    if len(rows) != 1:
+        raise ValueError("source successor requires one selected failure")
+    changes = [change for change in rows[0]["changes"] if change["id"] == successor["changeId"]]
+    if (len(changes) != 1 or changes[0]["kind"] != "source" or changes[0]["path"] != file
+            or changes[0]["after"] != successor["priorAfter"]):
+        raise ValueError("source successor cannot alter unrelated causal claims")
+    changes[0]["after"] = after
+    return revised
+
+
+def expected_suite_inventory(args, ctx):
+    if "expectedSource" not in args:
+        return args["expectedFiles"]
+    from gambit_smp.suite_primitives import selected_files
+    source = ctx.artifact(args["expectedSource"], "source-tree")
+    files = [str(path) for path in selected_files(source / "tests/unit-tests", args["selection"],
+                                                   inventory=args.get("inventory", "unit"))]
+    for name in args.get("additionalFixtures", {}):
+        path = Path(name)
+        if (name in files or not any(path.is_relative_to(Path(selection)) for selection in args["selection"])
+                or path.name.endswith("_stress.scm") != (args.get("inventory", "unit") == "stress")):
+            raise ValueError("source-bound fixture must extend the selected inventory exactly once")
+        files.append(name)
+    files.sort()
+    selected = set(files)
+    if any(not set(group["files"]) <= selected for group in args.get("groupBudgetSeconds", {}).values()):
+        raise ValueError("group budget escaped the source-bound suite inventory")
+    if not set(args.get("fileBudgetSeconds", {})) <= selected:
+        raise ValueError("file budget escaped the source-bound suite inventory")
+    return files
 
 
 def validate_probe(args, inputs):
@@ -797,10 +933,34 @@ def bind_review(args, ctx):
     fields(intent, ("schema", "failures"))
     if intent["schema"] != "current-producer-review-intent.v1" or not isinstance(intent["failures"], list):
         raise ValueError("typed causal intent required")
+    intent = select_review_intent(intent, args.get("failureIds"))
     target_args = target["arguments"]
+    successor_path = None
+    if "sourceSuccessor" in args:
+        successor_path = source_path(ctx.root, args["sourceSuccessor"])
+        ctx.bind([successor_path])
+        intent = bind_source_successor(intent, read_json(successor_path), ctx, target_args, args["intent"])
     if target["capability"] == "gambit.bootstrap":
         selection, tested_unit = [Path("makefile")], runtime
         target_args = {**target_args, "mode": "bootstrap", "regime": "build-step", "operation": "from-scratch"}
+    elif target["capability"] == "gambit.upstream-tests":
+        from gambit_smp.upstream_tests import infer_scope, scope_contract
+        if target_args.get("additionalFixtures"):
+            copied = ctx.directory / "source"
+            storage = transfer_tree(runtime, copied)
+            ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-runtime", **storage})
+            runtime = copied
+            additional_fixtures(target_args, ctx, runtime / "tests/unit-tests")
+        contract, makefile = scope_contract(ctx, runtime)
+        tested_unit = makefile.parent / "unit-tests"
+        _, operations, selection, modes, _ = infer_scope(
+            ctx, contract, makefile, target_args["targets"], unit_root=tested_unit)
+        if args["mode"] not in modes:
+            raise ValueError("review mode absent from source-bound official test closure")
+        target_args = {**target_args, "mode": args["mode"], "regime": "upstream-make",
+                       "operation": " ".join(target_args["targets"]), "operations": operations,
+                       "requestedOperations": target_args["targets"], "unitModes": modes,
+                       "makefileScope": makefile.relative_to(runtime).as_posix()}
     else:
         tested_unit = runtime / "tests/unit-tests"
         if target_args.get("additionalFixtures"):
@@ -810,7 +970,7 @@ def bind_review(args, ctx):
             tested_unit = copied / "unit-tests"
             additional_fixtures(target_args, ctx, tested_unit)
         selection = selected_files(tested_unit, target_args["selection"], inventory=target_args.get("inventory", "unit"))
-        if sorted(map(str, selection)) != sorted(target_args["expectedFiles"]):
+        if sorted(map(str, selection)) != sorted(expected_suite_inventory(target_args, ctx)):
             raise ValueError("review target exact fixture inventory mismatch")
     current = campaign(ctx, target_args, runtime, identity, selection,
                        tested_unit, suite_budget=target["budgetSeconds"])
@@ -823,6 +983,8 @@ def bind_review(args, ctx):
     output = ctx.directory / "bound-review.json"
     output.write_text(json.dumps({"schema": "bound-native-review.v1", "document": document,
         "candidateReceiptSha256": digest(identity), "intent": {"path": args["intent"], "sha256": digest(intent_path)},
+        **({"sourceSuccessor": {"path": args["sourceSuccessor"], "sha256": digest(successor_path)}}
+           if successor_path is not None else {}),
         "policyResult": result, "runtimeAdmitted": False}, indent=2) + "\n")
     return {"reviewDecision": result["decision"], "target": args["target"],
             "outputs": ctx.publish("review", "bound-native-review", output)}
@@ -864,7 +1026,7 @@ def suite(args, ctx):
     storage = transfer_tree(runtime / "tests", copied, dirs_exist_ok=True)
     additional_fixtures(args, ctx, copied / "unit-tests")
     files = selected_files(copied / "unit-tests", args["selection"], inventory=args.get("inventory", "unit"))
-    if sorted(str(path) for path in files) != sorted(args["expectedFiles"]):
+    if sorted(str(path) for path in files) != sorted(expected_suite_inventory(args, ctx)):
         raise ValueError("suite selected inventory differs from exact declared files")
     if "engine" not in ctx.receipt:
         raise ValueError("suite execution requires the sealed native-rule review lane")

@@ -44,4 +44,4 @@ class CurrentProducerReviewTests(unittest.TestCase):
         self.assertTrue(all(row.index("/usr/bin") < row.index("/unrelated/node/bin") for row in searches))
         self.assertLess(environment["PATH"].split(":").index("/usr/bin"),
                         environment["PATH"].split(":").index("/unrelated/node/bin"))
-        self.assertEqual("/usr/bin/ld", str(tools["ld"]))
+        self.assertEqual(Path("/usr/bin/ld").resolve(), tools["ld"])

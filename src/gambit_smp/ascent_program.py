@@ -47,12 +47,15 @@ def construction_slot():
 
 
 @contextmanager
-def construction_admission():
+def construction_admission(*, deadline=None):
     slot = construction_slot()
     if slot is None:
         yield
         return
-    path, deadline = slot
+    path, original_deadline = slot
+    deadline = original_deadline if deadline is None else deadline
+    if type(deadline) not in (int, float) or not 0 < deadline < float("inf"):
+        raise ValueError("finite construction deadline required")
     identity = (os.getpid(), threading.get_ident(), path, deadline)
     if _construction_owner.get() == identity:
         if time.monotonic() >= deadline:

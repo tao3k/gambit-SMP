@@ -10,6 +10,7 @@ from unittest.mock import patch
 from gambit_smp.artifact_storage import clone_file, transfer_generation, transfer_tree
 from gambit_smp.artifact_storage import cache_path, runtime_output
 from gambit_smp.artifact_storage import database_path, migrate_database, fixture_name, fixture_path
+from gambit_smp.artifact_storage import fixture_root, observation_root
 
 
 class ArtifactStorageTests(unittest.TestCase):
@@ -83,6 +84,51 @@ class ArtifactStorageTests(unittest.TestCase):
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     cache_path(root, name)
 
+    def test_receipt_cache_roundtrip_does_not_expand_source_workspace_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            run = root / ".cache/research-observations/bootstrap"
+            run.mkdir(parents=True)
+            self.assertEqual(root / ".cache", observation_root(root, run))
+            self.assertEqual(".cache/research-observations/bootstrap", fixture_name(root, run))
+            self.assertEqual(run, fixture_path(root, fixture_name(root, run)))
+            with self.assertRaisesRegex(ValueError, "fixture store"):
+                fixture_root(root, run)
+            for path in (root / ".cache", root / "evidence/run", root.parent / "outside"):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    observation_root(root, path)
+
+    def test_in_place_receipt_root_does_not_depend_on_disposable_data_directory(self):
+        import json
+        from gambit_smp.framework import digest
+        from gambit_smp.artifact_storage import seal_workspace_state
+        from gambit_smp.recipes import tree_identity, inspect_run
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            source = root / "evidence/source.c"
+            source.parent.mkdir()
+            source.write_text("source fixture")
+            run = root / ".cache/run"
+            workspace = run / "workspace"
+            workspace.mkdir(parents=True)
+            (workspace / "generated.c").write_text("generated fixture")
+            state = seal_workspace_state(root, workspace,
+                root / ".cache/research/workspace-states/unit.json", {"evidence/source.c": digest(source)})
+            tools = run / "tools.json"
+            tools.write_text("{}")
+            receipt = {"schema": "evidence-recipe-run.v1", "recipe": "fixture", "outcome": "DENY",
+                "workspacePolicy": "in-place", "inputs": {str(source): digest(source)},
+                "toolInputs": {"path": "tools.json", "sha256": digest(tools)},
+                "steps": [{"id": "source", "outputs": {"source": {
+                    "path": "workspace", "type": "source-tree", "identity": tree_identity(workspace),
+                    "stateEvidence": state}}}]}
+            (run / "receipt.json").write_text(json.dumps(receipt))
+            self.assertFalse((root / ".data").exists())
+            result = inspect_run(run)
+            self.assertEqual(result["identityStatus"], "CURRENT")
+            self.assertEqual(result["evidenceBindingStatus"], "CURRENT")
+            self.assertEqual(result["recordedOutcome"], "DENY")
+
     def test_cache_alias_cannot_write_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self.repository(directory)
@@ -92,6 +138,8 @@ class ArtifactStorageTests(unittest.TestCase):
                 cache_path(root, "run")
             with self.assertRaisesRegex(ValueError, "cache alias"):
                 runtime_output(root, root / ".cache/run")
+            with self.assertRaises(ValueError):
+                observation_root(root, root / ".cache/run")
 
     def test_runtime_outputs_stay_outside_git_sources(self):
         with tempfile.TemporaryDirectory() as directory:

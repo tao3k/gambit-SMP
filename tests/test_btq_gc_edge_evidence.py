@@ -153,7 +153,9 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
     def test_allocator_object_candidate_retains_parent_and_does_not_admit_runtime(self):
         item = json.loads((ROOT/"evidence/fixtures/darwin-allocator-acquire/object-observation.json").read_text())
         for field in ("sourceLock", "recipe", "inputArchive"):
-            self.assertEqual(item[field+"Sha256"],digest(ROOT/item[field]))
+            source = (ROOT / "tests/fixtures/allocator-acquire-input-history/inputs.json"
+                      if field == "inputArchive" else ROOT / item[field])
+            self.assertEqual(item[field+"Sha256"], digest(source))
         parent = json.loads((ROOT/"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json").read_text())
         candidate = json.loads((ROOT/item["sourceLock"]).read_text())
         self.assertEqual(parent["revision"],candidate["revision"])

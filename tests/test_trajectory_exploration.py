@@ -12,7 +12,7 @@ import uuid
 from unittest.mock import patch
 
 from gambit_smp.framework import digest
-from gambit_smp.reasoning_history import (append_trajectory_attempt, canonical, fingerprint,
+from gambit_smp.reasoning_history import (append_trajectory_attempt,
                                           read_trajectory_attempts)
 from gambit_smp.trajectory_exploration import candidate, context, inspect, record
 
@@ -39,15 +39,13 @@ class TrajectoryExplorationTests(unittest.TestCase):
                          "discriminators": []},
         }
 
-    def completed_action(self, *, authorized=True, reused_from=None):
+    def completed_action(self, *, authorized=True):
         from gambit_smp.research_actions import _database
 
         handle = str(uuid.uuid4())
         request = {"action": "question", "sourceIdentity": self.snapshot["sourceIdentity"],
                    "revision": self.snapshot["revision"], "authorization": authorized}
         result = {"status": "COMPLETED", "outcome": "RECORDED", "runtimeAdmitted": False}
-        if reused_from is not None:
-            result["reusedFromAction"] = reused_from
         with closing(_database(self.root)) as db:
             db.execute("INSERT INTO requests VALUES (?,?,?)",
                        (handle, json.dumps(request), json.dumps(result)))

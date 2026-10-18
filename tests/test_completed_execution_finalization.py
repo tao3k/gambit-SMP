@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -14,8 +15,38 @@ from types import SimpleNamespace
 
 
 class CompletedExecutionFinalizationTests(unittest.TestCase):
-    # Real 100ms process controls need the same owner-wave barrier as discovery.
+    # Keep real-process timing controls behind the owner-wave barrier.
     validation_after_domains = True
+
+    def owner_shutdown(self, *, window, finalization, stale_slot=False):
+        from gambit_smp.evidence_capabilities import EvaluationOwner
+        from gambit_smp.ascent_program import session_construction_slot
+        from contextlib import nullcontext
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            owner = EvaluationOwner(root, root, time.monotonic() + window)
+            owner.engine_id = "fixture"
+            owner.log = (root / "stderr.log").open("wb")
+            owner.argv = [sys.executable, "-c",
+                          "import sys,time; sys.stdin.read(); time.sleep(" + str(finalization) + ")"]
+            owner.process = subprocess.Popen(owner.argv, stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=owner.log)
+            owner.records = [{"requestCompleted": True}]
+            slot = session_construction_slot(root / "slot", time.monotonic() - 1) if stale_slot else nullcontext()
+            with patch("gambit_smp.research_kernel.execution_identity", return_value={"engineId": "fixture"}), slot:
+                return owner.close()
+
+    def test_owner_finalizes_within_renewed_stage_deadline_not_one_second(self):
+        result = self.owner_shutdown(window=4, finalization=1.2, stale_slot=True)
+        self.assertEqual(result["exit"], 0)
+        self.assertFalse(result["forcedTermination"])
+        self.assertTrue(result["parentReaped"])
+
+    def test_owner_finalization_still_stops_at_actual_deadline(self):
+        result = self.owner_shutdown(window=.05, finalization=10)
+        self.assertNotEqual(result["exit"], 0)
+        self.assertTrue(result["forcedTermination"])
+        self.assertTrue(result["parentReaped"])
 
     def test_progress_owner_uses_renewed_review_deadline_not_old_total_wall(self):
         owner = SimpleNamespace(deadline=420)

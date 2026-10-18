@@ -23,6 +23,7 @@ EVIDENCE_TESTS = (
     "tests.test_protocol_evidence", "tests.test_protocol_report_links", "tests.test_recover_model",
     "tests.test_review_graph", "tests.test_review_validation", "tests.test_agent_context",
     "tests.test_history_journal", "tests.test_history_recovery", "tests.test_history_protocol",
+    "tests.test_progressive_clues", "tests.test_trajectory_exploration", "tests.test_evidence_views",
 )
 
 

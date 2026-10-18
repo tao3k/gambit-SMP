@@ -1,9 +1,12 @@
 """Actual native policy controls for exact whole-wall-clock correspondence."""
 import copy
+import os
+import shutil
 import unittest
 
 from gambit_smp.ascent_program import engine_api, load_catalog, query
 from gambit_smp.framework import ROOT
+from gambit_smp.process_observation import capture
 
 
 class NativeCampaignBudgetPolicyTests(unittest.TestCase):
@@ -67,3 +70,18 @@ class NativeCampaignBudgetPolicyTests(unittest.TestCase):
         self.assertEqual([("DENY",)], self.evaluate()["decision"])
         self.facts["exact_atomic_inventory"] = [["old"]]
         self.assertEqual([("RETRY_ELIGIBLE",)], self.evaluate()["decision"])
+
+
+class NativeBudgetToolchainModelTests(unittest.TestCase):
+    def test_compiler_cost_disjoint_model_keeps_assertions_reviewed(self):
+        quint = shutil.which("quint")
+        self.assertIsNotNone(quint, "actual Quint required")
+        model = ROOT / "models/gambit/native_budget_toolchain_scope.qnt"
+        result = capture([quint, "test", str(model), "--main", "native_budget_toolchain_scope",
+                          "--backend", "typescript", "--seed", "0x219a", "--max-samples", "50"],
+                         ROOT, 15, dict(os.environ))
+        self.assertEqual(0, result.exit, result.stdout + result.stderr)
+        self.assertFalse(result.timeout)
+        for name in ("distinctBudgetTest", "watchdogBudgetTest", "assertionReviewTest",
+                     "assertionDisjointControlTest"):
+            self.assertIn(name, result.stdout)

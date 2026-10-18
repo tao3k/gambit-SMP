@@ -1,0 +1,275 @@
+--- a/gsc/_front.scm
++++ b/gsc/_front.scm
+@@ -2898,6 +2898,10 @@
+         "merge-contexts-and-seal-bb, entry-bb's do not agree"))))
+ 
+ (define (seal-bb node where)
++
++  ;; Interrupt-disabled code still consumes stack. A normal poll would
++  ;; service interrupts, so those regions get a stack-limit check only.
++  (define stack-only? (not (intrs-enabled? (node-env node))))
+ 
+   (define (poll-at split-point)
+     (let loop ((i 0)
+@@ -2910,9 +2914,10 @@
+                           (node
+                            (comment-get (gvm-instr-comment instr) 'node))
+                           (cant-poll-here?
+-                           (not (intrs-enabled? (node-env node)))))
+-                     ;; extend poll interval to outside code that
+-                     ;; is with interrupts disabled
++                           (and (not stack-only?)
++                                (not (intrs-enabled? (node-env node))))))
++                     ;; An interrupt poll moves outside disabled code.
++                     ;; A stack-only check stays at the computed split.
+                      cant-poll-here?)))
+ 
+           (loop (+ i 1)
+@@ -2938,7 +2943,7 @@
+              (make-jump (make-lbl new-lbl)
+                         #f
+                         #f
+-                        #t
++                        (if stack-only? 'stack #t)
+                         #f
+                         frame
+                         (gvm-instr-comment last-instr)))
+@@ -2966,18 +2971,21 @@
+           (poll-at (max (- poll-period delta) 0))
+           (impose-polling-constraints)))))
+ 
+-  (if (intrs-enabled? (node-env node))
++  ;; A stack-only check must have a complete return frame. Splitting an
++  ;; interrupt-disabled basic block at an instruction count can expose a
++  ;; partly constructed frame to the collector.
++  (if (not stack-only?)
+       (impose-polling-constraints))
+ 
+   (let* ((n (+ (length (bb-non-branch-instrs *bb*)) 1))
+          (delta (+ (poll-delta poll) n))
+          (since-entry? (poll-since-entry? poll)))
+-    (if (and (intrs-enabled? (node-env node))
++    (if (and (or stack-only? (intrs-enabled? (node-env node)))
+              (case where
+                ((call)
+-                (> delta (- poll-period poll-head)))
++                (or stack-only? (> delta (- poll-period poll-head))))
+                ((tail-call)
+-                (> delta poll-tail))
++                (or stack-only? (> delta poll-tail)))
+                ((return)
+                 (and since-entry?
+                      (poll-on-return? (node-env node))
+--- a/gsc/_gvm.scm
++++ b/gsc/_gvm.scm
+@@ -470,6 +470,13 @@
+ (define (jump-nb-args gvm-instr) (vector-ref gvm-instr 5))
+ (define (jump-poll? gvm-instr)   (vector-ref gvm-instr 6))
+ (define (jump-safe? gvm-instr)   (vector-ref gvm-instr 7))
++
++;; #t is an interrupt poll. 'stack checks only the allocation limit.
++;; Combining them must not drop the interrupt poll or erase the stack check.
++(define (combine-poll a b)
++  (cond ((or (eq? a #t) (eq? b #t)) #t)
++        ((or (eq? a 'stack) (eq? b 'stack)) 'stack)
++        (else (or a b))))
+ (define (first-class-jump? gvm-instr) (jump-nb-args gvm-instr))
+ 
+ (define (make-comment)
+@@ -789,8 +796,8 @@
+                          jump-lbl
+                          (if (jump-ret branch) branch last-jump/ret)
+                          (+ fs (bb-slots-gained bb))
+-                         (or (jump-poll? branch)
+-                             poll?)
++                         (combine-poll (jump-poll? branch)
++                                       poll?)
+                          (cons lbl seen))
+                         (thunk lbl fs last-jump/ret poll?)))
+                   (thunk lbl fs last-jump/ret poll?))))))
+@@ -946,8 +953,8 @@
+ 
+                               ((ifjump)
+                                (let* ((new-poll?
+-                                       (or (ifjump-poll? last-branch)
+-                                           poll?))
++                                       (combine-poll (ifjump-poll? last-branch)
++                                                     poll?))
+                                       (new-true
+                                        (equiv-lbl (ifjump-true last-branch)
+                                                   new-poll?))
+@@ -968,8 +975,8 @@
+ 
+                               ((switch)
+                                (let* ((new-poll?
+-                                       (or (switch-poll? last-branch)
+-                                           poll?))
++                                       (combine-poll (switch-poll? last-branch)
++                                                     poll?))
+                                       (new-cases
+                                        (map (lambda (c)
+                                               (make-switch-case
+@@ -998,8 +1005,8 @@
+                                        (or (jump-ret last-branch)
+                                            ret))
+                                       (new-poll?
+-                                       (or (jump-poll? last-branch)
+-                                           poll?))
++                                       (combine-poll (jump-poll? last-branch)
++                                                     poll?))
+                                       (opnd
+                                        (jump-opnd last-branch))
+                                       (dead-end?
+@@ -1032,8 +1039,8 @@
+                                   (or (jump-ret branch)
+                                       ret))
+                                  (new-poll?
+-                                  (or (jump-poll? branch)
+-                                      poll?)))
++                                  (combine-poll (jump-poll? branch)
++                                                poll?)))
+                             (if (or (not (eqv? new-ret ret))
+                                     (not (eqv? new-poll? poll?))
+                                     (not (= lbl dest-lbl)))
+--- a/gsc/_t-c-2.scm
++++ b/gsc/_t-c-2.scm
+@@ -376,6 +376,11 @@
+ 
+ (define targ-combine-checks? #f) ;;TODO: remove when transition to combined checks
+ 
++(define (poll-macro-name poll)
++  (cond ((eq? poll 'stack) "CHECK_STACK")
++        (poll "POLL")
++        (else "CHECK")))
++
+ (define (targ-check-conditions heap flo ssb poll sn)
+   (if (or heap ssb poll)
+       (let ((lbl (targ-new-lbl)))
+@@ -392,7 +397,7 @@
+          (append (list (string-append
+                         (if targ-combine-checks? ;;TODO: remove when transition to combined checks
+                             "CHECK"
+-                            (if poll "POLL" "CHECK"))
++                            (poll-macro-name poll))
+                         (if heap "_HEAP" "")
+                         (if (and heap (eqv? heap flo)) "_FLO" "")
+                         (if ssb "_SSB" "")
+@@ -1138,7 +1143,7 @@
+         (if (> targ-proc-ssb-reserved 0)
+             (targ-check-conditions #f #f 0 #f sn))
+         (if poll?
+-            (targ-check-conditions #f #f #f #t sn)))))
++            (targ-check-conditions #f #f #f poll? sn)))))
+ 
+ ;;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ 
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -8559,6 +8559,7 @@
+ #define ___POLL(n)                    \
+ if (___EXPECT_FALSE(___POLL_TRIGGER)) \
+ {___ps->temp1=___LBL(n); \
++___ps->stack_check_only=0; \
+ ___ps->poll_location.file=__FILE__; \
+ ___ps->poll_location.line=__LINE__; \
+ ___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit) \
+@@ -8569,11 +8570,21 @@
+ #define ___POLL(n)                    \
+ if (___EXPECT_FALSE(___POLL_TRIGGER)) \
+ {___ps->temp1=___LBL(n); \
++___ps->stack_check_only=0; \
+ ___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit) \
+ }
+ 
+ #endif
+ 
++/* Stack growth inside interrupt-disabled code. This does not sample
++   stack_trip and does not request interrupt service. */
++#define ___CHECK_STACK(n) \
++if (___EXPECT_FALSE(___fp < ___ps->stack_limit)) \
++{___ps->temp1=___LBL(n); \
++___ps->stack_check_only=1; \
++___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit) \
++}
++
+ #define ___TASK_PUSH(i)
+ #define ___TASK_POP(n)
+ 
+@@ -11801,6 +11812,8 @@
+     int scheduler_status; /* 0 pending, 1 ready, -1 failed */
+ 
+ #endif
++
++    int stack_check_only; /* 1: stack-limit handler must not service interrupts */
+ 
+ #ifdef ___SUPPORT_PSTATE_BIND
+     ___processor_state pstate_binding;
+--- a/lib/_kernel.scm
++++ b/lib/_kernel.scm
+@@ -227,6 +227,8 @@
+     *
+     * This is the stack-limit handler.  It is invoked by the ___POLL(n)
+     * macro when the stack limit is reached and when an interrupt is received.
++    * ___CHECK_STACK(n) uses the same handler for interrupt-disabled code
++    * and must return without servicing interrupts.
+     *
+     * This handler checks for which reason it was invoked and dispatches
+     * to one of the following procedures:
+@@ -237,10 +239,14 @@
+ 
+    int fs;
+    ___SCMOBJ ra;
++   ___BOOL stack_only;
+ 
++   stack_only = ___ps->stack_check_only;
++   ___ps->stack_check_only = 0;
++
+ #ifdef ___HEARTBEAT_USING_POLL_COUNTDOWN
+ 
+-  if (___ps->heartbeat_countdown <= 0)
++  if (!stack_only && ___ps->heartbeat_countdown <= 0)
+   {
+     ___ps->heartbeat_countdown = ___ps->heartbeat_interval;
+     ___raise_interrupt (___INTR_HEARTBEAT);
+@@ -289,7 +295,11 @@
+          }
+      }
+ 
+-   /* handle interrupts */
++   /* A stack-only check resumes through the internal return.
++      An ordinary poll continues to the interrupt handler. */
++
++   if (stack_only)
++     ___JUMPEXTPRM(___NOTHING,___R0)
+ 
+    ___JUMPPRM(___SET_NARGS(0),
+               ___PRMCELL(___G__23__23_interrupt_2d_handler.prm))
+--- a/lib/mem.h
++++ b/lib/mem.h
+@@ -64,7 +64,16 @@
+ #define ___MAX_NB_ARGS          8192
+ #define ___MAX_NB_FRAME_SLOTS   8192
+ #define ___MSECTION_SIZE        131072
++#if defined(__APPLE__) && defined(__MACH__) && defined(__GNUC__) && !defined(__clang__)
++/* A stack-only call-boundary check can push a complete internal-return frame
++   before it compares stack_limit. Keep that frame outside the largest generated
++   frame's allowance. ___FRAME_SPACE(___NB_GVM_REGS+1) is 12 words at the
++   default 5 GVM registers, reserve 3 and alignment 4. Other platforms retain
++   the original section layout. */
++#define ___MSECTION_FUDGE       (___MAX_NB_FRAME_SLOTS+1+___SUBTYPED_BODY+___FRAME_SPACE(___NB_GVM_REGS+1))
++#else
+ #define ___MSECTION_FUDGE       (___MAX_NB_FRAME_SLOTS+1+___SUBTYPED_BODY)
++#endif
+ #define ___MSECTION_WASTE       (___MSECTION_FUDGE/16)
+ #define ___MSECTION_BIGGEST     255
+ #define ___MSECTION_CHUNK       ___MSECTION_BIGGEST
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -5235,6 +5235,7 @@
+   ___ps->handler_sfun_conv_error = ___GSTATE->handler_sfun_conv_error;
+   ___ps->handler_cfun_conv_error = ___GSTATE->handler_cfun_conv_error;
+   ___ps->handler_stack_limit     = ___GSTATE->handler_stack_limit;
++  ___ps->stack_check_only        = 0;
+   ___ps->handler_heap_limit      = ___GSTATE->handler_heap_limit;
+   ___ps->handler_not_proc        = ___GSTATE->handler_not_proc;
+   ___ps->handler_not_proc_glo    = ___GSTATE->handler_not_proc_glo;

@@ -1,0 +1,30 @@
+--- a/gsc/_t-c-2.scm
++++ b/gsc/_t-c-2.scm
+@@ -26,6 +26,10 @@
+ (define (targ-scan-procedure obj c-decls-queue)
+   (let* ((proc (car obj))
+          (p (cdr obj)))
++
++    (define (internal-return? label)
++      (and (eq? (targ-lbl-val? label) 'return)
++           (eq? (vector-ref (vector-ref label 3) 0) 'internal)))
+ 
+     (if targ-info-port
+       (begin
+@@ -62,8 +66,14 @@
+     ; Assign label numbers sequentially, starting with "value" labels
+     ; and then "goto" labels
+ 
+-    (let ((ord-lbls (queue->list targ-proc-lbl-tbl-ord)))
+-      (let loop2 ((l ord-lbls) (i 0) (val-lbls '()))
++    ;; Hand-managed runtime entries address ordinary return labels by ordinal.
++    ;; Compiler-private polling continuations must not move that ABI prefix.
++    (let* ((ord-lbls (queue->list targ-proc-lbl-tbl-ord))
++           (value-order
++            (append (keep (lambda (label) (not (internal-return? label)))
++                          ord-lbls)
++                    (keep internal-return? ord-lbls))))
++      (let loop2 ((l value-order) (i 0) (val-lbls '()))
+         (if (pair? l)
+           (let ((x (car l)))
+             (if (targ-lbl-val? x)

@@ -54,9 +54,9 @@ def fields(value, required, optional=()):
         raise ValueError("unsupported capability fields")
 
 
-def budget(value):
-    if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= 600:
-        raise ValueError("finite positive budget at most 600 seconds required")
+def budget(value, ceiling=600):
+    if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= ceiling:
+        raise ValueError(f"finite positive budget at most {ceiling} seconds required")
     return value
 
 
@@ -242,7 +242,7 @@ def load(root, path):
             raise ValueError("unique capability step identity required")
         if step["capability"] not in CAPABILITIES:
             raise ValueError("unknown capability; Evidence cannot supply executable code")
-        budget(step["budgetSeconds"])
+        budget(step["budgetSeconds"], 3600 if policy is not None and policy["mode"] == "progress" else 600)
         if not isinstance(step["dependsOn"], list) or any(not isinstance(item, str) for item in step["dependsOn"]) or len(set(step["dependsOn"])) != len(step["dependsOn"]):
             raise ValueError("unique explicit dependencies required")
         CAPABILITIES[step["capability"]].validate(step["arguments"], inputs)
@@ -717,8 +717,8 @@ def inspect_run(out, *, input_bindings=None):
         raise ValueError("recipe run receipt required")
     workspace_root = None
     if receipt.get("workspacePolicy") == "in-place":
-        workspace_root = next((parent for parent in out.resolve().parents
-                               if (parent / "evidence").is_dir() and (parent / ".data").is_dir()), None)
+        from gambit_smp.artifact_storage import repository_root
+        workspace_root = repository_root(out)
     try:
         from gambit_smp.historical_inputs import match
         stable = match(receipt["inputs"], input_bindings or {})

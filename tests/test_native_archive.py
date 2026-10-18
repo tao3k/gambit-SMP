@@ -97,7 +97,7 @@ class NativeArchiveTests(unittest.TestCase):
 
     def test_failed_bootstrap_histories_preserve_unknown_parent_and_original_seed(self):
         for fixture in ("bootstrap-second-core-history", "bootstrap-gc-iteration-history", "bootstrap-serialization-history"):
-            name = f"evidence/source-results/fixtures/thread-completion-contract/{fixture}/archive.json"
+            name = f"tests/fixtures/historical-bootstrap/{fixture}/archive.json"
             bound = validate(ROOT, name)
             self.assertEqual(4, len(bound))
             saved = json.loads((ROOT / name).read_text())

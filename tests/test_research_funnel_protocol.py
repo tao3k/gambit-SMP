@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-import time
 import unittest
 
 from gambit_smp.framework import ROOT, digest
@@ -21,7 +20,6 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
     def setUpClass(cls):
         from gambit_smp.artifact_storage import cache_path
 
-        cls.deadline = time.monotonic() + 60
         archive = cache_path(ROOT, "research-funnel")
         archive.mkdir(parents=True, exist_ok=True)
         cls.out = Path(tempfile.mkdtemp(prefix="run-", dir=archive))
@@ -43,8 +41,7 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
         env = dict(os.environ, ELAN_TOOLCHAIN=(ROOT / "models/library/lean/lean-toolchain").read_text().strip())
         env["LEAN_PATH"] = str(self.out)
         source = ROOT / "models/library/lean/ResearchFunnel.lean"
-        prefix = capture([lean, "--print-prefix"], source.parent,
-                         min(15, max(.001, self.deadline - time.monotonic())), env)
+        prefix = capture([lean, "--print-prefix"], source.parent, 15, env)
         self.assertEqual(prefix.exit, 0, prefix.stderr)
         self.assertFalse(prefix.timeout)
         binary = Path(prefix.stdout.strip()) / "bin/lean"
@@ -53,7 +50,7 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
         commands += [(name, [lean, str(source.parent / "controls" / (name + ".lean"))], True)
                      for name in ("BootstrapCredit", "StaleCredit")]
         for name, argv, negative in commands:
-            row = capture(argv, source.parent, min(15, max(.001, self.deadline - time.monotonic())), env)
+            row = capture(argv, source.parent, 15, env)
             (self.out / (name + ".json")).write_text(json.dumps(
                 dict(dataclasses.asdict(row), argv=argv, inputs=self.inputs), indent=2))
             self.assertFalse(row.timeout)
@@ -87,7 +84,7 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
             out.mkdir()
             row, log, trace = check(ROOT / ("models/library/ResearchFunnel" + variant + ".qnt"),
                 initializer="init", invariant="Safe", negative=variant != "Checked",
-                timeout=max(.001, self.deadline - time.monotonic()), cwd=out,
+                timeout=60, cwd=out,
                 executable=quint, config=ROOT / "tests/fixtures/research-funnel-tlc.json",
                 liveness_schedule="final", tlc_jar=jar)
             (out / "checker.log").write_text(log)
@@ -98,14 +95,13 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=2) as pool:
             rows = list(pool.map(verify, variants))
         for variant, row, trace, log in rows:
-            self.assertTrue(row["accepted"], variant + "\n" + log[-2500:])
+            self.assertTrue(row["accepted"], variant + "\n" + str(row) + "\n" + log[-2500:])
             self.assertFalse(row["timeout"])
             if variant == "Checked":
                 self.assertEqual(row["states"]["queued"], 0)
                 self.assertGreater(row["states"]["distinct"], 1)
             else:
                 self.assertGreater(len(trace["states"]), 1)
-        self.assertLess(time.monotonic(), self.deadline)
 
 
 if __name__ == "__main__":

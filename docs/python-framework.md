@@ -99,6 +99,14 @@ the correspondence manifest selects that new receipt, leaving both historical
 003 receipts untouched. This extracted-source/mock schedule check is not a
 native runtime rerun and does not admit GC or bootstrap.
 
+The current correspondence manifest verifies its source slice from the pinned
+Gambit submodule and patch. The later fingerprint source-unit receipt remains
+historical because its raw inputs are cache-only; the source-unit observation
+gate stays pending. The Evidence view registry likewise hashes historical view
+definitions without loading their unavailable observations as current inputs.
+Missing raw model logs leave the receipt unverified; present logs with changed
+bytes still fail validation. None of these states admits native execution.
+
 ## Shared Model Backend
 
 The post-migration decoder also supports homogeneous string sets. Empty sets

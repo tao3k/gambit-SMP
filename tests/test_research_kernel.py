@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import sys
 import subprocess
+import tarfile
 import time
 import types
 import unittest
@@ -216,6 +217,40 @@ class ResearchGraphTests(unittest.TestCase):
                 patch("sys.stderr", new_callable=io.StringIO), self.assertRaises(SystemExit):
             research_kernel.main()
         launched.assert_not_called()
+
+    def test_engine_read_exposes_validated_tool_bindings_without_execution(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        (engine / "engine.json").write_text("{}")
+        manifest = {"engineId": "bound-engine", "hostTools": {
+            "quint": {"path": "/host/quint", "sha256": "bound-tool"},
+            "quint-file:/host/dependency": {"path": "/host/dependency", "sha256": "dependency"}},
+            "capabilities": ["quint.verify"], "files": {"private-inventory": "not-rendered"}}
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest) as checked, \
+                patch.object(research_kernel, "run_sealed") as launched, \
+                patch("sys.argv", ["research", "--read", str(engine)]), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(0, research_kernel.main())
+        checked.assert_called_once_with(engine.resolve())
+        launched.assert_not_called()
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["hostTools"], {"quint": manifest["hostTools"]["quint"]})
+        self.assertEqual(result["hostToolDependencyCount"], 1)
+        self.assertEqual(result["capabilities"], ["quint.verify"])
+        self.assertNotIn("files", result)
+        self.assertFalse(result["executionLaunched"])
+        self.assertFalse(result["runtimeAdmitted"])
+
+    def test_engine_read_does_not_hide_drift_or_ambiguous_artifact_identity(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        (engine / "engine.json").write_text("{}")
+        with patch.object(research_kernel, "manifest_paths", side_effect=ValueError("tool drift")), \
+                self.assertRaisesRegex(ValueError, "tool drift"):
+            research_kernel.inspect(engine)
+        (engine / "receipt.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "unambiguous seal"):
+            research_kernel.inspect(engine)
 
     def test_failed_sealed_retry_requires_cause_and_retains_independent_denial(self):
         self.load()
@@ -435,7 +470,7 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(header["clockEpoch"])
         self.assertFalse(header["executionCompleted"])
         self.assertNotIn("outcome", header)
-        self.assertEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"])
+        self.assertAlmostEqual(40, header["deadlineMonotonic"] - header["startedMonotonic"], places=9)
         self.assertEqual(header["request"], {key: value for key, value in request.items() if key != "journal"})
         self.assertFalse((out / "receipt.json").exists())
         retained = read_journal(self.root, request["journal"]["scope"])
@@ -802,6 +837,23 @@ class EngineSealTests(unittest.TestCase):
         source.write_bytes(b"independent source mutation")
         with self.assertRaisesRegex(ValueError, 'runtime resource drift'):
             research_kernel.manifest_paths(self.root / "engine")
+
+    def test_portable_seal_survives_archive_transfer_without_inode_authority(self):
+        source = self.generation()
+        manifest = self.seal(portable=True)
+        target = self.generation_target(source)
+        self.assertNotEqual(source.stat().st_ino, target.stat().st_ino)
+        self.assertEqual("copied", manifest["resourceOwnership"]["generations"][
+            target.relative_to(self.root / "engine").as_posix()]["mode"])
+        archive = self.root / "engine.tar"
+        with tarfile.open(archive, "w") as tree:
+            tree.add(self.root / "engine", arcname="engine")
+        with tempfile.TemporaryDirectory() as temporary:
+            with tarfile.open(archive) as tree:
+                tree.extractall(temporary, filter="data")
+            restored = research_kernel.manifest_paths(Path(temporary) / "engine")
+            self.assertEqual(manifest["engineId"], restored["engineId"])
+            self.assertEqual(manifest["files"], restored["files"])
 
     def test_unknown_link_io_error_is_not_silently_copied(self):
         import errno

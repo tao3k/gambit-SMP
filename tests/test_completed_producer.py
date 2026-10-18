@@ -13,6 +13,14 @@ from gambit_smp.framework import digest
 
 
 class CompletedProducerTests(unittest.TestCase):
+    def test_owner_shutdown_revalidation_cannot_recover_failed_native_stages(self):
+        outer = {"timeout": False, "parentReaped": True, "processGroupQuiescent": True}
+        for outcome in ("DENY", "TIMEOUT", "STALE", "BLOCKED"):
+            child = {"inputsStable": True, "wholeBudgetExhausted": False,
+                     "steps": [{"outcome": outcome}]}
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(ValueError, "completed stable native"):
+                producer.checked_owner_shutdown_failure(self.run, outer, child)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -377,6 +385,22 @@ class CompletedProducerTests(unittest.TestCase):
         self.save("evidence/research/completed.json", self.reference())
         lock.write_text('{"different": true}')
         self.assertIsNone(producer.reuse_materialized_source(lock, ctx))
+
+    def test_missing_historical_cache_does_not_block_fresh_materialization(self):
+        self.save("evidence/research/completed.json", self.reference())
+        shutil.rmtree(self.root / ".data")
+        ctx = self.duplicate_context()
+        self.assertIsNone(producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx))
+
+    def test_explicit_completed_producer_requires_its_runtime(self):
+        selected = "evidence/research/completed.json"
+        self.save(selected, self.reference())
+        shutil.rmtree(self.root / ".data")
+        ctx = self.duplicate_context()
+        ctx.receipt["steps"].append({"id": "reuse", "capability": "gambit.completed-runtime",
+            "arguments": {"source": {"step": "source", "output": "source"}, "producer": selected}})
+        with self.assertRaisesRegex(ValueError, "runtime is unavailable"):
+            producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx)
 
     def test_materialized_source_reference_drift_cannot_trigger_rebuild(self):
         proof = self.reference()
