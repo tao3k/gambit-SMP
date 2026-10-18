@@ -5,6 +5,10 @@ This is the downstream Gambit SMP application of the generic design in
 finite protocol model live upstream; this document does not define them.
 Neither document is a native correctness, performance, or agent-efficiency result.
 
+The [supervision review](trajectory-supervision-feedback.md) records observed
+Agent integration failures and the DSL-first extension boundary; raw tool
+transcripts remain local cache rather than a second evidence authority.
+
 ## Direct Logical Evidence Reads
 
 The installed Python framework entrypoint is:
@@ -116,6 +120,31 @@ became acknowledged. These are observed behaviors under that task, not a
 probability guarantee or a cost/efficiency benchmark. A later RTK listing
 permission cancellation was retained and only the missing read-only allowance
 was added for the same session.
+
+### Supervisor Instructions Are Not Framework Evidence
+
+An instruction to avoid a failed route cannot validate Trajectory. Audit the
+actual query, returned slice and subsequent action. The existing Scheme review
+distinguishes exact-current attempts, changed premises, intentional replication
+and unknown comparisons; a candidate name or repeated file read alone does not
+establish redundant work. No supervisor-authored route blacklist is inferred.
+
+Session `a5795010-5c97-4529-adc8-a982f0edc6a0` independently queried the registered
+Evidence and attempted checkpoint continuation. The supervisor changed a bound
+audit document during that continuation; the query correctly rejected its changed
+digest. The supervisor restored the original bytes. Preserve this environmental
+failure separately from Agent behavior and native failures. A subsequent fresh
+query succeeded. No new runtime patch, formal check or native test resulted.
+
+The public report also illustrates why claim-level factor projection is not a
+same-source conjunction. One claim groups current stress and historical bootstrap
+observations. Querying factors without retaining observation ID and digest can
+lose their association; grouping by claim does not license combining those
+conditions. The native family retains per-observation witnesses. The regression
+`test_same_claim_does_not_join_conditions_from_different_observations` exercises
+caller-authored Scheme joins on those witnesses with current, historical and
+unsupported mixed conditions. This tests the existing query contract, not a
+mandatory query shape or a guarantee about probabilistic Agent conclusions.
 
 ### Evidence Coverage Gap
 

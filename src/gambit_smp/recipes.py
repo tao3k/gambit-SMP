@@ -717,8 +717,8 @@ def inspect_run(out, *, input_bindings=None):
         raise ValueError("recipe run receipt required")
     workspace_root = None
     if receipt.get("workspacePolicy") == "in-place":
-        workspace_root = next((parent for parent in out.resolve().parents
-                               if (parent / "evidence").is_dir() and (parent / ".data").is_dir()), None)
+        from gambit_smp.artifact_storage import repository_root
+        workspace_root = repository_root(out)
     try:
         from gambit_smp.historical_inputs import match
         stable = match(receipt["inputs"], input_bindings or {})

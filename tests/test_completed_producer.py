@@ -13,6 +13,14 @@ from gambit_smp.framework import digest
 
 
 class CompletedProducerTests(unittest.TestCase):
+    def test_owner_shutdown_revalidation_cannot_recover_failed_native_stages(self):
+        outer = {"timeout": False, "parentReaped": True, "processGroupQuiescent": True}
+        for outcome in ("DENY", "TIMEOUT", "STALE", "BLOCKED"):
+            child = {"inputsStable": True, "wholeBudgetExhausted": False,
+                     "steps": [{"outcome": outcome}]}
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(ValueError, "completed stable native"):
+                producer.checked_owner_shutdown_failure(self.run, outer, child)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)

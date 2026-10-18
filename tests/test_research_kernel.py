@@ -218,6 +218,40 @@ class ResearchGraphTests(unittest.TestCase):
             research_kernel.main()
         launched.assert_not_called()
 
+    def test_engine_read_exposes_validated_tool_bindings_without_execution(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        (engine / "engine.json").write_text("{}")
+        manifest = {"engineId": "bound-engine", "hostTools": {
+            "quint": {"path": "/host/quint", "sha256": "bound-tool"},
+            "quint-file:/host/dependency": {"path": "/host/dependency", "sha256": "dependency"}},
+            "capabilities": ["quint.verify"], "files": {"private-inventory": "not-rendered"}}
+        with patch.object(research_kernel, "manifest_paths", return_value=manifest) as checked, \
+                patch.object(research_kernel, "run_sealed") as launched, \
+                patch("sys.argv", ["research", "--read", str(engine)]), \
+                patch("sys.stdout", new_callable=io.StringIO) as output:
+            self.assertEqual(0, research_kernel.main())
+        checked.assert_called_once_with(engine.resolve())
+        launched.assert_not_called()
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["hostTools"], {"quint": manifest["hostTools"]["quint"]})
+        self.assertEqual(result["hostToolDependencyCount"], 1)
+        self.assertEqual(result["capabilities"], ["quint.verify"])
+        self.assertNotIn("files", result)
+        self.assertFalse(result["executionLaunched"])
+        self.assertFalse(result["runtimeAdmitted"])
+
+    def test_engine_read_does_not_hide_drift_or_ambiguous_artifact_identity(self):
+        engine = self.root / "engine"
+        engine.mkdir()
+        (engine / "engine.json").write_text("{}")
+        with patch.object(research_kernel, "manifest_paths", side_effect=ValueError("tool drift")), \
+                self.assertRaisesRegex(ValueError, "tool drift"):
+            research_kernel.inspect(engine)
+        (engine / "receipt.json").write_text("{}")
+        with self.assertRaisesRegex(ValueError, "unambiguous seal"):
+            research_kernel.inspect(engine)
+
     def test_failed_sealed_retry_requires_cause_and_retains_independent_denial(self):
         self.load()
         inputs = {name: recipes.digest(self.root / name)

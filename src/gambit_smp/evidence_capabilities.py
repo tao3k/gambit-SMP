@@ -162,13 +162,13 @@ class EvaluationOwner:
         forced = False
         try:
             from gambit_smp.ascent_program import construction_admission, construction_slot
-            admission = (construction_admission() if construction_slot() is not None
+            admission = (construction_admission(deadline=self.deadline) if construction_slot() is not None
                          and all(row["requestCompleted"] for row in self.records) else nullcontext())
             with admission:
                 # Completed owners finalize one at a time; unfinished native
                 # requests must not wait on a permit they may themselves hold.
                 self.process.stdin.close()
-                self.process.wait(timeout=max(.001, min(1, self.deadline - time.monotonic())))
+                self.process.wait(timeout=max(.001, self.deadline - time.monotonic()))
         except (subprocess.TimeoutExpired, TimeoutError):
             forced = True
             if not self.process.stdin.closed:

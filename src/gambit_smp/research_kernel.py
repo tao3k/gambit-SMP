@@ -768,6 +768,19 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
 
 def inspect(out, *, input_archive=None):
     from gambit_smp.recipes import inspect_run, read_json
+    if (out / "engine.json").is_file():
+        if input_archive is not None or (out / "receipt.json").exists():
+            raise ValueError("engine inspection requires an unambiguous seal, not a run or input archive")
+        manifest = manifest_paths(out)
+        dependencies = {name for name in manifest["hostTools"] if name.startswith("quint-file:")}
+        return {"artifactKind": "sealed-engine", "engineId": manifest["engineId"],
+                "hostTools": {name: row for name, row in manifest["hostTools"].items()
+                              if name not in dependencies},
+                "hostToolDependencyCount": len(dependencies),
+                "capabilities": manifest["capabilities"],
+                "identityStatus": "CURRENT", "executionLaunched": False,
+                "runtimeAdmitted": False, "releaseAdmitted": False,
+                "sourceRefinementAdmitted": False}
     receipt = read_json(out / "receipt.json")
     if receipt.get("schema") != "sealed-research-run.v1":
         raise ValueError("sealed research receipt required")
@@ -806,7 +819,8 @@ def main():
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--seal", type=Path)
     selection.add_argument("--run")
-    selection.add_argument("--read", type=Path)
+    selection.add_argument("--read", type=Path,
+                           help="validate and inspect a sealed engine or retained research run; never execute")
     selection.add_argument("--export-producer", type=Path)
     selection.add_argument("--export-runtime", type=Path)
     parser.add_argument("--step")

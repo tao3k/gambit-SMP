@@ -121,10 +121,19 @@ def fixture_root(root, path):
     raise ValueError("runtime must belong to this project's fixture store")
 
 
+def observation_root(root, path):
+    """Receipt storage follows runtime_output; source leases stay fixture-only."""
+    root, path = Path(root).resolve(strict=True), Path(path).resolve()
+    store = root / ".cache"
+    if path != store and path.is_relative_to(store):
+        return store
+    return fixture_root(root, path)
+
+
 def fixture_name(root, run):
     root = Path(root).resolve(strict=True)
-    store = fixture_root(root, run)
-    base = root if store == root / ".cache/fixtures" else store
+    store = observation_root(root, run)
+    base = store if store == root / ".data/fixtures" else root
     return Path(run).resolve().relative_to(base).as_posix()
 
 
@@ -132,9 +141,9 @@ def fixture_path(root, name):
     """Cache references are explicit root paths; old receipt names stay unchanged."""
     from gambit_smp.framework import relative
     root = Path(root).resolve(strict=True)
-    base = root if Path(name).parts[:2] == (".cache", "fixtures") else root / ".data/fixtures"
+    base = root if Path(name).parts[:1] == (".cache",) else root / ".data/fixtures"
     path = relative(base, name)
-    fixture_root(root, path)
+    observation_root(root, path)
     return path
 
 

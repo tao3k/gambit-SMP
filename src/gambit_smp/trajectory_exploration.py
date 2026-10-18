@@ -374,7 +374,11 @@ def repository_clues(root: str | Path = ".", question: str | None = None,
     families. New sources reset read hints. A missing cached read hint safely replays
     evidence with checkpointStatus=cache-miss, never reporting it absent.
     The default presentation is 8192 bytes. A deferred family already has an
-    expansion reference and polarity counts; increasing display_bytes does not
+    expansion reference. A wide pending set may instead have deferredScope,
+    bound by source/content identity and claimCount, without acknowledging any
+    hidden body. A compact scopeReference omits claims only when its header
+    otherwise cannot fit. The same selector and checkpoint resume unseen units.
+    Deferred summaries retain polarity counts; increasing display_bytes does not
     discover additional evidence. Python string slicing of printed families
     loses traceability, unlike the Library's honest folding. Repeating a read
     with checkpoint=None is an initial read again, not an incremental read.
@@ -521,9 +525,42 @@ def argument_parser():
                 source.add_argument("--context", type=Path, help="caller-owned retained-history context")
                 operation.add_argument("--scope", help="required with --context; caller-chosen persistent investigation name")
         if name == "clues":
-            from inspect import cleandoc
             operation.formatter_class = argparse.RawDescriptionHelpFormatter
-            operation.epilog = cleandoc(repository_clues.__doc__)
+            operation.epilog = """Registered Evidence is already loaded; no file or catalog lookup is required.
+Write a caller-owned Scheme/Datalog declaration; its variables discover claims
+and factors without knowing their identifiers. Example (change the predicates):
+
+  (define-evidence (query)
+    (sources clue factor binding) (outputs question matched)
+    (include clue-selection-schema)
+    (relation question (claim))
+    (relation matched (claim id digest))
+    ((matched C I D) <-- (clue I D C _ _ _)
+      (factor I D N V) (binding N V))
+    ((question C) <-- (matched C _ _)))
+
+Pass the declaration as --select; --binding NAME VALUE supplies binding facts.
+This example joins any supplied factor; conjunction, negation, recursive paths,
+additional witnesses and arbitrary alternative predicates remain caller-owned.
+Available read-only sources:
+  clue(id,digest,claim,polarity,role,source)
+  factor(id,digest,name,value)  link(from,to,label,id,digest)
+  attested(id,digest,receipt)   binding(name,value)
+Bare symbols are variables, _ is a wildcard, (lit "text") is a constant.
+Rules use ((head ...) <-- (body ...) ...); (not (relation ...)) requires bound
+variables. Recursive rules must reach a finite fixed point. Source relations
+cannot be rule heads. question(claim) is required; other outputs carry traces.
+--question instead reads an exact claim; it is not natural-language matching.
+
+The result is inert Scheme data: brief evidence and an opaque checkpoint token.
+Separate calls start fresh unless checkpoint is passed with --checkpoint;
+changing scope is not automatic continuation. Reuse it across processes or
+selectors; --expand accepts arbitrary claim or returned boundary references.
+Only displayed bodies are acknowledged. Deferred references retain traceability;
+the same selector and checkpoint expose unseen details. A cache miss replays
+evidence honestly. --bytes bounds presentation, never inference or exploration.
+Returned evidence neither chooses an action nor grants execution authority.
+"""
             operation.add_argument("--question", help="optional exact claim to read without a selector")
             operation.add_argument("--binding", nargs=2, action="append", default=[],
                 metavar=("NAME", "VALUE"), help="factor supplied as binding(name,value) to --select")

@@ -96,6 +96,81 @@ class ProgressiveClueTests(EvidenceCacheTestCase):
         self.assertEqual(found["selection"]["unknown_binding"], [])
         self.assertEqual(len(found["conditional"]), 1)
 
+    def test_call_boundary_candidate_separates_model_and_native_status(self):
+        selector = '''(define-evidence (query)
+ (sources clue factor) (outputs question)
+ (include clue-selection-schema)
+ (relation question (claim))
+ ((question C) <-- (clue I D C _ _ _)
+  (factor I D (lit "candidate") (lit "call-boundary-reserve"))))'''
+        result = repository_clues(ROOT, selector=selector)
+        self.assertEqual({family["claim"] for family in result["brief"]["families"]}, {
+            "disabled-call-stack-check-candidate",
+            "call-boundary-finite-controls-pass",
+            "call-boundary-native-acceptance-unverified",
+            "call-boundary-two-pass-bootstrap-completed",
+            "call-boundary-stress-runtime-qualified",
+            "compiler-inserted-check-preserves-kernel-handler-abi"})
+        self.assertEqual(result["brief"]["counts"]["counter"], 2)
+        self.assertFalse(result["brief"]["runtimeAdmitted"])
+        mismatched = repository_clues(ROOT, selector=selector.replace(
+            '(lit "call-boundary-reserve"))))',
+            '(lit "call-boundary-reserve"))'
+            ' (factor I D (lit "stage") (lit "finite-model"))'
+            ' (factor I D (lit "outcome") (lit "UNVERIFIED"))))'))
+        self.assertEqual(mismatched["brief"]["association"]["question"], [])
+
+    def test_entry_contract_candidate_is_queryable_without_inheriting_native_pass(self):
+        selector = '''(define-evidence (query)
+ (sources clue factor) (outputs question)
+ (include clue-selection-schema)
+ (relation question (claim))
+ ((question C) <-- (clue I D C _ _ _)
+  (factor I D (lit "candidate") (lit "stack-entry-contract"))))'''
+        first = repository_clues(ROOT, selector=selector)
+        expected = {
+            "stable-continuation-partition-candidate",
+            "entry-contract-finite-controls-pass",
+            "entry-contract-native-acceptance-unverified",
+            "entry-contract-complete-compiled-stress",
+            "entry-contract-complete-interpreted-stress",
+            "entry-contract-manual-ordinals-aligned",
+            "entry-contract-debug-label-mapping-consistent",
+            "entry-contract-interpreter-local-environment-valid"}
+        seen, page = set(), first
+        while True:
+            self.assertFalse(page["brief"]["runtimeAdmitted"])
+            for row in page["brief"]["families"]:
+                self.assertIn(row["claim"], expected)
+                self.assertNotIn(row["claim"], seen)
+                seen.add(row["claim"])
+            if page["brief"]["presentationComplete"]:
+                break
+            self.assertTrue(page["brief"]["families"])
+            page = repository_clues(ROOT, selector=selector,
+                                    checkpoint=page["checkpoint"])
+        self.assertEqual(seen, expected)
+        repeated = repository_clues(ROOT, selector=selector,
+                                    checkpoint=page["checkpoint"])
+        self.assertEqual(repeated["brief"]["families"], [])
+        self.assertEqual(repeated["brief"]["counts"], first["brief"]["counts"])
+
+    def test_project_authored_navigation_reuses_registered_native_counterevidence(self):
+        selector = (ROOT / "evidence/scenarios/stack-header/clues.ss").read_text()
+        result = repository_clues(ROOT, selector=selector,
+            constructor="make-stack-entry-navigation",
+            bindings=[("mechanism", "debug-control-point-id-remapping")])
+        brief = result["brief"]
+        self.assertEqual(brief["association"]["unknown_binding"], [])
+        self.assertEqual(brief["association"]["question"], [
+            ["entry-contract-debug-label-mapping-consistent"]])
+        self.assertEqual(len(brief["families"]), 1)
+        observation = brief["families"][0]["observations"][0]
+        self.assertEqual(observation["polarity"], "counter")
+        self.assertEqual(observation["digest"], digest(
+            ROOT / "evidence/research/stack-entry-contract/interpreter-crash.json"))
+        self.assertFalse(brief["executionAuthorized"])
+
     def test_new_scope_does_not_present_repository_evidence_as_empty(self):
         with engine_api() as (engine, _):
             result = trajectory_context(self.root, "new-investigation", self.snapshot, engine)
@@ -194,6 +269,12 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         self.assertIn("--select", query)
         self.assertIn("Separate calls start fresh unless checkpoint", query)
         self.assertIn("not automatic continuation", query)
+        self.assertIn("(include clue-selection-schema)", query)
+        self.assertIn("factor(id,digest,name,value)", query)
+        self.assertIn("inert Scheme data", query)
+        self.assertNotIn("Result shape:", query)
+        self.assertNotIn("list[dict]", query)
+        self.assertNotIn("pathlib.Path", query)
         self.assertNotIn("--context", query)
         self.assertNotIn("--request", query)
         self.assertNotIn("--clues-json", query)
@@ -507,6 +588,76 @@ print(json.dumps(result))'''
         origin = repository_clues(ROOT, "same-image-pointer-origin-and-instruction-binding")
         self.assertTrue(origin["brief"]["families"][0]["unknown"])
         self.assertFalse(origin["brief"]["runtimeAdmitted"])
+
+    def test_same_claim_does_not_join_conditions_from_different_observations(self):
+        selector = '''(define-evidence (query)
+          (sources clue factor binding) (outputs question witness)
+          (include clue-selection-schema)
+          (relation question (claim))
+          (relation witness (claim id digest stage outcome))
+          ((witness C I D S O) <-- (clue I D C _ _ _)
+            (factor I D (lit "candidate") (lit "prepare-origin"))
+            (factor I D (lit "stage") S) (binding (lit "stage") S)
+            (factor I D (lit "outcome") O) (binding (lit "outcome") O))
+          ((question C) <-- (witness C _ _ _ _)))'''
+        claim = "first-return-address-producer-unidentified"
+        cases = (
+            ("compiled-stress", "DENY", "prepare-origin-native-failure",
+             "evidence/fixtures/darwin-stack-prepare-origin/native-observation-20261018.json"),
+            ("bootstrap-publication", "STALE", "prepare-origin-not-admitted",
+             "evidence/fixtures/darwin-stack-prepare-origin/bootstrap-input-drift-20261016.json"),
+        )
+        with engine_api() as (engine, _):
+            for stage, outcome, identity, path in cases:
+                result = repository_clues(ROOT, engine=engine, selector=selector,
+                    bindings=[["stage", stage], ["outcome", outcome]])
+                self.assertEqual(result["brief"]["association"]["witness"],
+                    [[claim, identity, digest(ROOT / path), stage, outcome]])
+            mixed = repository_clues(ROOT, engine=engine, selector=selector,
+                bindings=[["stage", "compiled-stress"], ["outcome", "STALE"]])
+        self.assertEqual(mixed["brief"]["association"]["question"], [])
+        self.assertEqual(mixed["brief"]["association"]["witness"], [])
+        self.assertEqual(mixed["brief"]["families"], [])
+        self.assertTrue(mixed["brief"]["explorationOpen"])
+
+    def test_preparation_chain_preserves_stale_bootstrap_and_unresolved_producer(self):
+        stale = repository_clues(ROOT, "first-return-address-producer-unidentified")
+        observation = next(row for row in stale["brief"]["families"][0]["observations"]
+                           if row["id"] == "prepare-origin-not-admitted")
+        self.assertEqual(observation["factors"]["producer-admitted"], ["false"])
+        self.assertEqual(observation["factors"]["applicability"], ["historical-input-drift-run-only"])
+        successor = ROOT / observation["factors"]["superseded-by-reference"][0]
+        self.assertEqual(observation["factors"]["superseded-by-digest"], [digest(successor)])
+        qualified = json.loads(successor.read_text())
+        self.assertEqual(qualified["completionRevalidation"]["recordedOutcome"], "DENY")
+        self.assertFalse(qualified["completionRevalidation"]["failedStagesRecovered"])
+        self.assertEqual(observation["factors"]["outcome"], ["STALE"])
+        self.assertEqual(observation["factors"]["changed-input"],
+                         ["evidence/research/suite-review-rules.ss"])
+        record = json.loads((ROOT / observation["source"]).read_text())
+        self.assertEqual(record["nativeCommand"]["exit"], 0)
+        self.assertFalse(record["publication"]["producerExported"])
+        self.assertIn("last-preparation-call-and-return-label",
+                      observation["factors"]["unresolved-premise"])
+        self.assertIn("stable-source-bound-producer",
+                      observation["factors"]["unresolved-premise"])
+        self.assertFalse(stale["brief"]["runtimeAdmitted"])
+
+    def test_native_preparation_site_preserves_failed_stress_and_ra_role(self):
+        result = repository_clues(ROOT, "first-return-address-producer-unidentified")
+        row = next(item for item in result["brief"]["families"][0]["observations"]
+                   if item["id"] == "prepare-origin-native-failure")
+        record = json.loads((ROOT / row["source"]).read_text())
+        self.assertEqual(row["factors"]["last-preparation-line"], ["8078"])
+        self.assertEqual(row["factors"]["ra-role"], ["write-time-register-not-preparation-caller"])
+        stress = record["compiledStress"]
+        self.assertEqual((stress["passedFiles"], stress["abortedFiles"], stress["timedOutFiles"]), (2, 1, 1))
+        for path, sha in stress["retainedLogs"].items():
+            self.assertEqual(digest(ROOT / path), sha)
+        stderr = ROOT / "evidence/fixtures/darwin-stack-prepare-origin/native-stress-20261018/suite-0-0.stderr"
+        self.assertIn("prepare_line=" + str(record["record"]["prepareLine"]), stderr.read_text())
+        self.assertFalse(stress["unchangedRetryAdmitted"])
+        self.assertFalse(result["brief"]["runtimeAdmitted"])
 
 
 if __name__ == "__main__":

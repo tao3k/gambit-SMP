@@ -4,6 +4,14 @@ Source-grounded Quint models, frozen counterexamples, native regressions and
 an executable Datalog evidence index for Gambit's multiple-VM and parallel-GC
 repair work. This repository is not an accepted replacement runtime.
 
+## Current Milestone
+
+Cumulative progress is **6/12**: the stack-entry candidate completes bootstrap
+and all four original compiled stress files. Complete interpreted stress and
+current-source full GSI/GSC requalification are not green. Historical passes
+remain history, not inherited release acceptance. See the
+[source-bound checkpoint and remaining gates](docs/smp-threaded-vm-milestone.md).
+
 ## Layout
 
 | Directory | Responsibility |

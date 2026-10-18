@@ -305,6 +305,30 @@ class UpstreamTestContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "per-file controls"):
             native_capabilities.validate_suite({**args, "compilerPhaseFiles": []}, recipe["inputs"])
 
+    def test_source_bound_inventory_accepts_exact_completed_or_imported_producer(self):
+        source_ref = {"step": "candidate", "output": "source"}
+        source = {"id": "candidate", "capability": "gambit.materialize",
+                  "dependsOn": [], "arguments": {}}
+        producer = {"id": "producer", "capability": "gambit.completed-runtime",
+                    "dependsOn": ["candidate"], "arguments": {"source": source_ref}}
+        suite = {"id": "suite", "capability": "gambit.suite",
+                 "dependsOn": ["candidate", "producer"], "arguments": {
+                     "runtime": {"step": "producer", "output": "runtime"},
+                     "identity": {"step": "producer", "output": "identity"},
+                     "expectedSource": source_ref}}
+        by_id = {row["id"]: row for row in (source, producer, suite)}
+        for capability in ("gambit.completed-runtime", "gambit.runtime-import"):
+            with self.subTest(capability=capability):
+                producer["capability"] = capability
+                native_capabilities.graph(suite, by_id, recipes.CAPABILITIES)
+                producer["arguments"]["source"] = {"step": "other", "output": "source"}
+                with self.assertRaisesRegex(ValueError, "exact materialized candidate"):
+                    native_capabilities.graph(suite, by_id, recipes.CAPABILITIES)
+                producer["arguments"]["source"] = source_ref
+        suite["dependsOn"].remove("candidate")
+        with self.assertRaisesRegex(ValueError, "exact materialized candidate"):
+            native_capabilities.graph(suite, by_id, recipes.CAPABILITIES)
+
     def test_source_successor_only_rebinds_the_reviewed_line_and_current_bytes(self):
         line = "     ? ___FIXNEGP_NOTFALSEP(var,x) \\"
         paths = {

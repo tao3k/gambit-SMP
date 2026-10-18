@@ -109,7 +109,8 @@ def graph(step, by_id, registry):
         runtime = by_id.get(step["arguments"]["runtime"]["step"])
         if (producer is None or producer["capability"] != "gambit.materialize"
                 or ref["output"] != "source" or ref["step"] not in step["dependsOn"]
-                or runtime is None or runtime["capability"] != "gambit.runtime-import"
+                or runtime is None or runtime["capability"] not in {
+                    "gambit.runtime-import", "gambit.completed-runtime"}
                 or runtime["arguments"]["source"] != ref):
             raise ValueError("suite inventory source must be the runtime's exact materialized candidate")
     if step["capability"] == "gambit.review":
