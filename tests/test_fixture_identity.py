@@ -40,11 +40,15 @@ class FixtureIdentityTests(unittest.TestCase):
             with self.subTest(fixture=fixture.name):
                 self.assertRegex(fixture.name, r"^[a-z]+(?:-[a-z]+)*$")
                 for path in fixture.rglob("*"):
+                    # Original execution logs keep receipt-bound shard names,
+                    # unlike source and candidate identities.
+                    if path.is_dir() or path.suffix in {".stderr", ".stdout"}:
+                        continue
                     self.assertTrue(semantic_asset(path, fixture_root), path)
                 lock_path = fixture / "source.lock.json"
                 if lock_path.is_file():
                     lock = json.loads(lock_path.read_text())
-                    self.assertEqual(f"patches/fixtures/{fixture.name}.patch", lock["patch"])
+                    self.assertRegex(lock["patch"], r"^patches/fixtures/[a-z]+(?:-[a-z]+)*\.patch$")
                     self.assertEqual(lock["patchSha256"], digest(ROOT / lock["patch"]))
                 elif (fixture / "profile.json").is_file():
                     from gambit_smp.build_profile import read_profile

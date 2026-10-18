@@ -152,6 +152,19 @@ class TrajectoryExplorationTests(unittest.TestCase):
         self.assertFalse(packet["runtimeAdmitted"])
         self.assertEqual(packet["openPredictions"], [["hypothesis", "observation", "expected"]])
 
+    def test_projection_uses_research_root_not_implementation_location(self):
+        from gambit_smp.framework import ROOT
+        from ascent import Engine
+        from gambit_smp.ascent_program import load_component_catalog
+
+        record(self.root, "scope", self.snapshot, "question", self.completed_action())
+        with Engine() as engine, \
+                patch("gambit_smp.trajectory_exploration.__file__", "/unavailable/site-packages/trajectory_exploration.py"), \
+                patch("gambit_smp.ascent_program.load_component_catalog", wraps=load_component_catalog) as load:
+            packet = inspect(self.root, "scope", self.snapshot, "question", engine)
+        self.assertEqual(load.call_args.args[0], ROOT / "evidence/dsl/trajectory-review.components.json")
+        self.assertFalse(packet["runtimeAdmitted"])
+
     def test_source_drift_during_projection_does_not_publish_advice(self):
         def mutate(*_args, **_kwargs):
             self.source.write_text("source-b")

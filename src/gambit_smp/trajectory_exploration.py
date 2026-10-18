@@ -114,12 +114,13 @@ def context(root, scope, snapshot, engine, *, through=None):
 def inspect(root, scope, snapshot, action_id, engine, *, through=None):
     """Compare a chosen candidate with durable attempts; never choose it."""
     from gambit_smp.ascent_program import load_component_catalog, query
+    from gambit_smp.framework import ROOT
 
     proposed = candidate(snapshot, action_id)
     packet, retained = _replay(root, scope, snapshot, engine,
                                through=through, proposed=proposed)
     catalog = load_component_catalog(
-        Path(__file__).resolve().parents[2] / "evidence/dsl/trajectory-review.components.json",
+        ROOT / "evidence/dsl/trajectory-review.components.json",
         entry="trajectory-review", constructor="make-trajectory-review", trusted=True)
     facts = {
         "comparison": [(row["earlierEvent"], row["relation"])
