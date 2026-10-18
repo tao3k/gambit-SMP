@@ -30,6 +30,8 @@ COMMANDS = {
     "validate-review": "review_validation",
     "agent-context": "agent_context",
     "actions": "research_actions",
+    "trajectory": "trajectory_exploration",
+    "tool-environment": "tool_environment",
     "publish-protocol": "protocol_evidence",
     "recover-model": "recover_model",
     "publish-progress": "progress_evidence",
@@ -49,7 +51,11 @@ HISTORICAL_PRODUCERS = frozenset({"source-unit", "ffi-source-unit", "sync-schedu
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=__doc__, epilog=
+        "trajectory clues: caller-authored Scheme/Datalog queries over registered Evidence; "
+        "source-bound, expandable incremental slices. Python API: "
+        "gambit_smp.repository_clues and gambit_smp.engine_api. "
+        "Reads do not select or authorize actions.")
     parser.add_argument("--root", type=Path, help="research checkout containing models and evidence")
     parser.add_argument("--historical-reproduction", action="store_true",
                         help="explicitly select a retained historical producer, not the new research lane")

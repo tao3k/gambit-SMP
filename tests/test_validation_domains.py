@@ -297,9 +297,12 @@ class ValidationDomainTests(unittest.TestCase):
             out = Path(directory) / "result"
             test = self.fixture()
             observed = []
+            inherited_start = time.monotonic() - 5
 
             def rejected_worker(argv, cwd, budget, *, env, metadata):
+                self.assertLessEqual(budget, 55)
                 request = json.loads(Path(argv[-1]).read_text())
+                self.assertEqual(request["deadline"], inherited_start + 60)
                 with closing(sqlite3.connect(request["queue"])) as db:
                     observed.extend(row[0] for row in db.execute("SELECT id FROM jobs ORDER BY ordinal"))
                 metadata.update(parentReaped=True, processGroupQuiescent=True)
@@ -310,10 +313,16 @@ class ValidationDomainTests(unittest.TestCase):
                                      "hostTools": {"python": {"path": sys.executable}}}), \
                     patch("gambit_smp.framework.execute", side_effect=rejected_worker):
                 saved = run_domain(root, [test], {"budgetSeconds": 60, "workers": 1},
-                                   Path(directory) / "engine", out)
+                                   Path(directory) / "engine", out, started=inherited_start)
             self.assertEqual([test.id()], observed)
             self.assertFalse(saved["passed"])
             self.assertEqual({test.id(): "error"}, saved["outcomes"])
+            self.assertGreaterEqual(saved["seconds"], 5)
+
+    def test_spawn_cannot_supply_a_future_or_nonfinite_launch_time(self):
+        for invalid in (True, 0, -1, float("nan"), float("inf"), time.monotonic() + 3600):
+            with self.subTest(started=invalid), self.assertRaisesRegex(ValueError, "launch time"):
+                run_domain(Path("unused"), [], {}, Path("unused"), Path("unused"), started=invalid)
 
     def fixture(self, domain=None):
         class Fixture(unittest.TestCase):

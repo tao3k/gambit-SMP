@@ -1,0 +1,70 @@
+{
+  "schema": "ascent.evidence-view.v1",
+  "id": "stack-entry-preflight-causal-review",
+  "manifest": "evidence/scenarios/concurrent-gc/components.json",
+  "entry": "concurrent-gc",
+  "constructor": "make-concurrent-gc-review",
+  "facts": {
+    "candidate": [["darwin-stack-call-preflight", {"reference": "candidate-lock"}]],
+    "obligation": [
+      ["entry-frame-capacity", "stack-entry", "The prior generated entry wrote slot 9 before a capacity check; establish a same-candidate bound from entry to the next safe point, including handler pre-write space."],
+      ["handler-prewrite", "stack-check", "The stack-limit handler pushes registers and return address before comparing the limit; a late check is not a safe preflight."],
+      ["scannable-frame-chain", "gc-scan", "Any reserve or safe point must preserve a valid return descriptor and scannable frame chain."],
+      ["natural-startup-handler", "startup", "The original same-source gsi -v enters the wrong handler because the manual Darwin/GNU label base is displaced. A diagnostic one-object relink removes exit 139 but is not a new source-locked native pass."],
+      ["first-writer-and-generation", "native-causality", "Find the first corrupting write and its live allocation generation in the same source-locked candidate."],
+      ["full-native-gates", "qualification", "A new candidate needs bootstrap and the seven open milestone gates; prior candidates do not transfer acceptance."]
+    ],
+    "source": [
+      ["candidate-lock", "evidence/fixtures/darwin-stack-call-preflight/source.lock.json", {"reference": "candidate-lock"}, "current-candidate-source-lock-not-admission"],
+      ["candidate-patch", "patches/fixtures/darwin-stack-call-preflight.patch", {"reference": "candidate-patch"}, "current-candidate-patch-not-native-proof"],
+      ["candidate-native", "evidence/fixtures/darwin-stack-call-preflight/native-observation.json", {"reference": "candidate-native"}, "same-candidate-bootstrap-pass-natural-startup-deny"],
+      ["label-diagnostic", "evidence/fixtures/darwin-stack-call-preflight/label-binding-diagnostic.json", {"reference": "label-diagnostic"}, "different-diagnostic-binary-one-object-relink-not-native-admission"],
+      ["prior-poll-lock", "evidence/fixtures/darwin-stack-check-poll-kind/source.lock.json", {"reference": "prior-poll-lock"}, "different-historical-candidate"],
+      ["prior-poll-review", "evidence/fixtures/darwin-stack-check-poll-kind/review-contract.json", {"reference": "prior-poll-review"}, "different-historical-candidate-with-native-deny"],
+      ["prior-lock", "evidence/fixtures/darwin-stack-write-boundary/source.lock.json", {"reference": "prior-lock"}, "different-historical-candidate"],
+      ["prior-observation", "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json", {"reference": "prior-observation"}, "different-historical-candidate"],
+      ["base-handler", "vendor/gambit/lib/_kernel.scm", {"reference": "base-handler"}, "upstream-base-source-not-candidate-generated-c"],
+      ["base-poll", "vendor/gambit/gsc/_front.scm", {"reference": "base-poll"}, "upstream-base-source-not-candidate-generated-c"],
+      ["base-fudge", "vendor/gambit/lib/mem.h", {"reference": "base-fudge"}, "upstream-base-source-not-candidate-generated-c"]
+    ],
+    "evidence": [
+      ["entry-frame-capacity", "HISTORICAL_DIFFERENT_LOCK_WRITE_BOUNDARY_DENY", "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json"],
+      ["full-native-gates", "PASS_BOOTSTRAP_ONLY_STRESS_NOT_STARTED", "evidence/fixtures/darwin-stack-call-preflight/native-observation.json"],
+      ["natural-startup-handler", "DENY_NATURAL_STARTUP_GSI_EXIT_139", "evidence/fixtures/darwin-stack-call-preflight/native-observation.json"],
+      ["natural-startup-handler", "DIAGNOSTIC_ONLY_LABEL_RELINK_REMOVES_EXIT_139_NOT_QUALIFICATION", "evidence/fixtures/darwin-stack-call-preflight/label-binding-diagnostic.json"],
+      ["scannable-frame-chain", "DIAGNOSTIC_ONLY_FRAME_RA_EXIT_134_FIRST_BAD_FRAME_OPEN", "evidence/fixtures/darwin-stack-call-preflight/label-binding-diagnostic.json"],
+      ["scannable-frame-chain", "HISTORICAL_DIFFERENT_LOCK_POLL_KIND_PROBE_DENY", "evidence/fixtures/darwin-stack-check-poll-kind/review-contract.json"]
+    ],
+    "source_anchor": [
+      ["entry-frame-capacity", "prior-observation", 25, 54, "Different source lock: use this native arithmetic only as a historical counterexample, not as the poll-kind candidate's measured frame."],
+      ["handler-prewrite", "base-handler", 259, 268, "Upstream source pushes before limit comparison; confirm the exact candidate generated C and handler reserve before claiming repair."],
+      ["entry-frame-capacity", "base-poll", 1332, 1333, "The base poll period counts instructions, not maximum stack bytes in a disabled region; unbounded regions need a real safe point."],
+      ["entry-frame-capacity", "base-fudge", 64, 67, "The fixed section fudge is not proof that every entry burst plus handler pre-write fits."],
+      ["scannable-frame-chain", "prior-poll-review", 1, 12, "Different source lock: poll-kind native probe failed before stress; this does not establish the call-preflight frame chain."],
+      ["entry-frame-capacity", "candidate-patch", 84, 104, "Current candidate moves checks to call boundaries; its maximum byte descent to each safe point is not yet established."],
+      ["handler-prewrite", "candidate-patch", 3020, 3029, "Current Darwin/GNU reserve adds handler frame space; this arithmetic and native frame integrity remain unqualified."],
+      ["natural-startup-handler", "candidate-native", 10, 31, "Same-candidate first fault loads null temp4 after bootstrap PASS; watchpoint and temp1 tag reject the completed normal CFUN_ERROR path, but earlier control flow is open."],
+      ["natural-startup-handler", "label-diagnostic", 6, 36, "Same-image route trace identifies the one-slot manual label error; the one-object relink uses a different diagnostic binary and SDK, not a full source-locked pass."],
+      ["scannable-frame-chain", "label-diagnostic", 28, 46, "The diagnostic relink now fails at FRAME-RA; locate the first invalid return-address producer before a full new qualification."],
+      ["first-writer-and-generation", "prior-observation", 56, 59, "Historical record expressly leaves first writer and live allocation generation open."]
+    ]
+  },
+  "queries": {
+    "open": "open",
+    "observed": "observed",
+    "source_gap": "source_gap"
+  },
+  "references": [
+    {"id": "candidate-lock", "path": "evidence/fixtures/darwin-stack-call-preflight/source.lock.json", "sha256": "7c55d99816e3cc8059e2355954e7f47e88f65ec176111b577ff5c1bd829b6b44", "pointer": null},
+    {"id": "candidate-patch", "path": "patches/fixtures/darwin-stack-call-preflight.patch", "sha256": "32491a84bfb368b2b7504a6369f1a44bade671b5ee9e22b0bc0f35f142b5b93d", "pointer": null},
+    {"id": "candidate-native", "path": "evidence/fixtures/darwin-stack-call-preflight/native-observation.json", "sha256": "10b5d89fd3398d94171cc1b577cbe399603612304fdb7bf79565eea260d8625f", "pointer": null},
+    {"id": "label-diagnostic", "path": "evidence/fixtures/darwin-stack-call-preflight/label-binding-diagnostic.json", "sha256": "9e70e6985beef263d979a9a508e96838a33f29ff3264bb1c6fb256ede544a190", "pointer": null},
+    {"id": "prior-poll-lock", "path": "evidence/fixtures/darwin-stack-check-poll-kind/source.lock.json", "sha256": "36298af8782fad27b7a5096def208ad41e8ac726bd26736a456a61fa7ea4b07e", "pointer": null},
+    {"id": "prior-poll-review", "path": "evidence/fixtures/darwin-stack-check-poll-kind/review-contract.json", "sha256": "3a88bd5fde49e10f5fff170f76f14cc2b7aed4a9def7796f43540a70e8f29003", "pointer": null},
+    {"id": "prior-lock", "path": "evidence/fixtures/darwin-stack-write-boundary/source.lock.json", "sha256": "8246d382597c43a7dcf457bedd1e3b64b470edb7bfda0460e35546dce694a1c1", "pointer": null},
+    {"id": "prior-observation", "path": "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json", "sha256": "17286f21571b1f96e55357d3d22c8a042b700fd871bf8cda968d79a928196a0c", "pointer": null},
+    {"id": "base-handler", "path": "vendor/gambit/lib/_kernel.scm", "sha256": "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec", "pointer": null},
+    {"id": "base-poll", "path": "vendor/gambit/gsc/_front.scm", "sha256": "e05dd9b2370da0e1a7baa3c8b7ea1d212fc3efe23e0e90e8fce3db69119c63de", "pointer": null},
+    {"id": "base-fudge", "path": "vendor/gambit/lib/mem.h", "sha256": "4cde6fb9ce310d6c769c94c9f2b70b30e06ca025e436064d715a45b41d9c3331", "pointer": null}
+  ]
+}

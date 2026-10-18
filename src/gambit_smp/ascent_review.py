@@ -103,19 +103,18 @@ def collect(root, selected=None, proposal=None, task_model=None):
 
 def _collect(root, selected=None, proposal=None, task_model=None):
     from ascent.evidence import identity
-    from gambit_smp.protocol_evidence import facts as protocol_facts
+    from gambit_smp.protocol_evidence import BUNDLE_REGISTRY
 
     root = root.resolve()
     base = evidence_index.export(root=root)
+    if BUNDLE_REGISTRY not in base["inputs"]:
+        raise ValueError("review requires the Catalog's complete protocol inventory")
     audit_facts, audit_inputs = research_audit.load_audit(root, base)
     observations = json.loads((root / "evidence/research-audit.json").read_text())["issues"]
-    extra, bound = protocol_facts(root)
-    for name, rows in extra.items():
-        base["facts"].setdefault(name, []).extend(rows)
     if task_model is not None and task_model not in {row[0] for row in base["facts"].get("model", []) +
                                                     base["facts"].get("protocol_model", [])}:
         raise ValueError("unknown review model: " + task_model)
-    inputs = {**base["inputs"], **bound, **audit_inputs}
+    inputs = {**base["inputs"], **audit_inputs}
     from gambit_smp.evidence_views import registry, load as load_view
     view_names, view_inputs = registry(root)
     for name in view_names:
@@ -152,7 +151,7 @@ def _collect(root, selected=None, proposal=None, task_model=None):
     # Bind adapter semantics as well as data; partial concurrent snapshots fail.
     for name in ("ascent_review", "review_links", "review_inputs", "review_brief", "review_graph",
                  "review_validation", "agent_context", "ascent_program", "native_support", "reasoning_history", "research_audit",
-                 "evidence_index", "evidence_views", "protocol_evidence", "check_gambit", "reflection"):
+                 "evidence_index", "evidence_views", "evidence_interface", "protocol_evidence", "check_gambit", "reflection"):
         module = importlib.import_module("gambit_smp." + name)
         path = Path(module.__file__).resolve()
         inputs[str(path.relative_to(root))] = digest(path)

@@ -196,7 +196,12 @@ def _sealed_api_identities(files, root, manifest):
 
 @contextmanager
 def engine_api(*, engine=None, retain=False):
-    """Require the receipt-bound C ABI and bind its implementation before/after."""
+    """Context manager yielding (engine, backend_identity), not a direct tuple.
+
+    The engine is valid inside the with block. The receipt-bound C ABI and its
+    implementation identities are checked before/after; owned handles close on
+    exit unless retain=True. This does not admit a native runtime result.
+    """
     engine, identities, files, owned, boundary = _api_entry(engine, retain)
     try:
         yield engine, identities

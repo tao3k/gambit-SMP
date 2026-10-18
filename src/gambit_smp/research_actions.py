@@ -17,10 +17,52 @@ def identity(value):
                                      allow_nan=False).encode()).hexdigest()
 
 
+def view_evidence_identity(view, query):
+    """Identify the exact source-bound answer a view action would read."""
+    return identity({"view": view["id"], "inputs": view["inputs"],
+                     "query": query, "answers": view["answers"][query]})
+
+
+def _reusable_view_result(snapshot, selected):
+    if selected.get("operation") != "evidence-view":
+        return None
+    current_actions = {action["id"]: action for action in snapshot["actions"]}
+    for encoded_body, encoded_result in snapshot["recordedOutcomes"]:
+        body, result = json.loads(encoded_body), json.loads(encoded_result)
+        prior = current_actions.get(body.get("action"))
+        if (body.get("sourceIdentity") != snapshot["sourceIdentity"] or prior is None
+                or prior.get("selectedEvidenceIdentity") != selected["selectedEvidenceIdentity"]
+                or result.get("status") != "COMPLETED" or result.get("outcome") != "RECORDED"
+                or not result.get("receipt") or not result.get("receiptSHA")):
+            continue
+        path = Path(result["receipt"])
+        if digest(path) != result["receiptSHA"]:
+            raise ValueError("reusable Evidence view receipt changed")
+        receipt = json.loads(path.read_text())
+        if (receipt.get("schema") != "research-action-observation.v1"
+                or receipt.get("operation") != "evidence-view"
+                or receipt.get("outcome") != "RECORDED"
+                or receipt.get("sourceIdentity") != snapshot["sourceIdentity"]
+                or receipt.get("inputs") != snapshot["inputs"]
+                or receipt.get("backend") != snapshot["backend"]
+                or receipt.get("selectedEvidenceIdentity") != selected["selectedEvidenceIdentity"]):
+            raise ValueError("reusable Evidence view receipt differs from current source")
+        origin = result.get("reusedFromAction", body["action"])
+        if (origin not in current_actions or
+                current_actions[origin].get("selectedEvidenceIdentity")
+                != selected["selectedEvidenceIdentity"]):
+            raise ValueError("reusable Evidence view origin differs from current source")
+        return {"status": "COMPLETED", "outcome": "RECORDED",
+                "receipt": result["receipt"], "receiptSHA": result["receiptSHA"],
+                "reusedFromAction": origin,
+                "runtimeAdmitted": False}
+    return None
+
+
 def _inputs(root, paths):
     result = {}
-    for path in paths:
-        path = Path(path).resolve(strict=True)
+    for path in dict.fromkeys(Path(path) for path in paths):
+        path = path.resolve(strict=True)
         path.relative_to(root)
         if not path.is_file():
             raise ValueError("regular source file required")
@@ -90,7 +132,7 @@ def discover(root, context):
     from gambit_smp.recipes import load, source_path
     from gambit_smp.research_kernel import manifest_paths, implementation_paths
     root = Path(root).resolve()
-    if set(context) - {"recipes", "engine", "studies", "graph", "observations", "views"} or not isinstance(context.get("recipes", []), list):
+    if set(context) - {"recipes", "engine", "studies", "graph", "observations", "views", "navigator"} or not isinstance(context.get("recipes", []), list):
         raise ValueError("context requires an explicit recipe inventory and optional engine")
     names = context.get("recipes", [])
     if len(set(names)) != len(names) or not (names or context.get("studies") or context.get("graph") or context.get("views")):
@@ -116,6 +158,12 @@ def discover(root, context):
             raise ValueError("duplicate Evidence view identity")
         views.append(view)
         paths.extend(Path(p) for p in bound_view)
+    if "navigator" in context:
+        navigator = context["navigator"]
+        if not isinstance(navigator, str) or navigator not in context.get("views", []):
+            raise ValueError("navigator must name a declared Evidence view")
+        if "question" not in views[context["views"].index(navigator)]["queries"]:
+            raise ValueError("navigator must name a declared Evidence view with a question query")
 
     def evidence(path, pointer="", *, premise=None, action=None):
         path = Path(path).resolve(strict=True)
@@ -276,6 +324,7 @@ def discover(root, context):
                     raise ValueError("view action names an undeclared query")
                 action = "view:" + view["id"] + ":" + identifier
                 add_action(action, "evidence-view", view=view["path"], query=query,
+                           selectedEvidenceIdentity=view_evidence_identity(view, query),
                            expectedEvidence=[reason], budgetSeconds=15)
                 # The view document declares every individually hashed input.
                 # Keep that full map once in the snapshot, not once per action.
@@ -304,7 +353,9 @@ def discover(root, context):
     checked = _inputs(root, paths)
     checked.update({str(path.resolve()): digest(path) for path in implementation})
     if checked != bound:
-        raise ValueError("action inputs changed during discovery")
+        changed = sorted(name for name in bound.keys() | checked.keys()
+                         if bound.get(name) != checked.get(name))
+        raise ValueError("action inputs changed during discovery: " + ", ".join(changed))
     if engine is not None and manifest_paths(engine_path) != engine:
         raise ValueError("sealed engine changed during discovery")
     if _outcomes(root) != history:
@@ -392,12 +443,15 @@ def select(root, snapshot, action, inputs, request_id, *, authorize_execution=Fa
             name: digest(path) for name, path in artifact_paths().items()} != current["backend"]
         if backend_changed or _outcomes(root) != current["recordedOutcomes"]:
             raise ValueError("STALE backend or action outcomes before reservation")
+        reusable = _reusable_view_result(current, selected)
         db.execute("INSERT INTO requests VALUES (?, ?, NULL)", (request_id, encoded))
         db.commit()
         from gambit_smp.artifact_storage import cache_path
         out = cache_path(root, "research-actions/" + request_id)
         try:
-            if selected.get("operation"):
+            if reusable is not None:
+                result = reusable
+            elif selected.get("operation"):
                 result = _execute_action(Path(root).resolve(), selected, current, out, started=started)
             else:
                 receipt = run_sealed(Path(root).resolve(), Path(root).resolve() / selected["recipe"],
@@ -451,7 +505,11 @@ def _execute_action(root, action, snapshot, out, *, started):
         from gambit_smp.evidence_views import evaluate as evaluate_view
         with engine_api(retain=True) as (api, _):
             view = evaluate_view(root, action["view"], api)
+        selected_identity = view_evidence_identity(view, action["query"])
+        if selected_identity != action["selectedEvidenceIdentity"]:
+            raise ValueError("STALE selected Evidence view result")
         receipt.update(view=view, selectedQuery=action["query"],
+                       selectedEvidenceIdentity=selected_identity,
                        answers=view["answers"][action["query"]], outcome="RECORDED", budgetSeconds=15)
     else:
         study, _, provenance, _ = _study(root, action["study"])

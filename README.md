@@ -30,6 +30,11 @@ See [Agentic AI interface](docs/agentic-evidence-interface.md) for the structure
 `gambit-smp agent-context` validates the evidence pipeline and emits an
 identity-bound Agent handoff linking Catalog entries, receipts and open gates.
 
+`gambit-smp trajectory clues` evaluates caller-authored Scheme/Datalog queries
+over registered evidence relations and returns source-bound incremental slices.
+Its `--help` lists relation signatures; no Context selection is required.
+See [the relation-query interface](docs/smp-trajectory-application.md#direct-logical-evidence-reads).
+
 ```sh
 uv sync --locked
 uv run --locked python -m unittest discover -s tests

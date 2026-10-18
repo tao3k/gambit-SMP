@@ -108,10 +108,14 @@ def owner_artifacts_match(owner):
     return True
 
 
-def run_domain(root, tests, policy, engine, out):
+def run_domain(root, tests, policy, engine, out, *, started=None):
     from gambit_smp.framework import available_processors, digest, execute
     from gambit_smp.research_kernel import manifest_paths
-    started = time.monotonic()
+    now = time.monotonic()
+    if started is None:
+        started = now
+    elif type(started) not in (int, float) or not 0 < started <= now:
+        raise ValueError("domain launch time cannot renew or extend its budget")
     manifest = manifest_paths(engine)
     for name, sha in manifest["files"].items():
         if name.startswith("python/gambit_smp/"):

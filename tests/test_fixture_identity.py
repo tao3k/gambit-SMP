@@ -2,8 +2,33 @@ import json
 from pathlib import Path
 import re
 import unittest
+from datetime import datetime
+import tempfile
 
 from gambit_smp.framework import ROOT, digest
+
+
+def semantic_asset(path, fixture_root):
+    relative = path.relative_to(fixture_root)
+    if not any(char.isdigit() for char in relative.as_posix()):
+        return True
+    # A chronological observation is not a numbered repair candidate. Keep
+    # its historical path/bytes; source, lock and patch names remain semantic.
+    if any(char.isdigit() for char in relative.parent.as_posix()) or not path.is_file() or path.is_symlink():
+        return False
+    match = re.fullmatch(r"[a-z]+(?:-[a-z]+)*-(\d{8})\.json", path.name)
+    if not match:
+        return False
+    try:
+        datetime.strptime(match[1], "%Y%m%d")
+        record = json.loads(path.read_text())
+    except (ValueError, OSError):
+        return False
+    return (isinstance(record, dict) and isinstance(record.get("schema"), str)
+            and record["schema"].endswith("-observation.v1")
+            and any(key.endswith("Sha256") and isinstance(value, str)
+                    and re.fullmatch(r"[0-9a-f]{64}", value)
+                    for key, value in record.items()))
 
 
 class FixtureIdentityTests(unittest.TestCase):
@@ -15,7 +40,7 @@ class FixtureIdentityTests(unittest.TestCase):
             with self.subTest(fixture=fixture.name):
                 self.assertRegex(fixture.name, r"^[a-z]+(?:-[a-z]+)*$")
                 for path in fixture.rglob("*"):
-                    self.assertFalse(any(char.isdigit() for char in path.relative_to(fixture_root).as_posix()), path)
+                    self.assertTrue(semantic_asset(path, fixture_root), path)
                 lock_path = fixture / "source.lock.json"
                 if lock_path.is_file():
                     lock = json.loads(lock_path.read_text())
@@ -59,6 +84,29 @@ class FixtureIdentityTests(unittest.TestCase):
                             self.assertEqual("vendor/gambit", selected_lock["submodule"])
                             self.assertRegex(selected_lock["patch"], r"^patches/fixtures/[a-z]+(?:-[a-z]+)*\.patch$")
                             self.assertEqual(selected_lock["patchSha256"], digest(ROOT / selected_lock["patch"]))
+
+    def test_dated_observation_names_do_not_allow_numbered_candidates_or_unbound_json(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / "semantic-fixture"
+            fixture.mkdir()
+            record = {"schema": "research-observation.v1", "receiptSha256": "a" * 64}
+            for name, payload, accepted in (
+                    ("native-observation-20261016.json", record, True),
+                    ("native-observation-20260230.json", record, False),
+                    ("candidate-001.json", record, False),
+                    ("source-20261016.lock.json", record, False),
+                    ("native-observation-20261016.json", {"schema": "source-lock.v1", "receiptSha256": "a" * 64}, False),
+                    ("native-observation-20261016.json", {"schema": "research-observation.v1"}, False)):
+                with self.subTest(name=name, payload=payload):
+                    path = fixture / name
+                    path.write_text(json.dumps(payload))
+                    self.assertEqual(semantic_asset(path, root), accepted)
+            numbered = root / "candidate-001"
+            numbered.mkdir()
+            path = numbered / "native-observation-20261016.json"
+            path.write_text(json.dumps(record))
+            self.assertFalse(semantic_asset(path, root))
 
     def test_owned_log_fixture_has_semantic_and_content_bound_identity(self):
         base = "evidence/fixtures/pstate-log-owned-rollback/"

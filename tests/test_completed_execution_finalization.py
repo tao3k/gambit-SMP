@@ -14,6 +14,9 @@ from types import SimpleNamespace
 
 
 class CompletedExecutionFinalizationTests(unittest.TestCase):
+    # Real 100ms process controls need the same owner-wave barrier as discovery.
+    validation_after_domains = True
+
     def test_progress_owner_uses_renewed_review_deadline_not_old_total_wall(self):
         owner = SimpleNamespace(deadline=420)
         self.assertEqual(420, evaluation_teardown_deadline(

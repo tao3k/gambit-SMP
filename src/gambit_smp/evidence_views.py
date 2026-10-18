@@ -76,6 +76,7 @@ def evaluate(root, name, engine):
     if any(digest(Path(p)) != sha for p, sha in inputs.items()):
         raise ValueError("Evidence view changed during inference")
     return {"id": document["id"], "path": name, "inputs": inputs,
+            "facts": facts,
             "queries": document["queries"], "answers": answers,
             "explanation": explanation, "executionAuthorized": False,
             "runtimeAdmitted": False, "scope": "caller-declared recorded-only view"}

@@ -8,6 +8,8 @@ from gambit_smp.framework import ROOT
 
 
 class EvidenceDSLMainpaths(unittest.TestCase):
+    validation_after_domains = True
+
     def entry(self, name):
         scenario = json.loads((ROOT / 'evidence/scenarios/catalog-review-history/scenario.json').read_text())
         declaration = scenario['entries'][name]

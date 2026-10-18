@@ -7,42 +7,10 @@ from gambit_smp.framework import ROOT, digest, positive_int
 
 
 def markdown(result):
-    brief = result["taskBrief"]
-    graph = result["agentGraph"]
-    validation = result["frameworkValidation"]
-    lines = ["# Agentic AI Evidence Context: " + brief["task"], "",
-             "Snapshot: `" + graph["snapshot"] + "`.",
-             "Checkout: `" + graph["checkout"]["root"] + "` at `" + graph["checkout"]["head"] + "`.", "",
-             "Framework validation: **" + validation["status"] + "**; profile `" +
-             validation.get("profile", "none") + "`, " + str(validation.get("testsRun", 0)) + " tests.",
-             "Read [the complete information graph](graph.json) and [the review receipt](review.json)",
-             "for exact source bindings, recorded outcomes and open premises. Paths and Git status are recorded per input.", "",
-             "## Reusable Evidence", "", "| Claim | Receipt | Binding |", "| --- | --- | --- |"]
-    for entry in brief["reusable"]:
-        lines.append("| `" + entry["claim"] + "` | `" + str(entry["path"]) + "` | " + entry["binding"] + " |")
-    if not brief["reusable"]:
-        lines.append("| None | | |")
-    lines.extend(["", "## Open Premises", ""])
-    lines.extend("- `" + claim + "`" for claim in brief["openPremises"])
-    lines.extend(["", "## Invalidated Or Unverified", ""])
-    lines.extend("- `" + entry["receipt"] + "`: " + ", ".join(entry["reasons"])
-                 for entry in brief["invalidated"] + brief["unverified"])
-    lines.extend(["", "## Recorded Failed Routes", ""])
-    lines.extend("- `" + entry["id"] + "`: " + entry["routeDecision"] + "; `" + entry["receipt"] + "`."
-                 for entry in brief["knownFailedRoutes"])
-    lines.extend(["", "## Recorded Audit Suggestions", "",
-                  "These historical suggestions are not a required action order or execution policy.", ""])
-    lines.extend("- `" + issue["id"] + "`: " + issue["next"] for issue in brief.get("relatedAuditIssues", []))
-    lines.extend(["", "## Source References", ""])
-    lines.extend("- `" + location + "`" for location in brief.get("sourceReferences", []))
-    lines.extend(["", "## Engineering Gates", ""])
-    lines.extend("- " + gate + ": " + status for gate, status in brief["gates"].items())
-    lines.extend(["", "## Dependency Overview", "", "The overview shows the target claim's immediate links.",
-                  "The JSON graph also includes catalog pointers, logs, counterexamples, inputs, reports and papers.",
-                  "", "```mermaid", mermaid_text(graph).rstrip(), "```", "",
-                  "This context does not grant execution authorization. Host authorization remains independent.",
-                  "Generated local context must be rechecked after input changes; Git status does not imply runtime acceptance.", ""])
-    return "\n".join(lines)
+    return "\n".join(["# " + result["taskBrief"]["task"], "",
+        "[Evidence DSL / facts / queries](evidence.json)",
+        "[Graph](graph.json) | [Review / explanations](review.json)",
+        "[Identity manifest](context.json)", ""])
 
 
 def mermaid_text(graph):
@@ -56,13 +24,16 @@ def write_bundle(out, result):
     contents = {"review.json": json.dumps(result, indent=2) + "\n",
                 "graph.json": json.dumps(result["agentGraph"], indent=2) + "\n",
                 "context.md": markdown(result), "graph.mmd": mermaid_text(result["agentGraph"])}
-    artifacts = {}
+    from gambit_smp.evidence_interface import write
+    artifacts = write(Path(result["agentGraph"]["checkout"]["root"]), out,
+                      result.get("evidenceViews", []), result["inputs"])
     for name, content in contents.items():
         path = out / name
         with path.open("x") as stream:
             stream.write(content)
         artifacts[name] = {"path": name, "sha256": digest(path)}
-    manifest = {"schema": "gambit-agent-context.v1", "task": result["taskBrief"]["task"],
+    manifest = {"schema": "gambit-agent-context.v2", "task": result["taskBrief"]["task"],
+                "entrypoint": "evidence.json",
                 "snapshot": result["agentGraph"]["snapshot"],
                 "graphSha256": result["agentGraph"]["graphSha256"], "artifacts": artifacts,
                 "frameworkValidated": result["frameworkValidation"]["frameworkValidated"],
@@ -80,11 +51,18 @@ def read_bundle(path):
     if path.is_dir():
         path = path / "context.json"
     manifest = json.loads(path.read_text())
-    if manifest.get("schema") != "gambit-agent-context.v1" or set(manifest["artifacts"]) != {
-            "review.json", "graph.json", "context.md", "graph.mmd"}:
+    schema = manifest.get("schema")
+    legacy = {"review.json", "graph.json", "context.md", "graph.mmd"}
+    if (schema not in ("gambit-agent-context.v1", "gambit-agent-context.v2")
+            or (schema == "gambit-agent-context.v1" and set(manifest["artifacts"]) != legacy)
+            or (schema == "gambit-agent-context.v2" and manifest.get("entrypoint") != "evidence.json")):
         raise ValueError("unknown or incomplete Agent context bundle")
     for name, artifact in manifest["artifacts"].items():
-        if artifact["path"] != name or digest(path.parent / name) != artifact["sha256"]:
+        relative = Path(name)
+        target = path.parent / relative
+        if (relative.is_absolute() or ".." in relative.parts or target.is_symlink()
+                or not target.resolve().is_relative_to(path.parent.resolve())
+                or artifact["path"] != name or digest(target) != artifact["sha256"]):
             raise ValueError("Agent context artifact identity mismatch: " + name)
     review = json.loads((path.parent / "review.json").read_text())
     graph = json.loads((path.parent / "graph.json").read_text())
@@ -96,6 +74,9 @@ def read_bundle(path):
             manifest["frameworkValidated"] != graph["frameworkValidated"] or
             manifest["frameworkValidated"] != review["frameworkValidation"]["frameworkValidated"]):
         raise ValueError("Agent context admission status mismatch")
+    if schema == "gambit-agent-context.v2":
+        from gambit_smp.evidence_interface import read
+        read(path.parent, manifest["artifacts"], review)
     return manifest, review
 
 
@@ -156,7 +137,7 @@ def main():
     manifest = write_bundle(args.out, result)
     print(json.dumps({"task": args.model, "snapshot": manifest["snapshot"],
                       "contextPath": str(args.out / "context.json"),
-                      "agentInstructionsPath": str(args.out / "context.md"),
+                      "evidencePath": str(args.out / "evidence.json"),
                       "graphPath": str(args.out / "graph.json"),
                       "graphSha256": manifest["graphSha256"],
                       "frameworkValidation": result["frameworkValidation"]["status"],

@@ -10,6 +10,8 @@ import platform
 import sys
 import time
 import unittest
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 
 from gambit_smp.framework import ROOT, digest, execute, positive_int
 from gambit_smp.research_audit import local
@@ -30,10 +32,18 @@ def python_files(root):
 
 
 def asset_files(root):
-    return sorted(str(path.relative_to(root))
-                  for directory in ("tests/fixtures", "evidence/dsl", "evidence/scenarios", "models/library")
+    assets = {str(path.relative_to(root))
+              for directory in ("tests/fixtures", "evidence/dsl", "evidence/scenarios", "models/library")
+              for path in (root / directory).rglob("*")
+              if path.is_file() and (path.suffix in (".ss", ".json", ".qnt", ".lean")
+                                     or path.name == "lean-toolchain")}
+    assets.update(str(path.relative_to(root))
+                  for directory in (".github", "integrations")
                   for path in (root / directory).rglob("*")
-                  if path.is_file() and path.suffix in (".ss", ".json", ".qnt"))
+                  if path.is_file() and not path.is_symlink()
+                  and not any(part in {".venv", ".data", ".cache", "__pycache__"}
+                              for part in path.relative_to(root).parts))
+    return sorted(assets)
 
 
 def environment():
@@ -56,6 +66,19 @@ class Outcomes(unittest.TextTestResult):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.outcomes = {}
+        self.timings = {}
+        self.started = {}
+
+    def startTest(self, test):
+        self.started[test.id()] = time.monotonic()
+        super().startTest(test)
+
+    def stopTest(self, test):
+        elapsed = time.monotonic() - self.started.pop(test.id())
+        self.timings[test.id()] = elapsed
+        self.stream.write("  elapsed " + json.dumps({"test": test.id(), "seconds": elapsed}) + "\n")
+        self.stream.flush()
+        super().stopTest(test)
 
     def record(self, test, status):
         previous = self.outcomes.get(test.id())
@@ -133,14 +156,40 @@ def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None, j
     started = time.monotonic()
     from gambit_smp.validation_domains import partition, run_domain
     local_suite, domains = partition(suite)
-    domain_results = []
-    for index, (policy, tests) in enumerate(domains):
-        if domain_out is None or not os.environ.get("GAMBIT_SMP_TEST_ENGINE"):
-            raise ValueError("declared validation domain requires a sealed engine and receipt directory")
-        engine = Path(os.environ["GAMBIT_SMP_TEST_ENGINE"]).resolve()
-        domain_results.append(run_domain(root, tests, policy, engine, Path(domain_out) / str(index)))
+    if domains and (domain_out is None or not os.environ.get("GAMBIT_SMP_TEST_ENGINE")):
+        raise ValueError("declared validation domain requires a sealed engine and receipt directory")
     output = ValidationOutput(journal)
-    result = unittest.TextTestRunner(stream=output, verbosity=2, resultclass=Outcomes).run(local_suite)
+    # Spawn avoids sharing loaded Library state or unittest patches with domains.
+    domain_started = time.monotonic()
+    pool = ProcessPoolExecutor(max_workers=len(domains), mp_context=get_context("spawn")) if domains else None
+    try:
+        futures = [pool.submit(run_domain, root, tests, policy,
+                               Path(os.environ["GAMBIT_SMP_TEST_ENGINE"]).resolve(),
+                               Path(domain_out) / str(index), started=domain_started)
+                   for index, (policy, tests) in enumerate(domains)]
+        from gambit_smp.validation_domains import leaves
+        early, deferred = [], []
+        for test in leaves(local_suite):
+            (deferred if getattr(test, "validation_after_domains", False) else early).append(test)
+        domain_results, domains_joined = [], False
+
+        def join_domains():
+            nonlocal domain_results, domains_joined
+            if not domains_joined:
+                domain_results = [future.result() for future in futures]
+                domains_joined = True
+
+        class DomainBarrier(unittest.TestSuite):
+            def run(self, result, debug=False):
+                join_domains()
+                return super().run(result, debug)
+
+        scheduled = unittest.TestSuite([unittest.TestSuite(early), DomainBarrier(deferred)])
+        result = unittest.TextTestRunner(stream=output, verbosity=2, resultclass=Outcomes).run(scheduled)
+        join_domains()
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
     for domain in domain_results:
         if set(result.outcomes) & set(domain["outcomes"]):
             raise ValueError("validation domain duplicated a test identity")
@@ -162,10 +211,13 @@ def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None, j
             "status": "PASS" if passed else "DENY", "frameworkValidated": passed,
             "seconds": time.monotonic() - started, "testsRun": result.testsRun,
             "expectedTestIds": expected, "outcomes": dict(sorted(result.outcomes.items())),
+            "localTestSeconds": result.timings,
             "failures": counts["failure"], "errors": counts["error"],
             "skipped": counts["skip"], "expectedFailures": counts["expected-failure"],
             "unexpectedSuccesses": counts["unexpected-success"],
             "executionDomains": domain_results,
+            "validationSchedule": {"kind": "spawn-domain-overlap", "deferredTestIds": sorted(t.id() for t in deferred),
+                                   "domainBudgetOrigin": "parent-submission"},
             "completeTestInventory": complete, "changedInputs": changed,
             "pythonFiles": python_before, "assetFiles": assets_before,
             "testFiles": selected_files, "inputs": inputs,
