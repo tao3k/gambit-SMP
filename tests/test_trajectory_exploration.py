@@ -96,9 +96,12 @@ class TrajectoryExplorationTests(unittest.TestCase):
             with closing(sqlite3.connect(database)) as connection:
                 connection.execute("PRAGMA user_version=1")
             self.assertEqual(read_trajectory_attempts(older, "scope"), [])
-            with closing(sqlite3.connect(database)) as connection:
-                self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+            from gambit_smp.reasoning_history import _database
+            with _database(older) as connection:
+                self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 6)
                 self.assertEqual(connection.execute("SELECT COUNT(*) FROM clue_read_checkpoints").fetchone()[0], 0)
+            with closing(sqlite3.connect(database)) as connection:
+                self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 1)
         self.source.write_text("source-b")
         with self.assertRaisesRegex(ValueError, "source changed"):
             candidate(self.snapshot, "question")

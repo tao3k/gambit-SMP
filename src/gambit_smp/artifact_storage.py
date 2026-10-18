@@ -75,6 +75,56 @@ def database_path(root, name, previous):
     return target
 
 
+def durable_database_path(root, name, previous):
+    """Move an existing SQLite store consistently; never start over after pruning Cache."""
+    import sqlite3
+    import tempfile
+    from contextlib import closing
+    root = repository_root(root)
+    relative = Path(name)
+    if (relative.is_absolute() or ".." in relative.parts or not relative.parts
+            or relative.parts[0] in {".git", ".cache", ".data", "evidence", "src"}):
+        raise ValueError("durable store requires a separate bounded state path")
+    target = root / relative
+    for part in (target, *target.parents):
+        if part == root:
+            break
+        if part.is_symlink():
+            raise ValueError("durable state cannot follow a filesystem alias")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.with_suffix(".migration.lock").open("a+b") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if target.exists():
+            return target
+        source = database_path(root, previous, ".data/" + previous)
+        if not source.exists():
+            return target
+        if source.is_symlink() or not source.is_file():
+            raise ValueError("regular legacy database required")
+        with tempfile.TemporaryDirectory(prefix=".history-migration-", dir=target.parent) as temporary:
+            staged = Path(temporary) / "history.sqlite3"
+            with closing(sqlite3.connect(source, isolation_level=None)) as owner:
+                owner.execute("BEGIN IMMEDIATE")
+                try:
+                    with closing(sqlite3.connect(source.as_uri() + "?mode=ro", uri=True)) as origin, \
+                            closing(sqlite3.connect(staged)) as destination:
+                        origin.backup(destination)
+                        if destination.execute("PRAGMA integrity_check").fetchone() != ("ok",):
+                            raise ValueError("durable history migration failed integrity checking")
+                    staged.chmod(0o600)
+                    with staged.open("rb") as stream:
+                        os.fsync(stream.fileno())
+                    os.link(staged, target)
+                    directory = os.open(target.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(directory)
+                    finally:
+                        os.close(directory)
+                finally:
+                    owner.rollback()
+    return target
+
+
 def migrate_database(root, name, previous):
     """Explicit consistent SQLite backup; keep the original and refuse overwrite."""
     import sqlite3

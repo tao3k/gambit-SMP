@@ -4,6 +4,7 @@ import hashlib
 import importlib.metadata
 import io
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -227,6 +228,12 @@ def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None, j
             "scope": "Python framework tests and real ASCENT inference. Native Gambit candidate gates remain open."}, output.getvalue()
 
 
+def _producer_completed(producer):
+    return (producer.get("exit") == 0 and producer.get("timeout") is False
+            and producer.get("parentReaped") is True
+            and producer.get("processGroupQuiescent") is True)
+
+
 def load(root, path, required_inputs, engine_inputs, required_profile=None):
     """Recheck test coverage, output bytes and current identities before reuse."""
     path = Path(path).resolve()
@@ -270,11 +277,11 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
         "failures", "errors", "skipped", "expectedFailures", "unexpectedSuccesses"))
     positive = positive and saved.get("completeTestInventory") is True and not saved.get("changedInputs")
     positive = positive and saved.get("status") == "PASS" and saved.get("frameworkValidated") is True
-    positive = positive and producer.get("exit") == 0 and producer.get("timeout") is False and "log" in producer
+    positive = positive and _producer_completed(producer) and "log" in producer
     from gambit_smp.validation_domains import check_domain
     for index, domain in enumerate(saved.get("executionDomains", [])):
         positive = positive and check_domain(Path(root).resolve(), path.parent / "domains" / str(index), domain)
-    if producer.get("exit") == 0 and any(saved.get(key) != value for key, value in child.items()):
+    if _producer_completed(producer) and any(saved.get(key) != value for key, value in child.items()):
         raise ValueError("validation parent differs from child test result")
     changed = changed_inputs(root, saved["inputs"])
     uncovered = sorted(name for name, sha in required_inputs.items() if saved["inputs"].get(name) != sha)
@@ -305,6 +312,36 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
             "testIds": expected, "executionAuthorized": False, "runtimeAdmitted": False}
 
 
+def _completed_test_progress(path):
+    """Observe unique completed tests, never elapsed wall time or heartbeats."""
+    position, pending, completed = 0, "", set()
+
+    def count(_stdout, _stderr):
+        nonlocal position, pending
+        try:
+            with path.open() as stream:
+                stream.seek(position)
+                pending += stream.read()
+                position = stream.tell()
+        except FileNotFoundError:
+            return len(completed)
+        lines = pending.split("\n")
+        pending = lines.pop()
+        for line in lines:
+            if not line.startswith("  elapsed "):
+                continue
+            try:
+                event = json.loads(line.removeprefix("  elapsed "))
+            except json.JSONDecodeError:
+                continue
+            if (isinstance(event, dict) and isinstance(event.get("test"), str) and event["test"]
+                    and type(event.get("seconds")) in (int, float)
+                    and math.isfinite(event["seconds"]) and event["seconds"] >= 0):
+                completed.add(event["test"])
+        return len(completed)
+    return count
+
+
 def supervise(root, profile, model, out, timeout):
     """The parent records the real exit after native runtime teardown."""
     from gambit_smp.artifact_storage import runtime_output
@@ -315,18 +352,20 @@ def supervise(root, profile, model, out, timeout):
     if model is not None:
         command.extend(("--model", model))
     process = {}
-    code, output, timed_out, seconds = execute(command, root, timeout, metadata=process)
+    code, output, timed_out, seconds = execute(command, root, timeout, metadata=process,
+                                              progress_check=_completed_test_progress(out / "tests.log"))
     log = out / "process.log"
     with log.open("x") as stream:
         stream.write(output)
     producer = {**process, "exit": code, "timeout": timed_out, "seconds": seconds,
-                "budgetSeconds": timeout, "log": {"path": log.name, "sha256": digest(log)}}
+                "budgetSeconds": timeout, "watchdog": "completed-test-inactivity",
+                "log": {"path": log.name, "sha256": digest(log)}}
     result_path = out / "test-result.json"
     if result_path.is_file():
         result = json.loads(result_path.read_text())
         result["producer"] = producer
         result["testResultSha256"] = digest(result_path)
-        if code != 0 or timed_out:
+        if not _producer_completed(producer):
             result["childStatus"] = result["status"]
             result.update(status="DENY", frameworkValidated=False)
     else:

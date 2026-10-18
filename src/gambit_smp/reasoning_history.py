@@ -9,15 +9,25 @@ import json
 from pathlib import Path
 import sqlite3
 import uuid
+from functools import lru_cache
 
 from gambit_smp.ascent_program import engine_api, load_component_catalog, query
 from gambit_smp.framework import ROOT, digest, relative
 
 RULES = ROOT / "evidence/dsl/history.ss"
+STORAGE_RULES = RULES.with_name("storage.ss")
 QUERIES = {"added": "added", "removed": "removed", "retained": "retained",
            "changedInputs": "changed_input", "addedInputs": "added_input",
            "removedInputs": "removed_input"}
 POLICY_QUERIES = {"eligible": "publishable", "gaps": "publication_gap"}
+
+
+class CheckpointConflict(ValueError):
+    pass
+
+
+class CheckpointClosed(CheckpointConflict):
+    """A terminal prefix is immutable, not a transient CAS conflict."""
 
 
 def canonical(value):
@@ -43,14 +53,29 @@ def lineage(workflow, *, task=None, branch="workspace", selection="all", policy=
                                               selection=selection, policy=policy))
 
 
+@lru_cache(maxsize=32)
+def _storage_location(source_bytes, registry_bytes):
+    """Cache only identity-bound routing metadata, never evidence or eligibility."""
+    catalog = load_component_catalog(RULES.parent / "components.json", entry="state-storage",
+                                     constructor="make-history-storage", trusted=True)
+    locations = query({}, catalog, {"location": "location"})["location"]
+    if len(locations) != 1 or len(locations[0]) != 1:
+        raise ValueError("one registered durable history location required")
+    if STORAGE_RULES.read_bytes() != source_bytes or (RULES.parent / "components.json").read_bytes() != registry_bytes:
+        raise ValueError("storage declaration changed during routing")
+    return locations[0][0]
+
+
 @contextmanager
 def _database(root):
-    from gambit_smp.artifact_storage import database_path
-    path = database_path(root, "reasoning/history.sqlite3", ".data/reasoning/history.sqlite3")
+    from gambit_smp.artifact_storage import durable_database_path
+    location = _storage_location(STORAGE_RULES.read_bytes(), (RULES.parent / "components.json").read_bytes())
+    path = durable_database_path(root, location, "reasoning/history.sqlite3")
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path, isolation_level=None)) as db:
+        db.execute("PRAGMA synchronous=FULL")
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3, 4, 5):
+        if version not in (0, 1, 2, 3, 4, 5, 6):
             raise ValueError("unknown history database schema version")
         if version == 0:
             db.execute("BEGIN IMMEDIATE")
@@ -113,6 +138,18 @@ def _database(root):
                 db.execute("CREATE TABLE IF NOT EXISTS clue_read_checkpoints "
                            "(id TEXT PRIMARY KEY, body TEXT NOT NULL)")
                 db.execute("PRAGMA user_version=5")
+                db.commit()
+                version = 5
+            except BaseException:
+                db.rollback()
+                raise
+        if version == 5:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("CREATE TABLE IF NOT EXISTS execution_checkpoints "
+                           "(run TEXT NOT NULL, sequence INTEGER NOT NULL, identity TEXT NOT NULL, body TEXT NOT NULL, "
+                           "PRIMARY KEY(run,sequence))")
+                db.execute("PRAGMA user_version=6")
                 db.commit()
             except BaseException:
                 db.rollback()
@@ -305,7 +342,7 @@ def _published_analysis(db, observation, attempt=None):
     return row[0], body
 
 
-def append_observation(root, scope, inputs, results, backend, *, bound_inputs=None):
+def append_observation(root, scope, inputs, results, backend, *, bound_inputs=None, checkpoint=None):
     """Retain supplied facts before loading or executing analysis.
 
     Unbound observations can be recorded, never published. Reported hashes stay
@@ -330,11 +367,68 @@ def append_observation(root, scope, inputs, results, backend, *, bound_inputs=No
             # remains distinct, including a repeat of the same facts.
             event = dict(event=uuid.uuid4().hex, observation=identity, backend=backend)
             db.execute("INSERT INTO observation_events VALUES (?,?)", (fingerprint(event), canonical(event)))
+            if checkpoint is not None:
+                _append_execution_checkpoint(db, checkpoint, identity)
             db.commit()
         except BaseException:
             db.rollback()
             raise
     return identity
+
+
+def _append_execution_checkpoint(db, checkpoint, observation):
+    run, expected = checkpoint["run"], checkpoint["expectedPrefix"]
+    previous = db.execute("SELECT sequence,identity,body FROM execution_checkpoints WHERE run=? "
+                          "ORDER BY sequence DESC LIMIT 1", (run,)).fetchone()
+    if (previous[1] if previous else None) != expected:
+        raise CheckpointConflict("concurrent checkpoint publication; refresh the committed prefix")
+    if previous and json.loads(previous[2])["runId"] != checkpoint["runId"]:
+        raise ValueError("checkpoint path belongs to another execution")
+    if previous:
+        retained = _observation(db, json.loads(previous[2])["observation"])
+        payloads = retained["queries"].get("run_record", [])
+        if len(payloads) != 1:
+            raise ValueError("checkpoint head lacks its immutable record")
+        if json.loads(payloads[0]).get("schema") == "research-terminal-observation.v1":
+            raise CheckpointClosed("terminal execution is immutable; a new execution needs a new run identity")
+    body = {key: checkpoint[key] for key in ("run", "runId", "path", "scope")}
+    body.update(sequence=previous[0] + 1 if previous else 0, previous=expected, observation=observation)
+    db.execute("INSERT INTO execution_checkpoints VALUES (?,?,?,?)",
+               (run, body["sequence"], fingerprint(body), canonical(body)))
+
+
+def read_execution_checkpoint(root, run):
+    """Read an authenticated committed prefix without requiring disposable run files."""
+    run = str(Path(run).resolve())
+    records, previous, run_id = [], None, None
+    with _database(root) as db:
+        for sequence, identity, encoded in db.execute(
+                "SELECT sequence,identity,body FROM execution_checkpoints WHERE run=? ORDER BY sequence", (run,)):
+            body = json.loads(encoded)
+            if (fingerprint(body) != identity or body["run"] != run or body["previous"] != previous
+                    or body["sequence"] != sequence or sequence != len(records)
+                    or (run_id is not None and body["runId"] != run_id)):
+                raise ValueError("checkpoint prefix identity mismatch")
+            observation = _observation(db, body["observation"])
+            payloads = observation["queries"].get("run_record", [])
+            if observation["scope"] != body["scope"] or len(payloads) != 1:
+                raise ValueError("checkpoint lacks its immutable record observation")
+            records.append(dict(body, identity=identity, payload=json.loads(payloads[0]),
+                                inputs=observation["inputs"]))
+            previous, run_id = identity, body["runId"]
+    return {"prefixIdentity": previous, "records": records, "runId": run_id}
+
+
+def execution_checkpoint_head(root, run):
+    """Indexed append metadata; full prefix verification belongs to read/consumption."""
+    with _database(root) as db:
+        row = db.execute("SELECT identity,body FROM execution_checkpoints WHERE run=? "
+                         "ORDER BY sequence DESC LIMIT 1", (str(Path(run).resolve()),)).fetchone()
+        if row is None:
+            return None
+        if fingerprint(json.loads(row[1])) != row[0]:
+            raise ValueError("checkpoint head identity mismatch")
+        return row[0]
 
 
 def fork_lineage(root, scope, *, parent_scope, parent_observation):

@@ -1,12 +1,20 @@
-# Evidence Queries
+# Project Interface
 
-The installed Python framework entrypoint is `.venv/bin/gambit-smp`. Scheme declarations need no downstream compilation.
+Evidence, prior failures, provenance and open references are already registered:
+`.venv/bin/gambit-smp trajectory clues --help`. No catalog/file discovery or
+downstream compilation is needed.
 
-1. CLI and DSL contract: `.venv/bin/gambit-smp trajectory clues --help`.
-2. `trajectory clues '((bindings (("NAME" "VALUE"))))'` queries registered Evidence through the project's Scheme association; no catalog, file or constructor discovery is required. Standard input accepts the same Scheme request.
+The request is Scheme data: `((bindings (("NAME" "VALUE"))))`. Bindings jointly
+match one observation identity, not keywords. The registered Scheme association
+derives scope; a caller-written `selector` may use arbitrary Scheme/Datalog.
+`help(gambit_smp.repository_clues)` documents that DSL.
 
-Bindings are relational anchors, not keywords; all must match one observation ID/digest. The default is declared in `evidence/views.json`, not Python. A request's `selector` may replace it with arbitrary Scheme/Datalog; `(include clue-selection-schema)` supplies source schemas. Python `help(gambit_smp.repository_clues)` describes the full DSL.
+Results contain `brief` and `checkpoint`. `(checkpoint "TOKEN")` continues
+acknowledged evidence across processes/scopes; omission explicitly requests a
+fresh read. `(expand ("CLAIM-OR-REFERENCE"))` opens arbitrary references.
+Hypotheses and direction remain caller-owned; reads grant no execution authority.
 
-The result contains `brief` and `checkpoint`. Put `(checkpoint "TOKEN")` in a continuation request to reuse displayed evidence across processes and changed scopes. Omission requests fresh replay, not automatic continuation. `(expand ("CLAIM-OR-REFERENCE"))` can widen the window arbitrarily; hidden families keep expansion references. No caller-written checkpoint files are needed.
-
-Keep historical failures and their applicability conditions. Evidence informs reasoning; hypotheses, scope and exploration remain caller-owned. A query result grants no execution authority or native-test pass.
+`research --help` describes durable execution checkpoints and source-bound
+Recipes; `research --read RUN` inspects retained stages without rerunning them.
+`verify --help` describes the existing QNT verifier. Keep historical failures;
+cache availability, framework checks and native qualification are separate.

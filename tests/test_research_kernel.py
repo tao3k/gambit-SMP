@@ -581,6 +581,16 @@ class SourceArtifactTests(unittest.TestCase):
 
 
 class EngineSealTests(unittest.TestCase):
+    def test_disposable_interpreter_alias_is_not_the_sealed_host_tool(self):
+        executable = Path(sys.executable).resolve(strict=True)
+        alias = self.root / "temporary-python"
+        alias.symlink_to(executable)
+        with patch.object(research_kernel.sys, "executable", str(alias)):
+            manifest = self.seal()
+        alias.unlink()
+        self.assertEqual(manifest["hostTools"]["python"]["path"], str(executable))
+        self.assertEqual(research_kernel.manifest_paths(self.root / "engine")["engineId"], manifest["engineId"])
+
     def test_private_source_transfers_do_not_alias_or_chmod_originals(self):
         original = self.source.read_bytes()
         permissions = self.source.stat().st_mode & 0o777

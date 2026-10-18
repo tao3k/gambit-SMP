@@ -3,6 +3,7 @@ import json
 from contextlib import redirect_stdout, redirect_stderr
 import io
 import subprocess
+import shutil
 import sys
 from pathlib import Path
 import tempfile
@@ -42,6 +43,10 @@ class EvidenceCacheTestCase(unittest.TestCase):
                         side_effect=lambda _root, name, _legacy: Path(self.temporary.name) / name)
         storage.start()
         self.addCleanup(storage.stop)
+        durable = patch("gambit_smp.artifact_storage.durable_database_path",
+                        side_effect=lambda _root, name, _legacy: Path(self.temporary.name) / name)
+        durable.start()
+        self.addCleanup(durable.stop)
 
 
 class ProgressiveClueTests(EvidenceCacheTestCase):
@@ -442,7 +447,7 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         from gambit_smp import repository_clues as query
         claim = "manual-label-base-mismatch-is-unexplored"
         first = query(str(ROOT), claim)
-        second = query(ROOT, claim, checkpoint=first["checkpoint"])
+        second = query(ROOT, checkpoint=first["checkpoint"])
         self.assertTrue(first["brief"]["presentationComplete"])
         self.assertGreater(first["brief"]["counts"]["counter"], 0)
         self.assertEqual(first["brief"]["sourceIdentity"], second["brief"]["sourceIdentity"])
@@ -465,11 +470,17 @@ from pathlib import Path
 from unittest.mock import patch
 from gambit_smp import repository_clues
 with patch("gambit_smp.artifact_storage.database_path",
+           side_effect=lambda root, name, previous: Path(sys.argv[1]) / name), \
+     patch("gambit_smp.artifact_storage.durable_database_path",
            side_effect=lambda root, name, previous: Path(sys.argv[1]) / name):
-    result = repository_clues(sys.argv[2], sys.argv[3], checkpoint=sys.argv[4])
+    result = repository_clues(sys.argv[2], checkpoint=sys.argv[3])
 print(json.dumps(result))'''
+        cache = Path(self.temporary.name) / ".cache"
+        cache.mkdir()
+        (cache / "discardable").write_text("not evidence")
+        shutil.rmtree(cache)
         process = subprocess.run([sys.executable, "-c", script, self.temporary.name,
-                                  str(ROOT), claim, first["checkpoint"]],
+                                  str(ROOT), first["checkpoint"]],
                                  capture_output=True, text=True, timeout=30)
         self.assertEqual(process.returncode, 0, process.stderr)
         second = json.loads(process.stdout)
@@ -483,13 +494,25 @@ print(json.dumps(result))'''
         first = repository_clues(ROOT, claim)
         output = io.StringIO()
         from ascent.trajectory import ClueExchange
-        declaration = ClueExchange.render(dict(questions=[claim], checkpoint=first["checkpoint"]))
+        declaration = ClueExchange.render(dict(checkpoint=first["checkpoint"]))
         with patch("sys.argv", ["trajectory", "clues", declaration]), redirect_stdout(output):
             main()
         rendered = output.getvalue()
         self.assertIn(first["checkpoint"], rendered)
         self.assertIn('"incremental"', rendered)
         self.assertIn("checkpoint", rendered)
+
+    def test_selected_query_resumes_without_resupplying_selector_or_bindings(self):
+        first = repository_clues(ROOT, bindings=[("entity", "stack-entry")], selector=FACTOR_QUERY)
+        second = repository_clues(ROOT, checkpoint=first["checkpoint"])
+        self.assertEqual(second["brief"]["mode"], "incremental")
+        self.assertEqual(second["brief"]["association"]["selectorIdentity"],
+                         first["brief"]["association"]["selectorIdentity"])
+        self.assertEqual(second["brief"]["counts"], first["brief"]["counts"])
+        shown = {family["reference"]["contentIdentity"] for family in first["brief"]["families"]}
+        continued = {family["reference"]["contentIdentity"] for family in second["brief"]["families"]}
+        self.assertTrue(shown.isdisjoint(continued))
+        self.assertFalse(second["brief"]["executionAuthorized"])
 
     def test_token_cache_loss_replays_and_corruption_is_not_accepted(self):
         from gambit_smp.reasoning_history import _database
@@ -498,6 +521,8 @@ print(json.dumps(result))'''
         identity = first["checkpoint"].removeprefix("clue-read:")
         with _database(ROOT) as db:
             db.execute("DELETE FROM clue_read_checkpoints WHERE id=?", (identity,))
+        with self.assertRaisesRegex(ValueError, "resumable query"):
+            repository_clues(ROOT, checkpoint=first["checkpoint"])
         replay = repository_clues(ROOT, claim, checkpoint=first["checkpoint"])
         self.assertEqual(replay["brief"]["checkpointStatus"], "cache-miss")
         self.assertGreater(replay["brief"]["counts"]["counter"], 0)

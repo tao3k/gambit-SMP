@@ -97,13 +97,18 @@ class StageJournalCheckpointTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "another producer"):
             self.read()
 
-    def retained_run(self, *, workspace=False):
+    def retained_run(self, *, workspace=False, step_budgets=None):
         from gambit_smp.research_kernel import retain_run_record
         engine = self.root / "engine"
         engine.mkdir()
         inputs = {"source.c": digest(self.source)}
         header = {"schema": "research-run-header.v1", "runId": "fixture-run",
                   "recipe": "fixture", "engineId": "fixture-engine", "inputs": inputs}
+        header["declaration"] = {"id": "fixture", "scope": "stage journal fixture, not native qualification",
+            "inputs": list(inputs), "steps": [{"id": name, "dependsOn": []}
+                for name in (step_budgets if step_budgets is not None else ["seed"])]}
+        if step_budgets is not None:
+            header["stepBudgets"] = step_budgets
         reference = retain_run_record(self.root, self.run / "run-header.json", "stage-fixture", header, inputs)
         artifact = self.run / "run/result.o"
         artifact.write_bytes(b"fixture artifact, not native code")
@@ -122,6 +127,8 @@ class StageJournalCheckpointTests(unittest.TestCase):
         record = {"schema": "research-step-observation.v1", "runId": header["runId"],
                   "header": reference, "toolInputs": {str(self.tool): digest(self.tool)},
                   "step": row, "dependencies": {}}
+        from gambit_smp.step_checkpoint import support_inventory
+        record["supportInventory"] = support_inventory(self.root, header, row, record["toolInputs"], inputs)
         retain_run_record(self.root, self.run / "run/seed.observation.json", "stage-fixture", record,
                           {str(self.source): digest(self.source)})
         outer = {"schema": "sealed-research-run.v1", "outcome": "DENY", "executionLaunched": True,
@@ -186,3 +193,50 @@ class StageJournalCheckpointTests(unittest.TestCase):
         path.write_text(json.dumps(outer))
         with self.assertRaisesRegex(ValueError, "quiescent"):
             observe_journal(self.root, self.run, "seed")
+
+    def test_restart_reads_committed_prefix_without_a_final_receipt(self):
+        from gambit_smp.research_kernel import inspect
+        self.retained_run(step_budgets={"seed": 5, "bootstrap": 5})
+        (self.run / "receipt.json").unlink()
+        before = {str(path): path.read_bytes() for path in self.run.rglob("*") if path.is_file()}
+        result = inspect(self.run)
+        state = result["resumption"]
+        self.assertEqual(result["outcome"], "INCOMPLETE")
+        self.assertEqual(state["historyStatus"], "COMMITTED_PREFIX")
+        self.assertEqual(state["relations"]["historical_complete"], [("seed", content_id(json.loads((self.run / "run/seed.observation.json").read_text())["step"]))])
+        self.assertEqual(state["relations"]["unresolved"], [("bootstrap",)])
+        self.assertEqual(state["relations"]["campaign_reusable"], [])
+        self.assertEqual(state["relations"]["reusable"], [])
+        self.assertFalse(state["parentCompletionObserved"])
+        self.assertFalse(state["executionAuthorized"])
+        self.assertEqual(before, {str(path): path.read_bytes() for path in self.run.rglob("*") if path.is_file()})
+
+    def test_prefix_history_survives_source_drift_without_admitting_old_artifacts(self):
+        from gambit_smp.research_kernel import inspect
+        self.retained_run(step_budgets={"seed": 5, "bootstrap": 5})
+        (self.run / "receipt.json").unlink()
+        self.source.write_text("changed source")
+        state = inspect(self.run)["resumption"]
+        self.assertEqual(state["historyStatus"], "COMMITTED_PREFIX")
+        self.assertEqual(state["relations"]["historical_complete"], [("seed", content_id(json.loads((self.run / "run/seed.observation.json").read_text())["step"]))])
+        self.assertEqual(state["relations"]["invalidated"], [("seed",)])
+        self.assertEqual(state["relations"]["reusable"], [])
+        self.assertFalse((self.run / "receipt.json").exists())
+
+    def test_existing_incomplete_run_returns_prefix_without_launching(self):
+        from gambit_smp.research_kernel import run_sealed
+        self.retained_run(step_budgets={"seed": 5, "bootstrap": 5})
+        (self.run / "receipt.json").unlink()
+        recipe = self.root / "recipe.json"
+        recipe.write_text('{}')
+        definition = {"schema": "evidence-recipe.v2", "id": "fixture", "inputs": ["source.c"], "budgetSeconds": 10}
+        steps = [{"id": name, "budgetSeconds": 5} for name in ("seed", "bootstrap")]
+        with patch("gambit_smp.recipes.load", return_value=(definition, steps)), \
+                patch("gambit_smp.research_kernel.manifest_paths", return_value={"engineId": "fixture-engine"}), \
+                patch("gambit_smp.research_kernel.execute") as execute:
+            result = run_sealed(self.root, recipe, self.run, self.root / "engine")
+        execute.assert_not_called()
+        self.assertEqual(result["resumeStatus"], "INCOMPLETE")
+        self.assertEqual(result["resumption"]["relations"]["historical_complete"], [("seed", content_id(json.loads((self.run / "run/seed.observation.json").read_text())["step"]))])
+        self.assertFalse(result["executionLaunched"])
+        self.assertFalse((self.run / "receipt.json").exists())

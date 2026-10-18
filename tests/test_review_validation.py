@@ -13,6 +13,24 @@ from gambit_smp.review_validation import load, run_suite, supervise
 
 
 class ReviewValidationTests(unittest.TestCase):
+    def test_watchdog_counts_only_unique_complete_typed_test_records(self):
+        from gambit_smp.review_validation import _completed_test_progress
+        path = self.root / "progress.log"
+        count = _completed_test_progress(path)
+        self.assertEqual(count("heartbeat", ""), 0)
+        path.write_text('heartbeat\n  elapsed {"test":"one","seconds":0.1}')
+        self.assertEqual(count("", ""), 0)
+        with path.open("a") as stream:
+            stream.write('\n  elapsed {"test":"one","seconds":0.2}\n'
+                         '  elapsed {"test":"two","seconds":true}\n'
+                         '  elapsed {"test":"two","seconds":-1}\n'
+                         '  elapsed not-json\n')
+        self.assertEqual(count("", ""), 1)
+        with path.open("a") as stream:
+            stream.write('  elapsed {"test":"two","seconds":0.2}\n')
+        self.assertEqual(count("", ""), 2)
+        self.assertEqual(count("repeated heartbeat", ""), 2)
+
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -47,6 +65,7 @@ class ReviewValidationTests(unittest.TestCase):
         child = out / "test-result.json"
         child.write_text(json.dumps(result))
         parent = dict(result, testResultSha256=digest(child), producer={"exit": 0, "timeout": False,
+            "parentReaped": True, "processGroupQuiescent": True,
             "log": {"path": "process.log", "sha256": digest(out / "process.log")}})
         path = out / "receipt.json"
         path.write_text(json.dumps(parent))
@@ -179,6 +198,35 @@ class ReviewValidationTests(unittest.TestCase):
         checked = load(self.root, path, self.inputs, self.engine)
         self.assertEqual("TIMEOUT", checked["status"])
         self.assertFalse(checked["frameworkValidated"])
+
+    def test_readmission_requires_explicit_reaping_and_group_quiescence(self):
+        path = self.receipt()
+        original = json.loads(path.read_text())
+        for field in ("parentReaped", "processGroupQuiescent"):
+            for observed in (None, False, 1, "true"):
+                with self.subTest(field=field, observed=observed):
+                    saved = json.loads(json.dumps(original))
+                    saved["producer"][field] = observed
+                    path.write_text(json.dumps(saved))
+                    checked = load(self.root, path, self.inputs, self.engine)
+                    self.assertEqual("DENY", checked["status"])
+                    self.assertFalse(checked["frameworkValidated"])
+
+    def test_zero_exit_does_not_admit_an_unsettled_process_group(self):
+        child, output = self.result()
+        out = self.root / ".cache/unsettled"
+        def unsettled_worker(*args, **kwargs):
+            kwargs["metadata"].update(parentReaped=True, processGroupQuiescent=False)
+            (out / "tests.log").write_text(output)
+            child["log"] = {"path": "tests.log", "sha256": digest(out / "tests.log")}
+            (out / "test-result.json").write_text(json.dumps(child))
+            return 0, "worker exited; descendant remains\n", False, 0.1
+        with patch("gambit_smp.review_validation.execute", side_effect=unsettled_worker):
+            path, receipt = supervise(self.root, "evidence-review", "model", out, 10)
+        self.assertEqual("PASS", receipt["childStatus"])
+        self.assertEqual("DENY", receipt["status"])
+        self.assertFalse(receipt["frameworkValidated"])
+        self.assertEqual("DENY", load(self.root, path, self.inputs, self.engine)["status"])
 
 
 if __name__ == "__main__":

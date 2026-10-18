@@ -134,7 +134,7 @@ def snapshot_fixture(source, out):
 
 
 def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=None, completion_grace=0,
-            progress_check=None):
+            progress_check=None, on_spawn=None, process_recorder=None):
     if metadata is not None and not isinstance(metadata, dict):
         raise ValueError("execution metadata must be a mutable dictionary")
     if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
@@ -143,12 +143,24 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
             or completion_grace < 0):
         raise ValueError("nonnegative finite finalization grace required")
     start = time.monotonic()
-    process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env)
+    token = os.urandom(16).hex()
+    if process_recorder is not None:
+        process_recorder("planned", token, {"argv": [str(arg) for arg in argv], "cwd": str(cwd)})
+    try:
+        process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env)
+    except OSError:
+        if process_recorder is not None:
+            process_recorder("spawn-failed", token, {})
+        raise
     if metadata is not None:
         metadata.update(pid=process.pid, startedAt=datetime.now(timezone.utc).isoformat())
     timed_out = False
     try:
+        if process_recorder is not None:
+            process_recorder("started", token, {"pid": process.pid})
+        if on_spawn is not None:
+            on_spawn(process.pid)
         if progress_check is None:
             output, _ = process.communicate(timeout=timeout)
         else:
@@ -183,6 +195,13 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
             except ProcessLookupError:
                 pass
             output, _ = process.communicate()
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.communicate()
+        raise
     if metadata is not None:
         metadata["endedAt"] = datetime.now(timezone.utc).isoformat()
         metadata["parentReaped"] = process.returncode is not None

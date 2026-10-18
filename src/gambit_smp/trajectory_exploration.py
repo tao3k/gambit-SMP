@@ -275,7 +275,7 @@ def clues(root, scope, snapshot, question, engine, *, proposed=(), bindings=(),
 
 def repository_clues(root: str | Path = ".", question: str | Sequence[str] | None = None,
                      engine: object = None, *,
-                     bindings: Sequence[tuple[str, str]] = (), expansions: Sequence[str] = (),
+                     bindings: Sequence[tuple[str, str]] | None = None, expansions: Sequence[str] | None = None,
                      checkpoint: object = None, display_bytes: int = 8192,
                      selector: str | None = None, constructor: str = "query") -> dict:
     """Return a source-bound incremental Evidence slice using ASCENT inference.
@@ -425,7 +425,9 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
     snapshot = dict(evidenceViews=views, inputs=inputs, sourceIdentity=fingerprint(inputs),
                     executionAuthorized=False)
     owner = _native_exchange(root, snapshot, engine)
-    request = dict(expand=list(expansions), displayBytes=display_bytes)
+    request = dict(displayBytes=display_bytes)
+    if expansions is not None:
+        request["expand"] = list(expansions)
     cache_miss = False
     if isinstance(checkpoint, str):
         from gambit_smp.reasoning_history import load_clue_checkpoint
@@ -433,11 +435,14 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
         cache_miss = checkpoint is None
     if checkpoint is not None:
         request["checkpoint"] = checkpoint
+    elif cache_miss:
+        request["checkpoint"] = []
     if selector is not None:
-        request["bindings"] = list(bindings)
+        request["bindings"] = list(bindings or ())
         result = owner.slice_selected([selector], constructor, request)
     else:
-        request["questions"] = [question] if isinstance(question, str) else list(question or ())
+        if question is not None:
+            request["questions"] = [question] if isinstance(question, str) else list(question)
         result = owner.slice(request)
     _current(snapshot)
     result["brief"]["inputIdentity"] = snapshot["sourceIdentity"]
@@ -584,11 +589,11 @@ def main():
         import sys
         source = sys.stdin.read() if args.declaration == "-" else args.declaration
         request = ClueExchange.parse_request(source)
-        if not any(request.get(key) for key in ("bindings", "questions", "selector", "expand")):
-            parser.error("a relational anchor, selector, exact question or expansion is required")
+        if not any(request.get(key) for key in ("bindings", "questions", "selector", "expand", "checkpoint")):
+            parser.error("a relational query or resumable checkpoint is required")
         with engine_api() as (engine, _):
             packet = repository_clues(ROOT, request.get("questions"), engine,
-                bindings=request.get("bindings", ()), expansions=request.get("expand", ()),
+                bindings=request.get("bindings"), expansions=request.get("expand"),
                 checkpoint=request.get("checkpoint"), display_bytes=request.get("displayBytes", 8192),
                 selector=request.get("selector"), constructor=request.get("constructor", "query"))
         print(ClueExchange.render(packet))

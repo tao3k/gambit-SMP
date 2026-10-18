@@ -11,6 +11,7 @@ def encoded(value):
 
 def write(root, out, views, bound_inputs):
     from gambit_smp.evidence_views import load
+    from gambit_smp.ascent_program import component_asset
     root, out = Path(root).resolve(), Path(out).resolve()
     artifacts, entries, seen = {}, [], set()
 
@@ -27,7 +28,7 @@ def write(root, out, views, bound_inputs):
 
     def archive(path, expected):
         path = Path(path)
-        relative = str(path.relative_to(root))
+        relative = str(path.relative_to(root)) if path.is_relative_to(root) else str(path)
         if bound_inputs.get(relative) != expected or digest(path) != expected:
             raise ValueError("Evidence interface input is not bound by review: " + relative)
         raw = path.read_bytes()
@@ -52,9 +53,11 @@ def write(root, out, views, bound_inputs):
         manifest = archive(manifest_path, inputs[str(manifest_path)])
         components = []
         for component in spec["manifest"]["components"]:
-            path = manifest_path.parent / component["source"]
-            components.append({"declaration": component,
-                "source": archive(path, inputs[str(path)])})
+            path = component_asset(manifest_path, component["source"])
+            retained = {"declaration": component, "source": archive(path, inputs[str(path)])}
+            if component["source"].startswith("package:"):
+                retained["input"] = str(path)
+            components.append(retained)
         prefix = "views/" + str(index) + "/"
         entries.append({"id": view["id"], "view": view["path"],
             "definition": archive(root / view["path"], inputs[str(root / view["path"])]),
@@ -75,6 +78,7 @@ def write(root, out, views, bound_inputs):
 
 
 def read(out, artifacts, review):
+    from gambit_smp.ascent_program import engine_api
     out = Path(out).resolve()
     if digest(out / "evidence.json") != artifacts["evidence.json"]["sha256"]:
         raise ValueError("Evidence interface index identity differs")
@@ -116,10 +120,24 @@ def read(out, artifacts, review):
                 or document["id"] != view["id"] or entry["entry"] != document["entry"]
                 or entry["constructor"] != document["constructor"]
                 or entry["references"] != document["references"]
-                or [c["declaration"] for c in entry["components"]] != manifest["components"]
                 or json.loads(take(entry["answers"])) != json.loads(json.dumps(view["answers"]))
                 or entry["explanation"] != {"path": "review.json", "pointer": "/evidenceViews/" + str(index) + "/explanation"}):
             raise ValueError("Evidence interface content differs from review")
+        declarations = {item["id"]: item for item in manifest["components"]}
+        provided, sources = set(), {}
+        for component in entry["components"]:
+            declaration = component["declaration"]
+            if declaration["id"] in provided or declarations.get(declaration["id"]) != declaration:
+                raise ValueError("Evidence interface component differs from registry")
+            provided.add(declaration["id"])
+            sources[declaration["source"]] = take(component["source"]).decode("utf-8")
+        try:
+            with engine_api(retain=True) as (engine, _):
+                with engine.components(manifest, sources, entry["entry"], trusted=True) as module:
+                    if not set(module.components) <= provided:
+                        raise ValueError("selected source closure incomplete")
+        except ValueError as error:
+            raise ValueError(f"Evidence interface component inventory invalid: {error}") from error
         if json.loads(take(entry["facts"])) != view["facts"]:
             raise ValueError("Evidence interface facts differ from evaluated sources")
         root = Path(review["agentGraph"]["checkout"]["root"])
@@ -130,8 +148,9 @@ def read(out, artifacts, review):
             raise ValueError("Evidence interface definition identity differs")
         for component in entry["components"]:
             take(component["source"])
-            original = original_manifest.parent / component["declaration"]["source"]
-            if component["source"]["sha256"] != bindings.get(str(original)):
+            name = component["declaration"]["source"]
+            original = component.get("input") if name.startswith("package:") else str(original_manifest.parent / name)
+            if component["source"]["sha256"] != bindings.get(original):
                 raise ValueError("Evidence interface rule identity differs")
     if expected != set(artifacts):
         raise ValueError("Evidence interface artifact inventory differs")

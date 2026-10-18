@@ -17,6 +17,47 @@ VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    def test_scoped_archive_remains_readable_after_original_sources_are_removed(self):
+        from gambit_smp import evidence_interface
+        from gambit_smp.framework import digest
+        for packaged in (False, True):
+            with self.subTest(packaged=packaged), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory).resolve()
+                folder, out = root / "evidence", root / "archive"
+                folder.mkdir()
+                out.mkdir()
+                source = "(define-evidence (make) (sources input) (outputs input) (relation input (value)))"
+                components = [{"id": "chosen", "source": "chosen.ss", "exports": ["make"], "dependencies": []},
+                              {"id": "unused", "source": "unused.ss", "exports": [], "dependencies": []}]
+                facts, queries = {"input": [[7]]}, {"checked": "input"}
+                if packaged:
+                    source = "(define-evidence (make) (sources requirement) (outputs unclosed) (include evidence-checkpoint-fragment))"
+                    components[0]["dependencies"] = [{"component": "library", "bindings": ["evidence-checkpoint-fragment"]}]
+                    components.append({"id": "library", "source": "package:ascent/checkpoint_rules.ss",
+                                       "exports": ["evidence-checkpoint-fragment"], "dependencies": []})
+                    facts, queries = {"requirement": [["open"]]}, {"checked": "unclosed"}
+                (folder / "chosen.ss").write_text(source)
+                (folder / "unused.ss").write_text("(malformed unused source")
+                (folder / "components.json").write_text(json.dumps({"schema": "ascent.evidence-components.v1", "components": components}))
+                (folder / "view.json").write_text(json.dumps({"schema": "ascent.evidence-view.v1", "id": "archive-fixture",
+                    "manifest": "evidence/components.json", "entry": "chosen", "constructor": "make",
+                    "facts": facts, "queries": queries, "references": []}))
+                with engine_api() as (engine, _):
+                    view = view_query(root, "evidence/view.json", engine)
+                bound = {str(Path(path).relative_to(root)) if Path(path).is_relative_to(root) else path: sha
+                         for path, sha in view["inputs"].items()}
+                artifacts = evidence_interface.write(root, out, [view], bound)
+                for name in ("review.json", "graph.json", "context.md", "graph.mmd"):
+                    path = out / name
+                    path.write_text("fixture outer envelope")
+                    artifacts[name] = {"path": name, "sha256": digest(path)}
+                review = {"evidenceViews": [view], "agentGraph": {"checkout": {"root": str(root)}}}
+                import shutil
+                shutil.rmtree(folder)
+                restored = evidence_interface.read(out, artifacts, review)
+                self.assertEqual(restored["views"][0]["entry"], "chosen")
+                self.assertNotIn("unused", {item["declaration"]["id"] for item in restored["views"][0]["components"]})
+
     def test_native_stress_witnesses_keep_the_positive_qualification_contract(self):
         registry = json.loads((ROOT / "evidence/views.json").read_text())
         for name in registry["views"]:

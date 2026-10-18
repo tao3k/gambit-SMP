@@ -403,8 +403,32 @@ def _tree_identity_uncached(path, *, broken_links=None):
     return result
 
 
-def artifact_path(out, descriptor, *, root=None):
+def artifact_path(out, descriptor, *, root=None, _seen=None):
     """Resolve a managed workspace reference without filesystem aliases."""
+    if "origin" in descriptor:
+        if root is None:
+            raise ValueError("retained artifact requires its repository custody")
+        from gambit_smp.reasoning_history import read_execution_checkpoint
+        from gambit_smp.step_checkpoint import content_id
+        origin = descriptor["origin"]
+        producer = relative(root, origin["run"])
+        from gambit_smp.artifact_storage import observation_root
+        observation_root(root, producer)
+        key = (str(producer), origin["step"], origin["receipt"])
+        seen = set() if _seen is None else set(_seen)
+        if key in seen:
+            raise ValueError("retained artifact provenance cycle")
+        seen.add(key)
+        rows = [entry["payload"]["step"] for entry in read_execution_checkpoint(root, producer)["records"]
+                if entry["payload"].get("schema") == "research-step-observation.v1"
+                and entry["payload"]["step"]["id"] == origin["step"]]
+        if len(rows) != 1 or content_id(rows[0]) != origin["receipt"]:
+            raise ValueError("retained artifact producer identity changed")
+        original = rows[0].get("outputs", {}).get(origin["output"])
+        if original is None or {k: v for k, v in descriptor.items() if k != "origin"} != {
+                k: v for k, v in original.items() if k != "origin"}:
+            raise ValueError("retained artifact does not match its committed output")
+        return artifact_path(producer / "run", original, root=root, _seen=seen)
     path = relative(out, descriptor["path"])
     if "workspace" not in descriptor:
         return path
@@ -531,6 +555,10 @@ class ExecutionContext:
             "state": "STARTED", "completionObserved": False, "runtimeAdmitted": False,
             **request}, sort_keys=True, indent=2) + "\n")
         metadata = {}
+        recorder = None
+        if self.receipt.get("journal"):
+            from gambit_smp.research_kernel import process_recorder
+            recorder = process_recorder(self.root, self.out.parent, self.receipt["journal"], deadline=self.deadline)
         if "engine" in self.receipt:
             from gambit_smp.process_observation import capture
             completed = [0]
@@ -547,6 +575,7 @@ class ExecutionContext:
                 return count
 
             observation = capture([str(arg) for arg in argv], cwd, actual, self.env,
+                                  **({"recorder": recorder} if recorder else {}),
                                   **({"diagnostic": diagnostic} if diagnostic is not None else {}),
                                   **({"progress": observe} if self.progress_mode and progress is not None else {}))
             code, timeout, seconds = observation.exit, observation.timeout, observation.seconds
@@ -565,7 +594,8 @@ class ExecutionContext:
                             logOrdering="stdout-then-stderr; streams preserved separately")
         else:
             code, log, timeout, seconds = execute([str(arg) for arg in argv], cwd, actual,
-                                                env=self.env, metadata=metadata)
+                                                env=self.env, metadata=metadata,
+                                                **({"process_recorder": recorder} if recorder else {}))
             self.last_stdout = log
         path.write_text(log)
         record = dict(**request, exit=code, timeout=timeout, seconds=seconds,
@@ -716,7 +746,8 @@ def inspect_run(out, *, input_bindings=None):
     if receipt.get("schema") != "evidence-recipe-run.v1":
         raise ValueError("recipe run receipt required")
     workspace_root = None
-    if receipt.get("workspacePolicy") == "in-place":
+    if receipt.get("workspacePolicy") == "in-place" or any(
+            "origin" in output for step in receipt["steps"] for output in step.get("outputs", {}).values()):
         from gambit_smp.artifact_storage import repository_root
         workspace_root = repository_root(out)
     try:
@@ -757,7 +788,7 @@ def inspect_run(out, *, input_bindings=None):
 
 
 def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=False, engine=None, deadline=None, journal=None,
-        budget_reservation=None):
+        budget_reservation=None, resume_prefix=None):
     from gambit_smp import host_environment
     recipe, steps = load(root, path)
     progress_mode = recipe.get("timeoutPolicy", {}).get("mode") == "progress"
@@ -784,6 +815,8 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                "runtimeAdmitted": False, "releaseAdmitted": False, "executionAuthorized": False}
     receipt["executionConfig"] = {"allowNative": allow_native, "gcc": str(gcc) if gcc is not None else None}
     receipt["workspacePolicy"] = recipe.get("workspacePolicy", "isolated")
+    if journal is not None:
+        receipt["journal"] = journal
     if "timeoutPolicy" in recipe:
         receipt["timeoutPolicy"] = recipe["timeoutPolicy"]
     if "continuationRequest" in recipe:
@@ -829,6 +862,10 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                   "toolInputs": dict(tools),
                   "dependencies": {name: journal_steps.get(name) for name in result["dependsOn"]},
                   "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
+        from gambit_smp.step_checkpoint import support_inventory
+        record["supportInventory"] = support_inventory(root, header, result, tools, inputs)
+        if record["supportInventory"] is None:
+            raise ValueError("source-bound declaration inventory required before stage publication")
         saved = retain_run_record(root, out / (result["id"] + ".observation.json"),
                                   journal["scope"], record, inputs)
         journal_steps[result["id"]] = saved
@@ -852,7 +889,23 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
         receipt["toolInputs"] = {"path": "tools.json", "sha256": digest(out / "tools.json"), "count": len(tools)}
         if receipt["hostEnvironment"] is not None and receipt["hostEnvironment"]["available"] is not True:
             raise ValueError(host_environment.ERROR)
-        if prior is not None:
+        retained = {}
+        if prior is not None and journal is not None:
+            from gambit_smp.reasoning_history import read_execution_checkpoint
+            from gambit_smp.step_checkpoint import recovered_resumption, content_id
+            prefix = read_execution_checkpoint(root, prior.parent)
+            if prefix["records"]:
+                state = recovered_resumption(root, prior.parent)
+                if resume_prefix is not None and state["resumption"]["prefixIdentity"] != resume_prefix:
+                    raise ValueError("resumption prefix changed before consumption")
+                eligible = set(state["resumption"]["relations"]["consumable"])
+                retained = {entry["payload"]["step"]["id"]: entry["payload"]["step"]
+                            for entry in prefix["records"]
+                            if entry["payload"].get("schema") == "research-step-observation.v1"
+                            and (entry["payload"]["step"]["id"], content_id(entry["payload"]["step"])) in eligible}
+                receipt["checkpointConsumption"] = {"run": str(prior.parent.relative_to(root)),
+                    "prefixIdentity": state["resumption"]["prefixIdentity"], "reusedSteps": []}
+        if prior is not None and resume_prefix is None:
             previous = read_json(prior / "receipt.json")
             if previous.get("schema") != "evidence-recipe-run.v1" or previous.get("recipe") != recipe["id"]:
                 raise ValueError("prior observation must identify this recipe")
@@ -892,7 +945,27 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                       "dependsOn": step["dependsOn"],
                       "arguments": step["arguments"]}
             receipt["steps"].append(result)
-            if step["capability"] != "evidence.evaluate" and any(outcomes[dependency] != "PASS" for dependency in step["dependsOn"]):
+            previous = retained.get(step["id"])
+            if previous is not None and any(previous.get(key) != step.get(key)
+                    for key in ("capability", "arguments", "dependsOn", "budgetSeconds")):
+                previous = None
+            if previous is not None and all(dependency in receipt["checkpointConsumption"]["reusedSteps"]
+                                             for dependency in step["dependsOn"]):
+                from gambit_smp.step_checkpoint import content_id
+                if not (input_plan.matches() and tool_plan.matches()):
+                    raise ValueError("input changed before checkpoint consumption")
+                origin = {"run": str(prior.parent.relative_to(root)), "step": step["id"], "receipt": content_id(previous)}
+                carried = {key: value for key, value in previous.items() if key not in {
+                    *result, "outputs", "commands", "artifacts", "journal", "stageSeconds", "executionLaunched", "reused"}}
+                result.update(carried)
+                result.update(outcome="PASS", outputs={name: dict(value, origin=dict(origin, output=name))
+                    for name, value in previous.get("outputs", {}).items()},
+                    reused=origin, originStageSeconds=previous.get("stageSeconds"), executionLaunched=False,
+                    originCommands=previous.get("commands", []), originArtifacts=previous.get("artifacts", {}))
+                for descriptor in result["outputs"].values():
+                    artifact_path(out, descriptor, root=root)
+                receipt["checkpointConsumption"]["reusedSteps"].append(step["id"])
+            elif step["capability"] != "evidence.evaluate" and any(outcomes[dependency] != "PASS" for dependency in step["dependsOn"]):
                 result["outcome"] = "BLOCKED"
             elif not (input_plan.matches() and tool_plan.matches()):
                 result.update(outcome="STALE", reason="input changed before capability execution")

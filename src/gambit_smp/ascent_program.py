@@ -342,6 +342,22 @@ def _verify_definition_sources(catalog):
         raise ValueError("definition bytes differ from their bound sources")
 
 
+def component_asset(manifest_path, name):
+    """Resolve a registered asset; selection and Scheme parsing stay native."""
+    if name.startswith("package:"):
+        files, _, _ = _api_inventory()
+        if name not in files:
+            raise ValueError("Evidence component is absent from the installed Library inventory: " + name)
+        return files[name]
+    relative = Path(name)
+    if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ss":
+        raise ValueError("invalid Evidence component asset path")
+    parent = Path(manifest_path).resolve().parent
+    path = (parent / relative).resolve()
+    path.relative_to(parent)
+    return path
+
+
 def load_component_catalog(manifest_path, *, entry, constructor=None, arguments=(),
                            trusted=False, limits=None):
     """Bind separate assets; dependency selection and linking remain in Rust."""
@@ -350,18 +366,26 @@ def load_component_catalog(manifest_path, *, entry, constructor=None, arguments=
     manifest_path = Path(manifest_path).resolve()
     inputs = {str(manifest_path): digest(manifest_path)}
     manifest = json.loads(manifest_path.read_text())
-    sources = {}
+    sources, paths = {}, {}
     for component in manifest["components"]:
         name = component["source"]
-        relative = Path(name)
-        if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ss":
-            raise ValueError("invalid Evidence component asset path")
-        path = (manifest_path.parent / relative).resolve()
-        path.relative_to(manifest_path.parent)
+        path = component_asset(manifest_path, name)
         inputs[str(path)] = digest(path)
         sources[name] = path.read_text()
+        paths[name] = str(path)
     if any(digest(Path(path)) != sha for path, sha in inputs.items()):
         raise ValueError("Evidence component assets changed during loading")
+    # The existing native Module selects and validates its dependency closure.
+    # Python only transports that selection; it must not implement a second linker.
+    with engine_api(retain=True) as (engine, _):
+        with engine.components(manifest, sources, entry, trusted=True) as module:
+            selected = set(module.components)
+    components = [component for component in manifest["components"] if component["id"] in selected]
+    names = {component["source"] for component in components}
+    manifest = {**manifest, "components": components}
+    sources = {name: sources[name] for name in names}
+    inputs = {str(manifest_path): inputs[str(manifest_path)],
+              **{paths[name]: inputs[paths[name]] for name in names}}
     return {"nativeComponents": {"manifest": manifest, "sources": sources,
             "entry": entry, "constructor": constructor, "arguments": copy.deepcopy(list(arguments)),
             "trusted": True, "factLimits": {} if limits is None else limits.wire()},

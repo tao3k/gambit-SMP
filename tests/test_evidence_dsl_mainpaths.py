@@ -1,6 +1,8 @@
 """Real import-free consumer DSL; legacy queries are comparison observations."""
 import unittest
 import json
+import shutil
+import tempfile
 from pathlib import Path
 from gambit_smp import evidence_index, reasoning_history
 from gambit_smp.ascent_program import load_catalog, load_component_catalog, engine_api, query, SourceQueryOwner
@@ -9,6 +11,27 @@ from gambit_smp.framework import ROOT
 
 class EvidenceDSLMainpaths(unittest.TestCase):
     validation_after_domains = True
+
+    def test_native_component_scope_does_not_bind_unselected_package_or_source_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            shutil.copytree(ROOT / "tests/fixtures/components", root / "components")
+            manifest_path = root / "components/declarative.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["components"].extend([
+                {"id": "unselected-package", "source": "package:ascent/checkpoint_rules.ss",
+                 "exports": ["evidence-checkpoint-fragment"], "dependencies": []},
+                {"id": "unselected-malformed", "source": "unselected-malformed.ss",
+                 "exports": [], "dependencies": []}])
+            (manifest_path.parent / "unselected-malformed.ss").write_text("(not a complete declaration")
+            manifest_path.write_text(json.dumps(manifest))
+            catalog = load_component_catalog(manifest_path, entry="investigation",
+                                             constructor="make-investigation", trusted=True)
+            self.assertEqual(set(catalog["nativeComponents"]["sources"]), {
+                "declarative-shared.ss", "declarative-left.ss", "declarative-right.ss", "declarative-investigation.ss"})
+            self.assertEqual({item["id"] for item in catalog["nativeComponents"]["manifest"]["components"]},
+                             {"shared", "left", "right", "investigation"})
+            self.assertTrue(all(Path(path).is_relative_to(root) for path in catalog["sourceInputs"]))
 
     def entry(self, name):
         scenario = json.loads((ROOT / 'evidence/scenarios/catalog-review-history/scenario.json').read_text())

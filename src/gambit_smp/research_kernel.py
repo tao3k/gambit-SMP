@@ -68,21 +68,122 @@ def clock_epoch():
 
 def retain_run_record(root, path, scope, payload, inputs):
     """Commit immutable transport evidence, not a published analysis or PASS."""
-    from gambit_smp.reasoning_history import append_observation
-    with path.open("x") as stream:
-        json.dump(payload, stream, sort_keys=True, indent=2, allow_nan=False)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    directory = os.open(path.parent, os.O_RDONLY)
+    pending = path.with_name(path.name + ".pending-" + uuid.uuid4().hex)
     try:
-        os.fsync(directory)
+        if path.exists() or path.is_symlink():
+            raise FileExistsError(path)
+        with pending.open("x") as stream:
+            json.dump(payload, stream, sort_keys=True, indent=2, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        reference = retain_record_observation(root, path, scope, payload, inputs, record_sha=digest(pending))
+        os.link(pending, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return reference
     finally:
-        os.close(directory)
-    identity = append_observation(root, scope, inputs, {"run_record": [payload]},
-                                  {"name": "reported-process", "inputs": {},
-                                   "recordSha256": digest(path)})
-    return {"path": str(path), "sha256": digest(path), "observation": identity, "scope": scope}
+        pending.unlink(missing_ok=True)
+
+
+def retain_record_observation(root, path, scope, payload, inputs, *, record_sha=None):
+    from gambit_smp.reasoning_history import append_observation, execution_checkpoint_head, CheckpointConflict
+    header = payload.get("header")
+    run = Path(header["path"]).parent if header else path.parent
+    checkpoint = ({"run": str(run.resolve()), "runId": payload["runId"], "path": str(path.resolve()),
+                   "scope": scope, "expectedPrefix": execution_checkpoint_head(root, run)}
+                  if payload.get("runId") else None)
+    record_sha = digest(path) if record_sha is None else record_sha
+    backend = {"name": "reported-process", "inputs": {}, "recordSha256": record_sha}
+    try:
+        identity = append_observation(root, scope, inputs, {"run_record": [payload]}, backend, checkpoint=checkpoint)
+    except CheckpointConflict:
+        append_observation(root, scope, inputs, {"run_record": [payload]},
+                           dict(backend, publicationRejected=True))
+        raise
+    return {"path": str(path), "sha256": record_sha, "observation": identity, "scope": scope}
+
+
+def process_recorder(root, run, journal, *, owner_path=None, deadline=None):
+    """Record process births, including incomplete births, before exposing results."""
+    from gambit_smp.reasoning_history import CheckpointConflict, CheckpointClosed
+    def record(event, token, fields):
+        header = json.loads(Path(journal["path"]).read_text())
+        payload = {"schema": "research-process-observation.v1", "runId": header["runId"],
+                   "header": journal, "event": event, "token": token,
+                   "clockEpoch": clock_epoch(), **fields}
+        target = (owner_path if event == "started" and owner_path is not None else
+                  run / ("process-" + token + "-" + event + ".json"))
+        while True:
+            try:
+                return retain_run_record(root, target, journal["scope"], payload, header["inputs"])
+            except CheckpointClosed:
+                raise
+            except CheckpointConflict:
+                if deadline is None or time.monotonic() >= deadline:
+                    raise
+    return record
+
+
+def retain_terminal_run(root, out, receipt):
+    """Bind completed parent/child receipts into the same durable observation store."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint
+    state = read_execution_checkpoint(root, out)
+    if not state["records"]:
+        return
+    if state["records"][-1]["payload"].get("schema") == "research-terminal-observation.v1":
+        return
+    header = state["records"][0]["payload"]
+    child_path = out / "run/receipt.json"
+    child = json.loads(child_path.read_text()) if child_path.is_file() else None
+    if receipt.get("childReceiptSha256") is not None and (
+            child is None or digest(child_path) != receipt["childReceiptSha256"]):
+        raise ValueError("terminal checkpoint child receipt changed")
+    payload = {"schema": "research-terminal-observation.v1", "runId": header["runId"],
+               "header": {"path": str(out / "run-header.json")}, "outer": receipt, "child": child}
+    retain_record_observation(root, out / "receipt.json", state["records"][0]["scope"], payload, header["inputs"])
+
+
+def retain_existing_run(root, out):
+    """Index only records already authenticated by the existing immutable journal."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint, read_journal, normalized
+    if not (out / "run-header.json").is_file():
+        return
+    header = json.loads((out / "run-header.json").read_text())
+    paths = [out / "run-header.json", *sorted((out / "run").glob("*.observation.json"))]
+    scope = next((json.loads(path.read_text())["header"]["scope"] for path in paths[1:]),
+                 "research:" + header["recipe"])
+    observations = read_journal(root, scope)["observations"]
+    known = {row["path"]: row for row in read_execution_checkpoint(root, out)["records"]}
+    records = []
+    for path in paths:
+        payload = json.loads(path.read_text())
+        matches = [(identity, body) for identity, body in observations.items()
+                   if body.get("queries") == normalized({"run_record": [payload]})]
+        if len(matches) != 1:
+            raise ValueError("existing checkpoint record lacks immutable custody")
+        records.append((path, payload, matches[0][1]["inputs"]))
+    pending, published = records[1:], set()
+    ordered = [records[0]]
+    while pending:
+        ready = [row for row in pending if set(row[1]["step"]["dependsOn"]) <= published]
+        if not ready:
+            raise ValueError("existing checkpoint dependency closure is incomplete")
+        for row in ready:
+            ordered.append(row)
+            published.add(row[1]["step"]["id"])
+            pending.remove(row)
+    for path, payload, inputs in ordered:
+        if str(path) in known:
+            if known[str(path)]["payload"] != payload:
+                raise ValueError("existing checkpoint differs from the committed prefix")
+        else:
+            retain_record_observation(root, path, scope, payload, inputs)
+    if (out / "receipt.json").is_file():
+        retain_terminal_run(root, out, json.loads((out / "receipt.json").read_text()))
 
 
 @lru_cache(maxsize=256)
@@ -337,7 +438,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, 
             runtime[original] = target
     before = {path: digest(path) for path in originals}
     provider_contract = inspect_provider(api, binding)
-    host = {"python": Path(sys.executable).absolute(), "gcc": gcc.absolute()}
+    host = {"python": Path(sys.executable).resolve(strict=True), "gcc": gcc.absolute()}
     if sys.platform == "darwin" and Path("/usr/bin/sample").is_file():
         host["darwinSample"] = Path("/usr/bin/sample")
     if (quint is None) != (node is None):
@@ -472,6 +573,16 @@ def worker(engine):
     header = read_json(header_path)
     if header["request"] != {key: value for key, value in request.items() if key != "journal"}:
         raise ValueError("launch request differs from committed run header")
+    if "launchOwner" in request:
+        owner_path = Path(request["launchOwner"])
+        while not owner_path.is_file():
+            if time.monotonic() >= request["deadline"]:
+                raise TimeoutError("launch owner observation was not committed")
+            time.sleep(.01)
+        owner = read_json(owner_path)
+        if (owner.get("pid") != os.getpid() or owner.get("runId") != header["runId"]
+                or owner.get("clockEpoch") != clock_epoch() or owner.get("event") != "started"):
+            raise ValueError("launch owner identity mismatch")
     if header["inputs"] != {name: digest(Path(request["root"]) / name) for name in header["inputs"]}:
         raise ValueError("launch input differs from committed run header")
     def guard(event, args):
@@ -491,7 +602,7 @@ def worker(engine):
                       Path(request["prior"]) if request["prior"] else None,
                       gcc=Path(tools["gcc"]["path"]), allow_native=request["allowNative"],
                       engine=engine, deadline=request["deadline"], journal=request["journal"],
-                      budget_reservation=request.get("budgetReservation"))
+                      budget_reservation=request.get("budgetReservation"), resume_prefix=request.get("resumePrefix"))
         owner_finalization_started = time.monotonic()
     owner_result = owner.receipt
     teardown_deadline = evaluation_teardown_deadline(recipe, request["deadline"], owner)
@@ -589,7 +700,7 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     from gambit_smp import host_environment
     started = time.monotonic()
     if prior is not None:
-        prior = prior.resolve(strict=True)
+        prior = prior.resolve()
     recipe, steps = load(root, path)
     progress_mode = recipe.get("timeoutPolicy", {}).get("mode") == "progress"
     if recipe["schema"] != SCHEMA:
@@ -599,6 +710,44 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     out = out.resolve()
     if out.is_relative_to(root / "evidence") or any((root / name).resolve().is_relative_to(out) for name in inputs):
         raise ValueError("execution cannot overwrite its Evidence inputs")
+    from gambit_smp.reasoning_history import read_execution_checkpoint
+    if (out / "run-header.json").is_file():
+        retain_existing_run(root, out)
+    prefix = read_execution_checkpoint(root, out)
+    if (out / "receipt.json").is_file() or (out / "run-header.json").is_file() or prefix["records"]:
+        if (out / "receipt.json").is_file():
+            terminal = True
+            original = read_json(out / "receipt.json")
+        elif prefix["records"]:
+            tail = prefix["records"][-1]["payload"]
+            terminal = tail.get("schema") == "research-terminal-observation.v1"
+            original = tail["outer"] if terminal else prefix["records"][0]["payload"]
+        else:
+            terminal = False
+            original = read_json(out / "run-header.json")
+        state = inspect(out, include_resumption=True)
+        origin_root = original.get("root", original.get("request", {}).get("root"))
+        matching = (origin_root == str(root.resolve()) and original.get("recipe") == recipe["id"]
+                    and original.get("inputs") == inputs and original.get("engineId") == manifest["engineId"]
+                    and original.get("stepBudgets") == {s["id"]: s["budgetSeconds"] for s in steps})
+        reusable = False
+        if terminal and original.get("outcome") == "PASS" and matching and state["resumption"]["relations"]["campaign_reusable"]:
+            final_state = inspect(out)
+            reusable = (final_state["identityStatus"] == "CURRENT"
+                        and final_state["evidenceBindingStatus"] == "CURRENT"
+                        and (digest(out / "receipt.json") == state["resumption"]["receiptSha256"]
+                             if (out / "receipt.json").is_file() else
+                             read_execution_checkpoint(root, out)["prefixIdentity"] == state["resumption"]["prefixIdentity"])
+                        and inputs == {name: digest(root / name) for name in inputs})
+        # A restart consumes the original receipt; it never rewrites history or
+        # reports a repeated native launch. Partial/changed runs expose gaps.
+        return {"schema": "research-resume-observation.v1", "recipe": recipe["id"],
+                "engineId": manifest["engineId"],
+                "outcome": "PASS" if reusable else "DENY", "recordedOutcome": original.get("outcome"),
+                "resumeStatus": "REUSED" if reusable else "UNRESOLVED" if terminal else "INCOMPLETE",
+                "requestedIdentityMatches": matching, "resumption": state["resumption"],
+                "executionLaunched": False, "wholeSeconds": time.monotonic() - started,
+                "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
     out.mkdir(parents=True, exist_ok=False)
     deadline = started + recipe["budgetSeconds"]
     request = {"engineId": manifest["engineId"], "root": str(root), "recipe": path.relative_to(root).as_posix(),
@@ -627,6 +776,7 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                                wholeSeconds=time.monotonic() - started)
         target = out / "receipt.json"
         target.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+        retain_terminal_run(root, out, receipt)
         if reservation is not None:
             from gambit_smp.recipe_continuation import settle_budget
             settlement = settle_budget(root, reservation, target, digest(target))
@@ -636,7 +786,34 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                 stream.write("\n")
         return receipt
     host = host_environment.observe(steps)
-    if prior is not None:
+    partial_prior = prior is not None and not (prior / "receipt.json").is_file()
+    if partial_prior:
+        try:
+            from gambit_smp.step_checkpoint import recovered_resumption
+            state = recovered_resumption(root, prior)
+            old = read_execution_checkpoint(root, prior)
+            header = old["records"][0]["payload"]
+            if (state["outcome"] != "INCOMPLETE" or state["engineId"] != manifest["engineId"]
+                    or state["recipe"] != recipe["id"]):
+                raise ValueError("interrupted continuation requires the same engine and recipe contract")
+            if not state["resumption"]["executionQuiescence"]["observed"]:
+                raise ValueError("interrupted process births are not observed quiescent")
+            if any(step["budgetSeconds"] > header["stepBudgets"].get(step["id"], step["budgetSeconds"]) for step in steps):
+                raise ValueError("interrupted continuation cannot expand a phase budget")
+            if header["inputs"] == inputs and state["resumption"]["relations"]["failed"]:
+                raise ValueError("unchanged failed stage is not an interrupted-only continuation")
+            request["resumePrefix"] = state["resumption"]["prefixIdentity"]
+            prior_identity = {"committedPrefix": request["resumePrefix"], "engineId": header["engineId"],
+                              "interruptedContinuation": True, "oldAggregateOutcome": None,
+                              "changedInputs": {name: sha for name, sha in inputs.items() if header["inputs"].get(name) != sha}}
+        except (OSError, KeyError, ValueError, TypeError) as error:
+            return retain_receipt({"schema": "sealed-research-run.v1", "recipe": recipe["id"],
+                "engine": str(engine), "engineId": manifest["engineId"], "inputs": inputs, "root": str(root),
+                "stepBudgets": {s["id"]: s["budgetSeconds"] for s in steps}, "budgetSeconds": recipe["budgetSeconds"],
+                "outcome": "DENY", "denial": str(error), "executionLaunched": False,
+                "prior": prior_identity, "hostEnvironment": host, "artifacts": {}, "childReceiptSha256": None,
+                "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False})
+    if prior is not None and not partial_prior:
         try:
             previous = read_json(prior / "receipt.json")
             prior_identity = {"receiptSha256": digest(prior / "receipt.json"), "engineId": previous["engineId"],
@@ -720,7 +897,9 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                    "executionLaunched": False, "prior": prior_identity, "artifacts": {}, "childReceiptSha256": None,
                    "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
         return retain_receipt(receipt)
+    request["launchOwner"] = str(out / "launch-owner.json")
     header = {"schema": "research-run-header.v1", "runId": uuid.uuid4().hex,
+              "declaration": dict(recipe, steps=steps),
               "recipe": recipe["id"], "inputs": inputs, "engineId": manifest["engineId"],
               "clockEpoch": clock_epoch(), "startedMonotonic": started, "deadlineMonotonic": deadline,
               "budgetSeconds": recipe["budgetSeconds"],
@@ -738,6 +917,8 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     command = [manifest["hostTools"]["python"]["path"], "-I", "-B", str(engine / "runner.py"), str(out / "request.json")]
     code, log, timeout, seconds = execute(command, root, max(0.001, deadline - time.monotonic()),
                                         env=environment, metadata=metadata,
+                                        process_recorder=process_recorder(root, out, journal,
+                                            owner_path=Path(request["launchOwner"]), deadline=deadline),
                                         completion_check=lambda: completed_stage_frontier(out, steps, journal),
                                         completion_grace=30,
                                         **({"progress_check": lambda stdout, stderr: completed_work(out, steps)}
@@ -766,7 +947,7 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     return retain_receipt(receipt)
 
 
-def inspect(out, *, input_archive=None):
+def inspect(out, *, input_archive=None, include_resumption=False):
     from gambit_smp.recipes import inspect_run, read_json
     if (out / "engine.json").is_file():
         if input_archive is not None or (out / "receipt.json").exists():
@@ -781,6 +962,18 @@ def inspect(out, *, input_archive=None):
                 "identityStatus": "CURRENT", "executionLaunched": False,
                 "runtimeAdmitted": False, "releaseAdmitted": False,
                 "sourceRefinementAdmitted": False}
+    if not (out / "receipt.json").exists():
+        from gambit_smp.artifact_storage import repository_root
+        from gambit_smp.step_checkpoint import recovered_resumption, interrupted_resumption
+        from gambit_smp.reasoning_history import read_execution_checkpoint
+        ancestor = out
+        while not ancestor.exists():
+            ancestor = ancestor.parent
+        root = repository_root(ancestor)
+        if read_execution_checkpoint(root, out)["records"]:
+            return recovered_resumption(root, out)
+        if (out / "run-header.json").is_file():
+            return interrupted_resumption(root, out)
     receipt = read_json(out / "receipt.json")
     if receipt.get("schema") != "sealed-research-run.v1":
         raise ValueError("sealed research receipt required")
@@ -803,7 +996,7 @@ def inspect(out, *, input_archive=None):
             binding_stable = stable
     except (OSError, KeyError, ValueError, TypeError):
         stable = False
-    return {"recipe": receipt["recipe"], "engineId": receipt["engineId"], "outcome": receipt["outcome"],
+    result = {"recipe": receipt["recipe"], "engineId": receipt["engineId"], "outcome": receipt["outcome"],
             "identityStatus": ("HISTORICAL_BOUND" if input_archive else "CURRENT") if stable else "STALE",
             "evidenceBindingStatus": (("HISTORICAL_BOUND" if input_archive else "CURRENT")
                                       if binding_stable else "STALE"),
@@ -811,6 +1004,10 @@ def inspect(out, *, input_archive=None):
                                     {"status": "UNKNOWN", "outputs": []},
             "recordedOutcome": receipt["outcome"],
             "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
+    if include_resumption and input_archive is None:
+        from gambit_smp.step_checkpoint import resumption
+        result["resumption"] = resumption(Path(receipt["root"]), out, result)
+    return result
 
 
 def main():
@@ -859,7 +1056,8 @@ def main():
                 proof, _, _, _ = observe_journal(ROOT, args.read, args.step)
                 print(json.dumps(proof, indent=2))
             else:
-                print(json.dumps(inspect(args.read.resolve(), input_archive=args.input_archive), indent=2))
+                print(json.dumps(inspect(args.read.resolve(), input_archive=args.input_archive,
+                                         include_resumption=True), indent=2))
             return 0
         if args.export_producer:
             from gambit_smp.completed_producer import export_reference
@@ -881,9 +1079,12 @@ def main():
         else:
             selected = discover(root).get(args.run)
         if selected is None or args.engine is None or args.out is None:
-            parser.error("--run requires a declared recipe, --engine seal, and fresh --out")
+            parser.error("--run requires a declared recipe, --engine seal, and --out run directory")
         receipt = run_sealed(root, selected, args.out, args.engine.resolve(), prior=args.prior, allow_native=True)
-        print(json.dumps({key: receipt.get(key) for key in ("recipe", "engineId", "outcome", "exit", "timeout", "denial")}))
+        keys = (("recipe", "engineId", "outcome", "resumeStatus", "executionLaunched", "wholeSeconds",
+                 "requestedIdentityMatches", "resumption")
+                if "resumption" in receipt else ("recipe", "engineId", "outcome", "exit", "timeout", "denial"))
+        print(json.dumps({key: receipt.get(key) for key in keys}))
         return 0 if receipt["outcome"] == "PASS" else 2
     except (OSError, ValueError, KeyError, TypeError) as error:
         print("RESEARCH-DENY " + str(error), file=sys.stderr)

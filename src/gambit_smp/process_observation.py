@@ -71,16 +71,26 @@ def communicate_progress(process, window, progress):
             observe(error.output, error.stderr)
 
 
-def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None):
+def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, recorder=None):
     if budget <= 0:
         raise ValueError("positive process budget required")
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).isoformat()
-    process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               text=True, start_new_session=True)
+    token = os.urandom(16).hex()
+    if recorder is not None:
+        recorder("planned", token, {"argv": [str(arg) for arg in argv], "cwd": str(cwd)})
+    try:
+        process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, start_new_session=True)
+    except OSError:
+        if recorder is not None:
+            recorder("spawn-failed", token, {})
+        raise
     timeout = False
     try:
+        if recorder is not None:
+            recorder("started", token, {"pid": process.pid})
         if progress is not None:
             if diagnostic is not None:
                 raise ValueError("progress and stack-sampling transports must be selected separately")
