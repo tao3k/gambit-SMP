@@ -1,11 +1,13 @@
 """SMP projection into the upstream, non-authorizing Trajectory exploration API."""
 import argparse
+from collections.abc import Sequence
 import json
 from pathlib import Path
 
-from gambit_smp.framework import ROOT, digest
-from gambit_smp.reasoning_history import (append_trajectory_attempt,
-                                          fingerprint, read_trajectory_attempts)
+from gambit_smp.framework import digest
+from gambit_smp.reasoning_history import (append_trajectory_attempt, canonical,
+                                          fingerprint, read_trajectory_attempts,
+                                          append_trajectory_clues, read_trajectory_clues)
 
 
 def _current(snapshot):
@@ -24,13 +26,21 @@ def candidate(snapshot, action_id, *, check_current=True):
     if len(actions) != 1:
         raise ValueError("unique discovered action required")
     action = actions[0]
-    result = dict(questionIdentity=action["id"], scopeIdentity=action["study"],
-                  operationIdentity=action["operation"],
+    scope = action.get("study") or action.get("view") or action.get("scope")
+    operation = action.get("operation") or ("recipe:" + action["recipe"]
+                                            if action.get("recipe") else None)
+    if not isinstance(scope, str) or not scope or not isinstance(operation, str):
+        raise ValueError("discovered action lacks a stable scope or operation")
+    result = dict(questionIdentity=action["id"], scopeIdentity=scope,
+                  operationIdentity=operation,
                   inputIdentity=snapshot["sourceIdentity"],
                   toolIdentity=fingerprint(snapshot["backend"]))
     if snapshot.get("engine") is not None:
         result["modelIdentity"] = fingerprint(snapshot["engine"])
-    if action["hypothesis"] != "none":
+    elif snapshot.get("context") is not None and snapshot.get("evidenceViews") is not None:
+        result["modelIdentity"] = fingerprint({"context": snapshot["context"],
+                                               "evidenceViews": snapshot["evidenceViews"]})
+    if action.get("hypothesis", "none") != "none":
         result["proposalIdentity"] = action["hypothesis"]
     return result
 
@@ -82,12 +92,20 @@ def _replay(root, scope, snapshot, engine, *, through=None, proposed=None):
     return packet, retained
 
 
+def _view_inventory(snapshot):
+    return [dict(id=view["id"], path=view["path"], queries=view["queries"],
+                 rows={name: len(rows) for name, rows in view["answers"].items()})
+            for view in snapshot.get("evidenceViews", ())]
+
+
 def context(root, scope, snapshot, engine, *, through=None):
     """Expose retained observations before selecting any action or hypothesis."""
     _current(snapshot)
     packet, retained = _replay(root, scope, snapshot, engine, through=through)
     _current(snapshot)
     return dict(packet, historyThrough=through, replayedAttempts=len(retained),
+                clueJournal=clue_journal(root, scope),
+                scope=scope, repositoryEvidence=_view_inventory(snapshot),
                 openPredictions=snapshot["research"]["openPredictions"],
                 discriminators=snapshot["research"]["discriminators"],
                 executionAuthorized=False, runtimeAdmitted=False)
@@ -101,7 +119,7 @@ def inspect(root, scope, snapshot, action_id, engine, *, through=None):
     packet, retained = _replay(root, scope, snapshot, engine,
                                through=through, proposed=proposed)
     catalog = load_component_catalog(
-        ROOT / "evidence/dsl/trajectory-review.components.json",
+        Path(__file__).resolve().parents[2] / "evidence/dsl/trajectory-review.components.json",
         entry="trajectory-review", constructor="make-trajectory-review", trusted=True)
     facts = {
         "comparison": [(row["earlierEvent"], row["relation"])
@@ -129,35 +147,495 @@ def inspect(root, scope, snapshot, action_id, engine, *, through=None):
                 executionAuthorized=False, runtimeAdmitted=False)
 
 
+def _declaration(root, snapshot, view_path):
+    """Bind bytes and host references; all projection and query logic is upstream."""
+    from gambit_smp.evidence_views import load
+
+    retained = [view for view in snapshot.get("evidenceViews", ()) if view["path"] == view_path]
+    document, facts, catalog, inputs = load(root, view_path)
+    if len(retained) != 1 or inputs != retained[0]["inputs"]:
+        raise ValueError("Evidence view differs from discovery")
+    spec = catalog["nativeComponents"]
+    return document, facts, list(spec["sources"].values()), inputs
+
+
+def _native_exchange(root, snapshot, engine):
+    from ascent.trajectory import ClueExchange
+
+    _current(snapshot)
+    owner = None
+    for retained in snapshot.get("evidenceViews", ()):
+        if not {"clue", "factor", "link"}.issubset(retained["queries"]):
+            continue
+        document, facts, sources, inputs = _declaration(root, snapshot, retained["path"])
+        attestations = {str(Path(path).relative_to(Path(root).resolve())): sha
+                        for path, sha in inputs.items()}
+        if owner is None:
+            owner = ClueExchange(engine, sources, document["constructor"], facts, attestations)
+        else:
+            owner.include(engine, sources, document["constructor"], facts, attestations)
+    if owner is None:
+        raise ValueError("context has no declarative Clue projection; use its declared View queries")
+    _current(snapshot)
+    return owner
+
+
+def read_view(root, snapshot, view_id, query_name, engine):
+    """Read a declared relation directly, without fabricating an observed Clue."""
+    from gambit_smp.evidence_views import evaluate
+
+    _current(snapshot)
+    matches = [view for view in snapshot.get("evidenceViews", ())
+               if view["id"] == view_id and query_name in view["queries"]]
+    if len(matches) != 1:
+        raise ValueError("declared Evidence view query required")
+    retained = matches[0]
+    current = evaluate(root, retained["path"], engine)
+    if current["inputs"] != retained["inputs"] or current["answers"] != retained["answers"]:
+        raise ValueError("Evidence view changed since discovery")
+    _current(snapshot)
+    return dict(view=view_id, query=query_name, answers=current["answers"][query_name],
+                contextIdentity=snapshot["sourceIdentity"],
+                sourceInputs={str(Path(path).relative_to(Path(root).resolve())): sha
+                              for path, sha in current["inputs"].items()},
+                executionAuthorized=False, runtimeAdmitted=False)
+
+
+def clue_journal(root, scope):
+    retained, prefix = read_trajectory_clues(root, scope)
+    return dict(prefix=prefix, submissions=len(retained),
+                retainedClues=sum(len(row["clues"]) for row in retained))
+
+
+def submit(root, scope, snapshot, rows, expected_prefix):
+    """Retain Agent hypotheses; a source reference alone supplies no attestation."""
+    _current(snapshot)
+    from gambit_smp.ascent_program import engine_api
+
+    with engine_api() as (engine, _):
+        _native_exchange(root, snapshot, engine).submit(rows)
+    result = append_trajectory_clues(root, scope, snapshot["sourceIdentity"],
+                                    list(rows), expected_prefix)
+    _current(snapshot)
+    return dict(result, contextIdentity=snapshot["sourceIdentity"],
+                executionAuthorized=False, runtimeAdmitted=False)
+
+
+def clues(root, scope, snapshot, question, engine, *, proposed=(), bindings=(),
+          compact=False, expansions=(), checkpoint=None, display_bytes=8192,
+          selector=None, constructor="query"):
+    """Transport declarations, retained hypotheses and requests to the native Library."""
+    owner = _native_exchange(root, snapshot, engine)
+    submissions, prefix = read_trajectory_clues(root, scope) if scope is not None else ([], None)
+    retained, historical = [], []
+    for batch in submissions:
+        if batch["sourceIdentity"] == snapshot["sourceIdentity"]:
+            retained.extend(batch["clues"])
+        else:
+            historical.extend(row["id"] for row in batch["clues"])
+    owner.submit([*retained, *proposed])
+    if bindings or selector is not None:
+        if selector is not None:
+            sources = [selector]
+        else:
+            navigator = snapshot.get("context", {}).get("navigator")
+            if navigator is None:
+                raise ValueError("factor reads require a caller-declared navigator")
+            document, _, sources, _ = _declaration(root, snapshot, navigator)
+            constructor = document["constructor"]
+        if compact:
+            request = dict(bindings=list(bindings), expand=list(expansions), displayBytes=display_bytes)
+            if checkpoint is not None:
+                request["checkpoint"] = checkpoint
+            result = owner.slice_selected(sources, constructor, request)
+        else:
+            result = owner.read_selected(sources, constructor, list(bindings))
+    else:
+        if compact:
+            request = dict(questions=[question] if question else [], expand=list(expansions),
+                           displayBytes=display_bytes)
+            if checkpoint is not None:
+                request["checkpoint"] = checkpoint
+            result = owner.slice(request)
+        else:
+            result = owner.read([question])
+    _current(snapshot)
+    if compact:
+        result["brief"].update(contextIdentity=snapshot["sourceIdentity"],
+                               historyIncluded=scope is not None,
+                               historicalClues=historical)
+        return result
+    return dict(result, contextIdentity=snapshot["sourceIdentity"],
+                scope=scope, historyIncluded=scope is not None,
+                clueJournal=dict(prefix=prefix, submissions=len(submissions),
+                                 retainedClues=sum(len(row["clues"]) for row in submissions)),
+                historicalClues=historical)
+
+
+def repository_clues(root: str | Path = ".", question: str | None = None,
+                     engine: object = None, *,
+                     bindings: Sequence[tuple[str, str]] = (), expansions: Sequence[str] = (),
+                     checkpoint: object = None, display_bytes: int = 8192,
+                     selector: str | None = None, constructor: str = "query") -> dict:
+    """Return a source-bound incremental Evidence slice using ASCENT inference.
+
+    The CLI renders this same result directly as inert Scheme data.
+    Separate calls start fresh unless checkpoint carries the previous token,
+    including when changing selectors or expanding scope. Omission requests replay;
+    it is not automatic continuation. This affects display history, not inference.
+    Result shape: {"brief": dict, "checkpoint": str}. brief["families"] is a
+    LIST of family dictionaries, not a claim-keyed map. Each family has claim
+    (str), observations (list[dict]), hypotheses (list[dict]), links (list[dict]),
+    reference (dict), conflict (bool), unknown (bool). An observation has id,
+    digest, polarity, source, receipt (str) and factors (dict[str, list[str]]).
+    brief["deferred"] is a LIST of collapsed family dictionaries with claim,
+    counts and reference. brief["counts"] and brief["delta"] are dictionaries
+    of integer counts; scopeReference is {"sourceIdentity": str, "claims": list[str]}.
+    association, when present, contains caller-named relation row lists and a
+    selectorIdentity string. Wide results may instead appear in deferredRelations
+    (list[dict] with relation, role, rowCount, reference). retainedRelations has
+    the same shape for exact derived results already shown under this checkpoint;
+    their bodies are not repeated. A missing inline relation is not an empty result.
+    Relation references bind sourceIdentity, selectorIdentity and contentIdentity.
+    Repeating the same selector with checkpoint and suitable display_bytes can
+    expose deferred details; caller-authored alternative predicates remain allowed.
+    Evaluation/presentation/exploration flags are bool. counts describes current
+    scope; delta counts library items added/removed/retained relative to the read
+    hint, not test cases. presentationComplete means no requested unit remains
+    deferred, including derived results; previously shown units need not repeat.
+    checkpoint is a short persistent clue-read token, directly reusable across
+    Python processes; neither file writes nor native row serialization are needed.
+
+    Registered Evidence relations are already loaded by this operation. A selector
+    queries their actual rows: variables can discover claims, factor names and
+    values without knowing their identifiers, opening files or selecting a Context.
+    The exact-identifier requirement applies to the direct question argument,
+    not to variables in selector rules. No natural-language matching is performed.
+
+    root is the checkout path (str or pathlib.Path; '.' in its working directory).
+    With engine=None the framework opens, verifies and closes its own engine;
+    no backend inventory is part of the response. An explicit engine may be
+    yielded by the engine_api() context manager for grouped reads. question is an exact
+    claim string, or None with selector. selector is a Scheme source string;
+    constructor names its declared constructor (any declared name, default query).
+    Sources: clue(id,digest,claim,
+    polarity,role,source), factor(id,digest,name,value), link(from,to,label,id,
+    digest), attested(id,digest,receipt), binding(name,value). bindings are facts
+    supplied as (name, value) string pairs to that declaration, not Python keyword
+    matching. expansions is a sequence of arbitrary additional claim strings.
+
+    The Library's (include clue-selection-schema) declares those input schemas
+    without adding rules. With it, relation clauses declare only additional
+    relations, including question; the caller still declares sources and outputs.
+    Explicit input declarations remain supported without this include.
+
+    A complete domain-neutral declaration (caller may change its predicates):
+      (define-evidence (query)
+        (sources clue attested) (outputs question)
+        (include clue-selection-schema)
+        (relation question (claim))
+        ((question C) <-- (clue I D C _ _ _) (attested I D _)))
+    This selects all attested claims, not a recommended investigation scope.
+    Restrict, join or expand relations as the investigation requires. Factor
+    names and values are queryable cells of factor, not an external vocabulary
+    that must be found by file search. Additional outputs can expose association
+    witnesses; do not output unrelated source tables merely to copy them.
+
+    Declaration grammar (SOURCE/EXTRA/COLUMN/TERM/NAME are metavariables):
+      (define-evidence (NAME) (sources SOURCE ...) (outputs question EXTRA ...)
+        (include clue-selection-schema)
+        (relation question (claim)) (relation EXTRA (COLUMN ...)) ...
+        ((R TERM ...) <-- (R TERM ...) ... ) ...)
+    Bare term symbols are variables: repeated symbols join equal cells across
+    a rule's body and head. _ is an anonymous wildcard; (lit "text") is a
+    string constant. (not (R TERM ...)) is stratified negation with variables
+    bound by positive body atoms. Recursive rules use the same relation in a
+    head and a body; they must yield a finite fixed point. bindings supplies
+    rows of the declared (sources binding) relation, with columns name,value.
+    expansions adds exact claims to the resulting read scope, independently of
+    selector outputs; it does not add factor bindings or rewrite the selector.
+    question(claim) is the
+    required output; arbitrary additional trace relations are preserved.
+    Its claim is an Evidence identifier, not a natural-language search prompt.
+    Unsupported claims remain unknown; literal text does not establish a link
+    to existing evidence without a caller-declared relational association.
+    Sources are read-only: a rule head cannot name a source relation, including
+    an identity rule. A source may be named in outputs without a copying rule.
+
+    Returns a dict with brief (dict) and checkpoint (a small opaque string token).
+    The framework stores native read hints in its existing ignored history cache;
+    the token works across Python processes. No caller-written checkpoint file
+    or raw row serialization is necessary. It is not evidence or execution authority.
+    brief contains sourceIdentity, mode, counts, families, deferred, scopeReference
+    and expandable source/content-bound references. Passing the prior checkpoint
+    unchanged enables incremental reads; None explicitly starts a fresh read.
+    Only fully displayed families are acknowledged, even on a folded page.
+    A new selector or scope re-evaluates relevance but reuses same-source shown
+    families. New sources reset read hints. A missing cached read hint safely replays
+    evidence with checkpointStatus=cache-miss, never reporting it absent.
+    The default presentation is 8192 bytes. A deferred family already has an
+    expansion reference and polarity counts; increasing display_bytes does not
+    discover additional evidence. Python string slicing of printed families
+    loses traceability, unlike the Library's honest folding. Repeating a read
+    with checkpoint=None is an initial read again, not an incremental read.
+    display_bytes is presentation capacity, never a search or inference limit.
+    No Context, catalog lookup, action choice or execution authority is implied.
+    """
+    if engine is None:
+        from gambit_smp.ascent_program import engine_api
+
+        with engine_api() as (bound_engine, _):
+            return repository_clues(root, question, bound_engine, bindings=bindings,
+                expansions=expansions, checkpoint=checkpoint, display_bytes=display_bytes,
+                selector=selector, constructor=constructor)
+    from gambit_smp.evidence_views import registry, load
+    from gambit_smp.recipes import source_path
+
+    root = Path(root).resolve()
+    names, inputs = registry(root)
+    views = []
+    for name in names:
+        path = source_path(root, name)
+        identity = digest(path)
+        document = json.loads(path.read_text())
+        if not {"clue", "factor", "link"}.issubset(document["queries"]):
+            continue
+        _, _, _, bound = load(root, name)
+        if bound[str(path)] != identity:
+            raise ValueError("Evidence declaration changed during query binding")
+        inputs.update(bound)
+        views.append(dict(id=document["id"], path=name, queries=document["queries"], inputs=bound))
+    snapshot = dict(evidenceViews=views, inputs=inputs, sourceIdentity=fingerprint(inputs),
+                    executionAuthorized=False)
+    owner = _native_exchange(root, snapshot, engine)
+    request = dict(expand=list(expansions), displayBytes=display_bytes)
+    cache_miss = False
+    if isinstance(checkpoint, str):
+        from gambit_smp.reasoning_history import load_clue_checkpoint
+        checkpoint = load_clue_checkpoint(root, checkpoint)
+        cache_miss = checkpoint is None
+    if checkpoint is not None:
+        request["checkpoint"] = checkpoint
+    if selector is not None:
+        request["bindings"] = list(bindings)
+        result = owner.slice_selected([selector], constructor, request)
+    else:
+        if bindings:
+            raise ValueError("bindings require a caller-authored --select relation query")
+        request["questions"] = [question] if question else []
+        result = owner.slice(request)
+    _current(snapshot)
+    result["brief"]["inputIdentity"] = snapshot["sourceIdentity"]
+    if cache_miss:
+        result["brief"]["checkpointStatus"] = "cache-miss"
+    from gambit_smp.reasoning_history import cache_clue_checkpoint
+    result["checkpoint"] = cache_clue_checkpoint(root, result["checkpoint"])
+    return result
+
+
+def catalog(root, context_path=None, *, factor=None):
+    """Discover declarations, not investigation directions or admitted evidence."""
+    from gambit_smp.recipes import source_path
+
+    root = Path(root).resolve()
+    if context_path is None:
+        if factor is not None:
+            raise ValueError("factor inventory requires a selected context")
+        contexts = []
+        for path in sorted((root / "evidence/scenarios").glob("**/*action-context*.json")):
+            path = source_path(root, str(path.relative_to(root)))
+            identity = digest(path)
+            document = json.loads(path.read_text())
+            views = document.get("views", [])
+            if not isinstance(views, list) or any(not isinstance(view, str) for view in views):
+                raise ValueError("context requires a declared view inventory")
+            if digest(path) != identity:
+                raise ValueError("context changed during discovery")
+            contexts.append(dict(path=str(path.relative_to(root)), sha256=identity,
+                                 declaredViews=len(views)))
+        return dict(contexts=contexts, executionAuthorized=False, runtimeAdmitted=False)
+
+    from gambit_smp.ascent_program import engine_api
+    from gambit_smp.evidence_views import load
+
+    path = source_path(root, str(context_path))
+    identity = digest(path)
+    declaration = json.loads(path.read_text())
+    inputs = {str(path): identity}
+    views, projected = [], []
+    for name in declaration["views"]:
+        view_path = source_path(root, name)
+        view_identity = digest(view_path)
+        view = json.loads(view_path.read_text())
+        inputs[str(view_path)] = view_identity
+        views.append(dict(id=view["id"], path=name, queries=sorted(view["queries"])))
+        if {"clue", "factor", "link"}.issubset(view["queries"]):
+            _, _, _, source_inputs = load(root, name)
+            inputs.update(source_inputs)
+            projected.append(dict(path=name, queries=view["queries"], inputs=source_inputs))
+    snapshot = dict(context=declaration, evidenceViews=projected, inputs=inputs,
+                    executionAuthorized=False)
+    inventory = {"factors": []}
+    if projected:
+        with engine_api() as (engine, _):
+            inventory = _native_exchange(root, snapshot, engine).inventory()
+    pairs = inventory["factors"]
+    result = dict(context=str(path.relative_to(root)), contextSha256=identity,
+                  catalogIdentity=fingerprint(inputs), views=views,
+                  factorNames=sorted({name for name, _ in pairs}),
+                  factors=pairs, inventoryComplete=False,
+                  clueExchangeAvailable=bool(projected),
+                  executionAuthorized=False, runtimeAdmitted=False)
+    if factor is not None:
+        result.update(factor=factor, values=sorted({value for name, value in pairs if name == factor}))
+    _current(snapshot)
+    return result
+
+
+def argument_parser():
+    parser = argparse.ArgumentParser(
+        prog="gambit-smp trajectory", description=__doc__,
+        epilog="clues evaluates caller-authored Scheme/Datalog relation queries directly over registered Evidence. "
+               "Its --help exposes source relation signatures. No catalog or Context selection is required. "
+               "context reads retained scoped history only. Reads neither choose nor authorize actions.")
+    operations = parser.add_subparsers(dest="operation", required=True)
+    inventory = operations.add_parser("catalog", help="discover contexts, queries and declared factors",
+        description="Without --context, list repository Evidence contexts. With --context, read query names "
+                    "and known factor names; --factor reads its known values. Inventories are not exhaustive "
+                    "and do not restrict new questions or factors.")
+    inventory.add_argument("--context", type=Path, help="caller-owned Evidence context from the catalog")
+    inventory.add_argument("--factor", help="read known values of this factor, not all evidence")
+    descriptions = {
+        "context": "read scoped retained history (--scope required with --context), not repository Evidence",
+        "clues": "query Evidence relations with Scheme/Datalog; return traceable incremental slices",
+        "submit": "retain new Agent hypotheses without treating them as observations",
+        "record": "retain an already observed action and its outcome; never execute it",
+        "inspect": "compare an Agent-selected action with retained attempts; never select it",
+    }
+    for name, description in descriptions.items():
+        operation = operations.add_parser(name, help=description, description=description)
+        if name != "clues":
+            source = operation.add_mutually_exclusive_group(required=True)
+            source.add_argument("--request", type=Path, help="JSON request containing scope, snapshot and operation fields")
+            if name in ("context", "submit"):
+                source.add_argument("--context", type=Path, help="caller-owned retained-history context")
+                operation.add_argument("--scope", help="required with --context; caller-chosen persistent investigation name")
+        if name == "clues":
+            from inspect import cleandoc
+            operation.formatter_class = argparse.RawDescriptionHelpFormatter
+            operation.epilog = cleandoc(repository_clues.__doc__)
+            operation.add_argument("--question", help="optional exact claim to read without a selector")
+            operation.add_argument("--binding", nargs=2, action="append", default=[],
+                metavar=("NAME", "VALUE"), help="factor supplied as binding(name,value) to --select")
+            operation.add_argument("--select", help="caller-owned Scheme declaration; source/term contract below")
+            operation.add_argument("--constructor", default="query", help="constructor in --select")
+            operation.add_argument("--expand", action="append", default=[],
+                                   help="read an arbitrary claim or a returned boundary reference")
+            operation.add_argument("--bytes", type=int, default=8192,
+                                   help="per-exchange presentation capacity; never a search or inference limit")
+            operation.add_argument("--checkpoint",
+                        help="prior clue-read token; omission starts a fresh read, not automatic continuation")
+        if name == "submit":
+            operation.epilog = ("Each clue has id, claim, polarity (support/counter), source, and optional "
+                "factors as [name,value] pairs. Use clueJournal.prefix from a current context or clues read. "
+                "Submissions remain hypotheses; arbitrary new claims and factors are allowed.")
+            clues_input = operation.add_mutually_exclusive_group()
+            clues_input.add_argument("--clues-file", type=Path, help="JSON list of Agent hypotheses")
+            clues_input.add_argument("--clues-json", help="inline JSON hypothesis list")
+            operation.add_argument("--expected-prefix", help="clueJournal.prefix from the latest read")
+    return parser
+
+
 def main():
     from gambit_smp.framework import ROOT
 
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("operation", choices=("record", "inspect", "context"))
-    parser.add_argument("--request", type=Path, required=True)
+    parser = argument_parser()
     args = parser.parse_args()
-    request = json.loads(args.request.read_text())
+    if args.operation == "catalog":
+        from ascent.trajectory import ClueExchange
+        print(ClueExchange.render(catalog(ROOT, args.context, factor=args.factor)))
+        return
+    if args.operation == "clues":
+        if not (args.question or args.select or args.expand):
+            parser.error("clues requires --select, an exact --question, or --expand")
+        if args.binding and not args.select:
+            parser.error("--binding requires a caller-authored --select relation query")
+        from gambit_smp.ascent_program import engine_api
+        from ascent.trajectory import ClueExchange
+
+        with engine_api() as (engine, _):
+            packet = repository_clues(ROOT, args.question, engine, bindings=args.binding,
+                expansions=args.expand, checkpoint=args.checkpoint, display_bytes=args.bytes,
+                selector=args.select, constructor=args.constructor)
+        print(ClueExchange.render(packet))
+        return
+    if args.request:
+        if any(getattr(args, field, None) for field in (
+                "scope", "question", "view", "query", "binding", "clues_file", "clues_json", "expected_prefix")):
+            parser.error("--request owns all request fields")
+        request = json.loads(args.request.read_text())
+    else:
+        if args.operation not in ("context", "clues", "submit") or (
+                args.operation != "clues" and not args.scope):
+            parser.error("context and submit require --scope; clues can read repository Evidence without one")
+        from gambit_smp.research_actions import discover
+        snapshot = discover(ROOT, json.loads(args.context.read_text()))
+        request = dict(scope=args.scope, snapshot=snapshot)
+        if args.operation == "clues":
+            if args.view is not None or args.query is not None:
+                if not args.view or not args.query or args.question or args.binding:
+                    parser.error("--view and --query are a pair, separate from --question and --binding")
+                args.question = None
+            if not args.question and not args.view:
+                parser.error("clues requires --question or --view with --query")
+            request.update(question=args.question, bindings=args.binding)
+            if args.view:
+                request.update(view=args.view, query=args.query)
+        elif args.operation == "submit":
+            if bool(args.clues_file) == bool(args.clues_json) or args.expected_prefix is None:
+                parser.error("submit requires one of --clues-file/--clues-json and --expected-prefix")
+            request.update(clues=json.loads(args.clues_file.read_text() if args.clues_file
+                                            else args.clues_json),
+                           expectedPrefix=args.expected_prefix)
     common = {"scope", "snapshot", "action"}
-    if args.operation == "record":
+    if args.operation == "submit":
+        if set(request) != {"scope", "snapshot", "clues", "expectedPrefix"}:
+            raise ValueError("submit requires scope, snapshot, clues and expectedPrefix")
+        result = submit(ROOT, request["scope"], request["snapshot"], request["clues"],
+                        request["expectedPrefix"])
+    elif args.operation == "record":
         if set(request) not in (common | {"handle"}, common | {"handle", "purpose"}):
             raise ValueError("record requires scope, snapshot, action and observed handle")
         result = record(ROOT, request["scope"], request["snapshot"], request["action"],
                         request["handle"], purpose=request.get("purpose"))
     else:
-        required = common if args.operation == "inspect" else {"scope", "snapshot"}
-        if set(request) not in (required, required | {"through"}):
-            raise ValueError(args.operation + " requires " + ", ".join(sorted(required))
-                             + " and optional through")
+        if args.operation == "clues":
+            required = {"scope", "snapshot", "question"}
+            if not required.issubset(request) or set(request) - required - {"proposed", "bindings", "view", "query"}:
+                raise ValueError("clues requires scope, snapshot, question and optional proposed/bindings")
+        else:
+            required = common if args.operation == "inspect" else {"scope", "snapshot"}
+            if set(request) not in (required, required | {"through"}):
+                raise ValueError(args.operation + " requires " + ", ".join(sorted(required))
+                                 + " and optional through")
         from gambit_smp.ascent_program import engine_api
 
         with engine_api() as (engine, _):
             if args.operation == "context":
                 result = context(ROOT, request["scope"], request["snapshot"], engine,
                                  through=request.get("through"))
-            else:
+            elif args.operation == "inspect":
                 result = inspect(ROOT, request["scope"], request["snapshot"],
                                  request["action"], engine, through=request.get("through"))
-    print(json.dumps(result, sort_keys=True, allow_nan=False))
+            elif request.get("view"):
+                result = read_view(ROOT, request["snapshot"], request["view"], request["query"], engine)
+            else:
+                result = clues(ROOT, request["scope"], request["snapshot"],
+                               request["question"], engine, proposed=request.get("proposed", []),
+                               bindings=request.get("bindings", []))
+    from ascent.trajectory import ClueExchange
+    print(ClueExchange.render(result))
+
 
 
 if __name__ == "__main__":

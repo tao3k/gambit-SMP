@@ -50,7 +50,7 @@ def _database(root):
     path.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(path, isolation_level=None)) as db:
         version = db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, 1, 2, 3):
+        if version not in (0, 1, 2, 3, 4, 5):
             raise ValueError("unknown history database schema version")
         if version == 0:
             db.execute("BEGIN IMMEDIATE")
@@ -91,10 +91,110 @@ def _database(root):
                            "ON trajectory_attempts(scope,request_handle)")
                 db.execute("PRAGMA user_version=3")
                 db.commit()
+                version = 3
+            except BaseException:
+                db.rollback()
+                raise
+        if version == 3:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("CREATE TABLE IF NOT EXISTS trajectory_clues "
+                           "(scope TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, "
+                           "PRIMARY KEY(scope,id))")
+                db.execute("PRAGMA user_version=4")
+                db.commit()
+                version = 4
+            except BaseException:
+                db.rollback()
+                raise
+        if version == 4:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                db.execute("CREATE TABLE IF NOT EXISTS clue_read_checkpoints "
+                           "(id TEXT PRIMARY KEY, body TEXT NOT NULL)")
+                db.execute("PRAGMA user_version=5")
+                db.commit()
             except BaseException:
                 db.rollback()
                 raise
         yield db
+
+
+def cache_clue_checkpoint(root, checkpoint):
+    """Content-addressed read hint, separate from observations and admission."""
+    encoded, identity = canonical(checkpoint), fingerprint(checkpoint)
+    with _database(root) as db:
+        db.execute("INSERT OR IGNORE INTO clue_read_checkpoints VALUES (?,?)", (identity, encoded))
+        saved = db.execute("SELECT body FROM clue_read_checkpoints WHERE id=?", (identity,)).fetchone()
+        if saved != (encoded,):
+            raise ValueError("clue read checkpoint cache differs from its identity")
+    return "clue-read:" + identity
+
+
+def load_clue_checkpoint(root, token):
+    """Missing disposable cache safely replays; altered bytes never suppress reads."""
+    identity = token.removeprefix("clue-read:")
+    if (not token.startswith("clue-read:") or len(identity) != 64
+            or any(c not in "0123456789abcdef" for c in identity)):
+        raise ValueError("opaque clue-read checkpoint token required")
+    with _database(root) as db:
+        row = db.execute("SELECT body FROM clue_read_checkpoints WHERE id=?", (identity,)).fetchone()
+    if row is None:
+        return None
+    checkpoint = json.loads(row[0])
+    if fingerprint(checkpoint) != identity:
+        raise ValueError("clue read checkpoint cache identity mismatch")
+    return checkpoint
+
+
+def _clue_rows(db, scope):
+    result = []
+    for identity, encoded in db.execute(
+            "SELECT id,body FROM trajectory_clues WHERE scope=? ORDER BY rowid", (scope,)):
+        body = json.loads(encoded)
+        if (fingerprint(body) != identity or body.get("scope") != scope
+                or body.get("schema") != "gambit-trajectory-clues.v1"):
+            raise ValueError("trajectory clue journal identity mismatch")
+        result.append(body)
+    return result
+
+
+def read_trajectory_clues(root, scope):
+    """Read immutable submissions; the caller supplies their epistemic role."""
+    if not isinstance(scope, str) or not scope:
+        raise ValueError("trajectory scope required")
+    with _database(root) as db:
+        rows = _clue_rows(db, scope)
+    return rows, fingerprint(rows)
+
+
+def append_trajectory_clues(root, scope, source_identity, clues, expected_prefix):
+    """CAS of host-validated clue payloads, without admission or inference."""
+    if (not isinstance(scope, str) or not scope or not isinstance(source_identity, str)
+            or not source_identity or not isinstance(clues, list) or not clues):
+        raise ValueError("nonempty source-bound clue submission required")
+    body = dict(schema="gambit-trajectory-clues.v1", scope=scope,
+                sourceIdentity=source_identity, clues=clues)
+    with _database(root) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            rows = _clue_rows(db, scope)
+            if fingerprint(rows) != expected_prefix:
+                raise ValueError("stale trajectory clue prefix; reread current context")
+            ids = [clue["id"] for row in rows for clue in row["clues"]]
+            supplied = [clue["id"] for clue in clues]
+            if len(set(ids + supplied)) != len(ids) + len(supplied):
+                raise ValueError("trajectory clue id is already retained")
+            identity = fingerprint(body)
+            db.execute("INSERT INTO trajectory_clues VALUES (?,?,?)",
+                       (scope, identity, canonical(body)))
+            rows.append(body)
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+    return dict(prefix=fingerprint(rows), submissions=len(rows),
+                retainedClues=len(ids) + len(supplied), accepted=supplied)
 
 
 def append_trajectory_attempt(root, scope, source_identity, candidate, *, observation,

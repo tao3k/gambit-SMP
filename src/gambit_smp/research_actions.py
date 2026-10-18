@@ -90,7 +90,7 @@ def discover(root, context):
     from gambit_smp.recipes import load, source_path
     from gambit_smp.research_kernel import manifest_paths, implementation_paths
     root = Path(root).resolve()
-    if set(context) - {"recipes", "engine", "studies", "graph", "observations", "views"} or not isinstance(context.get("recipes", []), list):
+    if set(context) - {"recipes", "engine", "studies", "graph", "observations", "views", "navigator"} or not isinstance(context.get("recipes", []), list):
         raise ValueError("context requires an explicit recipe inventory and optional engine")
     names = context.get("recipes", [])
     if len(set(names)) != len(names) or not (names or context.get("studies") or context.get("graph") or context.get("views")):
@@ -124,6 +124,13 @@ def discover(root, context):
             raise ValueError("duplicate Evidence view identity")
         views.append(view)
         paths.extend(Path(p) for p in bound_view)
+
+    if "navigator" in context:
+        navigator = context["navigator"]
+        if not isinstance(navigator, str) or navigator not in context.get("views", []):
+            raise ValueError("navigator must name a declared Evidence view")
+        if "question" not in views[context["views"].index(navigator)]["queries"]:
+            raise ValueError("navigator must name a declared Evidence view with a question query")
 
     def evidence(path, pointer="", *, premise=None, action=None):
         path = Path(path).resolve(strict=True)

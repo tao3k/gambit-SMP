@@ -25,6 +25,11 @@ Python Datalog fallback. See [native setup](integrations/ascent/README.md).
 `gambit-smp agent-context` validates the evidence pipeline and emits an
 identity-bound Agent handoff linking Catalog entries, receipts and open gates.
 
+`gambit-smp trajectory clues --help` exposes the shared Scheme/Datalog query
+contract. Caller-owned selectors read registered Evidence and can reuse a
+source-bound checkpoint across processes and changing scopes. See
+[Trajectory usage and qualification](docs/smp-trajectory-application.md).
+
 ```sh
 uv sync --locked
 uv run --locked python -m unittest discover -s tests

@@ -52,6 +52,29 @@ class TrajectoryExplorationTests(unittest.TestCase):
             db.commit()
         return handle
 
+    def test_candidate_accepts_discovered_view_and_recipe_shapes(self):
+        view = {"id": "view:gc:inspect-header", "operation": "evidence-view",
+                "view": "evidence/scenarios/concurrent-gc/working-modeling.view.json"}
+        recipe = {"id": "recipe:gc-stress", "recipe": "evidence/research/gc/stress.recipe.json",
+                  "scope": "concurrent-gc"}
+        snapshot = dict(self.snapshot, actions=[view, recipe])
+        observed = candidate(snapshot, view["id"])
+        self.assertEqual(observed["scopeIdentity"], view["view"])
+        self.assertEqual(observed["operationIdentity"], "evidence-view")
+        self.assertNotIn("proposalIdentity", observed)
+        observed = candidate(snapshot, recipe["id"])
+        self.assertEqual(observed["scopeIdentity"], "concurrent-gc")
+        self.assertEqual(observed["operationIdentity"], "recipe:" + recipe["recipe"])
+
+        snapshot.update(engine=None, context={"views": [view["view"]]},
+                        evidenceViews=[{"id": "gc", "source": "bound"}])
+        first = candidate(snapshot, view["id"])
+        self.assertIn("modelIdentity", first)
+        snapshot["revision"] = "next-outcome"
+        self.assertEqual(candidate(snapshot, view["id"]), first)
+        snapshot["evidenceViews"] = [{"id": "gc", "source": "changed"}]
+        self.assertNotEqual(candidate(snapshot, view["id"]), first)
+
     def test_duplicate_attempts_survive_restart_and_v1_migration(self):
         handle = self.completed_action()
         first = record(self.root, "scope", self.snapshot, "question", handle)
@@ -74,7 +97,8 @@ class TrajectoryExplorationTests(unittest.TestCase):
                 connection.execute("PRAGMA user_version=1")
             self.assertEqual(read_trajectory_attempts(older, "scope"), [])
             with closing(sqlite3.connect(database)) as connection:
-                self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 3)
+                self.assertEqual(connection.execute("PRAGMA user_version").fetchone()[0], 5)
+                self.assertEqual(connection.execute("SELECT COUNT(*) FROM clue_read_checkpoints").fetchone()[0], 0)
         self.source.write_text("source-b")
         with self.assertRaisesRegex(ValueError, "source changed"):
             candidate(self.snapshot, "question")
