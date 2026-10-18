@@ -82,6 +82,91 @@ successful new-Evidence continuation
 
 ## Observations, Not An Efficiency Claim
 
+### Publication And Native Follow-Through
+
+The exact-head framework CI for `f84eb66` failed before running tests:
+three registered method Views required local `.cache` model receipts. Build
+and patch-contract CI passed independently. The missing cache is not a test
+timeout or a runtime failure. These Views now reference portable historical
+model observations under `evidence/research`, retaining original receipt,
+child-receipt, engine and exact input identities. The raw caches remain local;
+their removal no longer prevents reading registered evidence. Reproduction
+uses the existing control Recipes, not a copied execution environment. No
+Python inference branch or timeout change was needed. A regression rejects
+local cache dependencies in the repository's registered View references.
+
+The first native Grok window ended at 24 turns and 55 public tool calls,
+without edits or native execution. The candidate had no registered same-source
+original-stress consumer declarations. Adding two Recipes and their existing
+View associations made those artifacts available without a Python change.
+The continuation also received the current sealed-engine location; this is not
+a matched demonstration that the declarations alone improved Agent quality.
+Read-only terminal permission interruptions and turn-bound windows remain
+operational failures, not Gambit failures or completed investigations.
+
+Both original stress modes subsequently ran on source lock `7e59221a...`
+and its recorded completed bootstrap producer, using locked engine `c9512ba7...`:
+
+| Mode | Original Files | Result | Whole Run |
+| --- | --- | --- | --- |
+| GSC | Four | Three pass; interrupt2 watchdog timeout | 325.359 seconds |
+| GSI | Four | One pass; TFIB and interrupt2 watchdog timeouts; terminate not executed | 312.916 seconds |
+
+The original 300-second watchdogs, assertions, inventory and source were not
+changed. A watchdog denial establishes incomplete qualification, not a proved
+deadlock or a new SIGSEGV. The new observations and counterevidence are bound
+to those runs, not attributed to the parent image. Bootstrap remains established;
+original stress, header-write/crash causality and whole-native admission remain
+open. Cumulative progress stays 6/12; current-source requalification is distinct
+from that historical milestone count. No release or performance pass is inferred.
+
+The final read-only Grok audit completed successfully on the locked installation.
+Its first related tool call queried registered candidate evidence. Three reads
+used the existing exchange: initial, rescope with the returned checkpoint, then
+another rescope with the updated checkpoint. The last packet reported complete
+presentation of the requested window. Supporting and opposing references were
+available on the first read; deferred bodies remained expandable. Its public
+conclusion correctly retained `NOT_ADMITTED`, distinguished the parent crash
+from current watchdog outcomes, and did not promote bootstrap into stress success.
+
+That audit also identified stale declaration labels: `DECLARED_NOT_EXECUTED`
+coexisted with execution edges. Current declarations now say `DECLARATION_ONLY`;
+the separate execution observations remain authoritative for their actual run
+outcomes. A data-contract regression checks executed declarations do not retain
+the obsolete unexecuted status. This correction changes the read generation, not
+the frozen native source or historical receipts. These observations demonstrate
+one successful progressive audit and a useful detected defect, not a general
+token saving, deterministic model behavior or native repair.
+
+The immutable dependency was subsequently corrected to ASCENT PR #1 commit
+`8341fe36cf9f867d284244a7b82115a1c1954803`. The decoder has no `unwrap` path;
+the test refactor retains all 15 Clue tests and 101 assertions. Targeted strict
+Clippy and 88 Rust integration tests pass. Full upstream qualification is not
+claimed: the project design gate still reports Clue API structure diagnostics,
+and local Scheme AOT qualification reports an unresolved storage-readiness class.
+Neither checker policy nor any performance/watchdog gate was relaxed.
+
+The corrected installed revision completed another real Grok read/continuation
+audit. It found that the initial signed stress labels were inconsistent: a
+negative qualification label could be countered, and relabeling it exposed a
+compiled support polarity inconsistent with its timeout receipt. Current stress
+claims are positive qualification propositions, with one counter witness each.
+A source-bound regression checks the native observation's qualification boolean
+against the projected polarity and positive-claim contract. The final Grok audit
+confirmed no remaining sign/outcome contradiction, two stress counters, separate
+declarations and continued `NOT_ADMITTED` status. Earlier faulty projections and
+audit windows remain in local history; original native receipts are unchanged.
+Structural `conflict=false` alone never established this semantic consistency.
+
+Final frozen-input qualification used the Git-installed `8341fe36...` revision
+and sealed engine
+`ef42915618a2b3e3e2bf80801d544c6d40b35e1ca64013dd4d560e743f436f77`.
+It passed 1,716/1,716 framework tests, zero failures/errors/skips and no changed
+inputs: 278.458 seconds for the test stage, 280.924 seconds including outer
+supervision, natural exit zero. The original 300-second framework limit was not
+changed. These are Python-framework qualification times, not package build,
+Gambit stress, release-performance or SMP-completion results.
+
 ### Published Dependency Requalification
 
 ASCENT PR #1 contains commit

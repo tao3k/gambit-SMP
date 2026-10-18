@@ -17,6 +17,41 @@ VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    def test_native_stress_witnesses_keep_the_positive_qualification_contract(self):
+        registry = json.loads((ROOT / "evidence/views.json").read_text())
+        for name in registry["views"]:
+            view = json.loads((ROOT / name).read_text())
+            references = {row["id"]: row for row in view["references"]}
+            for _, claim, polarity, reference in view["facts"].get("observation", []):
+                path = ROOT / references[reference]["path"]
+                if path.suffix != ".json":
+                    continue
+                observation = json.loads(path.read_text())
+                if observation.get("schema") != "gambit.native-stress-observation.v1":
+                    continue
+                self.assertTrue(claim.endswith("-stress-qualified"), (name, claim))
+                self.assertEqual(polarity,
+                                 "support" if observation["nativeStressEstablished"] else "counter",
+                                 (name, claim))
+
+    def test_executed_declarations_do_not_project_obsolete_unexecuted_status(self):
+        registry = json.loads((ROOT / "evidence/views.json").read_text())
+        for name in registry["views"]:
+            facts = json.loads((ROOT / name).read_text())["facts"]
+            executed = {row[0] for row in facts.get("edge", [])
+                        if row[2] == "declared-route-executed"}
+            for identity, attribute, value in facts.get("attribute", []):
+                if identity in executed and attribute == "outcome":
+                    self.assertNotEqual(value, "DECLARED_NOT_EXECUTED", (name, identity))
+
+    def test_registered_repository_views_do_not_require_local_cache_artifacts(self):
+        document = json.loads((ROOT / "evidence/views.json").read_text())
+        for name in document["views"]:
+            view = json.loads((ROOT / name).read_text())
+            for reference in view["references"]:
+                self.assertNotIn(Path(reference["path"]).parts[0], (".cache", ".data"),
+                                 (name, reference["path"]))
+
     def test_checked_reference_metadata_is_a_configurable_native_source(self):
         from gambit_smp.framework import digest
         with tempfile.TemporaryDirectory() as directory:
