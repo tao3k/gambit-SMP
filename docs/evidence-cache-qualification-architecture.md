@@ -29,9 +29,9 @@ and the ephemeral interpreter alias. The old test that demanded invalidation for
 an unselected source now checks both independence and denial after a selected
 source changes. No assertion about selected-source drift was removed.
 
-These are framework contracts, not GC fixes or new native milestones. The main
-SMP installation and runtime qualification remain unchanged. The frozen framework
-candidate completed its full and sealed-host checks before any main installation.
+These are framework contracts, not GC fixes or new native milestones. The frozen
+framework candidate completed its full and sealed-host checks before the locked
+main installation described below. Native runtime qualification remains separate.
 
 ### Scoped Declaration Witness Qualification
 
@@ -70,8 +70,19 @@ not matched performance measurements or a native SMP completion claim.
 The preceding full run's three failed journal cases remain retained. Their old
 fixture helper lacked the new independent witness; it now creates one explicitly
 without relaxing assertions. The missing-witness negative case remains denied.
-Publication, exact-revision package installation and actual SMP follow-through
-are subsequent gates, not inferred from these results. The authoritative four
+The qualified changes were published to the existing ASCENT and SMP PRs. The
+main SMP environment was then installed with `uv sync --locked`, binding ASCENT
+to Git revision `88b4aa5eb098143594cf039a8e0c74d1f7e639ca`, not an editable
+checkout or the isolated wheel. That installed environment independently passed
+**1,755/1,755**, zero failures/errors/skips, in **242.170 seconds** of suite time
+and **245.710 seconds** under its supervisor. Inputs remained unchanged; natural
+exit, parent reaping and process-group quiescence were verified. A fresh process
+readmitted the receipt without source, backend or environment drift or uncovered
+inputs. The local receipt is `.cache/locked-declaration-checkpoint-full/receipt.json`;
+the cache is not the durable source of the contract or a native acceptance claim.
+The time difference from the isolated run is not a matched speedup measurement.
+
+Actual SMP follow-through remains a separate gate. The authoritative four
 contract checklist and its host trust boundary remain in ASCENT's existing
 `docs/features/evidence-checkpoint.org`.
 
