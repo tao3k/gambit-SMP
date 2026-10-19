@@ -1,5 +1,18 @@
 # Locked checkpoint publication and installation
 
+## Current native continuation: 2026-10-19
+
+The original interpreted inventory now passes **4/4**, exit zero, no timeout:
+1828.146 stress seconds, 1844.205 supervised seconds. All four build checkpoints
+were reused without execution; no bootstrap was repeated. Cumulative milestone
+completion is **7/12**, not whole current-source SMP qualification. The remaining
+five gates and current-source requalification boundary are in the
+[milestone](smp-threaded-vm-milestone.md). The
+[native observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
+binds source, binary, observer and receipts. Older DENY records below remain
+historical; their human-report observation contract is not silently upgraded.
+The installed ASCENT lock remains `e119827e588ea7b6d8a3195ac8e0ee8f61de6c11`.
+
 ## Published identity
 
 ASCENT PR #1 contains architecture commit `e6fc5b35` and the normal merge
@@ -29,7 +42,7 @@ reproducible source dependency. Historical failed launches remain retained.
 
 ## Native boundary
 
-Cumulative SMP progress remains 6/12. These framework checks do not close the
+At that historical publication SMP progress remained 6/12. Those framework checks did not close the
 remaining original interpreted stress, shared-registry lifetime, lifecycle
 failure/rollback, GC/FFI, Gerbil correctness or release-performance obligations.
 The target-child witness still needs source/model correspondence and original
@@ -69,7 +82,7 @@ framework PASS. An earlier complete-run preflight correctly rejected a stale
 current-method source reference; that reference was audited and rebound without
 rewriting the rejected receipt or historical source evidence.
 
-The current original interpreted continuation reuses all four successful build
+The earlier original interpreted continuation reused all four successful build
 stages. The existing single-driver capacity policy selects 11 VM processors on
 the observed 12-CPU host; those numbers are observations, not framework constants.
 Collection completion does not imply a TFIB result. The original assertions,

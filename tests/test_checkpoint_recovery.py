@@ -117,6 +117,25 @@ class CheckpointProcessRecoveryTests(unittest.TestCase):
         self.assertEqual(state["relations"]["campaign_reusable"], [])
         self.assertFalse(self.run.exists())
 
+    def test_readonly_prefix_survives_append_but_execution_recovery_stays_strict(self):
+        from unittest.mock import patch
+        from gambit_smp.step_checkpoint import recovered_resumption
+        process = self.producer(terminal=True)
+        _, error = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, error)
+        prefix = history.read_execution_checkpoint(self.root, self.run)
+        with patch("gambit_smp.reasoning_history.execution_checkpoint_head", return_value="later-prefix"):
+            with self.assertRaisesRegex(ValueError, "prefix changed"):
+                recovered_resumption(self.root, self.run)
+            read = recovered_resumption(self.root, self.run, require_current_prefix=False)
+        state = read["resumption"]
+        self.assertEqual(state["prefixIdentity"], prefix["prefixIdentity"])
+        self.assertEqual(state["recordedInputs"], prefix["records"][0]["payload"]["inputs"])
+        self.assertEqual(state["observedHeadIdentity"], "later-prefix")
+        self.assertFalse(state["prefixStillHead"])
+        self.assertFalse(state["executionAuthorized"])
+        self.assertFalse(state["runtimeAdmitted"])
+
     def test_missing_enumeration_witness_stays_unknown_after_cache_cleanup_and_restart(self):
         process = self.producer(terminal=True, omit_witness=True)
         _, error = process.communicate(timeout=20)

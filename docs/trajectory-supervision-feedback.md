@@ -309,6 +309,51 @@ another Python domain edit. Real acceptance requires observable Grok queries,
 traceable slices and useful continuation, followed separately by native repair.
 No new efficiency or native correctness result is claimed by this document.
 
+### Datagram continuation: 2026-10-19
+
+The original interpreted inventory subsequently completes all four unchanged
+files, exit zero, without another bootstrap. Its source-bound observation and
+limitations are recorded in `gc-datagram-native-observation.md` under the
+collective-wait evidence directory. This advances one cumulative native gate,
+not whole current-source release qualification.
+
+The actual Grok review reused its conversation and Clue checkpoint. Its first
+tool read interface implementation; its second read the completed execution
+checkpoint. The first Clue query followed known historical claims and returned
+the relation to the new datagram qualification. It then selected that claim,
+read its source and compared prior noncompletion/interleaving observations.
+No build or bootstrap was relaunched by this review. After the evidence source
+stabilized, expansion retained twelve displayed units and added one instead of
+reprinting the PASS family. The earlier empty checkpoint could retain nothing;
+its refresh is not evidence of redundant rereading.
+
+This does not establish overall lower reasoning cost. Broad requests mixed
+receipt ids with claim ids; path strings and content digests were attempted as
+expansion identities and remained unknown. Unknown references must not be
+invented into source facts or promoted into a missing-evidence claim. Nominal
+identity discoverability and compact presentation remain quality issues; do
+not solve them by selecting the model's investigation direction.
+
+An actual concurrent inspection failure was repaired in the existing read-only
+adapter: an authenticated immutable prefix can be inspected while the producer
+appends, with both snapshot and observed-head identities. Execution recovery
+still requires the head; a read grants no launch authority. The Grok review also
+correctly found that later QNT/manifest refinements leave the frozen campaign's
+whole-input binding stale. Neither its historical receipt nor its failed
+predecessors were rewritten. The declared result review binds the unchanged
+actual source, observer assets and receipt separately from the newer finite
+model; it cannot make every old stage currently reusable.
+
+The previous review's quiet-stream polling concern was tested and refuted:
+`communicate_progress` invokes the datagram observer on timed polls with empty
+stdout/stderr. Source review and a regression exercise that path. Conversely,
+literal allocation-verdict metadata was removed: allocation qualification must
+come from bound source/control evidence, not an adapter Boolean. The final
+framework controls include 44 transport/recovery checks, 65 evidence/Clue
+checks and separate strengthened source-withdrawal and continuation checks.
+The earlier full 1794-test dispatcher receipt is retained as its own versioned
+observation, not relabeled as a later complete run.
+
 ### Predicate Repair Native Qualification
 
 Source lock `405d1b9...` integrates the mutex/condvar contention delta. The

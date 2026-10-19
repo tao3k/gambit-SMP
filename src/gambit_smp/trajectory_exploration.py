@@ -569,6 +569,9 @@ expand opens returned claim/reference identities; an unknown claim's digest is
 not a discovered evidence identifier. checkpoint preserves reads, not query fit.
 
 selector is caller-written Scheme/Datalog, replacing the registered association.
+Its request value is a Scheme source STRING containing define-evidence, not a
+list of rules. Put (include clue-selection-schema) inside that source, not at
+request top level. Rules use ((head ...) <-- (body ...) ...), not Prolog :-.
 Its variables can discover factor names, values and claims without identifiers:
 clue(id,digest,claim,polarity,role,source), factor(id,digest,name,value),
 attested(id,digest,receipt), binding(name,value). Join by both id AND digest;

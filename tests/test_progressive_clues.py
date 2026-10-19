@@ -705,6 +705,7 @@ print(json.dumps(result))'''
         family = next(row for row in first["brief"]["families"]
                       if row["claim"] == "collective-interpreted-qualification")
         self.assertIn("child-progress-correspondence", {row["claim"] for row in family["links"]})
+        self.assertIn("datagram-original-gsi-qualified", {row["claim"] for row in family["links"]})
         self.assertTrue(first["brief"]["explorationOpen"])
         expanded = repository_clues(ROOT, "child-progress-correspondence", checkpoint=first["checkpoint"])
         self.assertGreater(expanded["brief"]["counts"]["counter"], 0)
@@ -712,6 +713,16 @@ print(json.dumps(result))'''
         self.assertFalse(expanded["brief"]["executionAuthorized"])
         self.assertFalse(expanded["brief"]["runtimeAdmitted"])
         self.assertTrue(expanded["brief"]["explorationOpen"])
+        qualified = repository_clues(ROOT, "datagram-original-gsi-qualified",
+                                     checkpoint=expanded["checkpoint"])
+        self.assertEqual(qualified["brief"]["counts"]["support"], 1)
+        observation = qualified["brief"]["families"][0]["observations"][0]
+        self.assertEqual(observation["factors"]["original-files"], ["4-of-4-pass"])
+        self.assertFalse(qualified["brief"]["runtimeAdmitted"])
+        resumed = repository_clues(ROOT, "datagram-original-gsi-qualified",
+                                   checkpoint=qualified["checkpoint"])
+        self.assertEqual(resumed["brief"]["delta"]["added"], 0)
+        self.assertGreater(resumed["brief"]["delta"]["retained"], 0)
 
     def test_compact_source_binding_does_not_require_scoped_history(self):
         with patch("gambit_smp.trajectory_exploration.read_trajectory_clues") as journal, \

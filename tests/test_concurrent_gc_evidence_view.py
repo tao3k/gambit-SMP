@@ -12,6 +12,24 @@ VIEW = "evidence/scenarios/concurrent-gc/fdset-captured-032.view.json"
 
 
 class ConcurrentGCViewTests(unittest.TestCase):
+    def test_original_datagram_result_requires_current_bound_sources(self):
+        document, facts, catalog, _ = load(ROOT,
+            "evidence/scenarios/concurrent-gc/processor-interrupt-collective.view.json")
+        target = ("datagram-original-gsi-qualified", "datagram-original-gsi")
+        with engine_api() as (engine, _):
+            before, _ = evaluate(engine, facts, catalog, document["queries"])
+            self.assertIn(target, before["applicable"])
+            self.assertIn(("child-progress-correspondence",), before["unclosed"])
+            changed = dict(facts, current_binding=[
+                (name, "different-observer" if name == "datagram-observer" else value)
+                for name, value in facts["current_binding"]])
+            after, _ = evaluate(engine, changed, catalog, document["queries"])
+            self.assertNotIn(target, after["applicable"])
+            self.assertIn((target[0],), after["unclosed"])
+            self.assertEqual(changed["receipt"], facts["receipt"])
+            restored, _ = evaluate(engine, facts, catalog, document["queries"])
+            self.assertIn(target, restored["applicable"])
+
     def test_new_source_candidate_does_not_inherit_historical_products(self):
         document, facts, catalog, inputs = load(ROOT,
             "evidence/scenarios/concurrent-gc/darwin-source-032.view.json")

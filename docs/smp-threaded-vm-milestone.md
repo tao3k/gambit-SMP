@@ -2,9 +2,41 @@
 
 ## Current Milestone Checkpoint
 
+### 2026-10-19 Original Interpreted Stress Completed
+
+Cumulative milestone completion is **7/12**. The existing collective-wait
+candidate completes the unchanged original interpreted stress inventory:
+**4/4 files, exit zero, no timeout**, in **1828.146 seconds** (1844.205 seconds
+including supervision). Source, configure, seed and core checkpoints were
+reused without launching those stages; no bootstrap was repeated.
+
+The source lock is `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`.
+The declared observer uses a separately loaded nonblocking datagram callback,
+not interleaved human GC reports or Scheme-port forwarding. Its source/control
+checks address allocation and report-framing interference; this is not proof
+of universal scheduling noninterference. The 300-second genuine-witness
+inactivity window is unchanged. GC progress alone grants neither mutator
+completion nor runtime admission; the original assertions and natural exit
+establish this stress result. See the
+[source-bound observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
+and [model/source audit](../evidence/research/processor-interrupt-collective-wait/gc-datagram-source-review.md).
+
+The five cumulatively open gates are:
+
+1. Shared-registry lifetime, resize, reuse and retirement.
+2. Lifecycle initialization failure, rollback and retry.
+3. Complete GC/FFI qualification.
+4. Gerbil build and test correctness.
+5. Release performance, including complete concurrent-VM latency populations.
+
+Current-source full GSI/GSC and PR requalification remain additional release
+obligations; historical completion of those gates is not inherited by a changed
+producer. The separate observer control does not close the GC/FFI gate. Earlier
+timeouts and rejected observation contracts remain historical evidence below.
+
 ### 2026-10-18 Stack-Entry Contract Candidate
 
-Cumulative milestone completion is now **6/12**; no gate is reset by cache
+At this historical checkpoint cumulative completion was **6/12**; no gate is reset by cache
 retirement. Complete compiled stress is newly closed on this candidate. The
 historical five completed requirements remain recorded; because the compiler
 changed, same-producer full GSI/GSC inventory and PR regression requalification

@@ -976,7 +976,9 @@ def inspect(out, *, input_archive=None, include_resumption=False):
             ancestor = ancestor.parent
         root = repository_root(ancestor)
         if read_execution_checkpoint(root, out)["records"]:
-            return recovered_resumption(root, out)
+            # Inspection returns an authenticated immutable prefix, not execution
+            # authority. Concurrent appends must not starve this read-only view.
+            return recovered_resumption(root, out, require_current_prefix=False)
         if (out / "run-header.json").is_file():
             return interrupted_resumption(root, out)
     receipt = read_json(out / "receipt.json")

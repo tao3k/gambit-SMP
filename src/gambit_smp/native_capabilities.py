@@ -1159,9 +1159,13 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
                 if "childProgress" in args and set(args["childProgress"]["files"]) & set(map(str, group)):
                     from gambit_smp.suite_progress import instrument, ChildGCProgress
                     config = args["childProgress"]
-                    nonce, sources = instrument(work, runtime, group, config, root=ctx.root)
+                    if config.get("transport") == "native-datagram":
+                        from gambit_smp.suite_progress import prepare_datagram
+                        child_progress = prepare_datagram(ctx, runtime, work, group, config, name, cap, option)
+                    else:
+                        nonce, sources = instrument(work, runtime, group, config, root=ctx.root)
+                        child_progress = ChildGCProgress(ctx.root, config, nonce, sources, len(group))
                     ctx.bind([ctx.root / config["manifest"], ctx.root / config["forwarder"], runtime / "lib/_nonstd.scm"])
-                    child_progress = ChildGCProgress(ctx.root, config, nonce, sources, len(group))
                     ctx.bind(Path(path) for path in child_progress.inputs)
                 try:
                     code, output, timeout, seconds = ctx.run(name, [runtime / "gsi/gsi", "-:" + runner_option(option), "-f",

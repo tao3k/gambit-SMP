@@ -293,9 +293,9 @@ def interrupted_resumption(root, run):
             "resumption": state, "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
 
 
-def recovered_resumption(root, run):
+def recovered_resumption(root, run, *, require_current_prefix=True):
     """Recover attested record bytes, never reconstruct a missing aggregate PASS."""
-    from gambit_smp.reasoning_history import read_execution_checkpoint
+    from gambit_smp.reasoning_history import read_execution_checkpoint, execution_checkpoint_head
     from gambit_smp.recipes import inspect_outputs
     root, run = Path(root).resolve(), Path(run).resolve()
     prefix = read_execution_checkpoint(root, run)
@@ -370,12 +370,16 @@ def recovered_resumption(root, run):
         support=support, inventories=_support_inventories(root, records), declaration=header.get("declaration"))
     current = not relations["binding_gap"]
     inspection["evidenceBindingStatus"] = "CURRENT" if current else "STALE"
-    if read_execution_checkpoint(root, run)["prefixIdentity"] != prefix["prefixIdentity"]:
+    observed_head = execution_checkpoint_head(root, run)
+    prefix_is_head = observed_head == prefix["prefixIdentity"]
+    if require_current_prefix and not prefix_is_head:
         raise ValueError("checkpoint prefix changed during recovery")
     state = {"schema": "research-resumption-state.v1", "scope": "recipe-stages-not-cumulative-milestone-count",
              "recordedRecipe": header["recipe"], "recordedEngineId": header["engineId"],
              "recordedInputIdentity": content_id(header["inputs"]), "historyStatus": "COMMITTED_PREFIX",
+             "recordedInputs": dict(header["inputs"]),
              "prefixIdentity": prefix["prefixIdentity"], "requiredSteps": names, "relations": relations,
+             "observedHeadIdentity": observed_head, "prefixStillHead": prefix_is_head,
              "rules": rules, "parentCompletionObserved": parent_complete, "executionQuiescence": quiescence,
              "executionAuthorized": False, "runtimeAdmitted": False}
     return {"recipe": header["recipe"], "engineId": header["engineId"],
