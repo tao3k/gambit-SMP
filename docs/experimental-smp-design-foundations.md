@@ -158,6 +158,81 @@ GC service, migration and return. Separate movable Scheme roots, opaque foreign
 payload and native resources. Check stale roots and return-owner mismatches;
 do not infer independent-VM sharing permission from a same-runtime thread test.
 
+## Implementation Review And Transfer Evidence
+
+The 2026-10-19 follow-up reads the implementation, not only its design comments.
+The existing [parallel-GC DSL](../evidence/scenarios/parallel-gc/design.ss) and
+[facts](../evidence/scenarios/parallel-gc/facts.json) now expose the following
+source-bound chains through `transfer_evidence`, `transfer_gap` and
+`transfer_unbound`. This extends the same component/Session; it introduces no
+Python inference, runtime fixture, model transition or execution permission.
+
+| Chain | Source-backed mechanism | Existing model and precise limit | Transfer condition / falsification question |
+| --- | --- | --- | --- |
+| `backup-service-ownership` | OCaml `domain.c:1158-1223,2189-2229`: release/acquire handoff messages; backup uses the domain lock before servicing; waits recheck the relevant predicate under its lock. | Gambit `scheduler_gc_root_cohort_composition.qnt` already represents serviceable waits and moving-root publication/reload, but has no main/backup execution-owner handoff. | Can GC service remain reachable without simultaneous execution of one domain state? Examine delayed service and a main-thread return racing with helper service, not just a missing poll. |
+| `inactive-root-readiness` | Chez `types.h:363-420`: code retention and active-count changes under the TC mutex, last-active collector wake and TC-before-allocation lock order. | Reuse the same root/cohort model; physical inactive-thread root enumeration and interrupt-disabled callers are outside it. | Does withdrawing from active execution preserve every collector-visible root, and what serializes reactivation with collection? A decrement alone cannot establish this. |
+| `retirement-work-fixed-point` | OCaml `domain.c:2262-2423`: finish work, orphan ephemerons/finalizers, repeat if work regenerated; under membership lock, a pending request prevents withdrawal. After withdrawal, domain lock still protects teardown from state reuse. | `gc_sync_membership.qnt` has old/new populations and startup barriers, but excludes intermediate GC during resize and has no orphan-generated work loop. | Can a new work item or participation request appear after apparent quiescence? Separate leaving membership from reclaiming/reusing its state. This is not permission to import OCaml's major collector. |
+| `retained-descriptor-reuse` | Chez `thread.c:264-352`: flush remembered allocation state, close local segments, transfer guardians, retain `thread_gc` because segments record its creator, redirect its sweeper and clear its TC before recycling. | `public_vm_retirement_composition.qnt` covers leases and active/pending users, not segment-creator descriptors or their recycled identity. | Which references outlive an execution context, and what protects descriptor reuse? Retaining every allocation forever would not be an acceptable substitute for this protocol. |
+| `foreign-reentry-effects` | OCaml `signals.c:147-218`: entry transfers service/lock and retries a late pending action; return reacquires execution ownership, reexamines signals and restores `errno`. | `callback_retirement_composition.qnt` covers result roots, C activation and owner generation; it does not represent pending signals, `errno` or hook-specific failures. | Which pending actions may execute at a boundary, and which foreign state must survive? It is not safe to invoke arbitrary callbacks just because a GC participation helper is available. |
+
+Gambit correspondence is explicitly the pinned baseline `lib/setup.c`:
+startup/service at 750-835, population change/exit/join at 920-1010,
+collective drain/error delivery at 1049-1152 and delegated VM cleanup at
+4773-4781. These anchors establish interface questions, not new allegations
+against a repaired overlay. In particular, the baseline's ignored join error
+and fatal create path are not newly discovered current-candidate bugs.
+
+The current native owner independently recorded **7/12** at
+`8d01dba58b9fd5eef406e80b68105eb98d2f697a`; see the
+[current native milestone](smp-threaded-vm-milestone.md). Its interpreted stress
+completion does not prove these reference protocols necessary, while earlier
+timeouts do not identify them as causal repairs. No native stage was rerun in
+this research. The five open native gates retain their own source locks and
+ownership.
+
+### Assumptions And Cost Boundaries
+
+Chez's activation-mode pairing distinguishes a newly created context, an
+inactive existing context and an already active context. The
+`WRITE_XOR_EXECUTE_CODE` alternative is different; the reviewed branch cannot
+be generalized to every build. Root enumeration, interrupt-disabled callers,
+descriptor reuse and creation-failure paths remain open source obligations.
+
+OCaml's shown default blocking hooks may be overridden by systhreads. Backup
+thread creation failure/termination acknowledgement, platform memory-order
+primitives, major-GC work counters and ephemeron/finalizer fixed points remain
+outside this bounded reading. The handoff is not zero-cost: it adds OS-thread
+resources, lock transfer, wakeup and scheduling concerns. Chez's active-count
+protocol has a shared mutex and explicit code-retention costs. Neither design
+has a measured Gambit speedup here; retaining more memory or serializing the
+mutator is not an accepted optimization.
+
+The retirement withdrawal comparison is the non-last-domain path. The last
+domain has a separate branch that finishes a major cycle and later adopts,
+finalizes and orphans remaining pools. It cannot inherit the multi-participant
+argument merely because both paths use `caml_domain_terminate`.
+
+### Evidence Validation
+
+The real installed ASCENT consumer checks all declared source/model digests,
+derives the five chains, reuses its Session, and withdraws/restores source,
+section and model bindings. Unsupported correspondence becomes explicit
+unknown, never native satisfaction. Existing finite-control receipts remain
+unchanged. No QNT or Lean checker is rerun merely for a new source reading;
+no new formal coverage is claimed. A model extension is justified only after
+one of these missing premises is selected by an actual design proposal or
+native observation and cannot be expressed by the existing protocol.
+
+Reproduce the focused consumer and source-transport checks with the installed
+repository environment:
+
+```sh
+PYTHONPATH=src .venv/bin/python -m unittest tests.test_parallel_gc_evidence_scenario tests.test_source_provision tests.test_reproduction_check
+```
+
+The 2026-10-19 local run passed all 28 tests. This is a research-consumer/input
+result, not a fresh QNT proof, full framework campaign or native qualification.
+
 ## Reuse Before Extension
 
 The inventory already contains collector-specific and shared contracts. Start
