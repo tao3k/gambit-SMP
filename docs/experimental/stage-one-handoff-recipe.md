@@ -105,6 +105,46 @@ and multicore workloads; the research cannot supply a throughput prediction.
 
 ## Closure And Remaining Gaps
 
+### Exposure Is Not Initialization Success
+
+The next source join is between private preparation, publication to a runtime
+registry and later module/callback execution. A local error does not move all
+three boundaries backwards. These are pinned baseline observations, not a
+new module-loader implementation or attribution to the native candidate:
+
+| Source boundary | Established observation | Transfer condition |
+| --- | --- | --- |
+| Gambit `lib/setup.c:1482-1518,1546-1566,1644-1678,2021-2053,2081-2093` | `make_global` can commit canonical metadata before subsequent module symbol preparation fails. The fixup flag is set before validation/preparation; the load path marks the linkfile after `setup_modules` returns, including an error return. | Canonical-record commit, fixup attempt and usable whole-module completion are different facts. Do not undo an already shared canonical record or clear a flag and retry destructively merely because a later step failed. The existing fixup model's early-done/retry controls remain relevant. |
+| OCaml `runtime/dynlink_nat.c:116-179` | Frame tables are registered first, then global roots, then nonempty code fragments; entry lookup/callback is a distinct operation. Missing root symbols can fail after frame-table registration. | Local registration routines do not form an all-or-nothing cross-registry transaction. Enumerate each successful exposure cut and the storage retained behind it before selecting a rollback. This is not proof of safe concurrent module initialization. |
+| OCaml `otherlibs/dynlink/native/dynlink.ml:91-110,139-142` and `otherlibs/dynlink/dynlink_common.ml:341-361` | The handle is marked `Initialized` before registration; `finish` closes only a not-yet-initialized handle. The driver runs `finish` on errors, releases the high-level lock before module code, and records successful units after their execution. | The early marker also prevents the normal finish path from unloading after registration has begun. Do not import that marker as a certificate of initialization success. Memory retention, callable readiness and registry membership have distinct roles; user code is not run under the high-level registry lock. |
+| Chez `c/ffi.c:574-602,800-842` and `csug/foreign.stex:1220-1246` | The libffi closure carries an immobile Scheme vector; the callable lookup list uses weak references and may free closure storage after the vector becomes unreachable. The manual requires retention/locking if C retains the entry pointer. | A registry entry or immobile address is not by itself a strong owner. Follow the actual host-held entry pointer to its required Scheme/code owner; native call count zero does not mean the host has released that capability. This is a libffi branch, not proof of every Chez backend. |
+| Chez `c/gcwrapper.c:297-344` and `csug/smgmt.stex:1012-1062` | Object locking retains/immobilizes through the collector's locked-object accounting; matching unlocks discharge repeated locks. The manual warns about fragmentation/retention overhead. | Learn the explicit owner/lifetime obligation, not a new Gambit object-pinning API or a lock around every call. Stable code/descriptor lifetime already supplied by Gambit's generated modules should be retained at its existing level. |
+
+The first-stage handoff therefore distinguishes these failure cutpoints:
+
+| Cut | Research requirement for the implementation owner |
+| --- | --- |
+| Nothing exposed, private initialized prefix only | Roll back only owned resources, preserving the original error; no other caller may observe the attempted record. Reuse the existing private-prefix model. |
+| Canonical record/root range committed, module preparation later fails | Keep the committed shared record and its VM-root correspondence valid. Module failure does not authorize retraction of identity observed by another VM, resetting shared reservation state, or reclaiming permanent storage. Reuse canonical retention and binding/root models. |
+| Map/root/code pointers registered, entry not yet run or initializer raises | Establish which registrations already retain storage and which require an owner; preserve a typed unsuccessful module outcome. Do not equate "not callable" with "safe to unload". Whole-loader atomic rollback/retry is a separate capability, not an assumed Stage-One repair. |
+| Native call returned, host still retains a callback or Scheme continuation | Retain its code/map/root-owner dependencies until the supported release boundary and drain admitted consumers. Existing native-frame and descriptor-consumer models are dependencies, not a complete external-capability census. |
+
+No new local model is added for already modeled early publication, canonical
+retention or consumer drain. The unresolved combination is the **actual exposure
+census**: every enabled registry reader and host-held reference must be linked
+to an owner/lifetime and a supported release event. A fully atomic module-loader
+rollback, arbitrary host unregister/reentry, hot unload and runtime restart
+remain separate Stage-Two milestones. Stage One must preserve the existing
+supported lifetime, not add those capabilities or silently free escaped state.
+
+Real acceptance must cut failure after private preparation and after canonical
+commit separately; surviving readers must retain the same identity and per-VM
+root/value correspondence. Use only supported loader/callback exits, check the
+original error and inspect retained storage/consumers, not just a zero active-call
+count. For the selected leaf package, keep resolved generated access and normal
+allocation unchanged. No improvement in elapsed time, retained bytes or scaling
+is inferred here; those remain native-owner measurements.
+
 - Source provenance and selected package boundaries can be reviewed here;
   actual C memory-order/reader coverage must be established for the owner's
   frozen candidate, including required debug, low-level and platform branches.

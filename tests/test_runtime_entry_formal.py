@@ -20,7 +20,7 @@ class RuntimeEntryFormalTests(unittest.TestCase):
         files = [lean / name for name in (
             "RuntimeEntryContracts.lean", "WorkAccounting.lean",
             "controls/RuntimeEntryFalseClaims.lean", "lean-toolchain",
-            "lakefile.toml", "lake-manifest.json")]
+            "lakefile.toml")]
         inputs = {str(path.relative_to(ROOT)): digest(path) for path in files}
         parent = cache_path(ROOT, "runtime-entry-formal")
         parent.mkdir(parents=True, exist_ok=True)
@@ -140,7 +140,11 @@ class RuntimeEntryFormalTests(unittest.TestCase):
                            "chez-generated-tracer", "gambit-dynamic-lifetime",
                            "existing-reader-retirement", "existing-callback-retirement",
                            "gambit-return-map-generator", "gambit-slot-map-encoder",
-                           "gambit-label-map-emitter", "chez-root-collector"):
+                           "gambit-label-map-emitter", "chez-root-collector",
+                           "gambit-module-exposure", "ocaml-loader-registration",
+                           "ocaml-loader-retention", "ocaml-loader-driver",
+                           "chez-weak-callables", "chez-callable-contract",
+                           "chez-locked-root-owner", "chez-locking-contract"):
                 withdrawn = dict(facts, source=[row for row in facts["source"] if row[0] != source])
                 missing, _ = evaluate(engine, withdrawn, catalog, queries)
                 self.assertIn("premise-source-missing", {row[1] for row in missing["transfer_unbound"]})

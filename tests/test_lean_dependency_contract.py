@@ -33,7 +33,11 @@ class LeanDependencyContractTests(unittest.TestCase):
         toolchain = (LEAN / "lean-toolchain").read_text().strip()
         self.assertRegex(toolchain, r"^leanprover/lean4:v\d+\.\d+\.\d+$")
         package = tomllib.loads((LEAN / "lakefile.toml").read_text())
-        self.assertEqual([lib["name"] for lib in package["lean_lib"]], ["WorkAccounting"])
+        libraries = {lib["name"] for lib in package["lean_lib"]}
+        self.assertTrue(set(package["defaultTargets"]) <= libraries)
+        for name in libraries:
+            self.assertTrue((LEAN / (name + ".lean")).is_file())
+            self.assertFalse(name.startswith("controls"))
         self.assertTrue((LEAN / "controls/OmittedLifetime.lean").is_file())
         self.assertTrue((LEAN / "controls/SorryWitness.lean").is_file())
 

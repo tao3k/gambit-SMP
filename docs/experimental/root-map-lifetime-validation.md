@@ -99,6 +99,8 @@ PR head `5ed74e95d8268190747b9a8622bbccef7d658b08` remained queued for framework
 patch-contracts and build when checked during this research. No result is inferred
 and no rerun was triggered. A local research commit need not trigger another
 redundant remote build while that run is pending.
+This is the earlier observation, retained as history; the completed framework
+result is recorded below rather than being replaced by a passing local result.
 
 Stage One retains generated C/descriptor/module lifetime and supported global
 cleanup. It does not add hot unload, a root registry, descriptor hash ABI,
@@ -175,3 +177,47 @@ Six model scopes stay partial, the same three native obligations stay open,
 and `satisfies=[]`. The implementation Recipe now requires all three witnesses
 together: actual live-slot completeness, payload-specific publication and
 consumer lifetime. Full C/compiler/native refinement remains the handoff.
+
+## CI Research-Contract Corrections
+
+The framework job for PR head `5ed74e95d8268190747b9a8622bbccef7d658b08`
+(tested merge `49c16cb69ba26fdc0c3ed35a45ec91de5f21ecca`) completed **FAILURE**:
+the receipt reports 1809 test outcomes, four failures, zero errors/skips and no
+timeout. This is not the earlier Lean download failure. The job installed tools
+and reached framework validation. Original evidence remains available as the
+[job](https://github.com/tao3k/gambit-SMP/actions/runs/39279220786/job/118150235876)
+and [artifact](https://github.com/tao3k/gambit-SMP/actions/runs/39279220786/artifacts/12200790732).
+The downloaded ZIP stays in cache (`research-ci/framework-39279220786.zip`),
+SHA-256 `d682e84d92ae33f42c46087a82c228f5f30f53538674957488c329c4bdfe06c3`;
+no extraction of the 1688 cached files or commit of raw CI output is required.
+
+| Failed test contract | Actual failure | Research-only correction |
+| --- | --- | --- |
+| FFI frozen control binding | Historical trace `f0a453...` was compared to the extended current model. | Reuse `evidence_index.export`'s verified historical binding, check the predecessor hash and preserve every state/predicate assertion. |
+| FFI select composition observation | The observed import hash was compared to today's imported file. | Validate the historical import against the already registered predecessor snapshot; preserve the record, original hash, failed native observation and open requirements. No current imported-model pass is inferred. |
+| Positive Lean libraries | An exact one-library assertion rejected the added research library. | Check that configured positive targets are declared libraries with source files and that control modules remain excluded; do not require the old fixed library count. |
+| Cleanup admission proof startup | Fresh proof execution lacked the compiled LeanPoo module. | Build the existing `WorkAccounting` target through Lake under the existing guarded build envelope before the unchanged guarded proof/false-control elaboration. Let Lake resolve the pinned dependency; do not require a generated cache manifest as a pre-build source input. |
+
+The same pre-build cache-manifest dependency was removed from the existing
+runtime-entry proof harness. Versioned proof sources, toolchain and package
+configuration remain bound. No production Python inference, runtime patch,
+native Recipe or watchdog was changed. Proof elaboration still has its original
+15-second, heartbeat and recursion guards; the dependency build uses the
+existing research harness's separate 120-second build bound.
+
+An initial local correction ran 11 tests and failed one assertion because it
+compared a tuple returned by the existing relation export with a list. That
+repair attempt is not a pass; the comparison was corrected without changing
+any historical evidence or expected SHA. The subsequent focused runs passed
+15 tests (7.618 s), then **16 tests (9.276 s)** after the added source premises.
+The final set includes the four CI regressions, source withdrawal/restoration,
+Session reuse, guarded Lean/false claims and unchanged parallel-GC evidence.
+These local results do not change the completed remote FAILURE into success,
+nor constitute a clean Linux/full-framework rerun.
+
+The [handoff](stage-one-handoff-recipe.md#exposure-is-not-initialization-success)
+now records actual Gambit/OCaml exposure cutpoints and Chez external callback
+ownership. Existing early-publication, canonical-retention and descriptor-drain
+models are reused; the actual cross-registry/host-capability census remains
+open. No QNT/Lean model or prior model receipt changes in this follow-up. All
+three native obligations and six partial model scopes remain unchanged.
