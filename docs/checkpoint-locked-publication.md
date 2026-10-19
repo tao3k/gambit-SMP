@@ -2,11 +2,21 @@
 
 ## Current native continuation: 2026-10-19
 
+The registry continuation advances cumulative completion to **8/12** for its
+declared source-bound contract. Existing repaired C code passes the original
+host-derived independent-VM topology fixture in 1.262543 execution seconds;
+all four build checkpoints are reused. The strengthened multi-writer model
+checks explicit replay lease lifetime, including a missing-drain counterexample,
+without another runtime patch, native retry or bootstrap. The
+[registry qualification](../evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md)
+records the exact receipts, source/model correspondence and limits. Lifecycle
+faults, complete GC/FFI, Gerbil correctness and release performance remain open.
+
 The original interpreted inventory now passes **4/4**, exit zero, no timeout:
 1828.146 stress seconds, 1844.205 supervised seconds. All four build checkpoints
 were reused without execution; no bootstrap was repeated. Cumulative milestone
-completion is **7/12**, not whole current-source SMP qualification. The remaining
-five gates and current-source requalification boundary are in the
+completion reached **7/12** at that earlier stage, not whole current-source SMP qualification. The remaining
+gates and current-source requalification boundary are in the
 [milestone](smp-threaded-vm-milestone.md). The
 [native observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
 binds source, binary, observer and receipts. Older DENY records below remain

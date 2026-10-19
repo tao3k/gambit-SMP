@@ -1,0 +1,33 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json": "7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch": "8e6d68b028264cc9ae8225008af1ad3f09a6dfebe6d35268296c85e53fd0d23d",
+    "models/gambit/native/registry_topology_grid.scm": "078e34ef259dbcb66343ce19219a2b16b67f64aa2a55e0e17c25d6e3db36f35d",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json": "3aa072e9ced23ba963d623476f9e2380172d71b7c747188386dcd07c252d695b"
+  },
+  "cases": [
+    {
+      "id": "vm_registry_cross_vm_progress", "mode": "characterization",
+      "invariants": ["contract"], "temporal": "progress",
+      "protocolInitializers": {"contract": "init"},
+      "oldInvariants": ["ownerSafe", "safe", "resourceSafe", "visibleRetirementSafe"],
+      "oldInitializers": {"ownerSafe": "initBypass", "safe": "initReplayDrainLost", "resourceSafe": "initEarlyReclaim", "visibleRetirementSafe": "initNoWithdrawal"},
+      "source": ["lib/setup.c:barrier_sync_op", "lib/setup.c:___vm_registry_close", "lib/setup.c:___vm_registry_replay"],
+      "papers": [],
+      "scope": "Source-bound two-writer, two resource-incarnation replacement cycles. Prepared unpublished resources, visible snapshot withdrawal and deferred old-resource reclamation are explicit; post-publication readers need not block retirement of resources absent from their snapshots. Epochs/incarnations are ghost identities, not C startup/scheduler fields. Successful old barrier arrival, joined direct users, successful OS join, finite signal demand and SC atomics are assumptions. No literal C refinement, signal-storm bound, GC/FFI or runtime admission."
+    },
+    {
+      "id": "vm_registry_population_publication", "mode": "characterization",
+      "invariants": ["safe"], "temporal": "progress",
+      "protocolInitializers": {"safe": "init"},
+      "oldInvariants": ["orderedAccess", "safe"],
+      "oldInitializers": {"orderedAccess": "initGrowth", "safe": "initNoop"},
+      "source": ["lib/setup.c:barrier_sync_op", "lib/setup.c:___raise_interrupt_vmstate"],
+      "papers": [],
+      "scope": "Source-bound grow/shrink/no-op count publication under reader grace. Three slots distinguish operations, not host capacity. Prepared-resource availability and weak-fair scheduling are assumptions. No source refinement or complete registry lifetime admission."
+    }
+  ]
+}

@@ -30,6 +30,9 @@ def projection(root, name):
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("historical reference escapes repository")
         path = root / relative
+        archive = captured.get("sources", {}).get(ref["id"])
+        if archive is not None:
+            path = source_path(root, archive)
         declared[str(path)] = ref["sha256"]
         if path.is_file():
             if digest(path) != ref["sha256"]:

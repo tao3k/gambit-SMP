@@ -732,6 +732,20 @@ print(json.dumps(result))'''
         self.assertEqual(result["brief"]["counts"]["counter"], 1)
         self.assertFalse(result["brief"]["runtimeAdmitted"])
 
+    def test_registry_gate_first_query_has_source_scope_and_expandable_models(self):
+        first = repository_clues(ROOT, bindings=(("gate", "shared-registry-lifetime"),))
+        family = first["brief"]["families"][0]
+        self.assertEqual(family["claim"], "shared-registry-lifetime")
+        self.assertFalse(family["unknown"])
+        self.assertEqual(family["observations"][0]["factors"]["sourceLock"],
+                         [digest(ROOT / "evidence/research/processor-interrupt-collective-wait/source.lock.json")])
+        self.assertIn("registry-model-coverage", {row["claim"] for row in family["links"]})
+        expanded = repository_clues(ROOT, "registry-model-coverage", checkpoint=first["checkpoint"])
+        self.assertFalse(expanded["brief"]["families"][0]["unknown"])
+        self.assertTrue(expanded["brief"]["explorationOpen"])
+        self.assertFalse(expanded["brief"]["executionAuthorized"])
+        self.assertFalse(expanded["brief"]["runtimeAdmitted"])
+
     def test_reviewed_pointer_unit_counterexample_does_not_establish_native_origin(self):
         result = repository_clues(ROOT, "half-section-word-count-is-a-byte-offset")
         brief = result["brief"]

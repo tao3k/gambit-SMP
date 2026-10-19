@@ -2,9 +2,45 @@
 
 ## Current Milestone Checkpoint
 
+### 2026-10-19 Registry Lifetime Continuation
+
+Cumulative completion is **8/12**, within the declared source-bound registry
+qualification scope, not whole current-source SMP/release admission.
+The current collective-wait source already contains reader admission, leased
+replay, grace-before-resource-cleanup and changed-count publication repairs.
+No duplicate C patch is introduced. Its original host-derived topology fixture
+passes all selected 2-5 VM populations on this observed host: 1.481442 seconds
+to compile, **1.262543 seconds to execute**, exit zero, no timeout. Native stage
+3.522341 seconds; whole campaign 12.885300 seconds. All four successful build
+stages are consumed without launching them; no bootstrap is repeated.
+
+The existing multi-writer QNT model is strengthened in place: replay owns a
+reader lease, with explicit prepared/live/visible/captured resource incarnations
+and per-owner retirement. Another writer must drain captured readers before
+publication; later readers referencing only new resources do not prevent old
+resource retirement. The final protocol exhausts 1944 distinct states. Both
+model positives and six negative controls pass within unchanged 15-second
+limits; all eight explicit trajectory tests pass. This is conditional finite
+protocol evidence, not a whole C weak-memory or unbounded signal-fairness proof.
+See the [source/native/model record](../evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md).
+
+The five items open at 7/12 now have these actual states:
+
+| Obligation | Actual state |
+| --- | --- |
+| Shared-registry lifetime | Closed for the current declared happy-path topology, source and conditional model contract; failed joins and arbitrary externally unjoined users are not admitted. |
+| Lifecycle failure/rollback | Open. Earlier models and retained failure evidence do not supply complete current-source native fault/rollback qualification. |
+| Complete GC/FFI | Open. Original stress and forced GC in this fixture are supporting coverage, not the whole GC/FFI inventory. |
+| Gerbil correctness | Open. No complete Gerbil build/test receipt on this exact current producer. |
+| Release performance | Open. No accepted full VM latency populations or matched downstream build/test qualification; this correctness execution is not a speedup measurement. |
+
+Current-source full GSI/GSC and PR requalification remain additional release
+requirements. Failed historical aggregates and stale whole-input bindings are
+not upgraded by these new scoped observations or by cache availability.
+
 ### 2026-10-19 Original Interpreted Stress Completed
 
-Cumulative milestone completion is **7/12**. The existing collective-wait
+At this preceding checkpoint cumulative completion was **7/12**. The existing collective-wait
 candidate completes the unchanged original interpreted stress inventory:
 **4/4 files, exit zero, no timeout**, in **1828.146 seconds** (1844.205 seconds
 including supervision). Source, configure, seed and core checkpoints were
@@ -21,7 +57,7 @@ establish this stress result. See the
 [source-bound observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
 and [model/source audit](../evidence/research/processor-interrupt-collective-wait/gc-datagram-source-review.md).
 
-The five cumulatively open gates are:
+The five gates cumulatively open at that checkpoint were:
 
 1. Shared-registry lifetime, resize, reuse and retirement.
 2. Lifecycle initialization failure, rollback and retry.

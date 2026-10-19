@@ -12,6 +12,25 @@ VIEW = "evidence/scenarios/concurrent-gc/fdset-captured-032.view.json"
 
 
 class ConcurrentGCViewTests(unittest.TestCase):
+    def test_registry_native_claim_withdraws_on_model_or_profile_change(self):
+        document, facts, catalog, _ = load(ROOT,
+            "evidence/scenarios/concurrent-gc/registry-lifetime.view.json")
+        queries = dict(document["queries"], applicable="applicable", scope="current_scope_review")
+        target = ("shared-registry-lifetime", "registry-current-native")
+        with engine_api() as (engine, _):
+            before, _ = evaluate(engine, facts, catalog, queries)
+            self.assertIn(target, before["applicable"])
+            self.assertEqual(before["applicability_gaps"], [])
+            self.assertTrue(before["scope"])
+            for changed_name in ("writers-model", "profile"):
+                changed = dict(facts, current_binding=[
+                    (name, "changed" if name == changed_name else value)
+                    for name, value in facts["current_binding"]])
+                after, _ = evaluate(engine, changed, catalog, queries)
+                self.assertNotIn(target, after["applicable"])
+                self.assertIn((target[0],), after["unclosed"])
+                self.assertEqual(changed["receipt"], facts["receipt"])
+
     def test_original_datagram_result_requires_current_bound_sources(self):
         document, facts, catalog, _ = load(ROOT,
             "evidence/scenarios/concurrent-gc/processor-interrupt-collective.view.json")

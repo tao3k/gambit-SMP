@@ -381,3 +381,72 @@ schema/View checks were retained in local validation logs and corrected without
 weakening the tests. Finite controls do not cover complete termination/abandon
 publication, all resize/error paths, or unbounded starvation; those gaps remain
 visible instead of being promoted to source or native acceptance.
+
+### Registry Lifecycle Continuation: 2026-10-19
+
+The supervisor's current-source native campaign reused source/configure/seed/
+core without executing those stages, then compiled and ran the existing
+host-derived independent-VM topology fixture. Compilation took 1.481442 seconds,
+execution 1.262543, native stage 3.522341 and whole campaign 12.885300 seconds;
+exit zero, no timeout, stable inputs and quiescent process groups. This is
+correctness coverage, not a matched speedup or release-latency population.
+
+The early Grok windows did not produce a model or C edit: one reached its tool
+window boundary, and command permissions cancelled metadata introspection in
+others. They are not implementation progress. A real registration gap was also
+found: the repository contained registry evidence, but no current registry
+association exposed it through Clue. The existing View registry now declares
+source, model premises, native evidence and expandable relations; Python
+inference was not extended. The later actual Grok query joined `entity` and
+`gate`, hit the registered source-bound result, obtained a checkpoint, and
+continued with source/model inspection. A malformed caller-written selector
+remains an interface failure, not evidence absence or a runtime failure.
+
+Grok's completed review identified a substantive abstraction gap: replay lease
+publication exclusion did not itself model resource survival. The supervisor
+therefore extended the existing QNT machine, not the C runtime, with prepared,
+live, visible and captured resource incarnations plus per-owner reclamation.
+The resource labels are ghosts, not a claim that C samples startup epochs.
+Early destruction and missing visibility withdrawal have separate decoded
+counterexamples. A positive control permits reclaiming an old incarnation
+while a newer reader owns only the replacement, avoiding a fabricated need to
+block every reader. The source already implements the reviewed lease/grace
+protocol; no duplicate runtime patch was manufactured.
+
+The final source-bound QNT checks have two positive temporal checks and six
+negative controls; all eight explicit trajectory tests pass. Native source,
+program and profile did not change, so the previously completed native run is
+retained rather than repeated solely because proof bytes changed. Its old
+whole-input binding is not silently upgraded to current. The scoped result
+review binds source, program, both current models, profile and observed report;
+it grants no execution or runtime admission.
+
+Historical projection tests exposed a second real issue: a retired view still
+referred to the mutable model location. The original model is now archived
+byte-for-byte under its original SHA, with a declarative test-only custody map.
+Production current-view admission remains denied for that historical view; a
+changed archive also fails. No historical receipt or view hash was rewritten.
+The intermediate replay-only proof source is likewise retained separately.
+
+These observations support cumulative registry qualification within its
+declared contract. They do not establish whole-runtime weak-memory refinement,
+unbounded signal fairness, failed-join rollback, GC/FFI completeness, current
+Gerbil correctness, release performance or an overall Agent cost reduction.
+
+The final Grok re-review confirms the corrected distinction: publication
+installs a visible replacement without destroying the old incarnation; the
+per-owner reclaim action removes the old live incarnation without blocking a
+post-publication reader of only the new one. It also explicitly retains the
+finite model's limits: one signal/reader in this composition, separate capacity
+and shutdown models, and no literal C/list/OS refinement. No new concrete C
+defect was established by that review. The final source/model/native report is
+registered with six exact bindings; changing the model or build profile
+withdraws its applicability without rewriting the receipt.
+
+Final focused regression: **69/69 passed**, 214.274 seconds. The earlier failed
+historical projections and the earlier pagination run spanning a declaration
+change are retained failures, not relabeled passes. The final run follows the
+completed model/reference update; no assertion, timeout or parser was weakened
+to turn the native execution green. Legacy rejection still admits neither a
+changed reference nor a missing artifact; the test accepts either legitimate
+earliest rejection diagnostic rather than prescribing their evaluation order.

@@ -187,7 +187,7 @@ class EvidenceViewTests(unittest.TestCase):
         self.assertEqual(digest(ROOT / history["priorView"]), history["priorViewSha256"])
         self.assertEqual(history["outcome"], "DENY")
         self.assertEqual(len(history["missingReferences"]), 6)
-        with self.assertRaisesRegex(ValueError, "regular observed artifact required"):
+        with self.assertRaisesRegex(ValueError, "regular observed artifact required|Evidence view reference changed"):
             load(ROOT, history["priorView"])
         with self.assertRaisesRegex(ValueError, "historical Evidence view"):
             load(ROOT, VIEW)
@@ -198,6 +198,19 @@ class EvidenceViewTests(unittest.TestCase):
         if (ROOT / observation["path"]).is_file():
             self.assertEqual(digest(ROOT / observation["path"]), observation["sha256"])
         self.assertIn(str(ROOT / observation["path"]), inputs)
+
+    def test_retired_model_snapshot_is_exact_and_cannot_admit_current_source(self):
+        from gambit_smp.framework import digest
+        archive = ROOT / "models/gambit/history/vm_registry_cross_vm_progress.qnt"
+        self.assertEqual(digest(archive), "a73d3cb1ba57383689b5780b6671210efec2fbb99e37192cfafc4ad06ff50a3d")
+        self.assertNotEqual(digest(archive), digest(ROOT / "models/gambit/vm_registry_cross_vm_progress.qnt"))
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            load(ROOT, VIEW)
+        original = digest
+        with patch("tests.historical_view.digest",
+                   side_effect=lambda path: "0" * 64 if path == archive else original(path)):
+            with self.assertRaisesRegex(ValueError, "historical reference changed"):
+                projection(ROOT, VIEW)
 
     def test_delegated_api_boundary_checks_before_after_and_resets(self):
         from gambit_smp.ascent_program import sealed_api_boundary, _verified_api
