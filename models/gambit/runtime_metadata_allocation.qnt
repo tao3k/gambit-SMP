@@ -48,12 +48,25 @@ module runtime_metadata_allocation {
     policy: policy, phase: 0, attempt: 0, failAt: failAt,
     owned: Set(), leaked: false, invalidDestroy: false,
   }
+  // Separate same-key commit projection. A preliminary miss is not a right
+  // to create after waiting. Best-effort growth follows successful insertion.
+  // Policies: correct; skip owned recheck; report growth OOM as insert failure;
+  // retract the committed key after growth OOM. No new runtime mode is added.
+  type KeyCommit = { policy: int, pc: int -> int, owner: int, binding: int,
+    live: Set[int], ready: Set[int], misses: Set[int], result: int -> int,
+    error: int -> int, allocFail: int, growFails: bool, allocations: int }
+  pure def keyInitial(policy: int, allocFail: int, growFails: bool): KeyCommit = {
+    policy: policy, pc: Map(0 -> 0, 1 -> 0), owner: -1, binding: 0,
+    live: Set(), ready: Set(), misses: Set(), result: Map(0 -> 0, 1 -> 0),
+    error: Map(0 -> 0, 1 -> 0), allocFail: allocFail, growFails: growFails,
+    allocations: 0,
+  }
   type State = { policy: int, cursor: int, stage: int -> int,
     size: int -> int, snapshot: int -> int, base: int -> int,
     ready: Set[int], published: Set[int], profile: int,
     readerPhase: int, readerNode: int, found: bool,
     rehashPhase: int, nextA: int, publication: Publication, package: Package,
-    prefix: Prefix }
+    prefix: Prefix, key: KeyCommit }
   var s: State
   pure def initial(policy: int, a: int, b: int): State = {
     policy: policy, cursor: 0, stage: Map(0 -> 0, 1 -> 0),
@@ -63,6 +76,7 @@ module runtime_metadata_allocation {
     rehashPhase: 0, nextA: 1, publication: publicationInitial(0),
     package: packageInitial(0),
     prefix: prefixInitial(0, 4),
+    key: keyInitial(0, -1, false),
   }
   action initFixed = {
     nondet a = Set(1, 2).oneOf()
@@ -291,4 +305,77 @@ module runtime_metadata_allocation {
   val initializedOnlyDestroyed = not(s.prefix.invalidDestroy)
   val prefixSafe = privatePrefixReleased and initializedOnlyDestroyed and
     (not(prefixTerminal) or s.prefix.owned == Set(0, 1, 2))
+
+  action initKeyCommit = {
+    nondet allocFail = Set(-1, 0, 1).oneOf()
+    nondet growFails = Set(false, true).oneOf()
+    s' = { ...initial(0, 1, 1), key: keyInitial(0, allocFail, growFails) }
+  }
+  action initStaleKeyMiss = s' = { ...initial(0, 1, 1), key: keyInitial(1, -1, false) }
+  action initGrowthError = s' = { ...initial(0, 1, 1), key: keyInitial(2, -1, true) }
+  action initGrowthRollback = s' = { ...initial(0, 1, 1), key: keyInitial(3, -1, true) }
+  action probeKey(i: int): bool = all {
+    s.key.pc.get(i) == 0,
+    s' = { ...s, key: { ...s.key,
+      pc: s.key.pc.set(i, if (s.key.binding == 0) 1 else 6),
+      misses: if (s.key.binding == 0) s.key.misses.union(Set(i)) else s.key.misses,
+      result: s.key.result.set(i, s.key.binding) } },
+  }
+  action acquireKey(i: int): bool = all {
+    s.key.pc.get(i) == 1, s.key.owner == -1,
+    s' = { ...s, key: { ...s.key, owner: i, pc: s.key.pc.set(i, 2) } },
+  }
+  action recheckKey(i: int): bool = {
+    val create = if (s.key.policy == 1) s.key.misses.contains(i) else s.key.binding == 0
+    all {
+      s.key.pc.get(i) == 2, s.key.owner == i,
+      s' = { ...s, key: { ...s.key, pc: s.key.pc.set(i, if (create) 3 else 6),
+        result: s.key.result.set(i, if (create) 0 else s.key.binding),
+        owner: if (create) i else -1 } },
+    }
+  }
+  action prepareKey(i: int): bool = {
+    val failed = s.key.allocFail == i
+    all {
+      s.key.pc.get(i) == 3, s.key.owner == i,
+      s' = { ...s, key: { ...s.key, pc: s.key.pc.set(i, if (failed) 6 else 4),
+        owner: if (failed) -1 else i,
+        error: s.key.error.set(i, if (failed) 7 else 0),
+        ready: if (failed) s.key.ready else s.key.ready.union(Set(i + 1)),
+        allocations: s.key.allocations + (if (failed) 0 else 1) } },
+    }
+  }
+  // Complete typed initialization and topology/count commit are abstracted.
+  // This does not establish actual C visibility or global-variable slot roots.
+  action commitKey(i: int): bool = all {
+    s.key.pc.get(i) == 4, s.key.owner == i,
+    s' = { ...s, key: { ...s.key, binding: i + 1,
+      live: s.key.live.union(Set(i + 1)), result: s.key.result.set(i, i + 1),
+      pc: s.key.pc.set(i, 5) } },
+  }
+  action finishKeyGrowth(i: int): bool = {
+    val retract = s.key.growFails and s.key.policy == 3
+    all {
+      s.key.pc.get(i) == 5, s.key.owner == i,
+      s' = { ...s, key: { ...s.key, owner: -1, pc: s.key.pc.set(i, 6),
+        error: s.key.error.set(i, if (s.key.growFails and s.key.policy == 2) 7 else 0),
+        binding: if (retract) 0 else s.key.binding,
+        live: if (retract) s.key.live.exclude(Set(i + 1)) else s.key.live } },
+    }
+  }
+  val keyTerminal = Set(0, 1).forall(i => s.key.pc.get(i) == 6) and s.key.owner == -1
+  action keyFinished = all { keyTerminal, s' = s }
+  action keyStep = {
+    nondet i = Set(0, 1).oneOf()
+    any { probeKey(i), acquireKey(i), recheckKey(i), prepareKey(i), commitKey(i),
+      finishKeyGrowth(i), keyFinished }
+  }
+  val keyCanonicalSafe = s.key.live.size() <= 1
+  val keyOutcomeSafe = Set(0, 1).forall(i =>
+    s.key.result.get(i) == 0 or s.key.error.get(i) == 0)
+  val keyRetentionSafe = Set(0, 1).forall(i =>
+    s.key.result.get(i) == 0 or s.key.live.contains(s.key.result.get(i)))
+  val keySafe = keyCanonicalSafe and keyOutcomeSafe and keyRetentionSafe and
+    s.key.live.subseteq(s.key.ready) and s.key.allocations <= 1
+  temporal keyCompletion = weakFair(keyStep, s).implies(eventually(keyTerminal))
 }

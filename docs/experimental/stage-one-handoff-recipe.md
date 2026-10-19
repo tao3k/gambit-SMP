@@ -9,6 +9,15 @@ implementation handoff, not runtime changes or native acceptance. The selected
 No second API, Python inference layer, runtime lock or TLS change is introduced
 by this Recipe. The implementation owner selects and qualifies the actual source.
 
+Two source-bound supplements refine the same package: the
+[reader-resumption contract](reader-resumption-contract.md) covers retained
+membership, roots and explicit replay; the
+[canonical-registration contract](canonical-registration-contract.md) covers
+same-key contenders and pre/postcommit error outcomes. Their
+[resumption](reader-resumption-validation.md) and
+[registration](canonical-registration-validation.md) checks retain exact input
+identities and limitations; none supplies native admission.
+
 Use the pinned Gambit, Chez and OCaml revisions and overlay identified in the
 integration design. Source locations below distinguish unchanged vendor files
 from the locked Gambit overlay. Never substitute an unversioned cache tree.

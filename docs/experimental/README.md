@@ -16,6 +16,8 @@ fallback implementations or requirements to keep defective SMP behavior.
 - [Wait/index counterexamples, conditional proof checks and handoff limits](stage-one-handoff-validation.md)
 - [Reader resumption: snapshot lifetime, multi-shot semantics and source handoff](reader-resumption-contract.md)
 - [Resumption counterexamples, guarded proofs and preserved historical identities](reader-resumption-validation.md)
+- [Canonical registration: contending creators, commit outcomes and growth failure](canonical-registration-contract.md)
+- [Canonical controls, preserved VM composition and historical Reflection repair](canonical-registration-validation.md)
 - [SMP foundations and two implementation horizons](smp-design-foundations.md)
 - [Chez and OCaml transfer applicability](transfer-applicability.md)
 - [Runtime shared metadata and host entry contracts](runtime-entry-contracts.md)

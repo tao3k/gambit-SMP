@@ -1,5 +1,8 @@
 import RuntimeEntryContracts
 
+example : (some 1 : Option Nat).getD 2 = 2 := by decide
+example : (2 : Nat) ∈ ([0, 1] : List Nat) := by decide
+
 open GambitSMP.RuntimeEntryContracts
 
 example : Disjoint (0, 2) (0, 1) := by

@@ -183,6 +183,20 @@ theorem explicitReplayMayRepeat (effects shots : Nat)
     effects = 1 * effects := by simp
     _ < shots * effects := Nat.mul_lt_mul_of_pos_right repeated nonempty
 
+-- The source must re-read this canonical binding while owning the transaction.
+-- A preliminary miss, stable capacity or independent reservation is not enough.
+theorem canonicalRecheckAgrees {Identity : Type} (existing : Option Identity)
+    (winner firstPrepared secondPrepared : Identity) (bound : existing = some winner) :
+    existing.getD firstPrepared = winner ∧ existing.getD secondPrepared = winner := by
+  simp [bound]
+
+-- A successful structural rehash changes layout, not the registered identities.
+-- Permutation, lifetime and visibility are source premises, not derived here.
+theorem rehashMembershipPreserved {Identity : Type} (before after : List Identity)
+    (layout : before.Perm after) (identity : Identity) :
+    identity ∈ before ↔ identity ∈ after := by
+  exact layout.mem_iff
+
 -- Preserve the established per-entry accounting theorem, not a new unwinder.
 theorem ownedNestedExitAccounting
     (a1 a2 r1 r2 : Nat) (e1 e2 d1 d2 : Int)
@@ -214,5 +228,7 @@ theorem ownedNestedExitAccounting
 #print axioms inBoundsBucketMayMiss
 #print axioms replayedSuffixMembership
 #print axioms explicitReplayMayRepeat
+#print axioms canonicalRecheckAgrees
+#print axioms rehashMembershipPreserved
 
 end GambitSMP.RuntimeEntryContracts
