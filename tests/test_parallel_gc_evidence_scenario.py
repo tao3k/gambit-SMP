@@ -96,12 +96,13 @@ class ParallelGCScenario(unittest.TestCase):
             self.assertEqual(unsupported["transfer_unbound"],
                              [("retained-descriptor-reuse", "model-scope-missing")])
             self.assertEqual(unsupported["missing_requirement"], answers["missing_requirement"])
-            without_formal = dict(facts, source=[row for row in facts["source"]
-                                                if row[0] != "transfer-lean"])
-            no_proof, _ = evaluate(engine, without_formal, catalog, queries)
-            self.assertEqual({row[0] for row in no_proof["transfer_unbound"]
-                              if row[1] == "premise-source-missing"}, set(transfer))
-            self.assertEqual(no_proof["missing_requirement"], answers["missing_requirement"])
+            for source in ("transfer-lean", "stage-one-review"):
+                without_premise = dict(facts, source=[row for row in facts["source"]
+                                                     if row[0] != source])
+                no_proof, _ = evaluate(engine, without_premise, catalog, queries)
+                self.assertEqual({row[0] for row in no_proof["transfer_unbound"]
+                                  if row[1] == "premise-source-missing"}, set(transfer))
+                self.assertEqual(no_proof["missing_requirement"], answers["missing_requirement"])
             self.assertFalse(facts["satisfies"])
             without_section = dict(facts, source_section=[row for row in facts["source_section"]
                                                          if row[0] != "chez-inactive-transition"])

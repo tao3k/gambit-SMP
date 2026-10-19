@@ -34,6 +34,10 @@ produce `transfer_unbound`. A surviving core comparison does not hide a missing
 premise, and a source finding is not a verified runtime contract. See
 [`Experimental transfer applicability`](../../../docs/experimental-transfer-applicability.md)
 for bounded adaptation versus separate Experimental milestone boundaries.
+The [stage-one review](../../../docs/stage-one-refactor-review.md) supplies
+source-bound scope, benefit, cost and acceptance decisions through those same
+premise relations. Deferred/conditional refactor descriptions are not selected
+actions, newly proved models or native repairs.
 
 `satisfies` is an explicit external evidence boundary. Neither a reference
 design nor a finite control derives it. Its rows require independent

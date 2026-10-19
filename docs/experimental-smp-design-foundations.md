@@ -1,12 +1,21 @@
-# Experimental SMP Design Foundations
+# Experimental SMP Architecture And Milestones
 
-## Purpose And Status
+This document separates reference research from two implementation horizons.
+It does not prescribe an Agent workflow or change native qualification status.
+
+## I. Experimental: Evidence And Design Space
+
+### Purpose And Status
 
 This is reference-architecture research: extract mechanisms from pinned Chez
 and OCaml source, connect them to existing Gambit evidence and models, and make
 the remaining transfer assumptions explicit. It does not select a replacement
-collector or a runtime patch. Native qualification continues independently;
-historical 6/12 progress is neither reset nor advanced by this document.
+collector or a runtime patch. Native qualification continues independently.
+The 2026-10-19 native checkpoint records cumulative **8/12**, with its declared
+source/topology limits, not full current-producer release admission. This design
+neither resets nor advances that count. The
+[native milestone](smp-threaded-vm-milestone.md#current-milestone-checkpoint)
+owns status; the tables below classify work, not award passes.
 
 The working architectural hypothesis is that Gambit's difficulty lies in
 contracts distributed across generated frame/root metadata, moving objects,
@@ -22,7 +31,26 @@ allocation subsystem. STW is a synchronization strategy, not itself a defect.
 Same-VM Scheme threads, OCaml domains and independent Gambit VMs are different
 boundaries. Success at one does not establish isolation or progress at another.
 
-## Reproducible Sources
+### What The OCaml 5 Comparison Establishes
+
+The pinned OCaml [Changes](../vendor/ocaml/Changes) records the multicore merge
+under 5.0.0. The authors' [2020 design paper](https://anil.recoil.org/papers/2020-icfp-retropar.pdf),
+sections 1.1-1.3 and 3.1-3.2, treats sequential performance, C compatibility and
+parallel collection as coupled constraints. It compares concurrent and parallel
+STW minor collection: making reads GC safe points conflicts with existing C
+access semantics, while the evaluated STW alternative preserves them. The
+lesson is to expose and redesign incompatible contracts, not maximize concurrent
+execution everywhere or assume a replacement collector is unavoidable.
+
+For Gambit, the working explanation is distributed ownership of roots, service,
+work and resources. The existing native records already demonstrate bounded
+parallel execution; the unresolved question is complete, compatible and efficient
+behavior across failures and protocol interactions, not the absence of OS
+threads. This explains an engineering difficulty, not the historical duration
+of development. The evidence and competing explanations are detailed in
+[Stage-One Refactor Review](stage-one-refactor-review.md#causal-account-and-its-limits).
+
+### Reproducible Sources
 
 | Source | Exact revision | Evidence boundary |
 | --- | --- | --- |
@@ -48,14 +76,14 @@ evidence. Paper accounts explain designs; pinned source determines what the
 reviewed implementation does. A historical source map is not silently rebound
 to the latest repaired candidate.
 
-## Experimental Questions
+### Experimental Questions
 
 Each family below identifies a reference mechanism, existing model assets,
 missing premises and a Recipe brief. These briefs are research inputs for the
 existing registry/Session/Recipe system, not new executable Recipes, mandatory
 Agent steps or claims of native acceptance.
 
-### Participation During Blocking And Retirement
+#### Participation During Blocking And Retirement
 
 OCaml's [domain contract](../vendor/ocaml/runtime/domain.c) at lines 84-153
 registers participants before mutator execution and transfers STW service to
@@ -78,7 +106,7 @@ negative schedules. Before transfer, inspect all foreign blocking/reentry paths
 and failure rollback. A backup OS thread is an option with resource and handoff
 costs, not the selected Gambit fix.
 
-### Forwarding Identity Versus Payload Readiness
+#### Forwarding Identity Versus Payload Readiness
 
 The [pinned comparison](../evidence/parallel-gc-source-comparison.json) maps
 Gambit `lib/mem.c:3570-3631`: destination claiming can precede payload copying.
@@ -98,7 +126,7 @@ proposed mechanism is a publication fence, delayed visibility or an ownership
 rule. Require source correspondence before proposing a C change; compare its
 extra loads/fences and copy contention rather than assuming it is cheaper.
 
-### Conserved Work And Global Completion
+#### Conserved Work And Global Completion
 
 Chez [gc.c:137-185](../vendor/chez/c/gc.c) routes remote referencing objects to
 the target segment's owner for re-sweep. Its sweeper protocol at lines
@@ -119,7 +147,7 @@ same reachability/completion obligation. Account for resweeps, remote traffic,
 idle transitions and wake costs. Neither an empty queue nor a worker count
 alone proves completion or explains a native timeout.
 
-### Heap Ownership Across Lifecycle Changes
+#### Heap Ownership Across Lifecycle Changes
 
 OCaml [shared_heap.c:148-207](../vendor/ocaml/runtime/shared_heap.c) explicitly
 orphans swept pools under a global pool lock and adopts them into another
@@ -138,7 +166,7 @@ what establishes safe reclamation. Test lost/duplicated ownership and cleanup
 before quiescence as model counterexamples. Source-level allocation failure,
 join failure and orphan/adopt races remain required transfer premises.
 
-### Roots, Execution Context And Foreign Reentry
+#### Roots, Execution Context And Foreign Reentry
 
 OCaml [minor_gc.c:630-722](../vendor/ocaml/runtime/minor_gc.c) includes promotion,
 local-stack/register root scanning and a split arrival/leave barrier. Writes
@@ -158,7 +186,7 @@ GC service, migration and return. Separate movable Scheme roots, opaque foreign
 payload and native resources. Check stale roots and return-owner mismatches;
 do not infer independent-VM sharing permission from a same-runtime thread test.
 
-## Implementation Review And Transfer Evidence
+### Implementation Review And Transfer Evidence
 
 The [follow-up applicability audit](experimental-transfer-applicability.md)
 narrows these five chains using creation-error paths, systhread hook overrides,
@@ -187,15 +215,16 @@ collective drain/error delivery at 1049-1152 and delegated VM cleanup at
 against a repaired overlay. In particular, the baseline's ignored join error
 and fatal create path are not newly discovered current-candidate bugs.
 
-The current native owner independently recorded **7/12** at
+The preceding native owner checkpoint independently recorded **7/12** at
 `8d01dba58b9fd5eef406e80b68105eb98d2f697a`; see the
 [current native milestone](smp-threaded-vm-milestone.md). Its interpreted stress
 completion does not prove these reference protocols necessary, while earlier
 timeouts do not identify them as causal repairs. No native stage was rerun in
-this research. The five open native gates retain their own source locks and
-ownership.
+this research. The later 8/12 checkpoint closes the declared registry happy-path
+scope; failure/rollback, complete GC/FFI, Gerbil correctness and release
+performance remain open. All native gates retain their source locks and ownership.
 
-### Assumptions And Cost Boundaries
+#### Assumptions And Cost Boundaries
 
 Chez's activation-mode pairing distinguishes a newly created context, an
 inactive existing context and an already active context. The
@@ -217,7 +246,7 @@ domain has a separate branch that finishes a major cycle and later adopts,
 finalizes and orphans remaining pools. It cannot inherit the multi-participant
 argument merely because both paths use `caml_domain_terminate`.
 
-### Evidence Validation
+#### Evidence Validation
 
 The real installed ASCENT consumer checks all declared source/model digests,
 derives the five chains, reuses its Session, and withdraws/restores source,
@@ -238,7 +267,7 @@ PYTHONPATH=src .venv/bin/python -m unittest tests.test_parallel_gc_evidence_scen
 The 2026-10-19 local run passed all 28 tests. This is a research-consumer/input
 result, not a fresh QNT proof, full framework campaign or native qualification.
 
-## Reuse Before Extension
+### Reuse Before Extension
 
 The inventory already contains collector-specific and shared contracts. Start
 with their source maps, assumptions and retained counterexamples rather than
@@ -260,7 +289,7 @@ Return facts, applicability conditions, contradictions and expandable references
 not a prescribed next action. A failed route may be revisited when its premises
 change; the changed premise and old failure must remain visible.
 
-## Research Milestones And Acceptance
+### Research Milestones And Acceptance
 
 | Deliverable | Closure criterion | Not established by it |
 | --- | --- | --- |
@@ -278,6 +307,137 @@ cannot be obtained by serializing execution, disabling SMP or widening a
 performance threshold.
 
 A nursery redesign, collector replacement or shared-nothing VM architecture
-requires a separate experimental proposal: object sharing, continuation/FFI
+belongs to the second-stage discussion below: object sharing, continuation/FFI
 semantics, migration cost and compatibility cannot be assumed away. The first
-research milestone can be useful without choosing any of those large changes.
+stage can be useful without choosing any of those large changes.
+
+### Problem Association Before Further Modeling
+
+The five transfer chains are references into this problem map, not five
+independent fixes. Source findings, proposed mechanisms and missing evidence
+must remain distinct. The current source map is the 26-file collective-wait
+lock identified in [Runtime Transfer Boundary](runtime-transfer-boundary.md),
+not the vendor baseline or an unversioned cache checkout.
+
+| Original problem | Related transfer chains | Current evidence / model authority | Question that must be answered before extending a model or proposing C |
+| --- | --- | --- | --- |
+| Waiters may be needed by the lock owner to complete GC. | `backup-service-ownership`, `inactive-root-readiness` | Existing scheduler/root/cohort composition; candidate `_thread.scm:690-703`, `_kernel.scm:1468-1488`, `setup.c:930-981,1280-1457`. | Which actual wait, held locks and allowed sync effects are uncovered? The helper and root roundtrip already exist. A backup thread is not implied. |
+| Moving roots and native frame lifetime have different owners. | `inactive-root-readiness`, `foreign-reentry-effects`, `retained-descriptor-reuse` | Existing root, callback-retirement, admission and nested-unwind models; generated frame/RA and SFUN sources. | Which roots are published/reloaded, and which native C activation must remain on its origin? Root copying does not move a C stack. |
+| Queue emptiness, private producers and phase completion can disagree. | `retirement-work-fixed-point`, `backup-service-ownership` | `WorkObligations`, recursive queue/wait and membership models; candidate `mem.c:7350-7482`. | What can create work after an observation, and which protected commit revalidates it? The current source already rechecks queues; weak phases and producer coverage remain separate. |
+| A retained address can outlive its execution identity. | `retained-descriptor-reuse`, `foreign-reentry-effects` | Public/owned retirement, leased registry and reuse models; candidate `setup.c:1045-1075,5295-5394`. | Which borrowed user, pending join or resource incarnation still exists? A model generation is not a request to add another native epoch. |
+| Failure can leave acquired participation or erase an error. | `foreign-reentry-effects`, `retained-descriptor-reuse`, `backup-service-ownership` | Constructor rollback, foreign admission and nested unwind; candidate header `14723-14777`, cleanup and resize paths. | Is this normal return, allocation failure, nonlocal unwind, failed join or retry? Their ownership and public error policies must not be merged merely to shorten code. |
+| Forwarding identity does not imply initialized payload or complete strong/weak scanning. | Work/root/lifetime chains; existing forwarding and Chez hybrid evidence beyond the five entry contracts. | Forwarding visibility, generated-shape maps, Chez hybrid/resweep/card and Gambit work models. | Which real consumer needs identity, payload, scan or phase readiness? A fence, ownership transfer and collector redesign are different proposals. |
+| A long TFIB/pipe run is not automatically a deadlock. | Service/root/work chains and the separate observation contract. | Existing progress-witness/watchdog models and original stress receipts. TFIB is a workload name. | Has target computation stopped, or only output/observation? Natural completion, GC activity and observer noninterference require different evidence. |
+
+The published boundary qualification (`38880f1`) supplies local conditional
+checks, not these whole interaction proofs. Subsequent composition experiments
+are design drafts until their assumptions, source relation and stage are agreed.
+A passing experimental model cannot itself select an implementation or change
+the twelve-gate record. Do not add a second reference GC or count new theorems
+as native progress.
+
+## II. Stage One: Complete The Current Twelve-Gate Milestone
+
+### Objective And Source Boundary
+
+Make the existing shared-memory, multi-VM/threaded design practically usable
+under its supported interfaces, using bounded repairs and exact-source native
+qualification. Keep the current heap, collector, root representation, generated
+calling convention and public Scheme/FFI behavior. Use the Bazel build profile
+and all three requested concurrency switches; do not serialize the runtime or
+disable SMP to obtain a pass.
+
+The twelve entries below are acceptance obligations, not twelve mandatory
+sequential implementation steps. Evidence/checkpoint reuse is decided by the
+existing configurable DSL/Session contracts. Cache deletion does not erase a
+historical pass; a changed input does not inherit an unsupported current pass.
+This research thread does not rerun or mutate the native owner's candidate.
+
+| Existing gate | Position at the recorded 8/12 checkpoint | Practical first-stage work and reuse boundary |
+| --- | --- | --- |
+| Complete bootstrap | Cumulatively completed; current producer/checkpoint identity governs reuse. | Reuse the accepted source/configure/seed/core checkpoints when dependencies permit; no bootstrap merely because a reference document or model changed. |
+| Complete gsi inventory | Cumulatively completed; current-source full inventory requalification remains a release requirement. | Preserve the exact inventory/assertions and bind results to the selected producer; do not transfer a historical aggregate automatically. |
+| Complete gsc inventory | Same cumulative/current distinction. | Revalidate affected generated-code/compiler paths and complete required inventory, not just a selected fast subset. |
+| PR regressions gsi | Same cumulative/current distinction. | Keep the independently declared regression scope and failures. Upstream inventory alone does not discharge it. |
+| PR regressions gsc | Same cumulative/current distinction. | Preserve compiler/arity/stack regression identities and exact generated artifacts. |
+| Stress gsi | Closed for the declared original interpreted stress/source. | Reuse its retained receipt when applicable. A progress observer/control is not a substitute for the unchanged assertions and natural exit. |
+| Stress gsc | Cumulatively closed for the recorded compiled stress/source. | Keep dependency-bound reuse; no repeated run solely for this architecture review. |
+| Registry lifetime | Closed for the declared happy-path topology/source, not arbitrary unjoined clients or failed joins. | Existing leases, drain, replay and resource-incarnation repair are already present. Do not propose another lifetime wrapper as a missing implementation. |
+| Lifecycle faults | Open. | Map initialization failure, partial acquisition, failed join, retained resources and retry to existing ownership paths and real failure qualification. Happy-path success is insufficient. |
+| Complete GC/FFI | Open. | Trace roots, return origin, conversion/unwind, work/phase publication and lifetime together. Extend only the specific unrepresented interaction, then validate the actual affected source. |
+| Gerbil correctness | Open. | Build current staging with the exact accepted runtime and run complete real standard-library/package tests; no MCP-specific runtime shortcut. |
+| Release performance | Open. | Keep existing downstream gates and matched CPU/memory/pause/latency evidence with host-adaptive concurrency. Correctness-run seconds and finite-model state counts are not release speedups. |
+
+Eight is cumulative scoped completion, not a claim that every historical gate
+is accepted on every current producer. Current-source full GSI/GSC and PR
+requalification must remain visible even though they do not create extra slots
+in the twelve-entry count. The native milestone owns that distinction.
+
+### Small Refactor Candidates, Not A Patch Queue
+
+The [detailed review](stage-one-refactor-review.md) binds the candidates below
+to exact inputs, current branch applicability, expected benefit, cost, model
+selection criteria and native acceptance. Its decisions supersede any reading
+of this table as a ready-to-implement patch list: SFUN suffix sharing is a
+maintenance reserve, standalone cohort-predicate extraction is deferred, and
+wait-site repair requires a demonstrated current-SMP mismatch.
+
+| Candidate | Why it may be bounded | Existing implementation / remaining premise | Evidence needed before adoption |
+| --- | --- | --- | --- |
+| Share the three SFUN END cleanup suffixes. | Identical macro suffix, no new atomic, ABI, scheduler or heap representation. | The actual cleanup sequence already exists. Per-owner release, error delivery and allocation-failure exemption must be preserved; total balance alone is insufficient. | Generated/preprocessed wrapper equivalence across supported GNU profiles, affected normal/failure/nested FFI tests and native requalification. Header rebuild cost is not small merely because the edit is small. |
+| Factor a side-effect-free drained-cohort predicate inside `setup.c`, if it removes real duplicated checks. | One translation unit; reuse the existing processor-count/pending-join observations and error behavior. | Public cleanup is fatal on misuse; owned cleanup first recovers joins and may return an error; global child preflight rejects before closing admission. They are not one interchangeable cleanup routine. | Call-order and acquire-load equivalence; failed-join, anchor/child and admission rollback controls. Keep recovery outside closed admission and preserve each caller's error policy. |
+| Complete an identified wait-site contract using existing participation helpers. | Changes only a demonstrated uncovered caller, with its original uncontended fast path. | Root publication and sync-only helper already exist. No new caller defect is asserted by this document. | Actual held-lock/root/effect audit, source-selected counterexample, then affected interpreted/compiled regression and stress evidence. No poll-everywhere transformation. |
+
+These are alternatives available for review, not instructions to implement all
+three. Duplication removal has a maintainability rationale; no acceleration is
+claimed. A candidate that needs new service threads, mutable participant
+membership, object barriers, descriptor indirection or public entry semantics
+crosses into stage two rather than silently expanding the first stage.
+
+### First-Stage Closure
+
+Each adopted change needs one connected chain: existing problem and native
+observation, exact source, reference mechanism and conditions, reused model and
+its missing interaction, explicit compatibility/cost analysis, then the real
+source-bound acceptance. A confirmed already-implemented mechanism is recorded
+as reuse, not another patch. An open test obligation without an identified
+runtime defect stays an evidence gap, not an invented source bug.
+
+## III. Stage Two: Long-Lived Architectural Constraints
+
+### Objective And Open Hypotheses
+
+Address structural coupling that repeatedly defeats local reasoning or makes
+correct coordination too expensive. The motivation includes the long history
+of SMP difficulties; the duration alone does not prove a particular cause.
+Shared heaps, CPS and first-class continuations are not established root causes
+or reasons to prescribe shared-nothing. OCaml and Chez contribute tested design
+distinctions, not a collector architecture that can be transplanted unchanged.
+
+| Architectural question | Reference lesson and existing connection | Possible Experimental scope | Preconditions, cost and stage exit |
+| --- | --- | --- | --- |
+| Who exclusively owns execution/GC service across blocking and reentry? | OCaml domain-lock/handoff acknowledgement; service and inactive-root chains. | Explicit service-owner protocol, optional helper or inactive-membership design. | Enumerate every entry/hook, root snapshot, creation failure and shutdown acknowledgement; measure extra stacks/wakeups/oversubscription. Exit needs compatible native handoff and progress, not a `joined` flag. |
+| What makes root/frame publication complete across compiler and runtime? | Chez TC/generated tracing and OCaml arrival/leave boundaries; root and foreign chains. | A unified generated-root/entry contract or verified participation boundary. | Distinguish movable Scheme roots from native C activations, interrupt-disabled eligibility and nonlocal exits. Preserve existing FFI/code generation; measure common-path and compilation cost. |
+| How are work ownership, visibility and phase completion made compositional? | Chez resweep/accounted wake and OCaml phase-aware retirement; work chain plus forwarding/payload evidence. | Unified completion/publication contract or separately proposed owner-routed work transfer. | Cover private/inflight/scanning work, payload readiness, weak/ephemeron phases and actual memory ordering. An empty queue or copied pointer cannot stand for all of them. Require matched scaling and memory results. |
+| What identity survives processor/VM retirement and resource reuse? | Chez retained/rebound metadata; OCaml protected teardown; descriptor and foreign chains. | A clearly separated execution/scan/resource identity or optional metadata indirection. | State borrowed-user/drain and generation rules, reclamation/retention cost, failed join and retry. Do not add epochs or retain resources indefinitely without a demonstrated need. |
+| Can entry, failure and rollback be one explicit ownership protocol? | Chez activation modes and OCaml hook-specific restore/error behavior; all five chains meet here. | A compatible internal lifecycle/embedding contract, possibly a larger entry refactor. | Per-owner exact-once cleanup, origin routing, rollback prefix ownership, public error policy and cross-VM isolation. No blanket FFI lock or changed embedding semantics hidden inside a helper. |
+
+### Milestone Admission And Relation To Stage One
+
+For each larger proposal, decide the exact problem and non-goals, source scope,
+semantic/API compatibility, performance hypothesis and regression risk before
+extending models or changing runtime code. Reuse existing QNT/Lean components;
+add the selected interaction rather than rebuilding a GC. Then require the
+correspondence and real experiments needed to accept or reject that proposal.
+
+An accepted stage-two result may later supply a bounded first-stage repair,
+but reference-source success and model success do not grant that status. A
+complete stage-one 12/12 result likewise does not claim all long-term design
+questions solved. Research may proceed alongside native qualification; neither
+is made an automatic blocking workflow for the other.
+
+This document is the design association map. Detailed source evidence remains
+in the existing inventories/DSL; status remains in the native milestone;
+execution and reuse remain in existing configurable Recipes and checkpoints.
+No additional Python inference, policy engine, progress counter or Agent route
+is introduced by splitting these three concerns.
