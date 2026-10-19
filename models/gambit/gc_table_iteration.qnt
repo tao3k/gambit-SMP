@@ -13,14 +13,27 @@ module gc_table_iteration {
     relocated: false, guard: false, buffer: false,
     ready: false, outcome: 0, delivered: 0,
   }
+  // Scheme delivery can retain a snapshot after the original fold returns.
+  // This is a finite resumption projection, not a continuation implementation.
+  type Replay = { policy: int, phase: int, saved: bool, storage: bool,
+    traced: bool, guard: bool, epoch: int, shots: int, secondVisits: int,
+    originError: bool, sourceMembers: Set[int], snapshot: Set[int],
+    badStorage: bool, badMembership: bool, rejected: bool }
+  pure def replayInitial(policy: int): Replay = {
+    policy: policy, phase: 0, saved: false, storage: true,
+    traced: policy != 2, guard: true, epoch: 0, shots: 0, secondVisits: 0,
+    originError: false, sourceMembers: Set(0, 1), snapshot: Set(0, 1),
+    badStorage: false, badMembership: false, rejected: false,
+  }
   type State = { snapshot: bool, phase: int, layout: int, index: int,
     seen0: int, seen1: int, seen2: int, typedCopy: bool, invalidCopy: bool,
-    capture: Capture }
+    capture: Capture, replay: Replay }
   var s: State
   pure def initial(snapshot: bool): State = {
     snapshot: snapshot, phase: 0, layout: 0, index: 0,
     seen0: 0, seen1: 0, seen2: 0, typedCopy: true, invalidCopy: false,
     capture: captureInitial(0),
+    replay: replayInitial(0),
   }
   action initOld = s' = initial(false)
   action initFixed = s' = initial(true)
@@ -128,4 +141,75 @@ module gc_table_iteration {
       s.capture.outcome != 0 or s.capture.delivered == s.capture.copied },
   }
   temporal captureCompletion = weakFair(captureStep, s).implies(eventually(s.capture.phase == 5))
+
+  // Policies: traced Scheme snapshot; return-site C free; untraced capture;
+  // imported single-shot consumption; substitute the current table on resume.
+  action initReplay = s' = initial(true)
+  action initReturnSiteFree = s' = { ...initial(true), replay: replayInitial(1) }
+  action initUntracedReplay = s' = { ...initial(true), replay: replayInitial(2) }
+  action initSingleShotReplay = s' = { ...initial(true), replay: replayInitial(3) }
+  action initFreshTableReplay = s' = { ...initial(true), replay: replayInitial(4) }
+  action enterReplayDelivery = all {
+    s.replay.phase == 0,
+    s' = { ...s, replay: { ...s.replay, phase: 1, guard: false } },
+  }
+  // Capture inside the first callback; its return continues at saved index 1.
+  action retainDeliveryContinuation = all {
+    s.replay.phase == 1,
+    s' = { ...s, replay: { ...s.replay, phase: 2, saved: true } },
+  }
+  action finishOriginalDelivery(throws: bool): bool = all {
+    s.replay.phase == 2,
+    s' = { ...s, replay: { ...s.replay, phase: 3, originError: throws,
+      secondVisits: if (throws) 0 else 1,
+      storage: s.replay.policy != 1 } },
+  }
+  action growAfterCapture = all {
+    s.replay.phase >= 2, s.replay.phase < 5,
+    s.replay.sourceMembers == Set(0, 1),
+    s' = { ...s, replay: { ...s.replay, sourceMembers: Set(0, 1, 2) } },
+  }
+  action collectRetainedSnapshot = all {
+    s.replay.phase == 3, s.replay.epoch == 0,
+    s' = { ...s, replay: { ...s.replay, epoch: 1,
+      storage: s.replay.storage and s.replay.traced and s.replay.saved } },
+  }
+  action invokeDeliveryContinuation = all {
+    s.replay.phase == 3, s.replay.shots < 2,
+    s' = { ...s, replay: { ...s.replay, phase: 4,
+      shots: s.replay.shots + 1,
+      badStorage: s.replay.badStorage or not(s.replay.storage),
+      rejected: s.replay.rejected or not(s.replay.saved) } },
+  }
+  action returnResumedDelivery = all {
+    s.replay.phase == 4,
+    val suffix = if (s.replay.policy == 4) s.replay.sourceMembers.exclude(Set(0))
+      else s.replay.snapshot.exclude(Set(0))
+    s' = { ...s, replay: { ...s.replay, phase: 3,
+      secondVisits: s.replay.secondVisits + 1,
+      badMembership: s.replay.badMembership or not(suffix.subseteq(s.replay.snapshot)),
+      saved: s.replay.policy != 3 } },
+  }
+  // Retention ends by discarding the continuation, not by its first return.
+  action discardDeliveryContinuation = all {
+    s.replay.phase == 3, s.replay.shots == 2,
+    s' = { ...s, replay: { ...s.replay, phase: 5, saved: false, storage: false } },
+  }
+  action replayFinished = all { s.replay.phase == 5, s' = s }
+  action replayStep = any { enterReplayDelivery, retainDeliveryContinuation,
+    finishOriginalDelivery(false), finishOriginalDelivery(true), growAfterCapture,
+    collectRetainedSnapshot, invokeDeliveryContinuation, returnResumedDelivery,
+    discardDeliveryContinuation, replayFinished }
+  val replayStorageSafe = not(s.replay.badStorage)
+  val replayRootRetentionSafe = not(s.replay.badStorage)
+  val replayMembershipSafe = not(s.replay.badMembership)
+  val replayAvailabilitySafe = not(s.replay.rejected)
+  val replayAccounting = not(Set(3, 5).contains(s.replay.phase)) or
+    s.replay.secondVisits == s.replay.shots + (if (s.replay.originError) 0 else 1)
+  // A negative check of this property witnesses legal explicit repeated effects.
+  val globallyExactlyOnce = s.replay.secondVisits <= 1
+  val replaySafe = replayStorageSafe and replayMembershipSafe and
+    replayAvailabilitySafe and replayAccounting and
+    (s.replay.phase == 0 or not(s.replay.guard))
+  temporal replayCompletion = weakFair(replayStep, s).implies(eventually(s.replay.phase == 5))
 }

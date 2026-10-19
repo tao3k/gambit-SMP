@@ -28,3 +28,7 @@ example : Disjoint (0, 2) (1, 1) := by
 -- Locally ready slot 0 says nothing about visible binding to slot 1.
 example : ((0 : Nat) = 0 → (0 : Nat) = 0) ∧ (1 : Nat) = 0 := by
   decide
+example : (3 : Nat) % 2 = (3 : Nat) % 4 := by
+  decide
+example : List.Nodup (([0, 1] : List Nat) ++ [1]) := by
+  decide

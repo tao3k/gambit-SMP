@@ -152,6 +152,37 @@ theorem localCoverageWithoutBindingBridge :
   refine ⟨(fun x => x = 0), (fun x => x = 0), (fun x => x = 1), ?_⟩
   exact ⟨(fun _ h => h), rfl, by decide⟩
 
+-- Revalidate the derived predicate, not merely the address/root or capacity.
+-- The caller must establish either topology stability or actual recomputation.
+theorem checkedBucketAfterWait (hash before after cached : Nat)
+    (positive : 0 < after)
+    (checked : (before = after ∧ cached = hash % before) ∨ cached = hash % after) :
+    cached = hash % after ∧ cached < after := by
+  have current : cached = hash % after := by
+    rcases checked with ⟨same, old⟩ | fresh
+    · simpa [same] using old
+    · exact fresh
+  exact ⟨current, current ▸ Nat.mod_lt hash positive⟩
+
+-- Capacity checks alone admit a stale but in-bounds bucket after a resize.
+theorem inBoundsBucketMayMiss :
+    (1 : Nat) < 4 ∧ (3 : Nat) % 2 = 1 ∧ (3 : Nat) % 4 ≠ 1 := by
+  decide
+
+-- Re-entry uses the suffix of the captured membership, not a fresh table.
+-- Root retention and generated-frame liveness are separate source premises.
+theorem replayedSuffixMembership {A : Type} (snapshot : List A) (index : Nat)
+    (x : A) (present : x ∈ snapshot.drop index) : x ∈ snapshot := by
+  exact List.mem_of_mem_drop present
+
+-- Exactly-once delivery within one traversal cannot forbid explicit re-entry.
+-- No theorem here asserts arbitrary FFI continuation resumption is supported.
+theorem explicitReplayMayRepeat (effects shots : Nat)
+    (nonempty : 0 < effects) (repeated : 1 < shots) : effects < shots * effects := by
+  calc
+    effects = 1 * effects := by simp
+    _ < shots * effects := Nat.mul_lt_mul_of_pos_right repeated nonempty
+
 -- Preserve the established per-entry accounting theorem, not a new unwinder.
 theorem ownedNestedExitAccounting
     (a1 a2 r1 r2 : Nat) (e1 e2 d1 d2 : Int)
@@ -179,5 +210,9 @@ theorem ownedNestedExitAccounting
 #print axioms alignedSuccessorDisjoint
 #print axioms bindingCoverageComposes
 #print axioms localCoverageWithoutBindingBridge
+#print axioms checkedBucketAfterWait
+#print axioms inBoundsBucketMayMiss
+#print axioms replayedSuffixMembership
+#print axioms explicitReplayMayRepeat
 
 end GambitSMP.RuntimeEntryContracts
