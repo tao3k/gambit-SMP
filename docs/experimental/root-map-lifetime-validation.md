@@ -4,7 +4,10 @@ The [source contract](root-map-lifetime-contract.md) supplements the existing
 Stage-One handoff. These are finite/conditional research results, not runtime
 implementation, native fault attribution, performance or release admission.
 
-## Current Bound Inputs And Inspected Traces
+## Predecessor Bound Inputs And Inspected Traces
+
+The following results bind the predecessor inputs, not the extended live-slot
+model documented below. Their hashes and rejected observations are retained.
 
 | Input | SHA-256 |
 | --- | --- |
@@ -104,3 +107,71 @@ need actual map completeness/RA identity, initialized live-root and VM selector
 correspondence, full consumer/lifecycle census and valid error/continuation/FFI
 exits on one rebuilt revision/configuration. Original correctness/performance
 gates stay unchanged. Research does not advance or reset native progress.
+
+## Live-Slot And Publication Composition
+
+The follow-up audits the pinned Gambit return-kind/liveness -> slot/bit/chunk ->
+label/RA -> `mark_frame` chain and the Chez protected-root scanner. OCaml's
+root-list mutex is not held over the final generational root-value assignment;
+its dynamic-root scanner traverses a head snapshot outside that mutex. Chez's
+parallel sweeper explicitly excludes `tc_mutex` and current Scheme-thread
+context assumptions. These observations constrain transfer premises; they are
+not new faults attributed to the reference runtimes or the current Gambit run.
+
+| Extended input | SHA-256 |
+| --- | --- |
+| Source contract | `4f76145099ae17211d454fd4aff2c7f017588fd69160e485b4c481c53f80e9ce` |
+| Existing FFI QNT | `0fee27339553c0ad7b6e1d2046701b9e063eb3cc91fdbb7f692b9848c82db0e3` |
+| Existing Lean module | `4c97099c303800d1b582393c7b28d7cbf6ccdd704609294ee8839c95fd754881` |
+| False controls | `caef40a14ed5abb01f2715fe20b452a40616ee6efc70c987dbf88aab5da5d79b` |
+| Descriptor manifest | `21e6ec652e6a9b132b141dd1444d83182b7df9c4e1d54f7d2535239e9cdeefe2` |
+
+The descriptor projection now has **five expected controls**, with positive
+safety/weak-fair completion still **84 distinct / 150 generated states**.
+The inspected new three-state trace starts valid, publishes an incomplete map,
+then enters the inner frame: live abstract roots are `{0,1}`, mapped roots are
+`{0}`, while `producer=1`, `ready=true`, `alive=true`, `published=true`.
+Thus producer/readiness/lifetime do not establish map completeness. This is an
+enumeration-contract counterexample, not physical scanning or a compiler bug
+reproduction; concrete offsets, liveness, encodings and moving GC remain open.
+
+The unchanged nested projection passes four expected controls and positive
+**22 distinct / 28 generated states**. The original FFI projection passes three
+expected controls and positive **22 distinct / 25 generated states**. No new
+liveness theorem is assigned to the original projection.
+
+| Receipt beneath `.cache/` | SHA-256 |
+| --- | --- |
+| `runtime-entry-models/root-map-live-slot-composition-permitted/receipt.json` | `4d0c9ffeb2e1837bcba47e2866d504c33346afd48e3d5c923be0e162d5ecf3bc` |
+| `runtime-entry-models/root-map-live-slot-nested-regression/receipt.json` | `00b32e92bd8392e1ffe31252939ef811d7ec6ac7f51a375a07361aa0c8865ffa` |
+| `runtime-entry-models/root-map-live-slot-original-regression/receipt.json` | `67ade19ceb7bbd556d1a275f0c9ed7cf93b0f25331601528b4502a5f0065ceea` |
+
+All model checks completed without timeout. Extended verifier contexts stayed
+stable, runtime/release admission remains false and native status is `not-run`.
+The first sandboxed launch at `root-map-live-slot-composition/` failed to bind
+the verifier's loopback socket before a model result; it is not a model failure
+or pass. The permitted launch above used the same inputs and existing checker.
+Host-auto scheduling shared available cores among controls; these model
+campaigns ran sequentially. This thread launched no native build.
+
+Guarded Lean checks **27 theorem inventories**, standard axioms only and no
+`sorryAx`; all **17 false controls** are rejected. `generatedMapRelocation`
+specializes the existing coverage-composition proof for arbitrary slot/value
+types. It requires both complete mapping and correct mapped-slot relocation;
+neither is inferred from equal producer identity. Guarded observations beneath
+`.cache/runtime-entry-formal/run-4pbq8lix/` have these hashes:
+
+| Observation | SHA-256 |
+| --- | --- |
+| `build.json` | `e34c5ce2c5828eb962466ac173bfc4aa6282af54a8cf008d4e79fa149aaf22fa` |
+| `axioms.json` | `28acfb6ecdd3df926599674ec53445dc45852f27125fc413159b8777763837b8` |
+| `false-claims.json` | `9ff7ec7c1ecb9a8a5798b483bd92dfec83f5237875231c7a3f6695d35566629b` |
+
+Focused research checks passed **3 tests (13.742 s)** and the unchanged
+parallel-GC evidence scenario passed **1 test (0.940 s)**. These are observations,
+not speed claims. Scheme source withdrawal/restoration and Session reuse cover
+the added source premises, without adding Python inference or another DSL.
+Six model scopes stay partial, the same three native obligations stay open,
+and `satisfies=[]`. The implementation Recipe now requires all three witnesses
+together: actual live-slot completeness, payload-specific publication and
+consumer lifetime. Full C/compiler/native refinement remains the handoff.

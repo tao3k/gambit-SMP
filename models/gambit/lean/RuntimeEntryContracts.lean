@@ -221,6 +221,18 @@ theorem descriptorRetirementExcludesConsumers {Consumer Descriptor : Type}
   intro c active dependency
   exact reclaimed (coverage c retired active dependency)
 
+-- Reuse the existing coverage composition for actual live-slot relocation.
+-- The compiler must establish completeness at this RA; the scanner must
+-- establish the relocation relation. Producer identity supplies neither.
+theorem generatedMapRelocation {Slot Value : Type}
+    (live mapped : Slot → Prop) (before after : Slot → Value)
+    (relocate : Value → Value)
+    (complete : ∀ slot, live slot → mapped slot)
+    (scanned : ∀ slot, mapped slot → after slot = relocate (before slot)) :
+    ∀ slot, live slot → after slot = relocate (before slot) :=
+  bindingCoverageComposes live mapped
+    (fun slot => after slot = relocate (before slot)) complete scanned
+
 -- Preserve the established per-entry accounting theorem, not a new unwinder.
 theorem ownedNestedExitAccounting
     (a1 a2 r1 r2 : Nat) (e1 e2 d1 d2 : Int)
@@ -256,5 +268,6 @@ theorem ownedNestedExitAccounting
 #print axioms rehashMembershipPreserved
 #print axioms vmCellWriteFrame
 #print axioms descriptorRetirementExcludesConsumers
+#print axioms generatedMapRelocation
 
 end GambitSMP.RuntimeEntryContracts

@@ -1,5 +1,8 @@
 import RuntimeEntryContracts
 
+-- Equal producer identities cannot prove that an inner live slot is mapped.
+example : (1 : Nat) = 1 → (1 : Nat) ∈ ([0] : List Nat) := by decide
+
 -- Drained native activations do not imply no retained Scheme consumers.
 example : (0 : Nat) = 0 → (1 : Nat) = 0 := by decide
 

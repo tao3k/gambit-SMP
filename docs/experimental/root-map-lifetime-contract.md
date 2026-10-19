@@ -37,6 +37,64 @@ of a scanner that already resolved metadata.
 
 ## Existing-Model Join And Assumptions
 
+### Concrete Map Producer And Scanner
+
+The pinned baseline contains a concrete producer/consumer chain, not an
+universal C-local root finder:
+
+| Boundary | Pinned source | Obligation for the implementation Recipe |
+| --- | --- | --- |
+| Live variables -> slot order | Gambit `gsc/_t-c-2.scm:825-904` | Normal/task returns use live frame slots. Internal returns additionally account for saved GVM registers and the return slot, with aligned/reserved frame layout. Audit the actual return kind, not just a label with the right version. |
+| Slot predicates -> bits/chunks | Gambit `gsc/_t-c-3.scm:471-520` | The map builder sets bit `i` from the supplied liveness predicate; chunk emission uses actual frame size, including internal-frame expansion. This does not prove the upstream liveness analysis complete. |
+| Label -> inline/out-of-line descriptor | Gambit `gsc/_t-c-1.scm:1947-2012` | Frame size, link, return kind and GC map travel together. Out-of-line descriptors emit the chunk sequence; matching structure size alone is insufficient. |
+| Descriptor -> visited slots | Gambit `lib/mem.c:3817-3896` | `mark_frame` groups set bits into `mark_array` calls and advances chunks at word boundaries. A correctly owned but unmapped live slot is not repaired by descriptor retention. |
+| Registered C roots -> relocated values | Chez `c/alloc.c:97-103`, `c/gc.c:1307-1311` | Registration records slot addresses; the collector explicitly relocates those slots. This is process-global protection, not a nestable root-frame ABI or a map for arbitrary C locals. |
+
+For each newly introduced safepoint, the handoff must enumerate the actual
+live movable inputs and retained values, then show their storage, bit positions,
+return-kind/RA correspondence, scanner coverage and reload. Cover inline and
+out-of-line maps and internal saved-register layouts in the fully rebuilt
+configuration. Ordinary dead slots and alignment padding are not automatically
+roots. Do not replace completeness with a full-file hash or mark every raw word
+as a Scheme object. The finite model checks a missing inner root despite correct
+producer/readiness/lifetime; it does not verify these physical encodings.
+
+### Publication Edges Have A Payload And A Scope
+
+The following distinctions constrain the Stage-One refactor; they do not
+attribute a native failure or prescribe a new atomic/lock:
+
+| Observation | What it establishes | What it cannot establish by itself |
+| --- | --- | --- |
+| Gambit slot-count release and matching GC acquires, as audited in the [publication ledger](stage-one-closure-audit.md#reader-and-publication-ledger) | Earlier initialized per-VM slot coverage carried by that publication history. | Later `prm` initialization, a symbol binding written afterwards, another writer's payload without a connecting edge, or safe reclamation. |
+| Generated static descriptor contents | The map is emitted together with its label descriptor under the effective C backend configuration. | A new mutable runtime map needing its own atomics is not implied. Reachability through loader/fixup and supported execution entry still need their actual publication/ownership chain. |
+| OCaml `runtime/globroots.c:64-87,150-178,197-235` | Root-list insertion/deletion uses `roots_mutex`; generational mutation changes root classification before assigning `*r`; dynamic-root scanning snapshots a list head under the mutex and traverses outside it. | That mutex does not enclose the final root-value write. Copying it is not proof of arbitrary simultaneous mutation/scanning, immutable Gambit links, or external module-storage lifetime. The reference runtime's domain/collector participation and list-storage assumptions remain required. |
+| Chez `c/intern.c:155-228`, `c/gc.c:120-135` | Interner operations have a mutator-side owned interval; parallel sweep explicitly excludes `tc_mutex` acquisition and cannot assume a Scheme thread's current context. | Holding the interner lock while invoking a collector or transplanting a mutator's ownership into a GC worker is not licensed. Collector-phase ownership remains a separate premise. |
+
+For every exposed field, record the initializing writer, the exact publication
+event, the reader that observes that event, mutations allowed afterwards and
+the condition ending its lifetime. A C release/acquire argument requires a
+matching synchronization history for that payload; source order or acquire on
+an unrelated field is not such a history. A lock argument requires the actual
+reader to share the interval, or a separately established snapshot/phase
+protocol. Actual C data-race freedom and compiler mappings remain source/native
+obligations, not properties proved by these sequential finite histories.
+
+### Whole-Package Handoff Boundary
+
+The smallest first-stage package remains leaf reservation/interner plus every
+enabled record/reader companion in the [closure audit](stage-one-closure-audit.md#small-refactor-packages-and-real-acceptance).
+Its handoff has three jointly required witnesses: complete roots at each
+collecting boundary, payload-specific publication/reader correspondence, and
+live interpretation storage through every admitted consumer. None substitutes
+for the others. Pure noncollecting leaf code does not gain a safepoint by this
+review. A collecting/reentrant path must use the supported rooted execution
+boundary, revalidate derived state after waiting and deliver outside ownership.
+Dynamic unloading/restart, new foreign-entry abilities or a new collector
+protocol remain separate Stage-Two milestones; they are not hidden first-stage
+preconditions. These are design obligations for the implementation owner, not
+new passed native requirements or a reason to rerun its bootstrap here.
+
 `ffi_gc_frame_protocol.qnt` gains a descriptor-lifetime projection that reuses
 the existing nested enter/collect/error/exit/reload transitions. It retains a
 Scheme interpretation consumer inside the nested invocation, returns through
@@ -46,7 +104,8 @@ does not erase that already-admitted scanner or retained consumer.
 
 Controls separately omit initialized map publication, substitute another map
 producer, reclaim after native frames drain while a Scheme consumer survives,
-or reclaim while an admitted metadata scan is active. Correct safety requires
+reclaim while an admitted metadata scan is active, or omit an inner live root
+from an otherwise ready, correctly sourced map. Correct safety requires
 the right available interpretation for every remaining consumer. Completion is
 conditional on the finite modeled exits, scan and explicit consumer discharge;
 it is not a promise that arbitrary user code releases a retained continuation.
@@ -64,6 +123,11 @@ if every live consumer's interpretation dependency is available, reclaimed
 interpretation data has no live dependent consumer. The source must establish
 the complete consumer census, dependency edges and true availability. This
 does not turn an absent/unregistered consumer into proof that none exists.
+`generatedMapRelocation` reuses `bindingCoverageComposes`: complete coverage of
+live slots plus correct relocation of each mapped slot entails relocation of
+the live slots, for arbitrary slot/value types. Both inputs remain actual
+compiler/scanner obligations. Equal producer identities alone do not supply
+coverage; a deliberately false control is retained for that conflation.
 
 ## Stage-One Recipe And Native Handoff
 

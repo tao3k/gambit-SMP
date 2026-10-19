@@ -21,8 +21,10 @@ and [validation](vm-cell-ownership-validation.md) add the execution/GC cell-sele
 join without changing global value access or disabling constructor failure.
 The [root interpretation contract](root-map-lifetime-contract.md) and
 [validation](root-map-lifetime-validation.md) add producer/map availability
-through native, retained Scheme and admitted scanner consumers. No module
-hot-unload or new root registry is selected. None supplies native admission.
+through native, retained Scheme and admitted scanner consumers. It now traces
+the actual liveness/slot/bit/chunk/RA/scanner chain and payload-specific C
+publication premises: matching producer identity is not complete root coverage.
+No module hot-unload or new root registry is selected. None supplies native admission.
 
 Use the pinned Gambit, Chez and OCaml revisions and overlay identified in the
 integration design. Source locations below distinguish unchanged vendor files

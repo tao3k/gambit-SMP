@@ -16,10 +16,10 @@ module ffi_gc_frame_protocol {
   // Logical consumers, not a proposed runtime counter or module-unload API.
   type Descriptor = { policy: int, published: bool, captured: bool, retained: bool,
     closed: bool, scan: int, alive: bool, ready: bool,
-    producer: int, retired: bool, badRead: bool }
+    producer: int, mapped: Set[int], retired: bool, badRead: bool }
   pure def descriptorInitial(policy: int): Descriptor = {
     policy: policy, published: false, captured: false, retained: false, closed: false, scan: 0,
-    alive: true, ready: true, producer: 1,
+    alive: true, ready: true, producer: 1, mapped: Set(0, 1),
     retired: false, badRead: false,
   }
   type State = { fault: int, phase: int, gc: int, epoch: int,
@@ -151,13 +151,15 @@ module ffi_gc_frame_protocol {
   action initMissingScanDrain = s' = { ...initial(0), descriptor: descriptorInitial(2) }
   action initLateMapPublication = s' = { ...initial(0), descriptor: descriptorInitial(3) }
   action initWrongMapProducer = s' = { ...initial(0), descriptor: descriptorInitial(4) }
+  action initIncompleteMap = s' = { ...initial(0), descriptor: descriptorInitial(5) }
   // Start with a valid interpretation, then expose the chosen published view.
   // Controls must witness a bad publication, not only an invalid initial state.
   action publishDescriptor = all {
     not(s.descriptor.published),
     s' = { ...s, descriptor: { ...s.descriptor, published: true,
       ready: s.descriptor.policy != 3,
-      producer: if (s.descriptor.policy == 4) 2 else 1 } },
+      producer: if (s.descriptor.policy == 4) 2 else 1,
+      mapped: if (s.descriptor.policy == 5) Set(0) else Set(0, 1) } },
   }
   action retainDescriptorConsumer = all {
     s.nested.phase == 1, not(s.descriptor.captured),
@@ -204,6 +206,11 @@ module ffi_gc_frame_protocol {
   val descriptorLifetimeSafe = not(descriptorNeeded) or s.descriptor.alive
   val descriptorReadySafe = not(descriptorNeeded) or s.descriptor.ready
   val descriptorProducerSafe = not(descriptorNeeded) or s.descriptor.producer == 1
+  // A matching producer and live descriptor do not enumerate live slots.
+  // These are abstract root identities, not physical bit offsets/RA encoding.
+  val descriptorRequiredSlots = s.nested.frames.union(
+    if (s.descriptor.retained or s.descriptor.scan == 1) Set(0, 1) else Set())
+  val descriptorMapSafe = descriptorRequiredSlots.subseteq(s.descriptor.mapped)
   val descriptorTerminal = s.nested.phase == 4 and s.descriptor.retired and
     not(s.descriptor.retained) and s.descriptor.scan != 1
   action descriptorFinished = all { descriptorTerminal, s' = s }
@@ -212,7 +219,8 @@ module ffi_gc_frame_protocol {
     dischargeRetainedConsumer, retireDescriptor, descriptorFinished }
   val descriptorScanDrainSafe = descriptorLifetimeSafe
   val descriptorSafe = nestedSafe and descriptorLifetimeSafe and
-    descriptorReadySafe and descriptorProducerSafe and not(s.descriptor.badRead)
+    descriptorReadySafe and descriptorProducerSafe and descriptorMapSafe and
+    not(s.descriptor.badRead)
   temporal descriptorCompletion = weakFair(descriptorStep, s)
     .implies(eventually(descriptorTerminal))
 }

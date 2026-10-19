@@ -57,7 +57,8 @@ class RuntimeEntryFormalTests(unittest.TestCase):
                         "checkedBucketAfterWait", "inBoundsBucketMayMiss",
                         "replayedSuffixMembership", "explicitReplayMayRepeat",
                         "canonicalRecheckAgrees", "rehashMembershipPreserved",
-                        "vmCellWriteFrame", "descriptorRetirementExcludesConsumers"):
+                        "vmCellWriteFrame", "descriptorRetirementExcludesConsumers",
+                        "generatedMapRelocation"):
             self.assertIn(theorem, output)
         self.assertNotIn("sorryAx", output)
         for line in output.splitlines():
@@ -68,8 +69,8 @@ class RuntimeEntryFormalTests(unittest.TestCase):
         control = observe("false-claims", [*guarded, "controls/RuntimeEntryFalseClaims.lean"], 15)
         self.assertNotEqual(control.exit, 0)
         errors = control.stdout + control.stderr
-        self.assertEqual(errors.count("Tactic `decide` proved"), 16)
-        self.assertEqual(errors.count("is false"), 16)
+        self.assertEqual(errors.count("Tactic `decide` proved"), 17)
+        self.assertEqual(errors.count("is false"), 17)
         self.assertNotIn("failed to synthesize", errors)
         self.assertNotIn("unknown module", errors)
         self.assertEqual(inputs, {str(path.relative_to(ROOT)): digest(path) for path in files})
@@ -137,7 +138,9 @@ class RuntimeEntryFormalTests(unittest.TestCase):
                            "ocaml-named-registry", "vm-cell-recipe", "vm-cell-validation", "chez-symbol-payload",
                            "ocaml-root-classification", "root-map-recipe", "root-map-validation", "ocaml-frame-descriptors",
                            "chez-generated-tracer", "gambit-dynamic-lifetime",
-                           "existing-reader-retirement", "existing-callback-retirement"):
+                           "existing-reader-retirement", "existing-callback-retirement",
+                           "gambit-return-map-generator", "gambit-slot-map-encoder",
+                           "gambit-label-map-emitter", "chez-root-collector"):
                 withdrawn = dict(facts, source=[row for row in facts["source"] if row[0] != source])
                 missing, _ = evaluate(engine, withdrawn, catalog, queries)
                 self.assertIn("premise-source-missing", {row[1] for row in missing["transfer_unbound"]})
