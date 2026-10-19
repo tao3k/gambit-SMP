@@ -27,6 +27,14 @@ sections, source observations or model scope; an empty supported-evidence slice
 therefore cannot be read as a closed obligation. No relation produces an
 action or derives `satisfies` from this reference research.
 
+`transfer_premise` adds supporting source findings and remaining applicability
+conditions to the same chains. `transfer_premise_evidence` expands them with
+source identity/section provenance; missing supporting sources/sections also
+produce `transfer_unbound`. A surviving core comparison does not hide a missing
+premise, and a source finding is not a verified runtime contract. See
+[`Experimental transfer applicability`](../../../docs/experimental-transfer-applicability.md)
+for bounded adaptation versus separate Experimental milestone boundaries.
+
 `satisfies` is an explicit external evidence boundary. Neither a reference
 design nor a finite control derives it. Its rows require independent
 same-candidate admission; this scenario supplies none. It does not grant

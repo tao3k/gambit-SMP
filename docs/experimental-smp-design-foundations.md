@@ -160,6 +160,11 @@ do not infer independent-VM sharing permission from a same-runtime thread test.
 
 ## Implementation Review And Transfer Evidence
 
+The [follow-up applicability audit](experimental-transfer-applicability.md)
+narrows these five chains using creation-error paths, systhread hook overrides,
+generated root tracing, major-GC debt and descriptor reuse. It separates bounded
+adaptation candidates from optional Experimental architecture milestones.
+
 The 2026-10-19 follow-up reads the implementation, not only its design comments.
 The existing [parallel-GC DSL](../evidence/scenarios/parallel-gc/design.ss) and
 [facts](../evidence/scenarios/parallel-gc/facts.json) now expose the following

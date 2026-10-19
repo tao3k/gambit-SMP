@@ -32,7 +32,7 @@ class ParallelGCScenario(unittest.TestCase):
             constructor="make-parallel-gc-review", trusted=True)
         queries = {name: name for name in ("comparison", "reference_requirement",
             "missing_requirement", "model_observation", "counterexample", "obligation_count",
-            "transfer_evidence", "transfer_gap", "transfer_unbound")}
+            "transfer_evidence", "transfer_gap", "transfer_unbound", "transfer_premise_evidence")}
         with engine_api() as (engine, identity):
             answers, first = evaluate(engine, facts, catalog, queries)
             self.assertEqual(len(answers["comparison"]), 9)
@@ -45,6 +45,12 @@ class ParallelGCScenario(unittest.TestCase):
             self.assertEqual(set(transfer), {row[0] for row in facts["transfer_condition"]})
             self.assertEqual({row[0] for row in answers["transfer_gap"]}, set(transfer))
             self.assertEqual(answers["transfer_unbound"], [])
+            premise_keys = {(row[0], row[1]) for row in answers["transfer_premise_evidence"]}
+            self.assertEqual(premise_keys, {(row[0], row[1]) for row in facts["transfer_premise"]})
+            self.assertEqual({row[0] for row in premise_keys}, set(transfer))
+            for _, _, path, sha, anchor, finding, unclosed in answers["transfer_premise_evidence"]:
+                self.assertEqual(digest(ROOT / path), sha)
+                self.assertTrue(anchor and finding and unclosed)
             for row in transfer.values():
                 self.assertEqual(row[2], "vendor/gambit/lib/setup.c")
                 self.assertEqual(row[11], "partial")
@@ -64,7 +70,20 @@ class ParallelGCScenario(unittest.TestCase):
                              set(transfer) - {"backup-service-ownership", "retirement-work-fixed-point"})
             self.assertEqual(set(unbound["transfer_unbound"]), {
                 ("backup-service-ownership", "reference-source-missing"),
+                ("backup-service-ownership", "premise-source-missing"),
                 ("retirement-work-fixed-point", "reference-source-missing")})
+            without_helper_dependency = dict(facts, source=[row for row in facts["source"]
+                                                          if row[0] != "ocaml-masterlock"])
+            partial, _ = evaluate(engine, without_helper_dependency, catalog, queries)
+            self.assertEqual(partial["transfer_evidence"], answers["transfer_evidence"])
+            self.assertIn(("backup-service-ownership", "premise-source-missing"), partial["transfer_unbound"])
+            self.assertNotIn(("backup-service-ownership", "ocaml-masterlock-release"),
+                             {(row[0], row[1]) for row in partial["transfer_premise_evidence"]})
+            without_premise_section = dict(facts, source_section=[row for row in facts["source_section"]
+                                                                if row[0] != "chez-generated-tc-roots"])
+            omitted, _ = evaluate(engine, without_premise_section, catalog, queries)
+            self.assertIn(("inactive-root-readiness", "premise-section-missing"), omitted["transfer_unbound"])
+            self.assertEqual(omitted["missing_requirement"], answers["missing_requirement"])
             without_model = dict(facts, model_scope=[row for row in facts["model_scope"]
                                                    if row[0] != "retained-descriptor-reuse"])
             unsupported, _ = evaluate(engine, without_model, catalog, queries)

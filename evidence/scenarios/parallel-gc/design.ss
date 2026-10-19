@@ -1,9 +1,10 @@
 ;;; Design references inform Gambit obligations; they cannot admit a candidate.
 (define-evidence (make-parallel-gc-review)
   (sources design source obligation mechanism control satisfies
-    source_section transfer_condition model_scope)
+    source_section transfer_condition model_scope transfer_premise)
   (outputs comparison reference_requirement missing_requirement model_observation
-    counterexample obligation_count transfer_evidence transfer_gap transfer_unbound)
+    counterexample obligation_count transfer_evidence transfer_gap transfer_unbound
+    transfer_premise_evidence)
   (explain
     (lambda (program result query scope)
       (hash ("status" "recorded-only") ("query" query) ("scope" scope)
@@ -22,6 +23,8 @@
     (gambit_section string?) (requirement string?)))
   (relation model_scope ((condition_id string?) (path string?) (sha string?)
     (coverage string?) (gap string?)))
+  (relation transfer_premise ((condition_id string?) (section_id string?)
+    (finding string?) (unclosed string?)))
   (relation comparison (axis gambit_choice reference reference_choice gambit_source reference_source))
   (relation reference_requirement (obligation_id reference reference_choice source_id))
   (relation missing_requirement (candidate obligation_id requirement))
@@ -32,6 +35,7 @@
     reference_path reference_sha reference_anchor requirement model_path model_sha coverage gap))
   (relation transfer_gap (condition_id reference requirement gap))
   (relation transfer_unbound (condition_id reason))
+  (relation transfer_premise_evidence (condition_id section_id path sha anchor finding unclosed))
   ((comparison axis gambit_choice reference reference_choice gambit_source reference_source) <--
     (design (lit "gambit-baseline") axis gambit_choice gambit_source)
     (mechanism axis reference)
@@ -61,6 +65,20 @@
     (model_scope condition_id model_path model_sha coverage gap))
   ((transfer_gap condition_id reference requirement gap) <--
     (transfer_evidence condition_id reference _ _ _ _ _ _ requirement _ _ _ gap))
+  ((transfer_premise_evidence condition_id section_id path sha anchor finding unclosed) <--
+    (transfer_condition condition_id _ _ _ _)
+    (transfer_premise condition_id section_id finding unclosed)
+    (source_section section_id source_id anchor _)
+    (source source_id path sha _))
+  ((transfer_unbound condition_id (lit "premise-section-missing")) <--
+    (transfer_condition condition_id _ _ _ _)
+    (transfer_premise condition_id section_id _ _)
+    (not (source_section section_id _ _ _)))
+  ((transfer_unbound condition_id (lit "premise-source-missing")) <--
+    (transfer_condition condition_id _ _ _ _)
+    (transfer_premise condition_id section_id _ _)
+    (source_section section_id source_id _ _)
+    (not (source source_id _ _ _)))
   ((transfer_unbound condition_id (lit "reference-section-missing")) <--
     (transfer_condition condition_id _ reference_section _ _)
     (not (source_section reference_section _ _ _)))
