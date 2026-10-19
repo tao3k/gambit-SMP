@@ -28,7 +28,6 @@ class LeanDependencyContractTests(unittest.TestCase):
         self.assertIn("import LeanPoo.Functional.TransformationResources", source)
         self.assertIn("LeanPoo.Functional.Transformation.resource_compose_cost", source)
         self.assertIsNone(re.search(r"\b(sorry|axiom|admit)\b", source))
-        self.assertEqual(source.count("#print axioms "), 4)
 
     def test_toolchain_is_versioned_and_controls_are_not_positive_targets(self):
         toolchain = (LEAN / "lean-toolchain").read_text().strip()

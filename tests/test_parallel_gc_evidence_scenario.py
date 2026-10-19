@@ -48,6 +48,11 @@ class ParallelGCScenario(unittest.TestCase):
             premise_keys = {(row[0], row[1]) for row in answers["transfer_premise_evidence"]}
             self.assertEqual(premise_keys, {(row[0], row[1]) for row in facts["transfer_premise"]})
             self.assertEqual({row[0] for row in premise_keys}, set(transfer))
+            for condition in transfer:
+                formal_sources = {row[2] for row in answers["transfer_premise_evidence"]
+                                  if row[0] == condition}
+                self.assertIn("models/gambit/runtime_transfer_boundary.qnt", formal_sources)
+                self.assertIn("models/gambit/lean/WorkAccounting.lean", formal_sources)
             for _, _, path, sha, anchor, finding, unclosed in answers["transfer_premise_evidence"]:
                 self.assertEqual(digest(ROOT / path), sha)
                 self.assertTrue(anchor and finding and unclosed)
@@ -91,6 +96,13 @@ class ParallelGCScenario(unittest.TestCase):
             self.assertEqual(unsupported["transfer_unbound"],
                              [("retained-descriptor-reuse", "model-scope-missing")])
             self.assertEqual(unsupported["missing_requirement"], answers["missing_requirement"])
+            without_formal = dict(facts, source=[row for row in facts["source"]
+                                                if row[0] != "transfer-lean"])
+            no_proof, _ = evaluate(engine, without_formal, catalog, queries)
+            self.assertEqual({row[0] for row in no_proof["transfer_unbound"]
+                              if row[1] == "premise-source-missing"}, set(transfer))
+            self.assertEqual(no_proof["missing_requirement"], answers["missing_requirement"])
+            self.assertFalse(facts["satisfies"])
             without_section = dict(facts, source_section=[row for row in facts["source_section"]
                                                          if row[0] != "chez-inactive-transition"])
             no_section, _ = evaluate(engine, without_section, catalog, queries)

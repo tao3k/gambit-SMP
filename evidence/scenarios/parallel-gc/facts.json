@@ -16,7 +16,10 @@
       ["ocaml-major", "vendor/ocaml/runtime/major_gc.c", "d94c5f348eaf6501f7e42622c310521e1900dd7ae94338003e65b55f92623812", "pinned-source-reference"],
       ["chez-generator", "vendor/chez/s/mkgc.ss", "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406", "pinned-generator-source-not-generated-machine-code-proof"],
       ["gambit-header", "vendor/gambit/include/gambit.h.in", "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2", "pinned-baseline-not-current-candidate"],
-      ["gambit-kernel", "vendor/gambit/lib/_kernel.scm", "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec", "pinned-baseline-not-current-candidate"]
+      ["gambit-kernel", "vendor/gambit/lib/_kernel.scm", "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec", "pinned-baseline-not-current-candidate"],
+      ["transfer-qnt", "models/gambit/runtime_transfer_boundary.qnt", "3ca8b5b26a49229bf433059ee7b836f3692aa5b960bd821532ce925fb1b18077", "finite-interface-observation-not-source-refinement"],
+      ["transfer-lean", "models/gambit/lean/WorkAccounting.lean", "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e", "conditional-proofs-not-runtime-ownership-proof"],
+      ["transfer-qualification", "docs/runtime-transfer-boundary.md", "93b9a20d87b3bdcf3cf4c670b5632a9577d6dd8125de5df15d5255027b9fd698", "local-qualification-summary-not-sealed-runtime-admission"]
     ],
     "design": [
       ["gambit-baseline", "publication", "completed per-processor chunk FIFO and stealing", "gambit-mem"],
@@ -62,7 +65,18 @@
       ["gambit-pstate-storage", "gambit-header", "11945-11987", "processor states are embedded in VM-owned storage; pointer stability is bounded by VM lifetime"],
       ["gambit-foreign-wrappers", "gambit-header", "10040-10059;10338-10351", "SFUN marker lifetime and error propagation differ from CFUN context macros"],
       ["chez-activation-modes", "chez-thread", "191-244", "normal activation pairs destroy/deactivate/noop; WRITE_XOR_EXECUTE_CODE has a different branch"],
-      ["gambit-sync-root-roundtrip", "gambit-kernel", "1429-1450", "sync interrupt already saves RA and W_ALL before service, then reloads R_ALL and RA"]
+      ["gambit-sync-root-roundtrip", "gambit-kernel", "1429-1450", "sync interrupt already saves RA and W_ALL before service, then reloads R_ALL and RA"],
+      ["transfer-service-qnt", "transfer-qnt", "serviceReady;initAnnouncedOnly", "announcement-only admission has a decoded counterexample"],
+      ["transfer-roots-qnt", "transfer-qnt", "rootReady;initRootsOnly", "published roots without excluding mutation have a decoded counterexample"],
+      ["transfer-work-qnt", "transfer-qnt", "workReady;initCachedReady", "a reopened private or transferred obligation revokes cached readiness"],
+      ["transfer-identity-qnt", "transfer-qnt", "identityReady;initAddressOnly", "a successor generation invalidates the old observation"],
+      ["transfer-exit-qnt", "transfer-qnt", "exitBalanced;initUnbalancedExit", "unconditional release can consume an unowned entry"],
+      ["transfer-service-lean", "transfer-lean", "announcementWithoutAcknowledgementIsNotReady", "announcement does not imply acknowledgement"],
+      ["transfer-roots-lean", "transfer-lean", "rootsDoNotPermitConcurrentMutation", "published roots do not authorize concurrent mutation"],
+      ["transfer-work-lean", "transfer-lean", "reopenedWorkRevokesZeroCount", "producer lifetime accounting makes private work incompatible with zero count"],
+      ["transfer-identity-lean", "transfer-lean", "reuseRevokesOldIdentity", "current generation equality excludes successor generation equality"],
+      ["transfer-exit-lean", "transfer-lean", "balancedNestedExitsCompose", "per-entry balance and preserved errors compose arithmetically"],
+      ["transfer-formal-qualification", "transfer-qualification", "Observed Qualification;Current Candidate Correspondence", "exact local input hashes, positive and negative results, retained failed checks and source-lock correspondence"]
     ],
     "transfer_condition": [
       ["backup-service-ownership", "blocking-service", "ocaml-backup-service", "gambit-startup-service", "GC service remains reachable with one domain-state execution owner and published roots across handoff"],
@@ -93,7 +107,22 @@
       ["retained-descriptor-reuse", "gambit-pstate-storage", "Gambit already embeds processor storage in its VM", "prefer existing VM lifetime and generation/join contracts; a new stable-descriptor allocation layer is not justified by pointer stability alone"],
       ["foreign-reentry-effects", "chez-activation-modes", "normal activation records whether cleanup must destroy, deactivate or do nothing", "nested entry, allocation failure and nonlocal unwind must preserve exact-once ownership; alternate compile branch is not equivalent"],
       ["foreign-reentry-effects", "gambit-foreign-wrappers", "Gambit already distinguishes SFUN marker/error lifetime and CFUN entry forms", "do not add a second activation protocol without reconciling generated wrappers, owner routing and borrowed roots"],
-      ["foreign-reentry-effects", "ocaml-systhread-hooks", "alternate hooks restore the thread descriptor after acquiring runtime ownership", "default errno preservation does not prove every hook, native/bytecode path or foreign-thread registration correct"]
+      ["foreign-reentry-effects", "ocaml-systhread-hooks", "alternate hooks restore the thread descriptor after acquiring runtime ownership", "default errno preservation does not prove every hook, native/bytecode path or foreign-thread registration correct"],
+      ["backup-service-ownership", "transfer-service-qnt", "finite observation/commit policy requires acknowledgement", "does not model native main/helper ownership or OS creation failure reachability"],
+      ["backup-service-ownership", "transfer-service-lean", "unacknowledged service is not ready", "runtime preservation and native progress are not proved"],
+      ["inactive-root-readiness", "transfer-roots-qnt", "finite boundary rejects mutable inactive roots", "does not prove physical frame maps or actual caller eligibility"],
+      ["inactive-root-readiness", "transfer-roots-lean", "root publication cannot replace mutation exclusion", "actual membership, root shapes and reentry synchronization remain source obligations"],
+      ["retirement-work-fixed-point", "transfer-work-qnt", "shared WorkObligations predicate rejects reopened work at commit", "does not prove weak phases, producer discovery or native memory ordering"],
+      ["retirement-work-fixed-point", "transfer-work-lean", "existing parameterized producer lifetime theorem is reused", "the list-to-worker bijection and source preservation of lifetime premises remain open"],
+      ["retained-descriptor-reuse", "transfer-identity-qnt", "finite identity guard rejects a reused generation", "does not prescribe or verify any particular native epoch or reclamation representation"],
+      ["retained-descriptor-reuse", "transfer-identity-lean", "successor generation cannot satisfy an old identity equality", "all borrowed users, join outcomes and physical slot reuse remain source obligations"],
+      ["foreign-reentry-effects", "transfer-exit-qnt", "boundary distinguishes acquired participation from unconditional release", "does not model actual nested nonlocal C-frame transitions"],
+      ["foreign-reentry-effects", "transfer-exit-lean", "balanced nested exits preserve their respective errors", "per-entry balance is a premise, not a proved native exact-once ownership transition"],
+      ["backup-service-ownership", "transfer-formal-qualification", "local finite/conditional results are recorded with exact inputs", "service ownership source refinement and native qualification remain open"],
+      ["inactive-root-readiness", "transfer-formal-qualification", "local finite/conditional results are recorded with exact inputs", "physical root and caller eligibility source refinement remains open"],
+      ["retirement-work-fixed-point", "transfer-formal-qualification", "local finite/conditional results are recorded with exact inputs", "complete GC fixed-point and weak-memory refinement remain open"],
+      ["retained-descriptor-reuse", "transfer-formal-qualification", "local finite/conditional results are recorded with exact inputs", "native lifetime and failed rollback qualification remain distinct"],
+      ["foreign-reentry-effects", "transfer-formal-qualification", "local finite/conditional results are recorded with exact inputs", "review-only SFUN Recipe is not an implemented native repair"]
     ],
     "obligation": [
       ["work-publication", "publication", "publish initialized work and account for wake/notification"],

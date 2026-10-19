@@ -243,3 +243,11 @@ consumer/source checks: 28 tests, including supplementary-source withdrawal
 and Session restoration. All 14 files in the Chez/OCaml source inventories
 matched their declared hashes. This is not model requalification, a native GC
 benchmark, full framework CI or acceptance of a proposed runtime change.
+
+Subsequent formal qualification is recorded separately in
+[Runtime Transfer Boundary](runtime-transfer-boundary.md): one new finite
+interface-observation model reuses the work library; five Lean obligations
+extend the existing parameterized proof. They are supplemental premises in the
+same Scheme component, not replacement receipts for the partial models above.
+The same document audits the locked current overlay and specifies a review-only
+SFUN cleanup refactor Recipe. Native qualification remains with its owner.
