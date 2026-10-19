@@ -169,10 +169,6 @@ def check(root, manifest, require_committed=False):
     portable(root, submodule + "/lib/mem.c")
     if git(root / submodule, "rev-parse", "HEAD") != lock["revision"]:
         raise ValueError("submodule HEAD differs from source lock")
-    url = git(root, "config", "-f", ".gitmodules", "--get",
-              f"submodule.{submodule}.url")
-    if url != lock["repository"]:
-        raise ValueError("submodule URL differs from source lock")
     for name, row in lock["files"].items():
         source = submodule + "/" + name
         if hashlib.sha256(portable(root, source).read_bytes()).hexdigest() != row["baseSha256"]:

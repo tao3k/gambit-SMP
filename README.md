@@ -26,6 +26,14 @@ remain history, not inherited release acceptance. See the
 | `.cache/` | New local logs, generated contexts, validation outputs and replaceable workspace inventories; not Git evidence |
 | `.data/` | Historical local workspaces retained in place; new logs and journals use `.cache/` |
 
+## Experimental Research
+
+[Experimental SMP design foundations](docs/experimental-smp-design-foundations.md)
+connect pinned Gambit, Chez and OCaml sources to existing models, open transfer
+assumptions and reusable research Recipe briefs. Reference mechanisms are not
+selected runtime changes or native acceptance; current qualification continues
+independently.
+
 ## Local Checks
 
 Evidence inference uses the ASCENT Rust/PyO3 package pinned by `uv.lock`;
