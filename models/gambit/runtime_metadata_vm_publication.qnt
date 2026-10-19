@@ -8,7 +8,9 @@ module runtime_metadata_vm_publication {
   // assume one fully rebuilt revision/configuration, with abstract visibility.
   type Join = { active: bool, started: bool, done: bool, failed: bool,
     mayFail: bool, rangeObserved: bool, childObserved: bool,
-    badRange: bool, badChild: bool }
+    badRange: bool, badChild: bool, cellPolicy: int,
+    cells: int -> int, expected: int -> int, written: Set[int],
+    scanned: Set[int], badCellRoot: bool }
   var j: Join
   pure def metadataInitial(earlyBinding: bool): M::State = {
     ...M::initial(0, 1, 1), profile: 2,
@@ -19,6 +21,8 @@ module runtime_metadata_vm_publication {
     active: false, started: false, done: false, failed: false,
       mayFail: mayFail, rangeObserved: false, childObserved: false,
       badRange: false, badChild: false,
+      cellPolicy: 0, cells: Map(0 -> 0, 1 -> 0), expected: Map(0 -> 0, 1 -> 0),
+      written: Set(), scanned: Set(), badCellRoot: false,
   }
   // Private record fields are initialized before any imported publish action.
   // The later initializeRecord transition preserves that already-true bit.
@@ -129,4 +133,54 @@ module runtime_metadata_vm_publication {
   // This assumes terminating/fair leaf operations, not real GC/OS progress.
   temporal completion = weakFair(step, Set((M::s, R::publication, j)))
     .implies(eventually(terminal))
+
+  // Add VM-local payload observers to the same actual publication history.
+  // Tokens 1/2 belong to VMs 0/1; 0 is the initialized unbound cell. Legal
+  // execution ownership and this one-slot initialization are source premises.
+  // This does not model mutable payload races inside one VM or moving GC.
+  action initCells = all {
+    M::s' = metadataInitial(false), R::publication' = R::initial("fixed"),
+    j' = joinInitial(false),
+  }
+  action initAliasedCell = all {
+    M::s' = metadataInitial(false), R::publication' = R::initial("fixed"),
+    j' = { ...joinInitial(false), cellPolicy: 1 },
+  }
+  action initWrongVMScan = all {
+    M::s' = metadataInitial(false), R::publication' = R::initial("fixed"),
+    j' = { ...joinInitial(false), cellPolicy: 2 },
+  }
+  action writeVMCell(vm: int): bool = {
+    val target = if (j.cellPolicy == 1) 0 else vm
+    all {
+      M::s.publication.binding, R::publication.phase == "running",
+      not(j.written.contains(vm)), keepMetadata, keepConstructor,
+      j' = { ...j, cells: j.cells.set(target, vm + 1),
+        expected: j.expected.set(vm, vm + 1), written: j.written.union(Set(vm)) },
+    }
+  }
+  action scanVMCell(vm: int): bool = {
+    val source = if (j.cellPolicy == 2) 0 else vm
+    all {
+      j.written == Set(0, 1), not(j.scanned.contains(vm)),
+      keepMetadata, keepConstructor,
+      j' = { ...j, scanned: j.scanned.union(Set(vm)),
+        badCellRoot: j.badCellRoot or j.cells.get(source) != vm + 1 },
+    }
+  }
+  val vmCellIsolation = j.cells == j.expected
+  val vmCellRootSource = not(j.badCellRoot)
+  // Failed construction grants no child execution/scan obligation. Keep the
+  // actual catchup error branch instead of forcing success to prove progress.
+  val cellsTerminal = terminal and
+    (if (R::publication.phase == "error") j.written == Set() and j.scanned == Set()
+     else j.scanned == Set(0, 1))
+  action cellsStep = any {
+    all { not(terminal), step }, writeVMCell(0), writeVMCell(1),
+    scanVMCell(0), scanVMCell(1),
+    all { cellsTerminal, keepMetadata, keepConstructor, keepJoin },
+  }
+  val cellsSafe = safe and vmCellIsolation and vmCellRootSource
+  temporal cellsCompletion = weakFair(cellsStep, Set((M::s, R::publication, j)))
+    .implies(eventually(cellsTerminal))
 }

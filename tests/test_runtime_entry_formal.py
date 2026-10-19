@@ -56,7 +56,8 @@ class RuntimeEntryFormalTests(unittest.TestCase):
                         "bindingCoverageComposes", "localCoverageWithoutBindingBridge",
                         "checkedBucketAfterWait", "inBoundsBucketMayMiss",
                         "replayedSuffixMembership", "explicitReplayMayRepeat",
-                        "canonicalRecheckAgrees", "rehashMembershipPreserved"):
+                        "canonicalRecheckAgrees", "rehashMembershipPreserved",
+                        "vmCellWriteFrame"):
             self.assertIn(theorem, output)
         self.assertNotIn("sorryAx", output)
         for line in output.splitlines():
@@ -67,8 +68,8 @@ class RuntimeEntryFormalTests(unittest.TestCase):
         control = observe("false-claims", [*guarded, "controls/RuntimeEntryFalseClaims.lean"], 15)
         self.assertNotEqual(control.exit, 0)
         errors = control.stdout + control.stderr
-        self.assertEqual(errors.count("Tactic `decide` proved"), 14)
-        self.assertEqual(errors.count("is false"), 14)
+        self.assertEqual(errors.count("Tactic `decide` proved"), 15)
+        self.assertEqual(errors.count("is false"), 15)
         self.assertNotIn("failed to synthesize", errors)
         self.assertNotIn("unknown module", errors)
         self.assertEqual(inputs, {str(path.relative_to(ROOT)): digest(path) for path in files})
@@ -84,7 +85,8 @@ class RuntimeEntryFormalTests(unittest.TestCase):
                     if path:
                         self.assertTrue((document.parent / path).exists(), str(document) + ": " + target)
         for name in ("runtime-entry.manifest.json", "runtime-entry-wait.manifest.json",
-                     "runtime-entry-replay.manifest.json", "runtime-entry-canonical.manifest.json"):
+                     "runtime-entry-replay.manifest.json", "runtime-entry-canonical.manifest.json",
+                     "runtime-entry-cells.manifest.json"):
             manifest = json.loads((ROOT / "evidence/scenarios/parallel-gc" / name).read_text())
             for path, sha in manifest["contextInputs"].items():
                 self.assertEqual(digest(ROOT / path), sha, path)
@@ -132,7 +134,8 @@ class RuntimeEntryFormalTests(unittest.TestCase):
                            "ocaml-wait-contract", "ocaml-systhread-hooks", "gambit-native-allocation",
                            "reader-resumption", "reader-validation", "chez-continuation-lowering", "chez-control-entry",
                            "ocaml-continuation-use", "canonical-recipe", "canonical-validation", "canonical-protocol",
-                           "ocaml-named-registry"):
+                           "ocaml-named-registry", "vm-cell-recipe", "vm-cell-validation", "chez-symbol-payload",
+                           "ocaml-root-classification"):
                 withdrawn = dict(facts, source=[row for row in facts["source"] if row[0] != source])
                 missing, _ = evaluate(engine, withdrawn, catalog, queries)
                 self.assertIn("premise-source-missing", {row[1] for row in missing["transfer_unbound"]})

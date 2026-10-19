@@ -18,6 +18,8 @@ fallback implementations or requirements to keep defective SMP behavior.
 - [Resumption counterexamples, guarded proofs and preserved historical identities](reader-resumption-validation.md)
 - [Canonical registration: contending creators, commit outcomes and growth failure](canonical-registration-contract.md)
 - [Canonical controls, preserved VM composition and historical Reflection repair](canonical-registration-validation.md)
+- [Shared binding, VM cells and collector ownership](vm-cell-ownership-contract.md)
+- [VM-cell controls, admission-conditioned progress and source/proof limits](vm-cell-ownership-validation.md)
 - [SMP foundations and two implementation horizons](smp-design-foundations.md)
 - [Chez and OCaml transfer applicability](transfer-applicability.md)
 - [Runtime shared metadata and host entry contracts](runtime-entry-contracts.md)

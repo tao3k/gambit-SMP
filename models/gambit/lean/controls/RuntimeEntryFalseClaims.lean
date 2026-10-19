@@ -1,5 +1,7 @@
 import RuntimeEntryContracts
 
+example : (fun _ : Nat => 2) 0 = 1 := by decide
+
 example : (some 1 : Option Nat).getD 2 = 2 := by decide
 example : (2 : Nat) ∈ ([0, 1] : List Nat) := by decide
 

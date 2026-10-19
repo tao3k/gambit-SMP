@@ -197,6 +197,18 @@ theorem rehashMembershipPreserved {Identity : Type} (before after : List Identit
     identity ∈ before ↔ identity ∈ after := by
   exact layout.mem_iff
 
+-- Shared binding identity is not shared mutable VM payload. This functional
+-- frame rule is conditional on the actual compiled accessor selecting owner.
+theorem vmCellWriteFrame {VM Value : Type} [DecidableEq VM]
+    (cells : VM → Value) (owner : VM) (value : Value) :
+    let updated := fun vm => if vm = owner then value else cells vm
+    updated owner = value ∧ ∀ other, other ≠ owner → updated other = cells other := by
+  dsimp
+  constructor
+  · simp
+  · intro other different
+    simp [different]
+
 -- Preserve the established per-entry accounting theorem, not a new unwinder.
 theorem ownedNestedExitAccounting
     (a1 a2 r1 r2 : Nat) (e1 e2 d1 d2 : Int)
@@ -230,5 +242,6 @@ theorem ownedNestedExitAccounting
 #print axioms explicitReplayMayRepeat
 #print axioms canonicalRecheckAgrees
 #print axioms rehashMembershipPreserved
+#print axioms vmCellWriteFrame
 
 end GambitSMP.RuntimeEntryContracts
