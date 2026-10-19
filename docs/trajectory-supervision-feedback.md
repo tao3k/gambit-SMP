@@ -8,6 +8,45 @@ The generic ownership review belongs upstream in ASCENT:
 `docs/trajectory-supervision-feedback.md`. This file records its SMP application.
 Existing protocol and usage remain in [the application document](smp-trajectory-application.md).
 
+## 2026-10-19 Lifecycle Rollback And Performance Review
+
+Cumulative progress remains 8/12. The supervisor implemented the additional
+admission-prefix QNT, public-FFI fixture and conditional Lean accounting; Grok
+reviewed them rather than authoring a C repair or running the native tests.
+The current source already contains the audited prefix unwind. No duplicate C
+patch or repeated bootstrap is introduced. See the
+[source-bound record](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md).
+
+Grok's first audit exposed nontransferable constructor-model receipts and the
+prohibited RTLD_NEXT fixture. Its second audit limited the new native result to
+last-child rejection. The successor therefore covers every actual child-list
+position and post-rollback FFI reentry. Its performance audit found an overly
+general reading of the single-processor cost equality, absent cumulative QNT
+retry counters, and an unobserved untouched-suffix claim. These were corrected
+in the same models and declaration, not by a new Python inference layer.
+Grok's final three-file review reported no remaining contradiction or false
+performance claim within the explicit conditional scope.
+
+Final QNT exhausts 49 distinct states / 64 generated, queue zero, with safety,
+per-attempt and accumulated work plus conditional progress. Three deliberately
+broken policies produce their expected counterexamples. Eight explicit
+trajectories pass. The conditional Lean arbitrary-population/list-of-attempts
+proofs and false extra-reopen control pass through the existing process guard.
+Final stable model receipt SHA:
+`82a49b4cfb5fd82b972e18be673ea598191fe4762c427ca3c4b434400ec4502d`.
+
+The final frozen evidence, history, checkpoint, progressive-query and Lean
+regressions pass **72/72 in 235.605 seconds**. This is framework regression time,
+not native execution latency or a Gerbil/MCP benchmark. Test-log SHA:
+`9a31124c48b76954fe46f529ad3030a2f6a2c335f34d0a82132d267fa6c39b27`.
+The preceding 72-test attempt had 16 identity errors while a registered model
+binding changed and the immutable historical source lacked an archive mapping;
+it is not a pass. The exact original model is now retained at its original
+`db3b21e2...` hash for test-only historical projection. Historical view bytes,
+receipt hashes and production denial behavior are unchanged. The early Lean
+syntax rejection, manifest rejection and incomplete-state QNT failures are
+also retained; none supplies native or release admission.
+
 ## Evidence-Driven Entry Qualification
 
 The query entry now accepts one inert Scheme request or standard input. Query

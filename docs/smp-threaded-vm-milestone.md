@@ -2,6 +2,32 @@
 
 ## Current Milestone Checkpoint
 
+### 2026-10-19 Lifecycle Admission Rollback And Work Bound
+
+Cumulative progress remains **8/12**. A new current-source official-FFI test
+closes the precommit admission-prefix rollback branch at every child-list
+position, not the whole lifecycle gate. On this host, CPU-derived topology
+creates ten child VMs, ten real busy-rejection rounds and 100 post-rollback
+callback returns with rooted forced GC. Execution is **0.583235 seconds**;
+whole campaign **23.935027 seconds**, exit zero, no timeout. The smaller
+last-child predecessor executed in 0.889433 seconds; these are different
+workloads, not a measured speedup. All four build-prefix stages are reused;
+bootstrap is not repeated and no duplicate C repair is introduced.
+
+QNT jointly checks prefix rollback and per-attempt work, including a deliberately
+safety-preserving redundant-scan control. Eight trajectory tests pass. Conditional
+Lean arithmetic generalizes to arbitrary populations: frame probes plus gate
+operations are bounded by the processor-population sum plus twice the VM count,
+given single visits and single reopens. Lock waiting, hardware CAS retries, GC
+and OS scheduling are not bounded by these proofs; 0.8 seconds is not a release
+performance guarantee. Both proofs use the existing bounded framework.
+
+The remaining four gates and their precise uncovered branches are recorded in
+[the source-bound observation](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md).
+Constructor same-storage failure/retry, failed joins and sticky root failures
+keep lifecycle open. Complete GC/FFI, current Gerbil and release latency/build
+qualification remain open. No current-source full GSI/GSC/PR claim is inherited.
+
 ### 2026-10-19 Registry Lifetime Continuation
 
 Cumulative completion is **8/12**, within the declared source-bound registry
