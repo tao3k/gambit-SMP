@@ -10,7 +10,7 @@ module gsi_child_progress {
     runnerHashOk: bool, sourceHashOk: bool, reporterHashOk: bool,
     fileOriginal: bool, epochMatch: bool, kind: str,
     sample: int, cursor: int,
-    collectionComplete: bool, reportForwarded: bool,
+    collectionComplete: bool, reportForwarded: bool, reportFramed: bool,
     gcReportEnabled: bool, attested: bool, completedFlag: bool,
     interferenceDisclosed: bool, claimsMutator: bool, mutatorKnown: bool,
     vmAlloc: int, observerAlloc: int, stockReadUntilEof: bool,
@@ -28,7 +28,7 @@ module gsi_child_progress {
     runnerHashOk: true, sourceHashOk: true, reporterHashOk: true,
     fileOriginal: true, epochMatch: true, kind: "gc-collection",
     sample: sample, cursor: cursor,
-    collectionComplete: true, reportForwarded: true,
+    collectionComplete: true, reportForwarded: true, reportFramed: true,
     gcReportEnabled: true, attested: true, completedFlag: true,
     interferenceDisclosed: true, claimsMutator: false, mutatorKnown: false,
     vmAlloc: 2, observerAlloc: 1, stockReadUntilEof: false,
@@ -50,6 +50,9 @@ module gsi_child_progress {
     collectionComplete: false, reportForwarded: false
   }
   action initIncompleteGc = s' = { ...accepted(1, 0), collectionComplete: false }
+  // Native reports may interleave even though collections really completed.
+  // Completion does not authenticate the transport record carrying it.
+  action initInterleavedGc = s' = { ...accepted(1, 0), reportFramed: false }
   action initHiddenInterference = s' = {
     ...accepted(1, 0), mode: "hidden", gcReportEnabled: false,
     interferenceDisclosed: false
@@ -93,7 +96,7 @@ module gsi_child_progress {
   val collectionHeld =
     s.kind == "gc-collection" and s.collectionComplete and
     s.reportForwarded and s.gcReportEnabled and s.attested and s.completedFlag
-  val streamHeld = s.reportForwarded and not(s.stockReadUntilEof)
+  val streamHeld = s.reportForwarded and s.reportFramed and not(s.stockReadUntilEof)
 
   val identitySafe = not(s.renewed) or identityHeld
   val sourceSafe = not(s.renewed) or sourceHeld
@@ -109,6 +112,7 @@ module gsi_child_progress {
      s.sample <= 1 and strictAdvance)
   val livenessSafe = not(s.forcedNext)
   val streamSafe = not(s.renewed) or streamHeld
+  val framingSafe = not(s.renewed) or s.reportFramed
 
   val safe =
     (not(s.renewed) or (

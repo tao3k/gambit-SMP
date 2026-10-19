@@ -91,3 +91,37 @@ build-cost job was skipped. This does not close native SMP qualification.
 The native GitHub workflow still selects the older owner-limit source; its
 failures must not be presented as acceptance or rejection of the newer local
 collective-wait candidate. No CI gate was suppressed to hide that distinction.
+
+## Native counterexample feedback
+
+The subsequent report-framing control distinguishes a completed collection
+from a trustworthy record of that collection. Current QNT qualification accepts
+one positive and twelve decoded negative controls, including native interleaving:
+`b30a099d412a631ceca49f0f2b972d2c839f3d4d31dcb806347412918c0dc9a1`.
+The positive abstraction has only two distinct states; it is not a concurrent
+runtime refinement or a noninterference proof. Eight child-progress tests pass;
+the accompanying focused checkpoint/Clue run passes 62 tests. These are focused
+follow-up checks, not a second full 1787-test run.
+
+The latest native DENY is a registered source-bound counter-observation under
+the existing progress claim. Related TFIB queries can expand that record and
+retain their checkpoint; no additional Python evaluator or CLI was introduced.
+The missing premise remains visible rather than silently upgrading the observer
+to reliable mutator progress.
+
+## Remaining cumulative milestones
+
+Historical completion remains 6/12, independently of cache retention.
+
+| Open obligation | Current boundary |
+| --- | --- |
+| Original interpreted stress | Latest continuation completed zero of four files; target-child framing and useful-progress attribution remain open. |
+| Shared-registry lifetime | Current-candidate concurrent resize/reuse and retirement qualification is incomplete. |
+| Lifecycle failure/rollback | Complete current-candidate failure campaign remains incomplete; no forbidden interposition fixture is substituted. |
+| GC/FFI | Complete root, transfer, publication and foreign-interaction qualification remains open. |
+| Gerbil correctness | Current-candidate staging and complete real-package acceptance remain open. |
+| Release performance | Current-producer cold build/test and complete concurrent-VM latency populations remain unqualified. |
+
+Current-source inventory/PR requalification is distinct from those cumulative
+historical counts. The retained compiled four-file PASS does not admit the
+interpreted inventory or any other obligation.

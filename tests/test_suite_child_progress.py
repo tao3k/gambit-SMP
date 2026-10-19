@@ -63,6 +63,15 @@ class ChildProgressTests(unittest.TestCase):
         self.assertEqual(observed("", text), 1)
         self.assertEqual(observed("", text + self.line(2).replace("1M alloc", "-272539.0K alloc")), 2)
 
+    def test_native_interleaved_completed_reports_do_not_renew(self):
+        observed = self.observer()
+        begin = "SMP-CHILD nonce 123 unit-tests/first.scm\n"
+        complete = self.line(1)
+        corrupted = complete.replace("1M alloc", "49M alloc, 30M heap, 7.*** GC: 1.9ms, 53M alloc")
+        self.assertEqual(observed("", begin + corrupted), 0)
+        self.assertEqual(observed.errors, ["incomplete-or-unknown-gc-report"])
+        self.assertEqual(observed("", begin + corrupted + self.line(2)), 1)
+
     def test_new_child_has_distinct_epoch_not_a_restored_live_actor(self):
         observed = self.observer()
         text = "SMP-CHILD nonce 123 unit-tests/first.scm\n" + self.line(9)

@@ -178,3 +178,16 @@ an interpreted native-test observation procedure, not Evidence DSL or a second
 query engine. Python binds safe launch metadata and transports complete child
 records into the registered Scheme Session. No downstream package compilation
 or Python Scheme parser was added.
+
+## Native report-framing counterexample
+
+The subsequent host-capacity run contains interleaved and truncated reports;
+see `host-capacity-child-progress-result.md`. A completed collection and an
+authentic child identity do not by themselves authenticate a complete record.
+The model now represents this independently as `reportFramed` and checks an
+`initInterleavedGc` negative control against `framingSafe`. The current positive
+and all twelve negative controls have accepted outcomes; receipt SHA-256:
+`b30a099d412a631ceca49f0f2b972d2c839f3d4d31dcb806347412918c0dc9a1`.
+The decoder regression rejects the same structural corruption without renewing
+the cursor, then accepts a subsequent properly framed report. Neither check
+establishes that the observed process must emit another report or finish TFIB.
