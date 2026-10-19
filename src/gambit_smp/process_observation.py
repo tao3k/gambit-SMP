@@ -1,6 +1,7 @@
 """Bounded process observations with distinct stdout, stderr and final exit."""
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
+from copy import deepcopy
 from datetime import datetime, timezone
 import os
 import math
@@ -21,6 +22,51 @@ class Observation:
     ended_at: str
     group_quiescent: bool | None
     group_probes: tuple[str, ...] = ()
+
+
+class EvidenceProgress:
+    """Transport caller observations through an existing Scheme Session.
+
+    The observer owns collection, not admission. Cursor rows are the existing
+    checkpoint facts: restoring them never counts as newly completed work.
+    """
+    observation_relations = frozenset(("progress_sample", "progress_attested", "progress_completed"))
+
+    def __init__(self, session, facts, observer):
+        self.session, self.facts, self.observer = session, deepcopy(facts), observer
+        self.cursor = {tuple(row[:-1]): list(row) for row in facts.get("progress_cursor", [])}
+        if len(self.cursor) != len(facts.get("progress_cursor", [])):
+            raise ValueError("one checkpoint cursor per progress stream required")
+        self.renewals = 0
+        self.witness = None
+
+    def __call__(self, stdout, stderr):
+        observations = self.observer(stdout, stderr)
+        if set(observations) - self.observation_relations:
+            raise ValueError("collector cannot replace declared progress context")
+        observations = {name: deepcopy(observations.get(name, []))
+                        for name in self.observation_relations}
+        facts = dict(self.facts, **observations)
+        facts["progress_cursor"] = list(self.cursor.values())
+        self.session.replace(facts)
+        result = self.session.run()
+        if not result["complete"]:
+            raise ValueError("incomplete progress inference cannot renew a watchdog")
+        handle = self.session.result(result)
+        try:
+            advanced = result["relations"]["progress_advanced"]
+            self.witness = {"observations": deepcopy(observations),
+                            "cursorBefore": deepcopy(facts["progress_cursor"]),
+                            "advanced": deepcopy(advanced),
+                            "rejected": deepcopy(result["relations"]["progress_rejected"])}
+            for row in advanced:
+                self.cursor[tuple(row[:5])] = [*row[:5], row[6]]
+            self.witness["cursorAfter"] = deepcopy(list(self.cursor.values()))
+            if advanced:
+                self.renewals += 1
+        finally:
+            handle.close()
+        return self.renewals
 
 
 def probe_group(pid, deadline):
@@ -46,18 +92,23 @@ def probe_group(pid, deadline):
         time.sleep(min(0.01, remaining))
 
 
-def communicate_progress(process, window, progress):
+def communicate_progress(process, window, progress, *, recorder=None, token=None):
     """Renew only for a strictly increasing completed-work counter."""
     last, completed = time.monotonic(), 0
 
     def observe(stdout, stderr):
         nonlocal last, completed
+        observed_at = time.monotonic()
         text = lambda value: value.decode(errors="replace") if isinstance(value, bytes) else value or ""
         count = progress(text(stdout), text(stderr))
         if type(count) is not int or count < 0:
             raise ValueError("nonnegative completed-work count required")
         if count > completed:
-            completed, last = count, time.monotonic()
+            if recorder is not None:
+                recorder("progress", token, {"count": count,
+                         "observedMonotonic": observed_at,
+                         "witness": getattr(progress, "witness", None)})
+            completed, last = count, observed_at
 
     while True:
         remaining = window - (time.monotonic() - last)
@@ -94,7 +145,8 @@ def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, r
         if progress is not None:
             if diagnostic is not None:
                 raise ValueError("progress and stack-sampling transports must be selected separately")
-            stdout, stderr = communicate_progress(process, budget, progress)
+            stdout, stderr = communicate_progress(process, budget, progress,
+                                                  recorder=recorder, token=token)
         elif diagnostic is not None:
             try:
                 stdout, stderr = process.communicate(timeout=min(budget, diagnostic["afterSeconds"]))

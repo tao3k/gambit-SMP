@@ -141,6 +141,41 @@ class ArtifactStorageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 observation_root(root, root / ".cache/run")
 
+    def test_stale_custody_does_not_erase_material_observation_or_grant_reuse(self):
+        from gambit_smp.framework import digest
+        from gambit_smp.artifact_storage import seal_workspace_state
+        from gambit_smp.recipes import inspect_outputs, tree_identity
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            source = root / "evidence/source.c"
+            source.parent.mkdir()
+            source.write_text("original source")
+            run = root / ".cache/run"
+            workspace = run / "workspace"
+            workspace.mkdir(parents=True)
+            generated = workspace / "generated.c"
+            generated.write_text("generated fixture")
+            state = seal_workspace_state(root, workspace,
+                root / ".cache/research/workspace-states/unit.json",
+                {"evidence/source.c": digest(source)})
+            steps = [{"id": "source", "outputs": {"source": {
+                "path": "workspace", "identity": tree_identity(workspace),
+                "stateEvidence": state}}}]
+            source.write_text("changed source")
+            for expected, action in (
+                ("AVAILABLE", lambda: None),
+                ("MODIFIED", lambda: generated.write_text("changed material")),
+                ("MISSING", lambda: (generated.unlink(), workspace.rmdir())),
+            ):
+                with self.subTest(material=expected):
+                    action()
+                    result = inspect_outputs(run, steps, root=root)
+                    self.assertEqual(result["status"], "UNKNOWN")
+                    row = result["outputs"][0]
+                    self.assertEqual(row["status"], "UNKNOWN")
+                    self.assertEqual(row["materialStatus"], expected)
+                    self.assertEqual(row["custodyStatus"], "UNVERIFIED")
+
     def test_runtime_outputs_stay_outside_git_sources(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self.repository(directory)

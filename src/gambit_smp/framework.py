@@ -165,7 +165,8 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
             output, _ = process.communicate(timeout=timeout)
         else:
             from gambit_smp.process_observation import communicate_progress
-            output, _ = communicate_progress(process, timeout, progress_check)
+            output, _ = communicate_progress(process, timeout, progress_check,
+                                              recorder=process_recorder, token=token)
     except subprocess.TimeoutExpired:
         try:
             completed = completion_check is not None and completion_grace > 0 and completion_check()

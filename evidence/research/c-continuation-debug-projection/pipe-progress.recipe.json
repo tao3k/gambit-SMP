@@ -1,0 +1,151 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "debug-projection-pipe-checked-progress",
+  "scope": "Diagnostic derived from the retained PR1037 per-read-deadline fixture: all three pipe types, 10000 round trips per pipe, pinning, joins and original assertions retained. Only checked client echoes update a small sidecar every 1000 completions. Sidecar writes do not renew the original 300-second suite inactivity watchdog. This cannot qualify the original unit or stress inventory.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-stack-prepare-origin/source.lock.json",
+    "patches/fixtures/darwin-stack-prepare-origin.patch",
+    "evidence/fixtures/darwin-stack-prepare-origin/review-contract.json",
+    "evidence/research/current-source-full-bootstrap/darwin-stack-prepare-origin-completed-producer.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss",
+    "models/gambit/btq_queue_relocation.qnt",
+    "evidence/fixtures/darwin-ffi-return-premise/btq-value-classification.json",
+    "models/gambit/captured_heap_frame_operations.qnt",
+    "evidence/fixtures/darwin-btq-public-provenance/kernel-heap-frame-symbolization.json",
+    "evidence/fixtures/darwin-frame-ra-boundary/native-observation.json",
+    "models/gambit/stack_allocator_frame_lifetime.qnt",
+    "evidence/fixtures/darwin-gc-complete-probe-round/model-observation.json",
+    "evidence/fixtures/darwin-heap-frame-identity/native-observation.json",
+    "evidence/research/producer-decision-rules.ss",
+    "models/gambit/gc_scan_probe_round.qnt",
+    "models/gambit/gc_recheck_visibility.qnt",
+    "models/gambit/shared_msection_successor.qnt",
+    "evidence/fixtures/darwin-gc-complete-probe-round/native-observation.json",
+    "models/gambit/shared_section_undo_bounds.qnt",
+    "evidence/fixtures/darwin-shared-successor-snapshot/native-observation.json",
+    "models/gambit/shared_header_write_boundary.qnt",
+    "evidence/fixtures/darwin-shared-stack-reservation/native-observation.json",
+    "models/gambit/msection_header_page_guard.qnt",
+    "docs/msection-header-page-guard.md",
+    "evidence/fixtures/darwin-gc-header-write-boundary/native-observation.json",
+    "models/gambit/stack_trip_owner_limit.qnt",
+    "docs/stack-trip-owner-limit.md",
+    "evidence/fixtures/darwin-msection-header-page-guard/first-stack-write.json",
+    "evidence/research/current-source-full-bootstrap/owner-limit-milestone-rules.ss",
+    "models/gambit/stack_write_poll_coverage.qnt",
+    "docs/stack-write-poll-coverage.md",
+    "evidence/fixtures/darwin-stack-write-boundary/model-observation-20261016.json",
+    "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json",
+    "evidence/fixtures/darwin-stack-debug-projection/source.lock.json",
+    "patches/fixtures/darwin-stack-debug-projection.patch",
+    "evidence/research/c-continuation-debug-projection/completed-producer.json",
+    "evidence/research/stack-call-boundary-reserve/model-observation.json",
+    "models/gambit/c_continuation_label_partition.qnt",
+    "models/gambit/gvm_poll_dominance.qnt",
+    "evidence/research/c-continuation-label-partition/model.manifest.json",
+    "evidence/research/gvm-poll-dominance/model.manifest.json",
+    "evidence/research/stack-call-boundary-reserve/native-observation.json",
+    "evidence/research/c-continuation-debug-projection/materialization-custody.json",
+    "models/gambit/c_continuation_debug_projection.qnt",
+    "evidence/research/c-continuation-debug-projection/model.manifest.json",
+    "evidence/research/c-continuation-debug-projection/bootstrap-observation.json",
+    "models/gambit/native/pr1037/pipe_concurrent_progress.scm",
+    "models/gambit/workload_completion_visibility.qnt",
+    "models/gambit/native/pr1037/pipe_concurrent_read_deadline.scm",
+    "evidence/research/c-continuation-debug-projection/complete-gsi-observation.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-debug-projection/source.lock.json",
+        "workspace": ".cache/fixtures/stack-padding-step-bootstrap/current-source",
+        "cacheReceipt": "evidence/research/c-continuation-debug-projection/materialization-custody.json"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/c-continuation-debug-projection/completed-producer.json"
+      }
+    },
+    {
+      "id": "pipe-progress",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "inventory": "unit",
+        "selection": [
+          "diagnostic/pipe_concurrent_progress.scm"
+        ],
+        "expectedFiles": [
+          "diagnostic/pipe_concurrent_progress.scm"
+        ],
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {
+          "diagnostic/pipe_concurrent_progress.scm": {
+            "source": "models/gambit/native/pr1037/pipe_concurrent_progress.scm",
+            "sha256": "a4b6b5c211265dc4e6d34fa5be17bb35cbd68a845581df2e2b1fd77396e3e5cf"
+          }
+        },
+        "observationFiles": {
+          "diagnostic/pipe_concurrent_progress.scm": "observations/pipe-progress.json"
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "pipe-progress"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

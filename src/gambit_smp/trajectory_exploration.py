@@ -273,6 +273,28 @@ def clues(root, scope, snapshot, question, engine, *, proposed=(), bindings=(),
                 historicalClues=historical)
 
 
+def _repository_snapshot(root):
+    """Bind the current registry for both discovery and evidence reads."""
+    from gambit_smp.evidence_views import registry, load
+    from gambit_smp.recipes import source_path
+
+    names, inputs = registry(root)
+    views = []
+    for name in names:
+        path = source_path(root, name)
+        identity = digest(path)
+        document = json.loads(path.read_text())
+        if not {"clue", "factor", "link"}.issubset(document["queries"]):
+            continue
+        _, _, _, bound = load(root, name)
+        if bound[str(path)] != identity:
+            raise ValueError("Evidence declaration changed during query binding")
+        inputs.update(bound)
+        views.append(dict(id=document["id"], path=name, queries=document["queries"], inputs=bound))
+    return dict(evidenceViews=views, inputs=inputs, sourceIdentity=fingerprint(inputs),
+                executionAuthorized=False)
+
+
 def repository_clues(root: str | Path = ".", question: str | Sequence[str] | None = None,
                      engine: object = None, *,
                      bindings: Sequence[tuple[str, str]] | None = None, expansions: Sequence[str] | None = None,
@@ -395,11 +417,10 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
             return repository_clues(root, question, bound_engine, bindings=bindings,
                 expansions=expansions, checkpoint=checkpoint, display_bytes=display_bytes,
                 selector=selector, constructor=constructor)
-    from gambit_smp.evidence_views import registry, load
     from gambit_smp.recipes import source_path
 
     root = Path(root).resolve()
-    names, inputs = registry(root)
+    snapshot = _repository_snapshot(root)
     if bindings and selector is None:
         if question:
             raise ValueError("use an exact question or relational bindings, not both")
@@ -410,20 +431,6 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
         path = source_path(root, selection["source"])
         selector = path.read_text()
         constructor = selection["constructor"]
-    views = []
-    for name in names:
-        path = source_path(root, name)
-        identity = digest(path)
-        document = json.loads(path.read_text())
-        if not {"clue", "factor", "link"}.issubset(document["queries"]):
-            continue
-        _, _, _, bound = load(root, name)
-        if bound[str(path)] != identity:
-            raise ValueError("Evidence declaration changed during query binding")
-        inputs.update(bound)
-        views.append(dict(id=document["id"], path=name, queries=document["queries"], inputs=bound))
-    snapshot = dict(evidenceViews=views, inputs=inputs, sourceIdentity=fingerprint(inputs),
-                    executionAuthorized=False)
     owner = _native_exchange(root, snapshot, engine)
     request = dict(displayBytes=display_bytes)
     if expansions is not None:
@@ -459,21 +466,23 @@ def catalog(root, context_path=None, *, factor=None):
 
     root = Path(root).resolve()
     if context_path is None:
+        from gambit_smp.ascent_program import engine_api
+
+        snapshot = _repository_snapshot(root)
+        pairs = []
+        if snapshot["evidenceViews"]:
+            with engine_api() as (engine, _):
+                pairs = _native_exchange(root, snapshot, engine).inventory()["factors"]
+        result = dict(catalogIdentity=snapshot["sourceIdentity"],
+                      factorNames=sorted({name for name, _ in pairs}),
+                      inventoryComplete=False,
+                      clueExchangeAvailable=bool(snapshot["evidenceViews"]),
+                      executionAuthorized=False, runtimeAdmitted=False)
         if factor is not None:
-            raise ValueError("factor inventory requires a selected context")
-        contexts = []
-        for path in sorted((root / "evidence/scenarios").glob("**/*action-context*.json")):
-            path = source_path(root, str(path.relative_to(root)))
-            identity = digest(path)
-            document = json.loads(path.read_text())
-            views = document.get("views", [])
-            if not isinstance(views, list) or any(not isinstance(view, str) for view in views):
-                raise ValueError("context requires a declared view inventory")
-            if digest(path) != identity:
-                raise ValueError("context changed during discovery")
-            contexts.append(dict(path=str(path.relative_to(root)), sha256=identity,
-                                 declaredViews=len(views)))
-        return dict(contexts=contexts, executionAuthorized=False, runtimeAdmitted=False)
+            result.update(factor=factor,
+                          values=sorted({value for name, value in pairs if name == factor}))
+        _current(snapshot)
+        return result
 
     from gambit_smp.ascent_program import engine_api
     from gambit_smp.evidence_views import load
@@ -519,11 +528,11 @@ def argument_parser():
                "No flag inventory, catalog or Context selection is required. "
                "context reads retained scoped history only. Reads neither choose nor authorize actions.")
     operations = parser.add_subparsers(dest="operation", required=True)
-    inventory = operations.add_parser("catalog", help="discover contexts, queries and declared factors",
-        description="Without --context, list repository Evidence contexts. With --context, read query names "
-                    "and known factor names; --factor reads its known values. Inventories are not exhaustive "
+    inventory = operations.add_parser("catalog", help="discover current DSL-projected factor names and values",
+        description="Read factor names from the current registered Evidence; --factor reads its known values. "
+                    "An optional --context restricts discovery to that caller-owned declaration. Inventories are not exhaustive "
                     "and do not restrict new questions or factors.")
-    inventory.add_argument("--context", type=Path, help="caller-owned Evidence context from the catalog")
+    inventory.add_argument("--context", type=Path, help="optional caller-owned Evidence context")
     inventory.add_argument("--factor", help="read known values of this factor, not all evidence")
     descriptions = {
         "context": "read scoped retained history (--scope required with --context), not repository Evidence",
@@ -554,8 +563,19 @@ Include (expand ("CLAIM-OR-REFERENCE")) for arbitrary evidence expansion.
 Result: inert Scheme data containing brief evidence and its checkpoint token.
 
 The same request accepts questions, selector, constructor and displayBytes.
-selector is caller-written Scheme/Datalog, replacing the registered association;
-its variables may discover facts without prior identifiers. The complete DSL
+questions contains exact claim identifiers, NOT natural-language search terms.
+An unknown claim is unresolved, not evidence that the repository lacks facts.
+expand opens returned claim/reference identities; an unknown claim's digest is
+not a discovered evidence identifier. checkpoint preserves reads, not query fit.
+
+selector is caller-written Scheme/Datalog, replacing the registered association.
+Its variables can discover factor names, values and claims without identifiers:
+clue(id,digest,claim,polarity,role,source), factor(id,digest,name,value),
+attested(id,digest,receipt), binding(name,value). Join by both id AND digest;
+declare sources and outputs, including the question(claim) selection relation.
+Use (include clue-selection-schema) for these input relation declarations.
+Additional output relations may expose discovery witnesses without selecting
+every claim. No keyword or semantic matching is performed. The complete DSL
 contract is available with: from gambit_smp import repository_clues; help(repository_clues).
 repository_clues is a callable export, not an importable submodule.
 Presentation capacity never limits inference or exploration. Only complete shown

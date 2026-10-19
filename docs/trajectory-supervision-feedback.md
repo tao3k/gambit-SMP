@@ -82,6 +82,58 @@ successful new-Evidence continuation
 
 ## Observations, Not An Efficiency Claim
 
+### Predicate-Lock Native Follow-Through
+
+The debug-projection source remains lock `7e59221a...`. Its completed two-pass
+bootstrap was reused, not rebuilt unchanged. A new complete GSI/PR campaign
+retained all 380 files and six derived OS/PR fixtures: 369 files completed,
+`09-io/pipe_concurrent.scm` timed out, and ten following files were not executed.
+The stage took 304.633 seconds; the whole attempt took 314.801 seconds. Source,
+producer, environment and causal review passed. Native admission did not.
+The initial sandbox attempt failed at `open-udp` before the suite launched;
+its receipt remains separate from the actual host campaign.
+
+The public pipe diagnostic retained three 10000-round-trip loops, deadlines,
+pinning, joins and assertions. It recorded at least 1000 checked echoes on the
+first pipe, then timed out: 304.026 seconds for the stage and 325.700 seconds
+whole. Sidecar writes never renewed the original 300-second suite watchdog.
+The first diagnostic attempt failed on its relative helper include, before
+workload execution; that failure remains retained. The corrected diagnostic
+used eleven host-derived processors, not the full suite's three, so it is not
+a matched reproduction or an original-suite pass. Its last recorded chunk is
+not the precise stalled instruction or iteration.
+
+The continuing Grok session queried with its retained checkpoint on its first
+related call, but a later 16-turn window made 33 public tool calls without a
+source edit. An 18-turn source-audit window likewise made 40 calls without an
+implementation. These windows are failures of follow-through, not runtime
+counterexamples. The old metadata audit existed in Git but was not referenced
+by the current candidate slice; its checked historical reference and explicit
+source obligations are now registered. This makes it reusable, not compulsory
+or immune from a fresh audit.
+
+Grok also confused the runner's explicit `-:p1` with the fixture population.
+The actual fixture inherited `GAMBOPT=p3`, with `PROCESSORS:3` confirmed by the
+probe. The current native observation and DSL now distinguish those roles.
+The small `native_execution_population_identity` model checks that evidence
+contract: 18 healthy states and a three-state wrong-role counterexample, both
+with the expected result. It does not guarantee Agent understanding or prove
+GC correctness. A later query again reused a checkpoint and retrieved the new
+native record, but its window ended while polling; an explicit public
+retraction was not established by that window.
+
+The source audit exposes a separate hypothesis: mutex/condvar waits still
+use the raw ticket-lock path, whereas thread/processor waits use the existing
+sync-only helper. A predicate owner awaiting collective GC and a peer spinning
+for its lock can form a missing-participant cycle. Model composition, moving
+roots, callback exclusion and fairness assumptions must be checked before
+admitting a repair; neither timeout establishes this as its cause.
+
+Cumulative progress remains 6/12. The six remaining obligations are interpreted
+stress, registry lifetime, lifecycle failure/rollback, GC/FFI, Gerbil correctness
+and release performance. Current-source GSI and compiled-stress requalification
+are also incomplete; retaining cumulative milestones does not label them green.
+
 ### Publication And Native Follow-Through
 
 The exact-head framework CI for `f84eb66` failed before running tests:
@@ -256,3 +308,31 @@ The immediate expected architectural benefit is extending this case without
 another Python domain edit. Real acceptance requires observable Grok queries,
 traceable slices and useful continuation, followed separately by native repair.
 No new efficiency or native correctness result is claimed by this document.
+
+### Predicate Repair Native Qualification
+
+Source lock `405d1b9...` integrates the mutex/condvar contention delta. The
+supervisor implemented and integrated the bounded delta and QNT controls after
+the earlier Grok write windows did not produce an edit; Grok performed the
+generated-C and caller audit. This attribution is distinct from tool-query use.
+
+Two-pass bootstrap passed (whole 274.541 s). Original GSC stress passed all four
+files (whole 65.528 s); original GSI stress did not pass (whole 310.178 s): two
+interrupt files passed, TFIB timed out, and terminate was not executed. Complete
+GSI/PR again timed out on pipe (whole 321.182 s; 369 passed, 10 not executed).
+The exact portable observations and remaining six obligations are in
+`evidence/research/pipe-predicate-sync-participation/qualification-status.md`.
+This is partial native qualification, not a release patch or SMP full pass.
+
+The later Grok counter-audit used a source-identity Clue query as its first tool
+call, obtained the registered native counter and followed source references.
+It found the separate thread-end/BTQ-abandon reverse lock order, while expressly
+not attributing TFIB's timeout to it. This is a concrete source-audit outcome,
+not a claim that first-query success proves overall Agent efficiency.
+
+Domain additions remained in existing View declarations and source/model
+evidence. No Python implementation or new query interface was added. Failed
+schema/View checks were retained in local validation logs and corrected without
+weakening the tests. Finite controls do not cover complete termination/abandon
+publication, all resize/error paths, or unbounded starvation; those gaps remain
+visible instead of being promoted to source or native acceptance.

@@ -565,12 +565,14 @@ class ExecutionContext:
 
             def observe(stdout, stderr):
                 count = progress(stdout, stderr)
+                observe.witness = getattr(progress, "witness", None)
                 if count > completed[0]:
                     completed[0] = count
                     self.renew_progress()
                     target = self.directory / (name + ".progress.json")
                     pending = target.with_suffix(".pending")
-                    pending.write_text(json.dumps({"schema": "native-completed-progress.v1", "completed": count}))
+                    pending.write_text(json.dumps({"schema": "native-completed-progress.v1", "completed": count,
+                                                   "witness": observe.witness}))
                     pending.replace(target)
                 return count
 
@@ -709,6 +711,8 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
     rows = []
     for index, step in enumerate(steps):
         for name, descriptor in step.get("outputs", {}).items():
+            material_state = "UNKNOWN"
+            custody_state = "UNVERIFIED" if "stateEvidence" in descriptor else "NOT_REQUIRED"
             try:
                 path = artifact_path(out, descriptor, root=root)
                 if not path.exists():
@@ -719,10 +723,12 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                     matches = (digest(path) == descriptor["sha256"] and
                                path.stat().st_mode & 0o777 == descriptor.get("mode", path.stat().st_mode & 0o777))
                     state = "AVAILABLE" if matches else "MODIFIED"
+                material_state = state
                 if "stateEvidence" in descriptor and root is not None:
                     from gambit_smp.artifact_storage import checked_workspace_state
                     checked_workspace_state(root, descriptor["stateEvidence"], descriptor["identity"],
                                             input_bindings=input_bindings)
+                    custody_state = "VERIFIED"
                     successors = [item for later in steps[index + 1:] if later.get("outcome") == "PASS"
                                   for item in later.get("outputs", {}).values()
                                   if item.get("workspace", item.get("path")) == descriptor.get("workspace", descriptor["path"])
@@ -732,7 +738,8 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                         state = "RETAINED"
             except (KeyError, TypeError, ValueError, OSError):
                 state = "UNKNOWN"
-            rows.append({"step": step["id"], "output": name, "status": state})
+            rows.append({"step": step["id"], "output": name, "status": state,
+                         "materialStatus": material_state, "custodyStatus": custody_state})
     states = {row["status"] for row in rows}
     status = next((state for state in ("UNKNOWN", "MODIFIED", "MISSING") if state in states), "AVAILABLE")
     if status == "AVAILABLE" and "RETAINED" in states:

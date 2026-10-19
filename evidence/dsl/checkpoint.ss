@@ -5,11 +5,15 @@
            binding required_binding current_binding command command_observation
            prerequisite quiescent material available withdrawn
            required_step recorded_failure campaign_pass receipt_checked
-           output_retained execution_quiescent campaign_required campaign_enumerated)
+           output_retained execution_quiescent campaign_required campaign_enumerated
+           progress_contract progress_active progress_cursor progress_sample
+           progress_attested progress_completed)
   (outputs historical_complete reusable support_declaration support_witness closed_support
            satisfied artifact_unavailable historical_only unresolved invalidated failed
-           campaign_reusable invalidated_by binding_gap enumeration_gap unclosed material_gap completion_gap applicable consumable)
+           campaign_reusable invalidated_by binding_gap enumeration_gap unclosed material_gap completion_gap applicable consumable
+           progress_frontier progress_advanced progress_rejected)
   (include evidence-checkpoint-fragment)
+  (include evidence-progress-fragment)
   (fact (completed_outcome (lit "PASS")))
   (relation required_step (step))
   (relation recorded_failure (step outcome))

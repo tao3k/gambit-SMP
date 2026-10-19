@@ -381,7 +381,8 @@ def load_component_catalog(manifest_path, *, entry, constructor=None, arguments=
         with engine.components(manifest, sources, entry, trusted=True) as module:
             selected = set(module.components)
     components = [component for component in manifest["components"] if component["id"] in selected]
-    names = {component["source"] for component in components}
+    # Declaration order is part of the native read contract across processes.
+    names = list(dict.fromkeys(component["source"] for component in components))
     manifest = {**manifest, "components": components}
     sources = {name: sources[name] for name in names}
     inputs = {str(manifest_path): inputs[str(manifest_path)],

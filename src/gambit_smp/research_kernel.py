@@ -115,8 +115,13 @@ def process_recorder(root, run, journal, *, owner_path=None, deadline=None):
         payload = {"schema": "research-process-observation.v1", "runId": header["runId"],
                    "header": journal, "event": event, "token": token,
                    "clockEpoch": clock_epoch(), **fields}
+        suffix = event
+        if event == "progress":
+            if type(fields.get("count")) is not int or fields["count"] <= 0:
+                raise ValueError("positive progress observation sequence required")
+            suffix += "-" + str(fields["count"])
         target = (owner_path if event == "started" and owner_path is not None else
-                  run / ("process-" + token + "-" + event + ".json"))
+                  run / ("process-" + token + "-" + suffix + ".json"))
         while True:
             try:
                 return retain_run_record(root, target, journal["scope"], payload, header["inputs"])

@@ -138,6 +138,7 @@ def regenerate_module(stages, source, name, budget):
 
 def rebuild_source_core(stages, source, budget):
     deadline = time.monotonic() + budget
+    progress_timed = getattr(stages, "progress_mode", False)
     plan = build_capacity(available_processors())
     scheme = {str(path.relative_to(source)): digest(path)
               for folder in ("lib", "gsi", "gsc") for path in (source / folder).glob("*.scm")}
@@ -152,10 +153,14 @@ def rebuild_source_core(stages, source, budget):
     retained = [name for name in generated if (source / name).exists()]
     if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
         return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
-    remaining = deadline - time.monotonic()
+    remaining = budget if progress_timed else deadline - time.monotonic()
     if remaining <= 0:
         return False, {"scmRegenerationEstablished": False, "wholeBudgetExhausted": True}
-    code, log, timeout, _ = stages.run("source-core", core_command(plan), source, remaining)
+    argv = core_command(plan)
+    if progress_timed:
+        argv.insert(1, "--debug=b")
+    code, log, timeout, _ = stages.run("source-core", argv, source, remaining,
+        **({"progress": CoreBuildProgress()} if progress_timed else {}))
     missing = [name for name in generated if not (source / name).is_file()]
     stable = all(digest(source / name) == expected for name, expected in scheme.items())
     artifacts = {name: digest(source / name) for name in ("gsi/gsi", "gsc/gsc", "lib/libgambit.a")
@@ -166,5 +171,6 @@ def rebuild_source_core(stages, source, budget):
         "generatedSources": generated, "missingGeneratedSources": missing,
         "generatedHashes": {name: digest(source / name) for name in generated if (source / name).is_file()},
         "recursiveBuildErrors": errors, "artifacts": artifacts,
+        "watchdogKind": "completed-native-target-inactivity" if progress_timed else "wall-clock",
         "scmRegenerationEstablished": ok, "fullTwoPassBootstrapEstablished": False,
         "runtimeAdmitted": False, "releaseAdmitted": False}

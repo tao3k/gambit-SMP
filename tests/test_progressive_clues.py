@@ -275,6 +275,12 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         self.assertIn("(checkpoint", query)
         self.assertIn("not automatic continuation", query)
         self.assertIn("relational anchors", query)
+        self.assertIn("exact claim identifiers", query)
+        self.assertIn("NOT natural-language search terms", query)
+        self.assertIn("not evidence that the repository lacks facts", query)
+        self.assertIn("factor(id,digest,name,value)", query)
+        self.assertIn("clue-selection-schema", query)
+        self.assertIn("checkpoint preserves reads, not query fit", query)
         self.assertIn("inert Scheme data", query)
         self.assertNotIn("Result shape:", query)
         self.assertNotIn("list[dict]", query)
@@ -315,16 +321,25 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         first = repository_clues(ROOT, bindings=[
             ["candidate", "c-continuation-debug-projection"]])
         self.assertTrue(first["brief"]["families"])
-        self.assertIn("debug-projection-source-integrated",
-                      first["brief"]["scopeReference"]["claims"])
-        self.assertIn("debug-projection-bootstrap-complete",
-                      first["brief"]["scopeReference"]["claims"])
         second = repository_clues(ROOT, bindings=[
             ["candidate", "c-continuation-debug-projection"]],
             checkpoint=first["checkpoint"])
         old = {row["claim"] for row in first["brief"]["families"]}
         self.assertTrue(old.isdisjoint(row["claim"] for row in second["brief"]["families"]))
         self.assertEqual(first["brief"]["sourceIdentity"], second["brief"]["sourceIdentity"])
+        packet = second
+        shown = set(old)
+        while True:
+            current = {row["claim"] for row in packet["brief"]["families"]}
+            self.assertFalse(current & shown)
+            shown.update(current)
+            if packet["brief"]["presentationComplete"]:
+                break
+            continued = repository_clues(ROOT, checkpoint=packet["checkpoint"])
+            self.assertNotEqual(continued["checkpoint"], packet["checkpoint"])
+            packet = continued
+        self.assertIn("debug-projection-source-integrated", shown)
+        self.assertIn("debug-projection-bootstrap-complete", shown)
 
     def test_registered_anchors_leave_unknown_factors_explicit(self):
         result = repository_clues(ROOT, bindings=[["unlisted-factor", "new-hypothesis"]])
@@ -362,16 +377,22 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
             main()
         self.assertIn("manual-label-base-mismatch-is-unexplored", output.getvalue())
 
-    def test_unscoped_catalog_reads_only_context_declarations(self):
+    def test_unscoped_catalog_uses_current_registered_dsl_not_context_enumeration(self):
         with patch("gambit_smp.research_actions.discover", side_effect=AssertionError("no inference")):
             result = catalog(ROOT)
-        paths = {row["path"] for row in result["contexts"]}
-        self.assertIn("evidence/scenarios/stack-header/action-context.json", paths)
-        self.assertIn("evidence/scenarios/stack-header/historical-action-context.json", paths)
-        for row in result["contexts"]:
-            self.assertEqual(set(row), {"path", "sha256", "declaredViews"})
-            self.assertEqual(digest(ROOT / row["path"]), row["sha256"])
+        self.assertNotIn("contexts", result)
+        self.assertNotIn("factors", result)
+        self.assertNotIn("values", result)
+        self.assertIn("proposal", result["factorNames"])
+        self.assertIn("dimension", result["factorNames"])
+        self.assertFalse(result["inventoryComplete"])
         self.assertFalse(result["runtimeAdmitted"])
+        proposals = catalog(ROOT, factor="proposal")
+        self.assertIn("low-perturbation-ticket-observer", proposals["values"])
+        packet = repository_clues(ROOT, bindings=[
+            ["proposal", "low-perturbation-ticket-observer"]])
+        self.assertEqual(proposals["catalogIdentity"], packet["brief"]["inputIdentity"])
+        self.assertTrue(packet["brief"]["families"])
 
     def test_scoped_catalog_is_partial_vocabulary_not_evidence_dump(self):
         result = catalog(ROOT, "evidence/scenarios/stack-header/action-context.json")
@@ -533,26 +554,37 @@ print(json.dumps(result))'''
             repository_clues(ROOT, claim, checkpoint=first["checkpoint"])
 
     def test_folded_scope_read_finishes_without_redisplaying_families(self):
+        from gambit_smp.reasoning_history import load_clue_checkpoint
         source = '''(define-evidence (query)
           (sources clue attested) (outputs question)
           (include clue-selection-schema)
           (relation question (claim))
           ((question C) <-- (clue I D C _ _ _) (attested I D _)))'''
+        oracle = repository_clues(ROOT, selector=source, display_bytes=1024 * 1024)
+        self.assertTrue(oracle["brief"]["presentationComplete"])
+        expected = {family["claim"] for family in oracle["brief"]["families"]}
+        expected_relations = {tuple(row) for row in
+            load_clue_checkpoint(ROOT, oracle["checkpoint"])["body"]["relations"]}
         packet = repository_clues(ROOT, selector=source, display_bytes=8192)
         self.assertFalse(packet["brief"]["presentationComplete"])
         seen = set()
-        expected = set(packet["brief"]["scopeReference"]["claims"])
-        for _ in range(len(expected) + 1):
+        seen_relations = set()
+        for _ in range(len(expected) + len(expected_relations) + 1):
             brief = packet["brief"]
             shown = {family["claim"] for family in brief["families"]}
+            acknowledged = {tuple(row) for row in
+                load_clue_checkpoint(ROOT, packet["checkpoint"])["body"]["relations"]}
             self.assertFalse(shown & seen)
-            self.assertTrue(shown or brief["presentationComplete"])
+            self.assertTrue(shown or acknowledged - seen_relations or brief["presentationComplete"])
+            self.assertTrue(seen_relations <= acknowledged)
+            seen_relations = acknowledged
             seen.update(shown)
             if brief["presentationComplete"]:
                 break
             packet = repository_clues(ROOT, selector=source, display_bytes=8192,
                                       checkpoint=packet["checkpoint"])
         self.assertEqual(seen, expected)
+        self.assertEqual(seen_relations, expected_relations)
         claim = next(iter(expected))
         smaller = repository_clues(ROOT, claim, checkpoint=packet["checkpoint"])
         self.assertEqual(smaller["brief"]["mode"], "rescope")

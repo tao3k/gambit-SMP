@@ -40,6 +40,28 @@ Continuation must preserve expandable unseen evidence; cache loss cannot erase
 historical receipts or reset SMP milestones. Model, interface and Agent-use
 checks do not replace bootstrap and original native stress qualification.
 
+### Requirement-Backed Evidence
+
+`modeling-guidance` now composes the upstream checkpoint exchange fragment.
+Its registered claim/requirement/scope declarations connect model observations,
+source coverage, source repair and original native acceptance through evidence
+dependencies. These are not a fixed execution sequence or a new progress counter.
+The current ticket-wait declaration is in `ticket-model-scope.view.json`.
+
+The existing Clue interface returns `requirement`, `scope`, `evidence-state`,
+receipt identity, retained noncompletion and `evidence-dependency` references.
+A model report can be applicable while the native requirement remains unclosed.
+`presentationComplete` describes only display. Reusing its checkpoint does not
+produce a missing source patch, execution exit or native acceptance receipt.
+Receipt-specific invalidation reasons cannot be joined to another receipt's
+support. Artifact cleanup can prevent reuse without erasing historical support.
+
+The relationships and bindings are Scheme declarations. Python has no new
+completion inference or workflow branch. The local installed library currently
+contains uncommitted upstream changes; this is not a locked published-version
+qualification. Historical SMP progress is still 6/12 until native obligations
+are actually discharged.
+
 The [supervision review](trajectory-supervision-feedback.md) records observed
 Agent integration failures and the DSL-first extension boundary; raw tool
 transcripts remain local cache rather than a second evidence authority.
@@ -474,9 +496,13 @@ declarative projection and selector sources, checked reference facts and
 source attestations. It does not compile a Scheme application or implement
 Clue validation, selection, grouping or rule evaluation in Python.
 
-`trajectory catalog` lists context declarations.
-`trajectory catalog --context CONTEXT` lists callable view/query names and
-the partial factor vocabulary. Metadata discovery does not run sealed native
+`trajectory catalog` reads factor names from the current registered Scheme
+projections, using the same source-bound input identity as repository queries.
+It does not dump all values or enumerate historical Contexts. `--factor NAME`
+reads that factor's known values without requiring a Context.
+`trajectory catalog --context CONTEXT` explicitly restricts discovery to that
+caller's declaration, listing its view/query names and partial vocabulary.
+Metadata discovery does not run sealed native
 execution admission. A context without a Clue projection still has readable
 View metadata; it does not acquire a fabricated Clue capability.
 
