@@ -377,9 +377,12 @@ def append_observation(root, scope, inputs, results, backend, *, bound_inputs=No
 
 
 def _append_execution_checkpoint(db, checkpoint, observation):
-    run, expected = checkpoint["run"], checkpoint["expectedPrefix"]
+    run = checkpoint["run"]
     previous = db.execute("SELECT sequence,identity,body FROM execution_checkpoints WHERE run=? "
                           "ORDER BY sequence DESC LIMIT 1", (run,)).fetchone()
+    # Self-contained observations append under BEGIN IMMEDIATE. Callers whose
+    # result depends on a particular prefix still supply the strict CAS token.
+    expected = checkpoint.get("expectedPrefix", previous[1] if previous else None)
     if (previous[1] if previous else None) != expected:
         raise CheckpointConflict("concurrent checkpoint publication; refresh the committed prefix")
     if previous and json.loads(previous[2])["runId"] != checkpoint["runId"]:

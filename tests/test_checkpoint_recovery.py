@@ -188,6 +188,40 @@ except h.CheckpointConflict:
         self.assertEqual(history.read_execution_checkpoint(self.root, self.run), prefix)
         self.assertEqual(self.recover_in_fresh_process()["recordedOutcome"], "PASS")
 
+    def test_self_contained_process_and_stage_records_append_atomically(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from gambit_smp.research_kernel import retain_run_record
+        self.run.mkdir(parents=True)
+        header_path = self.run / "run-header.json"
+        header = {"schema": "append-transport-control", "runId": "append-control"}
+        retain_run_record(self.root, header_path, "append-control", header, {})
+        barrier = Barrier(2)
+
+        def writer(role):
+            barrier.wait(timeout=10)
+            for index in range(16):
+                payload = {"runId": "append-control", "header": {"path": str(header_path)},
+                           "schema": "append-transport-control", "role": role, "index": index}
+                retain_run_record(self.root, self.run / f"{role}-{index}.json", "append-control", payload, {})
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            list(workers.map(writer, ("stage", "process")))
+        state = history.read_execution_checkpoint(self.root, self.run)
+        self.assertEqual(len(state["records"]), 33)
+        self.assertEqual({row["payload"].get("role") for row in state["records"][1:]}, {"stage", "process"})
+
+    def test_append_without_cas_still_rejects_a_terminal_prefix(self):
+        process = self.producer(terminal=True)
+        _, error = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, error)
+        prefix = history.read_execution_checkpoint(self.root, self.run)
+        with self.assertRaises(history.CheckpointClosed):
+            history.append_observation(self.root, "process-fixture", {}, {"run_record": [{"label": "late"}]}, {},
+                checkpoint=dict(run=str(self.run), runId=prefix["runId"], path=str(self.run / "late"),
+                                scope="process-fixture"))
+        self.assertEqual(history.read_execution_checkpoint(self.root, self.run), prefix)
+
 
 if __name__ == "__main__":
     unittest.main()

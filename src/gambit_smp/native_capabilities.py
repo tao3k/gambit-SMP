@@ -207,8 +207,15 @@ def fixture_parameters(args):
 
 def validate_suite(args, inputs):
     fields(args, ("runtime", "identity", "mode", "regime", "selection"),
-           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles"))
+           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles", "childProgress"))
     fixture_parameters(args)
+    if "childProgress" in args:
+        from gambit_smp.suite_progress import validate
+        validate(args["childProgress"], inputs)
+        if args["mode"] != "gsi":
+            raise ValueError("interpreted child observation requires GSI mode")
+        if "expectedFiles" not in args or not set(args["childProgress"]["files"]) <= set(args["expectedFiles"]):
+            raise ValueError("observed children must belong to the explicit suite inventory")
     source_bound = "expectedSource" in args
     if source_bound == ("expectedFiles" in args):
         raise ValueError("exactly one explicit or source-bound suite inventory required")
@@ -1012,6 +1019,8 @@ def suite(args, ctx):
     from gambit_smp.recipes import read_json
     if args.get("compilerPhaseFiles") and not getattr(ctx, "progress_mode", False):
         raise ValueError("compiled phase execution requires completed-work inactivity timing")
+    if args.get("childProgress") and not getattr(ctx, "progress_mode", False):
+        raise ValueError("child work observation requires inactivity timing")
     runtime = ctx.artifact(args["runtime"], {"seed-runtime", "source-runtime"})
     producer = next(row for row in ctx.receipt["steps"] if row["id"] == args["runtime"]["step"])
     descriptor = producer["outputs"][args["runtime"]["output"]]
@@ -1136,6 +1145,7 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
             if cap <= 0:
                 raise TimeoutError("suite batch deadline exhausted before launch")
             phases = None
+            child_progress = None
             if len(group) == 1 and str(group[0]) in args.get("compilerPhaseFiles", []):
                 if not progress_timed or args["mode"] != "gsc":
                     raise ValueError("compiled phases require GSC inactivity semantics")
@@ -1146,14 +1156,29 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
                 seconds = time.monotonic() - phase_started
                 command_accepted = len(phases) == 3 and all(row["accepted"] for row in phases)
             else:
-                code, output, timeout, seconds = ctx.run(name, [runtime / "gsi/gsi", "-:" + runner_option(option), "-f",
-                    "run-unit-tests.scm", "-" + args["mode"],
-                    *(["-stress"] if args.get("inventory", "unit") == "stress" else []),
-                    *[str(Path("unit-tests") / file) for file in group]], work, cap,
-                    **({"progress": SuiteCompletionProgress(len(group))} if progress_timed else {}))
+                if "childProgress" in args and set(args["childProgress"]["files"]) & set(map(str, group)):
+                    from gambit_smp.suite_progress import instrument, ChildGCProgress
+                    config = args["childProgress"]
+                    nonce, sources = instrument(work, runtime, group, config, root=ctx.root)
+                    ctx.bind([ctx.root / config["manifest"], ctx.root / config["forwarder"], runtime / "lib/_nonstd.scm"])
+                    child_progress = ChildGCProgress(ctx.root, config, nonce, sources, len(group))
+                    ctx.bind(Path(path) for path in child_progress.inputs)
+                try:
+                    code, output, timeout, seconds = ctx.run(name, [runtime / "gsi/gsi", "-:" + runner_option(option), "-f",
+                        "run-unit-tests.scm", "-" + args["mode"],
+                        *(["-stress"] if args.get("inventory", "unit") == "stress" else []),
+                        *[str(Path("unit-tests") / file) for file in group]], work, cap,
+                        **({"progress": child_progress or SuiteCompletionProgress(len(group))} if progress_timed else {}))
+                finally:
+                    if child_progress is not None:
+                        child_progress.close()
                 command_accepted = admitted_suite(code, output, timeout, len(group))
-            stable = all(digest(path) == digest(work / path.relative_to(copied))
-                         for path in copied.rglob("*") if path.is_file())
+                if child_progress is not None:
+                    command_accepted = command_accepted and not child_progress.errors
+            stable = all(digest(work / path.relative_to(copied)) == (
+                child_progress.source["observedRunner"] if child_progress is not None
+                and path.relative_to(copied).as_posix() == "run-unit-tests.scm" else digest(path))
+                for path in copied.rglob("*") if path.is_file())
             accepted = command_accepted and stable and (progress_timed or time.monotonic() <= child_deadline)
             captured = capture(work, selected_observations,
                 ctx.directory / "suite-observations" / name) if accepted else []
@@ -1165,6 +1190,7 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
                     "observations": captured,
                     "groupBudget": group_binding[0] if group_binding is not None else None,
                     "groupBudgetSeconds": group_binding[1] if group_binding is not None else None,
+                    **({"childProgress": child_progress.observation()} if child_progress is not None else {}),
                     **({"compilerPhases": phases,
                         "phaseInactivitySeconds": cap,
                         "assertionProtocol": "original-gsi-loader-and-unit-test-exit"} if phases is not None else {}),

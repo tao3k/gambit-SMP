@@ -90,11 +90,11 @@ def retain_run_record(root, path, scope, payload, inputs):
 
 
 def retain_record_observation(root, path, scope, payload, inputs, *, record_sha=None):
-    from gambit_smp.reasoning_history import append_observation, execution_checkpoint_head, CheckpointConflict
+    from gambit_smp.reasoning_history import append_observation, CheckpointConflict
     header = payload.get("header")
     run = Path(header["path"]).parent if header else path.parent
     checkpoint = ({"run": str(run.resolve()), "runId": payload["runId"], "path": str(path.resolve()),
-                   "scope": scope, "expectedPrefix": execution_checkpoint_head(root, run)}
+                   "scope": scope}
                   if payload.get("runId") else None)
     record_sha = digest(path) if record_sha is None else record_sha
     backend = {"name": "reported-process", "inputs": {}, "recordSha256": record_sha}

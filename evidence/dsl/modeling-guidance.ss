@@ -2,7 +2,7 @@
 (define-evidence (make-modeling-guidance)
   (sources focus obligation signal assessment model model_revision method source
            proposal proposal_change proposal_attribute model_assumption scope_review
-           checkpoint_context checkpoint_claim checkpoint_receipt_source
+           checkpoint_context checkpoint_claim checkpoint_receipt_source related
            requirement dependency contract receipt completed_outcome verified
            support_declaration support_witness required_command
            binding required_binding current_binding command command_observation
@@ -14,6 +14,7 @@
            clue factor link inventory)
   (include evidence-checkpoint-exchange-fragment)
   (relation checkpoint_context (focus claim))
+  (relation related (claim target label))
   ((checkpoint_source S Path H) <-- (source S Path H))
   (explain (lambda (program result query scope)
     (hash ("status" "recorded-only") ("dependencies" (.ref program 'rules))
@@ -80,6 +81,8 @@
   ((link C Parent (lit "evidence-dependency") I H) <--
     (checkpoint_observation I H C _ _ _ _ _ _) (checkpoint_dependency C Parent)
     (checkpoint_context F C) (current_focus F))
+  ;; Related evidence is a caller-declared reference, not a proof dependency.
+  ((link C T Label I H) <-- (clue I H C _ _ _) (related C T Label))
   ((current_focus F) <-- (focus F C H) (source C _ H))
   ;; A receipt for unchanged model bytes is not a review of changed premises.
   ;; This records a bound scope review, never proof/native admission or an order.

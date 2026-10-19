@@ -1,0 +1,64 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "src/gambit_smp/suite_progress.py": "6a57183737586bb3e880b849fd1cb38a8651d5e88fa502cc9da5a705eabc7318",
+    "models/gambit/native/child_gc_forwarder.scm": "bbc5c6eddf83aca7f98a42941668128dc86eb52ec2545a70fabf86f14dc09bcc",
+    "vendor/gambit/tests/run-unit-tests.scm": "4418e155febd6e346f814a71d6262e6f55e068cb26446c10adce8e7803137496",
+    "vendor/gambit/lib/_nonstd.scm": "9619de313be57ea77534a16d362ac8cf570751ea09ff88bf058b95dbdb16602b",
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json": "7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch": "8e6d68b028264cc9ae8225008af1ad3f09a6dfebe6d35268296c85e53fd0d23d"
+  },
+  "cases": [
+    {
+      "id": "gsi_child_progress",
+      "mode": "characterization",
+      "invariants": ["safe"],
+      "temporal": "completion",
+      "protocolInitializers": {
+        "safe": "initAcceptedWitness"
+      },
+      "oldInvariants": [
+        "identitySafe",
+        "sourceSafe",
+        "epochSafe",
+        "replaySafe",
+        "beginSafe",
+        "collectionSafe",
+        "interferenceSafe",
+        "attributionSafe",
+        "exitSafe",
+        "livenessSafe",
+        "streamSafe"
+      ],
+      "oldInitializers": {
+        "identitySafe": "initWrongChild",
+        "sourceSafe": "initWrongSource",
+        "epochSafe": "initWrongEpoch",
+        "replaySafe": "initReplay",
+        "beginSafe": "initBegin",
+        "collectionSafe": "initIncompleteGc",
+        "interferenceSafe": "initHiddenInterference",
+        "attributionSafe": "initObserverOnly",
+        "exitSafe": "initFailureExit",
+        "livenessSafe": "initNoForcedNext",
+        "streamSafe": "initHeldUntilEof"
+      },
+      "source": [
+        "lib/_nonstd.scm:gc-report-set!",
+        "lib/_nonstd.scm:##display-gc-report",
+        "lib/mem.c:___INTR_GC publication after processor-0 GC phases",
+        "lib/_kernel.scm:##handle-gc-interrupt!",
+        "lib/_io.scm:process-pid",
+        "lib/_io#.scm:macro-default-stdout-redir",
+        "lib/_io#.scm:macro-default-stderr-redir",
+        "lib/_repl.scm:##stdio/console-repl-channel",
+        "tests/run-unit-tests.scm:run",
+        "tests/run-unit-tests.scm:test"
+      ],
+      "papers": [],
+      "scope": "Finite one-runner, one-child, one-file progress witness. The positive initializer is a hash-bound copy of the unit-test runner: it enables public gc-report-set! in that child before the original file, reads public process-pid on that child's port, and forwards one completed GC report on the runner's own stderr with a fresh nonce, that pid, and that file. The stock runner's read-until-eof is a separate negative. VM-total last-gc-alloc includes observer allocation; mutatorKnown has no establishing action. Renewal requires a strict cursor advance through the existing progress shape. Child begin, a restored or regressed cursor, a wrong pid, source, or epoch, an incomplete collection, hidden interference, a failed exit, and a claim that another GC or TFIB root must occur are negative controls. File-exit admission stays exit 0 with the original stdout protocol and a cursor of at most one. This is not processor-membership refinement, not a TFIB-root or termination proof, and not native admission."
+    }
+  ]
+}

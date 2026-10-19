@@ -700,6 +700,19 @@ print(json.dumps(result))'''
         self.assertTrue(remaining["brief"]["families"][0]["unknown"])
         self.assertFalse(remaining["brief"]["runtimeAdmitted"])
 
+    def test_first_tfib_query_exposes_progress_counterevidence_without_prescribing_a_step(self):
+        first = repository_clues(ROOT, bindings=(("entity", "tfib"), ("outcome", "INCOMPLETE")))
+        family = next(row for row in first["brief"]["families"]
+                      if row["claim"] == "collective-interpreted-qualification")
+        self.assertIn("child-progress-correspondence", {row["claim"] for row in family["links"]})
+        self.assertTrue(first["brief"]["explorationOpen"])
+        expanded = repository_clues(ROOT, "child-progress-correspondence", checkpoint=first["checkpoint"])
+        self.assertGreater(expanded["brief"]["counts"]["counter"], 0)
+        self.assertEqual(expanded["brief"]["counts"]["support"], 0)
+        self.assertFalse(expanded["brief"]["executionAuthorized"])
+        self.assertFalse(expanded["brief"]["runtimeAdmitted"])
+        self.assertTrue(expanded["brief"]["explorationOpen"])
+
     def test_compact_source_binding_does_not_require_scoped_history(self):
         with patch("gambit_smp.trajectory_exploration.read_trajectory_clues") as journal, \
                 engine_api() as (engine, _):
