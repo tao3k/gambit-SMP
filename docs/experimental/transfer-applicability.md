@@ -3,7 +3,7 @@
 ## Scope And Meaning Of Cost
 
 This 2026-10-19 review follows the five chains in
-[Experimental SMP Design Foundations](experimental-smp-design-foundations.md).
+[Experimental SMP Design Foundations](smp-design-foundations.md).
 It narrows reference-source prerequisites and existing model gaps; it does not
 repair Gambit, select a collector, or take over the native owner's qualification.
 The source revisions remain those in the Chez/OCaml inventories and the pinned
@@ -223,7 +223,7 @@ shared-nothing semantics, a new nursery or a replacement GC.
 
 ## Evidence And Validation Boundary
 
-The existing [facts](../evidence/scenarios/parallel-gc/facts.json) now attach
+The existing [facts](../../evidence/scenarios/parallel-gc/facts.json) now attach
 supplementary source premises through `transfer_premise`; the same Scheme
 component joins their source sections/digests into `transfer_premise_evidence`.
 Each row carries a source finding and an explicitly unclosed condition.
@@ -245,7 +245,7 @@ matched their declared hashes. This is not model requalification, a native GC
 benchmark, full framework CI or acceptance of a proposed runtime change.
 
 Subsequent formal qualification is recorded separately in
-[Runtime Transfer Boundary](runtime-transfer-boundary.md): one new finite
+[Runtime Transfer Boundary](../runtime-transfer-boundary.md): one new finite
 interface-observation model reuses the work library; five Lean obligations
 extend the existing parameterized proof. They are supplemental premises in the
 same Scheme component, not replacement receipts for the partial models above.

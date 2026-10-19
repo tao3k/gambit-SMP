@@ -28,7 +28,7 @@ remain history, not inherited release acceptance. See the
 
 ## Experimental Research
 
-[Experimental SMP design foundations](docs/experimental-smp-design-foundations.md)
+[Experimental SMP design foundations](docs/experimental/smp-design-foundations.md)
 connect pinned Gambit, Chez and OCaml sources to existing models, open transfer
 assumptions and reusable research Recipe briefs. Reference mechanisms are not
 selected runtime changes or native acceptance; current qualification continues

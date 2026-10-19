@@ -3,7 +3,7 @@
 ## Decision And Ownership
 
 This 2026-10-19 review specializes stage one of the
-[three-part architecture](experimental-smp-design-foundations.md). It neither
+[three-part architecture](experimental/smp-design-foundations.md). It neither
 changes the frozen native candidate nor starts bootstrap, stress or fault
 campaigns. Cumulative 8/12 and current-producer release conditions remain owned
 by the [native milestone](smp-threaded-vm-milestone.md#current-milestone-checkpoint).
@@ -65,7 +65,7 @@ path and a discriminating observation. A successful repair of one path does
 not explain macOS/Linux timing differences or every SMP failure.
 
 Reference constraints remain in the pinned Chez/OCaml inventories and the
-[five-chain applicability audit](experimental-transfer-applicability.md).
+[five-chain applicability audit](experimental/transfer-applicability.md).
 Borrow the ownership/acknowledgement distinction, not a foreign heap layout.
 
 ## Recipe: Shared SFUN Exit Suffix

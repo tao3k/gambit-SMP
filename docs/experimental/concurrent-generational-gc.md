@@ -1,4 +1,4 @@
-# Experimental Concurrent Generational GC
+# Concurrent Generational GC
 
 This is design research, not a runtime patch, accepted collector, source
 refinement, nonblocking proof or performance result. Existing Gambit SMP,

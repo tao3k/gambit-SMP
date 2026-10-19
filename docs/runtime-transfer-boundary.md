@@ -6,7 +6,7 @@ This 2026-10-19 qualification adds a finite interface-observation model and
 conditional Lean obligations to the five existing Chez/OCaml transfer chains.
 It does not replace their transition models, model a second collector, or
 establish source refinement. Reference mechanisms and experimental milestones
-remain in [Transfer Applicability](experimental-transfer-applicability.md).
+remain in [Transfer Applicability](experimental/transfer-applicability.md).
 
 `runtime_transfer_boundary.qnt` observes an initially ready boundary, permits
 an adversarial change, then tests the commit policy. Its work predicate imports

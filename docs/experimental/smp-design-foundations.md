@@ -14,7 +14,7 @@ collector or a runtime patch. Native qualification continues independently.
 The 2026-10-19 native checkpoint records cumulative **8/12**, with its declared
 source/topology limits, not full current-producer release admission. This design
 neither resets nor advances that count. The
-[native milestone](smp-threaded-vm-milestone.md#current-milestone-checkpoint)
+[native milestone](../smp-threaded-vm-milestone.md#current-milestone-checkpoint)
 owns status; the tables below classify work, not award passes.
 
 The working architectural hypothesis is that Gambit's difficulty lies in
@@ -33,7 +33,7 @@ boundaries. Success at one does not establish isolation or progress at another.
 
 ### What The OCaml 5 Comparison Establishes
 
-The pinned OCaml [Changes](../vendor/ocaml/Changes) records the multicore merge
+The pinned OCaml [Changes](../../vendor/ocaml/Changes) records the multicore merge
 under 5.0.0. The authors' [2020 design paper](https://anil.recoil.org/papers/2020-icfp-retropar.pdf),
 sections 1.1-1.3 and 3.1-3.2, treats sequential performance, C compatibility and
 parallel collection as coupled constraints. It compares concurrent and parallel
@@ -48,17 +48,17 @@ parallel execution; the unresolved question is complete, compatible and efficien
 behavior across failures and protocol interactions, not the absence of OS
 threads. This explains an engineering difficulty, not the historical duration
 of development. The evidence and competing explanations are detailed in
-[Stage-One Refactor Review](stage-one-refactor-review.md#causal-account-and-its-limits).
+[Stage-One Refactor Review](../stage-one-refactor-review.md#causal-account-and-its-limits).
 
 ### Reproducible Sources
 
 | Source | Exact revision | Evidence boundary |
 | --- | --- | --- |
 | Gambit | `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882` | Vendor baseline; current repaired overlays have separate source locks. |
-| Chez | `41d5ffca7a07cbfc8807e719dedcc70ed74811cd` | [Source inventory](../models/chez/source.json) and later subject-specific source maps. |
-| OCaml 5.5.1 | `46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91` | [Source inventory](../models/ocaml/source.json); selected sections reviewed, no OCaml runtime requalification. |
+| Chez | `41d5ffca7a07cbfc8807e719dedcc70ed74811cd` | [Source inventory](../../models/chez/source.json) and later subject-specific source maps. |
+| OCaml 5.5.1 | `46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91` | [Source inventory](../../models/ocaml/source.json); selected sections reviewed, no OCaml runtime requalification. |
 
-The gitlinks and [.gitmodules](../.gitmodules) are the source dependency
+The gitlinks and [.gitmodules](../../.gitmodules) are the source dependency
 contract. Restore them with `git submodule update --init --recursive`; branch
 names and moving release tags do not replace the pinned commits. Reference
 source is not a disposable build fixture. No copied source tree or cache path
@@ -68,15 +68,20 @@ Only Gambit uses the user's fork. Its unchanged baseline commit is published
 at `tao3k/gambit:research/pinned-gerbil-gambit`; the fork's `master` is not the
 research pin and was not changed. Chez and OCaml retain their upstream URLs.
 
-The [parallel-GC comparison](parallel-gc-design-comparison.md),
-[transfer boundary](gc-design-transfer-boundary.md),
-[paper/source obligations](paper-source-obligations.md) and
-[existing-model audit](smp-incremental-architecture-audit.md) remain the detailed
+The [parallel-GC comparison](../parallel-gc-design-comparison.md),
+[transfer boundary](../gc-design-transfer-boundary.md),
+[paper/source obligations](../paper-source-obligations.md) and
+[existing-model audit](../smp-incremental-architecture-audit.md) remain the detailed
 evidence. Paper accounts explain designs; pinned source determines what the
 reviewed implementation does. A historical source map is not silently rebound
 to the latest repaired candidate.
 
 ### Experimental Questions
+
+The [runtime metadata and host-entry audit](runtime-entry-contracts.md)
+records actual caller chains, exclusive-owner premises, shared-write boundaries,
+reused/new Experimental model assets and the two implementation horizons. It
+does not infer arbitrary foreign-thread support from TLS or callback leases.
 
 Each family below identifies a reference mechanism, existing model assets,
 missing premises and a Recipe brief. These briefs are research inputs for the
@@ -85,7 +90,7 @@ Agent steps or claims of native acceptance.
 
 #### Participation During Blocking And Retirement
 
-OCaml's [domain contract](../vendor/ocaml/runtime/domain.c) at lines 84-153
+OCaml's [domain contract](../../vendor/ocaml/runtime/domain.c) at lines 84-153
 registers participants before mutator execution and transfers STW service to
 a backup thread during blocking sections. Lines 1740-1810 describe safe
 participant removal and why join/leave waits must release the membership lock.
@@ -96,7 +101,7 @@ Gambit's existing `gc_sync_membership.qnt`,
 `scheduler_gc_root_cohort_composition.qnt` and `sync_wait_handshake.qnt` already
 cover parts of membership, roots and service obligations. Their finite
 participants/epochs and scheduling assumptions are not an OCaml implementation
-model. The [audit](smp-incremental-architecture-audit.md) records existing
+model. The [audit](../smp-incremental-architecture-audit.md) records existing
 composition results and their limits; do not create another equivalent model.
 
 Recipe brief: compare who owns GC service before blocking, during a wait,
@@ -108,9 +113,9 @@ costs, not the selected Gambit fix.
 
 #### Forwarding Identity Versus Payload Readiness
 
-The [pinned comparison](../evidence/parallel-gc-source-comparison.json) maps
+The [pinned comparison](../../evidence/parallel-gc-source-comparison.json) maps
 Gambit `lib/mem.c:3570-3631`: destination claiming can precede payload copying.
-Chez's [hybrid source map](../models/chez/hybrid-source-map.json) instead binds
+Chez's [hybrid source map](../../models/chez/hybrid-source-map.json) instead binds
 generated copy-body publication and initialized marking metadata. These are
 different protocols; changing the order of one store is not a justified port.
 
@@ -128,7 +133,7 @@ extra loads/fences and copy contention rather than assuming it is cheaper.
 
 #### Conserved Work And Global Completion
 
-Chez [gc.c:137-185](../vendor/chez/c/gc.c) routes remote referencing objects to
+Chez [gc.c:137-185](../../vendor/chez/c/gc.c) routes remote referencing objects to
 the target segment's owner for re-sweep. Its sweeper protocol at lines
 3164-3280 combines running-worker accounting, send/receive and counted wake.
 Repeated scans are legal there. Gambit's comparison maps completed chunk
@@ -149,7 +154,7 @@ alone proves completion or explains a native timeout.
 
 #### Heap Ownership Across Lifecycle Changes
 
-OCaml [shared_heap.c:148-207](../vendor/ocaml/runtime/shared_heap.c) explicitly
+OCaml [shared_heap.c:148-207](../../vendor/ocaml/runtime/shared_heap.c) explicitly
 orphans swept pools under a global pool lock and adopts them into another
 owner's unswept lists, updating ownership and statistics. This is shared-heap
 ownership transfer, not Erlang-style shared-nothing. Chez's segment-owner
@@ -168,7 +173,7 @@ join failure and orphan/adopt races remain required transfer premises.
 
 #### Roots, Execution Context And Foreign Reentry
 
-OCaml [minor_gc.c:630-722](../vendor/ocaml/runtime/minor_gc.c) includes promotion,
+OCaml [minor_gc.c:630-722](../../vendor/ocaml/runtime/minor_gc.c) includes promotion,
 local-stack/register root scanning and a split arrival/leave barrier. Writes
 before arrival are ordered before departure; code after arrival may race with
 mutators. This is a concrete boundary for reasoning about root visibility, not
@@ -188,14 +193,14 @@ do not infer independent-VM sharing permission from a same-runtime thread test.
 
 ### Implementation Review And Transfer Evidence
 
-The [follow-up applicability audit](experimental-transfer-applicability.md)
+The [follow-up applicability audit](transfer-applicability.md)
 narrows these five chains using creation-error paths, systhread hook overrides,
 generated root tracing, major-GC debt and descriptor reuse. It separates bounded
 adaptation candidates from optional Experimental architecture milestones.
 
 The 2026-10-19 follow-up reads the implementation, not only its design comments.
-The existing [parallel-GC DSL](../evidence/scenarios/parallel-gc/design.ss) and
-[facts](../evidence/scenarios/parallel-gc/facts.json) now expose the following
+The existing [parallel-GC DSL](../../evidence/scenarios/parallel-gc/design.ss) and
+[facts](../../evidence/scenarios/parallel-gc/facts.json) now expose the following
 source-bound chains through `transfer_evidence`, `transfer_gap` and
 `transfer_unbound`. This extends the same component/Session; it introduces no
 Python inference, runtime fixture, model transition or execution permission.
@@ -217,7 +222,7 @@ and fatal create path are not newly discovered current-candidate bugs.
 
 The preceding native owner checkpoint independently recorded **7/12** at
 `8d01dba58b9fd5eef406e80b68105eb98d2f697a`; see the
-[current native milestone](smp-threaded-vm-milestone.md). Its interpreted stress
+[current native milestone](../smp-threaded-vm-milestone.md). Its interpreted stress
 completion does not prove these reference protocols necessary, while earlier
 timeouts do not identify them as causal repairs. No native stage was rerun in
 this research. The later 8/12 checkpoint closes the declared registry happy-path
@@ -316,7 +321,7 @@ stage can be useful without choosing any of those large changes.
 The five transfer chains are references into this problem map, not five
 independent fixes. Source findings, proposed mechanisms and missing evidence
 must remain distinct. The current source map is the 26-file collective-wait
-lock identified in [Runtime Transfer Boundary](runtime-transfer-boundary.md),
+lock identified in [Runtime Transfer Boundary](../runtime-transfer-boundary.md),
 not the vendor baseline or an unversioned cache checkout.
 
 | Original problem | Related transfer chains | Current evidence / model authority | Question that must be answered before extending a model or proposing C |
@@ -375,7 +380,7 @@ in the twelve-entry count. The native milestone owns that distinction.
 
 ### Small Refactor Candidates, Not A Patch Queue
 
-The [detailed review](stage-one-refactor-review.md) binds the candidates below
+The [detailed review](../stage-one-refactor-review.md) binds the candidates below
 to exact inputs, current branch applicability, expected benefit, cost, model
 selection criteria and native acceptance. Its decisions supersede any reading
 of this table as a ready-to-implement patch list: SFUN suffix sharing is a
