@@ -12,15 +12,27 @@ module ffi_gc_frame_protocol {
     frames: Set(0), rawBackup: 7, outerLocal: 7,
     lostOuter: false, exitError: 0,
   }
+  // Interpretation metadata has a different lifetime from native frames.
+  // Logical consumers, not a proposed runtime counter or module-unload API.
+  type Descriptor = { policy: int, published: bool, captured: bool, retained: bool,
+    closed: bool, scan: int, alive: bool, ready: bool,
+    producer: int, retired: bool, badRead: bool }
+  pure def descriptorInitial(policy: int): Descriptor = {
+    policy: policy, published: false, captured: false, retained: false, closed: false, scan: 0,
+    alive: true, ready: true, producer: 1,
+    retired: false, badRead: false,
+  }
   type State = { fault: int, phase: int, gc: int, epoch: int,
     cachedFrame: int, processorFrame: int, cachedRoot: int, processorRoot: int,
-    savedRA: int, returnedRA: int, badRoots: bool, nested: NestedRoots }
+    savedRA: int, returnedRA: int, badRoots: bool, nested: NestedRoots,
+    descriptor: Descriptor }
   var s: State
 
   pure def initial(fault: int): State = {
     fault: fault, phase: 0, gc: 0, epoch: 0, cachedFrame: 0,
     processorFrame: 0, cachedRoot: 7, processorRoot: 3,
     savedRA: 0, returnedRA: 0, badRoots: false, nested: nestedInitial(0),
+    descriptor: descriptorInitial(0),
   }
   action initOld = s' = initial(1)
   action initNoReload = s' = initial(2)
@@ -133,4 +145,74 @@ module ffi_gc_frame_protocol {
   val nestedSafe = nestedRootSafe and nestedReloadSafe and nestedExitSafe and
     (s.nested.phase != 4 or s.nested.frames.size() == 0)
   temporal nestedCompletion = weakFair(nestedStep, s).implies(eventually(s.nested.phase == 4))
+
+  action initDescriptor = s' = initial(0)
+  action initNativeDrainOnly = s' = { ...initial(0), descriptor: descriptorInitial(1) }
+  action initMissingScanDrain = s' = { ...initial(0), descriptor: descriptorInitial(2) }
+  action initLateMapPublication = s' = { ...initial(0), descriptor: descriptorInitial(3) }
+  action initWrongMapProducer = s' = { ...initial(0), descriptor: descriptorInitial(4) }
+  // Start with a valid interpretation, then expose the chosen published view.
+  // Controls must witness a bad publication, not only an invalid initial state.
+  action publishDescriptor = all {
+    not(s.descriptor.published),
+    s' = { ...s, descriptor: { ...s.descriptor, published: true,
+      ready: s.descriptor.policy != 3,
+      producer: if (s.descriptor.policy == 4) 2 else 1 } },
+  }
+  action retainDescriptorConsumer = all {
+    s.nested.phase == 1, not(s.descriptor.captured),
+    s' = { ...s, descriptor: { ...s.descriptor, captured: true, retained: true } },
+  }
+  // Reuse the actual nested-frame transitions. Capture must occur before the
+  // nested invocation exits in this witness; arbitrary user termination is
+  // not proved. Collection/exit behaviors retain their existing root checks.
+  action descriptorFrameStep = all {
+    s.descriptor.published, s.nested.phase < 4,
+    s.nested.phase != 1 or s.descriptor.captured,
+    nestedStep,
+  }
+  action closeDescriptorAdmission = all {
+    s.nested.phase == 4, not(s.descriptor.closed),
+    s' = { ...s, descriptor: { ...s.descriptor, closed: true } },
+  }
+  // A reader may have resolved interpretation data before final reachability
+  // is discharged. This abstracts metadata consumption, not concurrent GC
+  // mutation/continuation resumption or actual C weak-memory execution.
+  action beginDescriptorScan = all {
+    s.nested.phase == 4, s.descriptor.retained, s.descriptor.scan == 0,
+    s' = { ...s, descriptor: { ...s.descriptor, scan: 1 } },
+  }
+  action finishDescriptorScan = all {
+    s.descriptor.scan == 1,
+    s' = { ...s, descriptor: { ...s.descriptor, scan: 2,
+      badRead: s.descriptor.badRead or not(s.descriptor.alive and
+        s.descriptor.ready and s.descriptor.producer == 1) } },
+  }
+  action dischargeRetainedConsumer = all {
+    s.nested.phase == 4, s.descriptor.retained,
+    s' = { ...s, descriptor: { ...s.descriptor, retained: false,
+      scan: if (s.descriptor.scan == 0) 2 else s.descriptor.scan } },
+  }
+  action retireDescriptor = all {
+    s.descriptor.closed, not(s.descriptor.retired),
+    not(s.descriptor.retained) or s.descriptor.policy == 1,
+    s.descriptor.scan != 1 or s.descriptor.policy == 2,
+    s' = { ...s, descriptor: { ...s.descriptor, alive: false, retired: true } },
+  }
+  val descriptorNeeded = s.nested.frames.size() > 0 or
+    s.descriptor.retained or s.descriptor.scan == 1
+  val descriptorLifetimeSafe = not(descriptorNeeded) or s.descriptor.alive
+  val descriptorReadySafe = not(descriptorNeeded) or s.descriptor.ready
+  val descriptorProducerSafe = not(descriptorNeeded) or s.descriptor.producer == 1
+  val descriptorTerminal = s.nested.phase == 4 and s.descriptor.retired and
+    not(s.descriptor.retained) and s.descriptor.scan != 1
+  action descriptorFinished = all { descriptorTerminal, s' = s }
+  action descriptorStep = any { publishDescriptor, descriptorFrameStep, retainDescriptorConsumer,
+    closeDescriptorAdmission, beginDescriptorScan, finishDescriptorScan,
+    dischargeRetainedConsumer, retireDescriptor, descriptorFinished }
+  val descriptorScanDrainSafe = descriptorLifetimeSafe
+  val descriptorSafe = nestedSafe and descriptorLifetimeSafe and
+    descriptorReadySafe and descriptorProducerSafe and not(s.descriptor.badRead)
+  temporal descriptorCompletion = weakFair(descriptorStep, s)
+    .implies(eventually(descriptorTerminal))
 }

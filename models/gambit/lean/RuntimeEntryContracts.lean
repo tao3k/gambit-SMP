@@ -209,6 +209,18 @@ theorem vmCellWriteFrame {VM Value : Type} [DecidableEq VM]
   · intro other different
     simp [different]
 
+-- A root/continuation/reader's interpretation dependency must remain live.
+-- Actual map completeness, producer identity and consumer enumeration are
+-- source premises; native-frame count alone cannot instantiate them.
+theorem descriptorRetirementExcludesConsumers {Consumer Descriptor : Type}
+    (live : Consumer → Prop) (requires : Consumer → Descriptor → Prop)
+    (available : Descriptor → Prop)
+    (coverage : ∀ c d, live c → requires c d → available d)
+    (retired : Descriptor) (reclaimed : ¬ available retired) :
+    ∀ c, live c → ¬ requires c retired := by
+  intro c active dependency
+  exact reclaimed (coverage c retired active dependency)
+
 -- Preserve the established per-entry accounting theorem, not a new unwinder.
 theorem ownedNestedExitAccounting
     (a1 a2 r1 r2 : Nat) (e1 e2 d1 d2 : Int)
@@ -243,5 +255,6 @@ theorem ownedNestedExitAccounting
 #print axioms canonicalRecheckAgrees
 #print axioms rehashMembershipPreserved
 #print axioms vmCellWriteFrame
+#print axioms descriptorRetirementExcludesConsumers
 
 end GambitSMP.RuntimeEntryContracts

@@ -1,5 +1,8 @@
 import RuntimeEntryContracts
 
+-- Drained native activations do not imply no retained Scheme consumers.
+example : (0 : Nat) = 0 → (1 : Nat) = 0 := by decide
+
 example : (fun _ : Nat => 2) 0 = 1 := by decide
 
 example : (some 1 : Option Nat).getD 2 = 2 := by decide

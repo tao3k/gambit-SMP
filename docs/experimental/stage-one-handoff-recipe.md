@@ -19,7 +19,10 @@ same-key contenders and pre/postcommit error outcomes. Their
 identities and limitations. The [VM-cell ownership contract](vm-cell-ownership-contract.md)
 and [validation](vm-cell-ownership-validation.md) add the execution/GC cell-selector
 join without changing global value access or disabling constructor failure.
-None supplies native admission.
+The [root interpretation contract](root-map-lifetime-contract.md) and
+[validation](root-map-lifetime-validation.md) add producer/map availability
+through native, retained Scheme and admitted scanner consumers. No module
+hot-unload or new root registry is selected. None supplies native admission.
 
 Use the pinned Gambit, Chez and OCaml revisions and overlay identified in the
 integration design. Source locations below distinguish unchanged vendor files
