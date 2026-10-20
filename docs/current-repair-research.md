@@ -73,6 +73,71 @@ qualified producer. The already published producer handoff records the candidate
 identity boundary. Do not infer that an unenumerated producer exists on every
 legal path; the complete census and source phase remain obligations to discharge.
 
+### Root And Private-Work Inventory
+
+The pinned collector supplies a concrete starting inventory, not a proof that
+all of these states remain live on a removed processor. Each current candidate
+must establish **absent at the legal retirement boundary**, **retained under a
+live owner**, or **transferred and observed by the recipient** for each applicable
+row. A nonzero field alone does not prove live work; a zero public counter alone
+does not prove its absence. Strong-root coverage and work accounting are separate.
+
+| Inventory class | Actual pinned consumer | Current source correspondence still required |
+| --- | --- | --- |
+| Active and captured Scheme continuations | `mem.c`:3900-3966 walks `fp`, return-address maps, stack breaks and captured frames. | The retirement boundary must preserve or discharge the actual continuation and its interpretation metadata, not just retain the msection bytes. |
+| GVM register, saved, cache and processor roots | `mem.c`:6508-6576 marks `r`, `saved`, `type_cache` and the processor Scheme object. | Show the candidate's generated-state publication and surviving root owner; copying allocation cursors does not enumerate these slots. |
+| VM, globals, symbols and registered C data | `mem.c`:3969-3989,6579-6663,6845-6852 separates RC data from VM/global/symbol roots and their processor assignment. | In this baseline `mark_rc` traverses the current processor's RC list and the strong phase calls it on P0. A donor-list splice needs an explicit P0-consumer bridge; arbitrary-recipient reachability is not inferred. |
+| Still-object roots and private scan chain | `mem.c`:4210-4276 builds the refcount-root scan chain, then consumes it. | Preserving `still_objs` ownership is not by itself proof that an in-flight `still_objs_to_scan` chain has finished or been handed over. |
+| Public chunks, claimed chunks and incomplete local copying | `mem.c`:4279-4382,6672-6767 distinguishes queued chunks, a stolen chunk being scanned and the local `scan_ptr`/allocation frontier. | Stable queue endpoints need the real cohort/phase and producer/borrower discharge. A stolen chunk is no longer necessarily represented by its donor's queue. |
+| Weak-phase and cleanup obligations | `mem.c`:5032-5113,6824-6935 processes wills, weak traversal and reached GC hash tables after strong marking. | Classify executable/nonexecutable wills and reached tables at the actual boundary; do not mark weak work complete merely because strong queues are empty. |
+
+Reuse `WorkAccounting.lean` for counted private producers and reopened work,
+`ffi_gc_frame_protocol.qnt` for published/reloaded and nested roots,
+`shared_msection_copy_retirement.qnt` for range/borrower lifetime, and
+`scan_barrier_quiescence.qnt` for callback-to-cohort closure. These projections
+have different premises. `ProducerLifetimeSafe` is not a root-enumeration or
+foreign-frame theorem; model composition cannot fill an omitted source row.
+
+Chez `thread.c`:274-305 gives a useful countercheck against a list-only handoff:
+remembered data is processed before local allocation is closed, and guardian
+entries are transferred separately. Its `thread_gc` carrier outlives `tc`
+because segments may still refer to it (:324-335). OCaml `domain.c`:2276-2338
+likewise distinguishes finishing work, orphaning ephemerons/finalisers, checking
+for newly created work, orphaning the heap and leaving the participant set.
+The transferable requirement is **enumerate and close each actual consumer**;
+neither reference proves that Gambit needs their heap layout or permanent carrier.
+
+### Host And External-Frame Ownership
+
+Gambit's own pinned sources already distinguish heap reachability from a live
+foreign return destination. `setup.c`:3294-3345 describes the return marker in
+the Scheme frame and the live C activation it represents. `c_intf.c`:6511-6570
+constructs that marker, records the processor in threaded mode, invalidates its
+procedure slot on return and releases its still-object reference. Marker
+retention therefore does not make an expired C stack or copied TLS pointer valid.
+
+The same constructor contains an explicit TODO about `proc_or_false` surviving
+the allocating `___make_vector`. This is a pinned-baseline source warning, not a
+demonstrated failure in the current overlay. Its candidate correspondence must
+identify the actual traced owner across allocation, including nested entry;
+neither the TODO nor a finite root model establishes current native causality.
+
+`setup.c`:3350-3391 has distinct direct-host-tail-call and trampoline routes,
+with catcher setup and marker-matched unwind. `___run`:3397-3422 places marker
+cleanup after `___call` inside its try region. Generated SFUN macros at
+`gambit.h.in`:10043-10061 have their own cleanup/error propagation ordering.
+Thus inspect each actual normal, caught-error and nonlocal path rather than
+assert that an ordinary tail is universal cleanup, or that the baseline path
+still exists unchanged in the candidate. The existing nested-unwind model's
+origin-routing event remains conditional until bound to that candidate path.
+
+Chez's C-chain/paired activation and OCaml's rooted result carrier provide
+different examples of **who releases what after which control transfer**.
+They do not grant a new Gambit host thread ownership of another thread's catcher,
+live C stack or processor merely because heap roots survive. General attachment
+or migration semantics belong in Experimental; checking the current supported
+entry and its exact acquired-effect cleanup belongs in the current repair.
+
 ### Bounded Repair Recipe
 
 The first-stage scope is the existing `setup.c` retirement/recovery caller and
@@ -96,6 +161,22 @@ promise that it closes the natural-error recovery gate. The implementation owner
 must instantiate these conditions in its current repair package. If the needed
 public owner-transfer operation is absent, that absence remains explicit; a
 model must not manufacture the missing event or assert universal impossibility.
+
+For the implementation handoff, keep successful join and completed transfer as
+separate durable facts about the same incarnation. If the transfer cannot finish,
+the already joined donor remains owned and non-reusable without another OS join.
+On retry, a previously valid census must still be applicable: no recipient
+collection, callback admission or phase transition may silently invalidate its
+root addresses or interpretation. This is a required source argument, not a
+proposal for a new checkpoint interface or a claim that every retry races.
+
+The source repair is ready for full native qualification only when the actual
+candidate binds the above inventory, the legal exclusive host/entry, successful
+OS completion, recipient-visible handoff and destructive cleanup in that order.
+Current research has not established this conjunction. BUSY or retained failure
+can be correct intermediate outcomes; neither is successful recovery. No new
+global lock, full-heap scan, TLS change or unconditional collector barrier is
+selected by this audit.
 
 ## Exception And OS Join Are Different Contracts
 
@@ -146,21 +227,24 @@ source changes and complete native/Gerbil acceptance.
 
 ## Research Validation
 
-Published HEAD `75e1c76fab056516d086a9cd4f706fac5e155c18` passed
-[framework CI 39355702990](https://github.com/tao3k/gambit-SMP/actions/runs/39355702990):
+Published HEAD `972cbef62981100bddf7b34fa600313c5a0401b3` passed
+[framework CI 39357149834](https://github.com/tao3k/gambit-SMP/actions/runs/39357149834):
 1,809 tests, zero failures/errors/skips, complete inventory and unchanged inputs,
-400.406603766 s, `frameworkValidated=true`, `runtimeAdmitted=false`.
-Artifact `12234804078` has `test-result.json` SHA-256
-`98a0a3d2a9095d8e81b4d54ff60452a5bc322b7dcc18886435acbd4ee6a3edca`.
-This exact-head pass precedes the current research supplement.
+399.338984056 s, `frameworkValidated=true`, `runtimeAdmitted=false`.
+Artifact `12236430086` has `test-result.json` SHA-256
+`6a9c570836f3971254dce4a278fa3dbf501f01cdd5e22364161ec7780d78a642`.
+This exact-head pass precedes the inventory/foreign-frame supplement; it does not
+certify unpublished changes or the implementation owner's current candidate.
 
 The existing Scheme consumer checks this supplement's source/model hashes,
 expands its source-section/premise correspondences, withdraws/restores the new
 sources and preserves explicit missing native requirements. Current and
 architectural evidence remain partial and `satisfies=[]`; neither can qualify
-the other. Two existing current-correspondence/link checks passed in 7.738 s,
-and the architecture's Scheme consumer passed in 3.221 s. Final document/hash
-updates are checked again without repeating unchanged formal or native work.
+the other. The inventory/foreign-frame supplement passed the two existing
+current-correspondence/link checks in 3.077 s. That includes its added marker
+source withdrawal, with missing native requirements preserved. Final
+document/hash updates are checked again without repeating unchanged formal or
+native work; earlier architecture consumer results are not relabeled as new runs.
 
 No QNT/Lean algorithm or theorem source changed and no new formal pass is claimed
 for these reused contracts. The separate implementing workers retain ownership
