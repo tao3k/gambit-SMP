@@ -259,3 +259,159 @@ be reassigned to the current collector. This completes the source reason for
 retaining the carrier after TC free, without claiming that every carrier field
 or incarnation can be reused concurrently. It complements, rather than
 replaces, the existing saved-origin and producer-lifetime conditions.
+
+## Forced-Exit Policy And Current Publication
+
+The continued pinned-source audit distinguishes OCaml's ordinary backup-thread
+return from `stw_terminate_domain` (`runtime/domain.c:2432-2461`). The latter
+can release-store the same `BT_INIT` while explicitly declining to wait for the
+canceled domain thread. `caml_free_domains` preserves the canceled domain lock
+and returns false; `runtime/startup_aux.c:230-246` consequently does not destroy
+the stat pool. This is an outcome/last-consumer premise, not an observed OCaml
+defect or proof that Gambit's pending handler has the same path.
+
+Chez's carrier reuse is also conditional: `c/thread.c:58-108` and :261-341
+hold the TC mutex; `s/7.ss:811-829` and `c/gcwrapper.c:1187-1196` bind collector
+entry to the same protocol and one active mutator. The added dirty-work and
+heap-check consumers (`c/gc.c:2197-2220`, `c/gcwrapper.c:632-640`) prevent treating
+the earlier two creator checks as a complete source census. Parallel collector
+workers are not evidence of arbitrary concurrent mutator access.
+
+The existing source Recipe and registered current-repair view now expose the
+acknowledgement writer/path/resource/failure-policy qualifier and both source
+counterchecks on the first related query. Checkpoint continuation must not
+repeat that unchanged slice. The current QNT and Lean obligations already
+distinguish these cases; their bytes/receipts are unchanged, and actual Gambit
+source applicability and all native requirements remain open. General host
+cancellation or new ownership protocols remain Experimental, not a current fix.
+
+Latest merged head `f42828f535d32b5fe48dbd779b494562e54b8eeb` failed framework run
+`39413684443` before the tests at the seal step: execution had no task identity.
+Follow-up `6f1fc33b4eaf6f9261f136408a1e858076786ca1`, run `39414721276`, failed
+at the same point. The adopted work item exists, but `workspace start --adopt`
+does not select a default task. Framework CI now names the already registered
+task on seal, full validation and export through the existing dispatcher. This
+does not weaken the execution policy or alter native workflows/budgets. Those
+failed runs remain failed; neither is called a timeout or deadlock.
+
+Isolated research setup initially lacked a Git evidence index, local wheel
+metadata and pinned vendor inputs. Their typed errors were setup failures,
+not candidate runtime failures. Only the isolated setup was corrected: exact
+published source tree, original pinned vendor read inputs, installed wheel plus
+its distribution metadata, and guarded Lean prerequisite compilation. No test
+assertion, observation window, source lock or qualification claim was weakened.
+
+The final isolated snapshot passed all **27/27** tests in
+`tests.test_gambit_ci` and `tests.test_repair_consumer_interfaces`, in **34.211
+seconds**. This includes the real clean-checkout adoption/owned-child control,
+the explicit framework-CI task contract, original negative evidence custody,
+first-related-query policy factors, unchanged checkpoint continuation, source
+withdrawal and six guarded Lean declarations. The check elaborates the pinned
+LeanPoo dependency with 200000 heartbeats, recursion depth 512 and a 15-second
+owned-process guard; it does not run Gambit bootstrap or stress. Unchanged QNT
+controls are checked against their retained exact-byte receipts, not rerun as
+new native evidence. A new source head still needs its own full framework CI.
+
+Run `39415723740` for `a3f6e9f601916b92ef88e5b924d1404e89f1b69f`
+passed the explicit task selection and then failed the checkout-import guard:
+CI had installed this downstream framework with `--no-editable`, so its module
+origin was the installed copy rather than the declared checkout. The framework
+action now uses the package manager's ordinary editable workspace install;
+the ASCENT dependency remains locked and packaged. The origin guard, source
+hashes, task custody and native budgets are not weakened. This seal failure is
+retained independently from the preceding missing-task failures and from any
+subsequent full-test result.
+
+The installation correction was checked locally with the package manager in a
+fresh isolated Python environment, installing only this downstream package
+editable and without dependencies or a `PYTHONPATH` override. Its actual import
+resolved to the declared source checkout. The existing clean-checkout
+adoption/owned-child test passed **1/1 in 1.273 seconds** in that environment.
+This is an installed-entry control, not a replacement for the pending full CI.
+
+## Merged Model Receipt Correspondence
+
+Run `39416317943` for `3a8eaa13fa214738c42757fa1603e7da2e6bf745` passed
+seal, then stopped before test inventory publication. Its producer exit was one,
+not a timeout; parent reaping and group quiescence were recorded. The first
+typed failure was an existing model receipt which did not match the merged
+`native_compiler_probe_correspondence.qnt` bytes. Auditing every primary model
+receipt found this one stale reference: the old receipt covered model
+`a2545e4a5eb767bcac088f44c36b8fa5cd30d03ceb1aaf13975ab6d0f6812993`,
+whereas the merged source is
+`15390f0e794b4a72935ad053add35828a4754f7ea7049c37a70140594cb03301`.
+No accepted/hash field in the old receipt was rewritten.
+
+The existing registered `host-root-research` validation process checked only
+this affected model, using the existing `check` dispatcher and original
+`initBypass` / `init` controls. The negative counterexample was admitted in
+**14.476 seconds**; the positive safety check in **12.133 seconds**, with
+**3076 distinct states and zero queued**. Both recorded stable current source,
+Quint 0.33.0 and `native.status=not-run`. The original per-check guard and model
+semantics were unchanged. This is a new source qualification, not a repeated
+run of an unchanged already-admitted model.
+
+`models/gambit/cases.json` now points to the separate current receipt under
+`evidence/model-results/native-compiler-probe-current/`; the historical receipt
+remains unchanged. The existing `recover-model` dispatcher revalidated the raw
+logs/snapshot and produced portable logs, trace and model bytes, retained beside
+the actual generated receipt. Its source snapshot hash is the current model
+hash above. Real `evidence --validate` then completed with
+`DATALOG-COVERAGE-OK`. No fresh generic model, native artifact, original stress
+run, widened guard or synthetic completion was introduced.
+
+The current raw-log attestation is updated to those newly recovered bytes;
+both historical receipt and historical raw files remain untouched. The existing
+catalog/recovery modules passed **19/19 in 32.471 seconds**, including actual
+raw-log reinterpretation, exact model checks, source/timeout drift rejection,
+and missing/incomplete log denial. The saved-index unit fixture now creates its
+own real task scope instead of potentially consulting the production checkout's
+default task. Its stale-index assertions and original mocks are unchanged.
+
+An earlier local catalog run was manually interrupted before completion. Its
+retained stack shows ordinary source hashing, not a proved deadlock; it is not
+a timeout, PASS, or evidence of a production lock conflict. Its failed current
+attestation assertion preceded the corrected current binding above. Only the
+final complete 19-test run is reported as local qualification.
+
+## Publication Closure Audit And Remaining Privacy Boundary
+
+Run `39417847436` for `8b249a2c7da06b099b6c5e6dc17624f4e5572565`
+passed seal, but the worker could not load the registered procedural-retirement
+view: its exact proof receipt existed locally and was absent from Git. This is
+a reproducibility/publication failure, not a GC or watchdog verdict.
+
+An exact published-tree audit checked all **389 non-vendor view references**.
+It found 12 missing-reference occurrences and two references to earlier loader
+bytes. The five missing model/audit folders are small text evidence, not runtime
+caches. Their recorded receipt hashes match the views. The four formal folders
+also pass the existing `checked_rows` validator against their maintained
+manifests: **5, 6, 6 and 3** admitted controls respectively, with original source,
+log, trace and checker-artifact checks. No unchanged QNT campaign was repeated.
+These folders and the independently scoped structure audit are published as
+historical evidence, without modifying any recorded verdict or native gate.
+
+The two loader references in the Zig research view are reviewed against the
+published source, not another thread's dirty documents. The relevant change
+adds typed unavailable-reference observations and declared coverage, while
+preserving exact-reference checks and caller-owned selectors. Both hashes,
+source ranges and descriptions are updated to state that distinction explicitly.
+It does not turn missing provenance into a source fact or native admission.
+
+Some remaining historical native receipts contain personal absolute paths;
+the mechanism campaign also contains private view/acceptance records and TLC
+binary traces. They are **not** force-added to make a clean checkout pass.
+In particular the root-signal comparison/constructor and runtime-retirement
+receipts, and the unsealed mechanism-campaign closure, still require a portable
+publication contract which preserves raw identities and distinguishes derived
+observations from original receipts. Blindly replacing strings and rebinding
+their hashes would not supply that contract. Originals remain local; the view
+requirements and failing CI records remain intact. This research does not
+claim complete framework CI or native acceptance for this publication.
+
+The publication preflight should therefore validate exact Git-object reference
+closure, portability and evidence kind before dispatching CI, rather than using
+only local-file availability. That is an implementation handoff to the existing
+publication/registration layer, not another registry, an Agent planner or a
+request to relax reference checks. Runtime source, active native checkpoints
+and another thread's unfinished Zig/native changes remain outside this commit.
