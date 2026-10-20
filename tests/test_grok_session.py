@@ -57,11 +57,13 @@ class GrokSessionTests(unittest.TestCase):
             self.assertEqual(result["reasoningEffort"], "high")
             argv = result["argv"]
             self.assertEqual(argv[argv.index("--reasoning-effort") + 1], "high")
-            grant=next(arg for arg in argv if arg.startswith('run_terminal_command('))
+            grant=next(arg for arg in argv if arg.startswith('Bash('))
             self.assertIn('run-script --provider grok repair '+entry['key'],grant)
             self.assertNotIn('work.py)',grant)
             self.assertNotIn("authorized diagnostic", json.dumps(result))
             self.assertFalse(result["executed"])
+            self.assertIn('Read(' + str(Path.home() / '.grok') + '/**)', argv)
+            self.assertIn('Read(' + str(Path.home() / '.codex') + '/**)', argv)
 
     def test_evidence_read_is_a_separate_literal_grant_not_an_editable_script(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,14 +74,40 @@ class GrokSessionTests(unittest.TestCase):
             self.assertEqual(Path(read["request"]).parent,
                              root / ".cache/tasks/repair/agents/diagnostic")
             self.assertIn("trajectory clues < ", read["command"])
-            self.assertIn("run_terminal_command(" + read["command"] + ")", result["argv"])
+            tools = result["argv"][result["argv"].index("--tools") + 1].split(",")
+            self.assertIn("run_terminal_cmd", tools)
+            self.assertNotIn("run_terminal_command", tools)
+            self.assertNotIn("<", read["permission"])
+            self.assertEqual(read["command"], read["permission"] + " < " + shlex.quote(read["request"]))
+            self.assertIn("Bash(" + read["permission"] + ")", result["argv"])
             self.assertFalse(Path(read["request"]).exists())
-            self.assertEqual([a for a in result["argv"] if a.startswith("run_terminal_command(")],
-                             ["run_terminal_command(" + read["command"] + ")"])
+            self.assertEqual([a for a in result["argv"] if a.startswith("Bash(")],
+                             ["Bash(" + p + ")" for p in read['permissions']])
             self.assertIsNone(run(replace(launch, query_request=None))["evidenceRead"])
             for bad in ("../outside.ss", "query.ss; echo unsafe", "request.py"):
                 with self.subTest(name=bad), self.assertRaisesRegex(ValueError, "basename"):
                     run(replace(launch, query_request=bad))
+
+    def test_documented_console_aliases_receive_only_read_and_help_grants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            launch = self.make_launch(root)
+            binary = root / '.venv/bin/gambit-smp'
+            binary.parent.mkdir(parents=True)
+            binary.write_text('console entry fixture')
+            with patch('gambit_smp.grok_session.sys.executable', str(binary.with_name('python3'))):
+                read = run(launch)['evidenceRead']
+            for executable in (str(binary), '.venv/bin/gambit-smp'):
+                self.assertIn(shlex.join([executable, 'trajectory', 'clues']), read['permissions'])
+                self.assertIn(shlex.join([executable, 'research', '--help']), read['permissions'])
+            self.assertEqual(len(read['permissions']), 16)
+            self.assertTrue(all(p.endswith(('trajectory clues', 'trajectory catalog', '--help'))
+                                for p in read['permissions']))
+            binary.unlink()
+            with patch('gambit_smp.grok_session.sys.executable', str(binary.with_name('python3'))):
+                self.assertEqual(len(run(launch)['evidenceRead']['permissions']), 8)
+            self.assertFalse(any(p.endswith(('submit', 'record', 'inspect', 'context', 'research'))
+                                 for p in read['permissions']))
 
     def test_provider_executes_real_evidence_cli_without_native_program_or_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,8 +148,8 @@ class GrokSessionTests(unittest.TestCase):
             Path(read["request"]).write_text('((questions ("unknown-native-cause")))')
             binary = root / "grok"
             binary.write_text("#!" + sys.executable + "\nimport json,subprocess,sys\n"
-                "grant=next(a for a in sys.argv if a.startswith('run_terminal_command('))\n"
-                "subprocess.run(grant[len('run_terminal_command('):-1],shell=True,check=True)\n"
+                "grant=next(a for a in sys.argv if a == " + repr('Bash(' + read['permission'] + ')') + ")\n"
+                "subprocess.run(grant[len('Bash('):-1],stdin=open(" + repr(read['request']) + "),shell=True,check=True)\n"
                 "print(json.dumps({'type':'end','stopReason':'end_turn','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a'}))\n")
             binary.chmod(0o700)
             with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
@@ -170,8 +198,8 @@ class GrokSessionTests(unittest.TestCase):
             binary=root/'grok'
             binary.write_text('#!'+sys.executable+'\nimport os,sys,subprocess,json,shlex\n'
                 'for fd in range(3,256):\n try:os.close(fd)\n except OSError:pass\n'
-                "grant=next(arg for arg in sys.argv if arg.startswith('run_terminal_command('))\n"
-                "subprocess.run(shlex.split(grant[len('run_terminal_command('):-1]),check=True)\n"
+                "grant=next(arg for arg in sys.argv if arg.startswith('Bash('))\n"
+                "subprocess.run(shlex.split(grant[len('Bash('):-1]),check=True)\n"
                 "print(json.dumps({'type':'end','stopReason':'end_turn','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a'}))\n")
             binary.chmod(0o700)
             with patch.dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH']):

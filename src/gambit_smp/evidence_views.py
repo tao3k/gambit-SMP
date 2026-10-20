@@ -1,5 +1,6 @@
 """Exact JSON/reference transport for caller-owned declarative Evidence views."""
 import json
+import hashlib
 from pathlib import Path
 
 from gambit_smp.framework import digest
@@ -12,6 +13,50 @@ class ReferenceUnavailable(ValueError):
         self.document, self.inputs, self.references = document, inputs, references
         super().__init__("Evidence view reference changed or missing: "
                          + ", ".join(row["path"] for row in references))
+
+
+def reference_witnesses(root, document):
+    """Observe bytes and explicit context, not dependency completeness or meaning."""
+    from gambit_smp.framework import relative
+    from gambit_smp.reasoning_history import fingerprint
+    from gambit_smp.source_capabilities import project_bytes
+    by_id = {ref["id"]: ref for ref in document["references"]}
+    checked, visiting = {}, set()
+
+    def observe(identity):
+        if identity in checked:
+            return checked[identity]
+        if identity in visiting or identity not in by_id:
+            raise ValueError("acyclic declared reference context required")
+        visiting.add(identity)
+        ref = by_id[identity]
+        path = relative(Path(root).resolve(), ref["path"])
+        data = path.read_bytes()
+        if hashlib.sha256(data).hexdigest() != ref["sha256"]:
+            raise ValueError("Evidence reference changed during byte observation")
+        label, value, text = ref["path"], ref["sha256"], None
+        if "ranges" in ref:
+            if ref["pointer"] is not None:
+                raise ValueError("byte projections cannot also select a JSON pointer")
+            context = ref.get("context", [])
+            if (not isinstance(context, list) or any(type(key) is not str for key in context)
+                    or len(set(context)) != len(context)):
+                raise ValueError("unique explicit reference context required")
+            content = project_bytes(data, ref["ranges"])
+            premises = {key: observe(key)["digest"] for key in context}
+            value = fingerprint(dict(path=ref["path"], origin=ref.get("origin", "repository"),
+                ranges=ref["ranges"], context=premises))
+            label = ref["path"] + "#source-block:" + value
+            text = content.decode("utf-8")
+        elif "context" in ref:
+            raise ValueError("reference context requires an explicit byte projection")
+        visiting.remove(identity)
+        checked[identity] = dict(label=label, digest=value, text=text)
+        return checked[identity]
+
+    for identity in by_id:
+        observe(identity)
+    return checked
 
 
 def registry(root):
@@ -74,7 +119,7 @@ def load(root, name):
     references, inputs, unavailable = {}, {str(path): digest(path)}, []
     for ref in document["references"]:
         if (not {"id", "path", "sha256", "pointer"} <= set(ref)
-                or set(ref) - {"id", "path", "sha256", "pointer", "origin"}
+                or set(ref) - {"id", "path", "sha256", "pointer", "origin", "ranges", "context"}
                 or ref["id"] in references):
             raise ValueError("unique exact view reference required")
         if (not isinstance(ref["id"], str) or not ref["id"]
@@ -108,10 +153,20 @@ def load(root, name):
         else:
             references[ref["id"]] = (ref["sha256"] if ref["pointer"] is None else
                                       pointer(json.loads(original.read_text()), ref["pointer"]))
+    witnesses = reference_witnesses(root, document) if not unavailable else {}
     def cell(value):
         if isinstance(value, dict):
-            if set(value) != {"reference"} or value["reference"] not in references:
+            if (set(value) not in ({"reference"}, {"reference", "field"})
+                    or value["reference"] not in references):
                 raise ValueError("exact view cell reference required")
+            witness = witnesses.get(value["reference"])
+            if "field" in value:
+                if value["field"] != "text" or (witness and witness["text"] is None):
+                    raise ValueError("text requires a checked source byte projection")
+                return witness["text"] if witness else None
+            if witness and "ranges" in next(ref for ref in document["references"]
+                                           if ref["id"] == value["reference"]):
+                return witness["digest"]
             return references[value["reference"]]
         if type(value) not in (str, bool, int, float):
             raise ValueError("scalar view cell or exact reference required")
@@ -121,7 +176,8 @@ def load(root, name):
         if isinstance(rows, dict):
             if set(rows) != {"references"} or rows["references"] is not True:
                 raise ValueError("explicit checked-reference metadata binding required")
-            facts[relation] = [[ref["id"], ref["path"], ref["sha256"]]
+            facts[relation] = [[ref["id"], witnesses[ref["id"]]["label"], witnesses[ref["id"]]["digest"]]
+                               if ref["id"] in witnesses else [ref["id"], ref["path"], ref["sha256"]]
                                for ref in document["references"]]
         else:
             facts[relation] = [[cell(value) for value in row] for row in rows]

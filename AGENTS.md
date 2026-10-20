@@ -21,7 +21,8 @@ fresh read. `(expand ("CLAIM-OR-REFERENCE"))` opens arbitrary references.
 Hypotheses and direction remain caller-owned; reads grant no execution authority.
 
 Grok launch receipts advertise `evidenceRead`: an exact read command and an
-owner-local Scheme request file, independent of native-program permissions.
+owner-local Scheme request file to create, independent of native-program
+permissions. The request is caller-authored data, not a pre-existing catalog.
 
 `research --help` describes durable execution checkpoints and source-bound
 Recipes; `research --read RUN` inspects retained stages without rerunning them.

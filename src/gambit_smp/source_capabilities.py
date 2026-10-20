@@ -82,6 +82,25 @@ def reference(value):
     check(value)
 
 
+def project_bytes(data, ranges):
+    """Check an explicit byte projection; this makes no semantic locality claim."""
+    if not isinstance(ranges, list) or not ranges:
+        raise ValueError("explicit byte-range inventory required")
+    end, pieces = 0, []
+    for span in ranges:
+        fields(span, ("start", "end", "sha256"))
+        if (type(span["start"]) is not int or type(span["end"]) is not int
+                or not end <= span["start"] < span["end"] <= len(data)):
+            raise ValueError("ordered disjoint positive byte spans within source required")
+        sha(span["sha256"])
+        piece = data[span["start"]:span["end"]]
+        if hashlib.sha256(piece).hexdigest() != span["sha256"]:
+            raise ValueError("projection span byte identity mismatch")
+        pieces.append(piece)
+        end = span["end"]
+    return b"\n".join(pieces)
+
+
 def validate_overlay(args, inputs):
     fields(args, ("source", "patch", "files", "role"))
     reference(args["source"])
@@ -219,15 +238,7 @@ def project(args, ctx):
             raise ValueError("projection origin differs from reviewed byte identity")
         content = data
         if "ranges" in row:
-            pieces = []
-            for span in row["ranges"]:
-                if span["end"] > len(data):
-                    raise ValueError("projection span escapes its source file")
-                piece = data[span["start"]:span["end"]]
-                if hashlib.sha256(piece).hexdigest() != span["sha256"]:
-                    raise ValueError("projection span byte identity mismatch")
-                pieces.append(piece)
-            content = b"\n".join(pieces)
+            content = project_bytes(data, row["ranges"])
         target = relative(workspace, row["target"])
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
@@ -256,7 +267,7 @@ def bind(args, ctx):
         path = (relative(source, origin["path"]) if origin["kind"] == "source-artifact"
                 else relative(ctx.root, origin["path"]))
         data = path.read_bytes()
-        expected = b"\n".join(data[span["start"]:span["end"]] for span in row["ranges"]) if "ranges" in row else data
+        expected = project_bytes(data, row["ranges"]) if "ranges" in row else data
         if digest(path) != row["sha256"] or target.read_bytes() != expected or digest(target) != row["outputSha256"]:
             raise ValueError("source/workspace byte correspondence drift")
         files[row["target"]] = row["outputSha256"]

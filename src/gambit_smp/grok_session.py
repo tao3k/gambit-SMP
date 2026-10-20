@@ -45,9 +45,26 @@ class Launch:
             raise ValueError("query request must be an owner-local Scheme basename")
         from gambit_smp.workspace import bounded
         request = bounded(root, (owned / self.query_request).relative_to(root))
-        command = shlex.join([sys.executable, "-m", "gambit_smp", "--root", str(root),
-                              "trajectory", "clues"]) + " < " + shlex.quote(str(request))
-        return dict(request=str(request), command=command)
+        base = [sys.executable, "-m", "gambit_smp", "--root", str(root)]
+        program = shlex.join([*base, "trajectory", "clues"])
+        command = program + " < " + shlex.quote(str(request))
+        # The project documents the installed dispatcher; grant only equivalent
+        # read routes, not the interpreter or the whole dispatcher.
+        bases = [base, [sys.executable, "-m", "gambit_smp"]]
+        console = Path(sys.executable).parent / "gambit-smp"
+        if console.is_file() and console.parent == root / ".venv/bin":
+            for executable in (str(console), ".venv/bin/gambit-smp"):
+                bases.append([executable])
+        from gambit_smp.trajectory_exploration import argument_parser
+        parser = argument_parser()
+        routes = [("trajectory", name) for action in parser._actions
+                  if isinstance(action, argparse._SubParsersAction)
+                  for name, operation in action.choices.items()
+                  if operation.get_default('execution_policy') == 'read']
+        routes += [("research", "--help"), ("--help",)]
+        permissions = [shlex.join([*entry, *route]) for entry in bases for route in routes]
+        return dict(request=str(request), command=command, permission=program,
+                    permissions=permissions)
 
     def prepare(self):
         root = self.workspace.resolve(strict=True)
@@ -78,9 +95,11 @@ class Launch:
         read = self.evidence_read(root, owned)
         tools = "read_file,write,search_replace"
         if self.scripts or read:
-            tools += ",run_terminal_command"
+            tools += ",run_terminal_cmd"
         argv += ["--tools", tools, "--allow", "read_file",
                  "--allow", f"Edit({owned}/**)"]
+        for directory in (".grok", ".codex", ".claude", ".cursor", ".ssh", ".aws"):
+            argv += ["--deny", "Read(" + str(Path.home() / directory) + "/**)"]
         for key in self.scripts:
             if not re.fullmatch(r"[a-f0-9]{64}",key):raise ValueError("terminal grants require a literal sealed program key")
             from gambit_smp.task_migration import script_record
@@ -92,9 +111,10 @@ class Launch:
             if not script.is_relative_to(cache/'programs') or hashlib.sha256(script.read_bytes()).hexdigest()!=entry['sha256']:
                 raise ValueError('terminal task program source changed')
             command=[sys.executable,'-m','gambit_smp','workspace','--root',str(root),'run-script','--provider','grok',self.task,key]
-            argv += ['--allow','run_terminal_command('+shlex.join(command)+')']
+            argv += ['--allow','Bash('+shlex.join(command)+')']
         if read:
-            argv += ["--allow", "run_terminal_command(" + read["command"] + ")"]
+            for permission in read["permissions"]:
+                argv += ["--allow", "Bash(" + permission + ")"]
         if self.resume:
             session=bounded(root,'.state/provider-sessions/'+self.task+'/'+self.owner+'.json')
             prior=json.loads(session.read_text()) if session.exists() else {}

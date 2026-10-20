@@ -171,6 +171,7 @@ def _declaration(root, snapshot, view_path):
 
 def _native_exchange(root, snapshot, engine):
     from ascent.trajectory import ClueExchange
+    from gambit_smp.evidence_views import reference_witnesses
 
     _current(snapshot)
     owner = None
@@ -180,6 +181,8 @@ def _native_exchange(root, snapshot, engine):
         document, facts, sources, inputs = _declaration(root, snapshot, retained["path"])
         attestations = {str(Path(path).relative_to(Path(root).resolve())): sha
                         for path, sha in inputs.items()}
+        attestations.update({row["label"]: row["digest"]
+                             for row in reference_witnesses(root, document).values()})
         if owner is None:
             owner = ClueExchange(engine, sources, document["constructor"], facts, attestations)
         else:

@@ -24,9 +24,18 @@ jobs:
           java-version: '21'
       - name: Install the pinned Lean compiler for the proof controls
         run: |
-          curl --fail --location --silent --show-error https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-all-errors --silent --show-error https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-          "$HOME/.elan/bin/elan" toolchain install "$(cat models/library/lean/lean-toolchain)"
+          toolchain="$(cat models/library/lean/lean-toolchain)"
+          for attempt in 1 2 3; do
+            if "$HOME/.elan/bin/elan" toolchain install "$toolchain"; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep "$attempt"
+          done
+          "$HOME/.elan/bin/elan" run "$toolchain" lean --version
       - name: Install fixed formal verification tools into local cache
         run: |
           mkdir -p .cache/tasks/repair-9-12/ci/formal/apalache

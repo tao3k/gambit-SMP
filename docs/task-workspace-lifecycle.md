@@ -21,12 +21,18 @@ taking execution custody or triggering global retention. Other operations keep
 their task policy; a read does not authorize native execution.
 
 The Grok launch receipt's `evidenceRead` advertises one literal CLI command and
-an owner-local `query.ss` request file. Writing inert Scheme requests to that
+an owner-local `query.ss` request file to create; it is not an existing input
+catalog. Writing inert Scheme requests to that
 file and using the exact advertised command does not require editing `work.py`.
 The command uses the existing stdin interface, not another endpoint or a broad
 Python permission. `Launch.query_request` configures the basename or disables
 this grant with `None`; sealed native-program grants remain independent. It
 does not preload evidence or investigation steps into the model prompt.
+
+The executed command retains stdin redirection; the Bash permission names only
+the normalized executable and argument words. Grok's `run_terminal_cmd` tool ID
+is distinct from the `run_terminal_command` event name. This permits the existing
+read endpoint, not generic Python or compound shell discovery commands.
 
 | Location | Role |
 | --- | --- |
