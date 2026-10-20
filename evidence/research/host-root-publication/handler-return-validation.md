@@ -373,3 +373,45 @@ retained stack shows ordinary source hashing, not a proved deadlock; it is not
 a timeout, PASS, or evidence of a production lock conflict. Its failed current
 attestation assertion preceded the corrected current binding above. Only the
 final complete 19-test run is reported as local qualification.
+
+## Publication Closure Audit And Remaining Privacy Boundary
+
+Run `39417847436` for `8b249a2c7da06b099b6c5e6dc17624f4e5572565`
+passed seal, but the worker could not load the registered procedural-retirement
+view: its exact proof receipt existed locally and was absent from Git. This is
+a reproducibility/publication failure, not a GC or watchdog verdict.
+
+An exact published-tree audit checked all **389 non-vendor view references**.
+It found 12 missing-reference occurrences and two references to earlier loader
+bytes. The five missing model/audit folders are small text evidence, not runtime
+caches. Their recorded receipt hashes match the views. The four formal folders
+also pass the existing `checked_rows` validator against their maintained
+manifests: **5, 6, 6 and 3** admitted controls respectively, with original source,
+log, trace and checker-artifact checks. No unchanged QNT campaign was repeated.
+These folders and the independently scoped structure audit are published as
+historical evidence, without modifying any recorded verdict or native gate.
+
+The two loader references in the Zig research view are reviewed against the
+published source, not another thread's dirty documents. The relevant change
+adds typed unavailable-reference observations and declared coverage, while
+preserving exact-reference checks and caller-owned selectors. Both hashes,
+source ranges and descriptions are updated to state that distinction explicitly.
+It does not turn missing provenance into a source fact or native admission.
+
+Some remaining historical native receipts contain personal absolute paths;
+the mechanism campaign also contains private view/acceptance records and TLC
+binary traces. They are **not** force-added to make a clean checkout pass.
+In particular the root-signal comparison/constructor and runtime-retirement
+receipts, and the unsealed mechanism-campaign closure, still require a portable
+publication contract which preserves raw identities and distinguishes derived
+observations from original receipts. Blindly replacing strings and rebinding
+their hashes would not supply that contract. Originals remain local; the view
+requirements and failing CI records remain intact. This research does not
+claim complete framework CI or native acceptance for this publication.
+
+The publication preflight should therefore validate exact Git-object reference
+closure, portability and evidence kind before dispatching CI, rather than using
+only local-file availability. That is an implementation handoff to the existing
+publication/registration layer, not another registry, an Agent planner or a
+request to relax reference checks. Runtime source, active native checkpoints
+and another thread's unfinished Zig/native changes remain outside this commit.
