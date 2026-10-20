@@ -1111,3 +1111,19 @@ existing work-item Cache; Current Work records their conclusions.
 Detailed execution evidence is retained under `.cache/tasks/repair-9-12/processes/audit/runs/513d452a3f44415dabc9d0d682567f48/outputs/acceptance/smp-ci-publication` (including the initial failures and explicit rejection controls).
 The final Git-blob/reference/producer closure check passed in 10.804 seconds;
 this checks publication consistency and does not certify runtime recovery.
+
+At integration head `9e2d238`, `patch-contracts` passed. Native build run
+`39431722547` failed before construction: its seal step still invoked the
+dispatcher without an explicit task, while the framework workflow already
+declared one. All four native research actions (seal, run, export and module
+import/run) now explicitly use `--task repair-9-12`. The wiring regression checks
+every native execution line, so adopting during setup cannot conceal another
+unmigrated call site. Module jobs were skipped after that failed build and are
+not acceptance evidence. This is an entry-policy failure, not a native fault or
+a request to widen any budget.
+
+All twenty CI wiring, source-lock, candidate and clean-checkout controls passed
+in 4.243 seconds after the explicit native-task correction. A real Git-index
+control restored the stale `23ae26e` Zig binding and the publication check
+rejected it; the valid index was then restored. That expected rejection is
+retained separately from the successful producer/reference check.

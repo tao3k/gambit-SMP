@@ -245,6 +245,11 @@ class GambitCIContracts(unittest.TestCase):
         for source in (workflow, framework, install):
             self.assertNotIn(".cache/ci", source)
             self.assertNotIn(".cache/fixtures", source)
+        # Separate Actions steps cannot inherit an execution scope from setup.
+        # Every native action declares its stable actor at the public entry.
+        for line in workflow.splitlines():
+            if "run: uv run --no-sync gambit-smp " in line:
+                self.assertIn("gambit-smp --task repair-9-12 ", line)
         archive = recipes.read_json(DIRECTORY / "runtime-input.json")["path"]
         self.assertIn("--out " + archive, workflow)
         self.assertIn("path: " + archive, workflow)
