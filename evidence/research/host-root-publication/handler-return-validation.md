@@ -415,3 +415,31 @@ only local-file availability. That is an implementation handoff to the existing
 publication/registration layer, not another registry, an Agent planner or a
 request to relax reference checks. Runtime source, active native checkpoints
 and another thread's unfinished Zig/native changes remain outside this commit.
+
+## Reproduction Boundary Correction
+
+The subsequent audit rejected the proposed remedy of publishing redacted local
+runtime receipts. Traceability and privacy do not establish reproducibility.
+The four original receipt identities remain untouched; originals and derivative
+exports are local observations, not new Git acceptance inputs. The user's
+confirmed boundary is source, DSL, replay Recipes and validation contracts in
+Git; logs and execution receipts stay in Cache.
+
+The root-signal and runtime-retirement declarations now retain their historical
+digest assertions without current verification, current receipt bindings or
+process observations. Existing Scheme withdrawal and missing-binding rules keep
+those native requirements unclosed. The mechanism-granularity declaration links
+the maintained reproduction contract instead of a private run receipt, and no
+longer claims that current model revisions were checked by that missing receipt.
+No document digest is substituted into an old receipt binding.
+
+The existing archive adapter now supports an explicitly inventoried Cache-only
+redacted export. It preserves raw verdict and digest fields, records derivative
+digests separately, rechecks raw custody, and enumerates omitted binary material.
+It does not execute tests, infer a parent exit or grant admission. Its source
+inventory is also a Cache artifact, not another maintained registry.
+
+`docs/evidence-reproduction-boundary.md` records the four distinct missing replay
+premises and their maintained source programs. Framework controls verify the
+truthful unresolved state without accessing private runs. This correction is
+publication/framework work, not advancement of the native 9--12 milestone.
