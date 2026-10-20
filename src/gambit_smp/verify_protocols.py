@@ -48,6 +48,23 @@ def load_manifest(path):
     return manifest
 
 
+def retain_reused_artifacts(source, destination, row):
+    """A resumed verdict retains its checked compiler artifacts, not just logs."""
+    inputs = {}
+    for name, expected in row.get("checker", {}).get("artifacts", {}).items():
+        original, target = local(source, name), local(destination, name)
+        if digest(original) != expected:
+            raise ValueError("resumed checker artifact changed")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and digest(target) != expected:
+            raise ValueError("resumed checker artifact collision")
+        target.write_bytes(original.read_bytes())
+        if digest(original) != expected or digest(target) != expected:
+            raise ValueError("resumed checker artifact changed during retention")
+        inputs[str(original)] = expected
+    return inputs
+
+
 def reusable_check(directory, manifest, case, variant, invariant, initializer, sha):
     saved = json.loads((directory / "receipt.json").read_text())
     if saved.get("quintVersion") != manifest["quintVersion"] or saved.get("contextStable") is not True:
@@ -176,6 +193,9 @@ def main():
                 row, output, trace = reused
                 old_log = args.resume_from / row["log"]
                 inputs[str(old_log.relative_to(ROOT))] = digest(old_log)
+                inputs.update({str(Path(path).relative_to(ROOT)): expected
+                    for path, expected in retain_reused_artifacts(
+                        args.resume_from, args.out, row).items()})
                 (args.out / (name + ".log")).write_text(output)
                 row.update(log=name + ".log", reusedFromReceiptSha256=digest(args.resume_from / "receipt.json"))
                 if trace:
