@@ -311,3 +311,20 @@ LeanPoo dependency with 200000 heartbeats, recursion depth 512 and a 15-second
 owned-process guard; it does not run Gambit bootstrap or stress. Unchanged QNT
 controls are checked against their retained exact-byte receipts, not rerun as
 new native evidence. A new source head still needs its own full framework CI.
+
+Run `39415723740` for `a3f6e9f601916b92ef88e5b924d1404e89f1b69f`
+passed the explicit task selection and then failed the checkout-import guard:
+CI had installed this downstream framework with `--no-editable`, so its module
+origin was the installed copy rather than the declared checkout. The framework
+action now uses the package manager's ordinary editable workspace install;
+the ASCENT dependency remains locked and packaged. The origin guard, source
+hashes, task custody and native budgets are not weakened. This seal failure is
+retained independently from the preceding missing-task failures and from any
+subsequent full-test result.
+
+The installation correction was checked locally with the package manager in a
+fresh isolated Python environment, installing only this downstream package
+editable and without dependencies or a `PYTHONPATH` override. Its actual import
+resolved to the declared source checkout. The existing clean-checkout
+adoption/owned-child test passed **1/1 in 1.273 seconds** in that environment.
+This is an installed-entry control, not a replacement for the pending full CI.
