@@ -73,3 +73,58 @@ close-error Recipe, Chez carrier lifetime comparison, OCaml release/acquire
 acknowledgement comparison and registered source-census gap. Existing handler,
 last-consumer QNT and Lean model bytes remain unchanged and retain their scope.
 No model or framework result closes an SMP native contract.
+
+## Finite-Inventory Reasoning Boundary
+
+The source adapter's immutable inventory gives each expected test its own
+contract, and each completed-unit observation has value one. With a valid
+initial cursor zero, a given key can advance at most once. Consequently an
+inventory of N test identities admits at most N fresh frontiers; replaying
+records cannot create an infinite sequence of renewals. This is the useful
+engine-side alternative to a ten-minute global wall cap.
+
+This argument assumes an attested immutable inventory, correct scope/actor/
+epoch/source binding, returning observation/inference operations and a fairly
+scheduled host clock. It does not prove those host premises, an unbounded
+end-to-end liveness theorem, or that a long internal operation is deadlocked.
+The existing QNT negative controls and actual Scheme replay tests check the
+relevant distinction; they are not relabelled as that stronger theorem.
+
+## Complete CI And Storage Follow-Up
+
+Exact head `03bb21733def2943ff0928af0d7cef93aead23b7` passed framework run
+`39409796528`, job `118584461462`: **1837/1837**, zero failures, errors,
+skips, expected failures or unexpected successes; complete inventory and no
+changed inputs. Test work was **480.546808099 seconds**; supervised execution
+was **484.387088324 seconds**, exit zero, no timeout, parent reaped and process
+group quiescent. The configured inactivity window remained 300 seconds.
+Full Evidence export and upload passed. The separate sealed domain's 110 tests
+passed on two host-selected lanes; 1727 local completions produced 302 admitted
+progress batches. The frontier count is not falsely reported as 1837 individual
+parent-stream observations.
+
+Official receipt SHA-256:
+`68fa108efa85ba8b2f9cef20d5096c12eca3d6437fe1545fcf29e84966ef9237`.
+The complete original artifact is retained in compressed cache, not Git.
+The duplicate native workflow for this head was cancelled; older native runs
+were not modified.
+
+Artifact inspection exposed repeated full cursor snapshots: **275939536 bytes**
+in `progress.jsonl`. The storage projection now records changed keys directly
+from Scheme's `progress_advanced`, plus the same observations and rejections;
+it does not recalculate admission in Python. `cursorProjection=changed-keys`
+prevents treating an empty delta as an empty complete census. The producer also
+hash-binds this delta log, checked before reuse alongside its process log.
+
+Independent replay checked all 302 actual CI records against their original
+full before/after states. The initial state exactly matched the immutable
+1837-test inventory, and its source digest matched the official receipt's
+input bindings. Every projected transition reconstructed the same full state:
+1837 retained cursors, 1727 advanced. Projected size is **1840574 bytes**, a
+**99.333%** storage reduction for this actual trace. This is not a runtime
+speedup or a new full-framework verdict for the follow-up source revision.
+
+The isolated follow-up source passed the same three focused modules:
+**35/35 in 63.184 seconds**, including changed-key projection and delta-log
+tamper rejection. The whole-CI result above remains bound to `03bb217`; the
+follow-up must obtain its own exact-source framework result.

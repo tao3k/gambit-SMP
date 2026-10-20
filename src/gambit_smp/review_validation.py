@@ -244,11 +244,14 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
         path = path / "receipt.json"
     content = path.read_bytes()
     saved = json.loads(content)
+    for name, label in (("log", "process"), ("progressLog", "progress")):
+        if name in saved.get("producer", {}):
+            reference = saved["producer"][name]
+            observed = (path.parent / reference["path"]).resolve()
+            observed.relative_to(path.parent)
+            if digest(observed) != reference["sha256"]:
+                raise ValueError("validation " + label + " log identity mismatch")
     if saved.get("schema") == "gambit-framework-validation-launch.v1":
-        log = (path.parent / saved["producer"]["log"]["path"]).resolve()
-        log.relative_to(path.parent)
-        if digest(log) != saved["producer"]["log"]["sha256"]:
-            raise ValueError("validation process log identity mismatch")
         return {"status": ("INTERRUPTED" if saved["producer"].get("interruptionSignal") is not None
                            else "TIMEOUT" if saved["producer"]["timeout"] else "ERROR"),
                 "frameworkValidated": False, "profile": saved["profile"],
@@ -267,11 +270,6 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
         raise ValueError("validation child result identity mismatch")
     child = json.loads(child_path.read_text())
     producer = saved.get("producer", {})
-    if "log" in producer:
-        process_log = (path.parent / producer["log"]["path"]).resolve()
-        process_log.relative_to(path.parent)
-        if digest(process_log) != producer["log"]["sha256"]:
-            raise ValueError("validation process log identity mismatch")
     expected, outcomes = saved["expectedTestIds"], saved["outcomes"]
     complete = (bool(expected) and len(expected) == len(set(expected)) and
                 type(saved["testsRun"]) is int and
@@ -420,8 +418,13 @@ class ValidationProgress:
         if self.sample["progress_sample"]:
             self.progress("", "")
             self.witness = self.progress.witness
+            record = {key: value for key, value in self.witness.items()
+                      if key not in ("cursorBefore", "cursorAfter")}
+            record.update(cursorProjection="changed-keys",
+                          cursorBefore=[row[:6] for row in self.witness["advanced"]],
+                          cursorAfter=[[*row[:5], row[6]] for row in self.witness["advanced"]])
             with (self.out / "progress.jsonl").open("a") as stream:
-                stream.write(json.dumps(self.witness, sort_keys=True) + "\n")
+                stream.write(json.dumps(record, sort_keys=True) + "\n")
         return self.progress.renewals
 
     def close(self):
@@ -481,6 +484,9 @@ def supervise(root, profile, model, out, timeout):
                 "watchdogAssessment": assessment, "interruptionSignal": interruption,
                 "progressInputs": progress.inputs,
                 "log": {"path": log.name, "sha256": digest(log)}}
+    progress_log = out / "progress.jsonl"
+    if progress_log.is_file():
+        producer["progressLog"] = {"path": progress_log.name, "sha256": digest(progress_log)}
     result_path = out / "test-result.json"
     if result_path.is_file():
         result = json.loads(result_path.read_text())

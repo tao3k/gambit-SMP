@@ -49,7 +49,11 @@ increased to compensate for a slower host.
 
 `tests.log` is flushed during execution. `inventory.json`, `context.json` and
 `progress.jsonl` bind the population, incarnation, raw observations, accepted
-frontiers, rejections and cursors. On a caught external interruption the parent
+frontiers, rejections and changed-key cursor deltas. The immutable inventory
+supplies the initial zero cursors; replay applies only the Scheme-admitted
+changes. Repeating the entire unchanged population in every record is neither
+needed for recovery nor a new completeness witness. On a caught external
+interruption the parent
 retains an interruption receipt and diagnostic process log, without inventing
 an exit or quiescence witness. The final exit, actual test outcomes, unchanged
 inputs, complete inventory, reaping and group quiescence remain separately

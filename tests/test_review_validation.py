@@ -39,6 +39,12 @@ class ReviewValidationTests(unittest.TestCase):
         self.assertTrue((self.root / "progress.jsonl").is_file())
         self.assertIn(["one", "123", epoch, "completed-test", digest(self.source), 1],
                       count.witness["cursorAfter"])
+        for line in (self.root / "progress.jsonl").read_text().splitlines():
+            record = json.loads(line)
+            self.assertEqual(record["cursorProjection"], "changed-keys")
+            self.assertEqual(record["cursorBefore"], [row[:6] for row in record["advanced"]])
+            self.assertEqual(record["cursorAfter"],
+                             [[*row[:5], row[6]] for row in record["advanced"]])
 
     def test_unknown_test_and_wrong_incarnation_do_not_renew(self):
         epoch = "test-attempt"
@@ -243,6 +249,18 @@ class ReviewValidationTests(unittest.TestCase):
             load(self.root, path, self.inputs, self.engine)
         (path.parent / "tests.log").write_text("different output\n")
         with self.assertRaisesRegex(ValueError, "log identity mismatch"):
+            load(self.root, path, self.inputs, self.engine)
+
+    def test_progress_delta_identity_is_checked_before_reuse(self):
+        path = self.receipt()
+        progress = path.parent / "progress.jsonl"
+        progress.write_text('{"cursorProjection":"changed-keys"}\n')
+        saved = json.loads(path.read_text())
+        saved["producer"]["progressLog"] = {"path": progress.name, "sha256": digest(progress)}
+        path.write_text(json.dumps(saved))
+        self.assertTrue(load(self.root, path, self.inputs, self.engine)["frameworkValidated"])
+        progress.write_text('{"changed":true}\n')
+        with self.assertRaisesRegex(ValueError, "progress log identity mismatch"):
             load(self.root, path, self.inputs, self.engine)
 
     def test_skips_and_empty_suites_do_not_validate_the_chain(self):

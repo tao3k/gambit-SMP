@@ -219,3 +219,43 @@ that cap nor calls the cancelled full campaign green. The corrected reference
 and new declarations have the independent publication-tree results above.
 The additional five-file research change remains in the working tree rather
 than pushing another known-cap campaign or touching native acceptance.
+
+## Post-Publication Source Continuation
+
+The preceding pending-publication boundary was superseded by `03bb217`, which
+publishes that audited research with the Scheme-driven framework observation
+repair. The full framework result remains separately qualified. This subsequent
+source audit changes no runtime, model bytes or native acceptance.
+
+Pinned OCaml `runtime/domain.c:1122-1146` registers the callback and `term_sync`
+slots in an independent C carrier as generational global roots. At :1372-1389,
+`sync_and_terminate` retains a raw `mut` across domain teardown, then performs
+its final unlock. The caller removes the carrier's roots only at :1450-1455,
+explicitly after that unlock. `runtime/caml/sync.h:34`, `runtime/sync.c:101-111`
+and `runtime/sync_posix.h:32-62` distinguish the rooted movable wrapper from
+the separately allocated native mutex. This is not permission to retain an
+arbitrary interior pointer into a moving Gambit object.
+
+The existing Lean consumer-composition theorem requires this post-teardown
+borrower in the actual consumer census. Its last-resource-use witness permits
+the root removal before whole OS-thread return only after that borrow ends.
+The saved-stack last-access QNT supplies the analogous omitted-consumer
+countercheck, not a refinement of OCaml mutexes or Gambit TTY records. The
+missing Gambit witness remains the actual owner, last alias and supported
+publication/reuse edge, not a request to add a second model or global lock.
+
+The successful OCaml backup-thread acknowledgement path also has a scope limit:
+`domain.c:1248-1258` publishes `BT_ENTERING_OCAML` before thread creation and
+returns an exception result on creation error. The two inspected callers at
+:1421-1424 and :1499-1501 take different exception paths. Their full rollback /
+retry correspondence is not established by the successful `BT_INIT` handshake.
+No creation failure was injected, and no OCaml runtime defect is claimed.
+This is counterevidence to importing that mechanism as a universal failure
+recovery proof.
+
+Chez `c/gc.c:1041-1043` and :1158-1161 provides actual downstream consumers of
+the preserved `thread_gc` carrier: a segment whose creator has no live TC can
+be reassigned to the current collector. This completes the source reason for
+retaining the carrier after TC free, without claiming that every carrier field
+or incarnation can be reused concurrently. It complements, rather than
+replaces, the existing saved-origin and producer-lifetime conditions.
