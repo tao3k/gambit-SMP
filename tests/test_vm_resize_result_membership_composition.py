@@ -15,18 +15,28 @@ class ResizeResultMembershipCompositionTests(unittest.TestCase):
         path = self.base + "resize-result-membership-design-contract.json"
         manifest = load_manifest(ROOT / path)
         self.assertIn((path, self.receipt), BUNDLES)
-        rows = checked_rows(ROOT, manifest, ROOT / self.receipt)[0][1]
+        saved = json.loads((ROOT / self.receipt).read_text())
+        drift = [name for name, expected in manifest['contextInputs'].items()
+                 if digest(ROOT / name) != expected or saved['inputs'].get(name) != expected]
+        if drift:
+            with self.assertRaisesRegex(ValueError, 'context differs'):
+                checked_rows(ROOT, manifest, ROOT / self.receipt)
+            facts, _ = bundle_facts(ROOT, path, self.receipt)
+            self.assertEqual(facts['protocol_checked'], [])
+            # Inspect retained observations without granting current admission.
+            rows = saved['results']
+        else:
+            rows = checked_rows(ROOT, manifest, ROOT / self.receipt)[0][1]
+            facts, inputs = bundle_facts(ROOT, path, self.receipt)
+            self.assertTrue(facts)
+            for name in (path, self.receipt, 'src/gambit_smp/model_projection.py'):
+                self.assertEqual(digest(ROOT / name), inputs[name])
         self.assertEqual(4, len(rows))
         self.assertEqual(3, sum(r["variant"] == "old" and r["exit"] == 1 for r in rows))
         positive = next(r for r in rows if r["variant"] == "protocol")
         self.assertEqual({"generated": 5648, "distinct": 2128, "queued": 0}, positive["states"])
         self.assertEqual("progress", positive["temporal"])
-        facts, inputs = bundle_facts(ROOT, path, self.receipt)
-        self.assertTrue(facts)
-        for name in (path, self.receipt, "src/gambit_smp/model_projection.py"):
-            self.assertEqual(digest(ROOT / name), inputs[name])
         self.assertIn("permanent_join_failure_vm_protocol", manifest["cases"][0]["openObligations"])
-        saved = json.loads((ROOT / self.receipt).read_text())
         self.assertFalse(saved["runtimeAdmitted"])
         self.assertFalse(saved["releaseAdmitted"])
 

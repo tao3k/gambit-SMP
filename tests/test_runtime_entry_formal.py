@@ -95,9 +95,15 @@ class RuntimeEntryFormalTests(unittest.TestCase):
     def test_existing_scheme_relations_keep_experimental_limits(self):
         directory = ROOT / "evidence/scenarios/parallel-gc"
         facts = json.loads((directory / "runtime-entry-facts.json").read_text())["facts"]
-        for _, path, sha, _ in facts["source"]:
+        current_sources = []
+        for row in facts["source"]:
+            _, path, sha, _ = row
             self.assertFalse({".data", ".cache"}.intersection(path.split("/")))
-            self.assertEqual(digest(ROOT / path), sha)
+            if digest(ROOT / path) == sha:
+                current_sources.append(row)
+        # A historical Recipe citation is not silently rebound to today's file.
+        # Removing changed source witnesses lets the actual DSL expose gaps.
+        facts = dict(facts, source=current_sources)
         for _, path, sha, status, gap in facts["model_scope"]:
             self.assertEqual(digest(ROOT / path), sha)
             self.assertEqual(status, "partial")
@@ -111,9 +117,14 @@ class RuntimeEntryFormalTests(unittest.TestCase):
             conditions = {row[0] for row in facts["transfer_condition"]}
             self.assertEqual({row[0] for row in answers["transfer_evidence"]}, conditions)
             self.assertEqual({row[0] for row in answers["transfer_gap"]}, conditions)
-            self.assertEqual(answers["transfer_unbound"], [])
+            present = {row[0] for row in current_sources}
+            sections = {row[0]: row[1] for row in facts['source_section']}
+            missing = {(row[0], 'premise-source-missing') for row in facts['transfer_premise']
+                       if sections.get(row[1]) not in present}
+            self.assertEqual(set(answers["transfer_unbound"]), missing)
             self.assertEqual({(row[0], row[1]) for row in answers["transfer_premise_evidence"]},
-                             {(row[0], row[1]) for row in facts["transfer_premise"]})
+                             {(row[0], row[1]) for row in facts["transfer_premise"]
+                              if sections.get(row[1]) in present})
             self.assertEqual(len(answers["missing_requirement"]), len(facts["obligation"]))
             repeated, reused = evaluate(engine, facts, catalog, queries)
             self.assertEqual(repeated, answers)

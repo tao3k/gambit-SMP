@@ -186,9 +186,16 @@ class ResearchGraphTests(unittest.TestCase):
         imported.assert_not_called()
 
     def test_historical_reproduction_requires_explicit_selection(self):
+        from gambit_smp import workspace
+        (self.root / 'models/gambit').mkdir(parents=True)
+        (self.root / 'models/gambit/cases.json').write_text('{}')
+        workspace.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                      'commit', '--allow-empty', '-qm', 'dispatcher fixture')
+        workspace.start(self.root, 'historical-test', adopt=True)
         adapter = types.SimpleNamespace(main=lambda: 7)
-        with patch.object(cli, "import_module", return_value=adapter):
-            self.assertEqual(7, cli.main(["--historical-reproduction", "source-unit"]))
+        with patch.dict(os.environ), patch.object(cli, "import_module", return_value=adapter):
+            self.assertEqual(7, cli.main(["--root", str(self.root), "--task", "historical-test",
+                                         "--historical-reproduction", "source-unit"]))
 
     def test_research_run_executes_declared_recipe_without_extra_native_switch(self):
         arguments = ["research", "--run", "declared", "--engine", "seal", "--out", ".cache/result"]

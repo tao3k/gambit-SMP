@@ -194,8 +194,7 @@ class CheckpointObserverTests(unittest.TestCase):
         einval = self._tree(count_line=current, closed_line=closed, others=others,
                             runs=tuple((name, "einval") for name in observer.LIFECYCLE_RUNS))
         self.assertFalse(observer.qualify_nine_of_twelve(einval)["admitted"])
-        flagged = (observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-recovery-1/run/join-probe/run-executable.stdout").read_text()
-        self.assertFalse(observer.os_join_error_then_success(flagged))
+        self.assertFalse(observer.os_join_error_then_success(observer.LIFECYCLE_STDOUT))
 
     def test_pre_join_flag_blocks_a_three_line_transcript(self):
         current = "Cumulative completion is **9/12**."
@@ -213,23 +212,22 @@ class CheckpointObserverTests(unittest.TestCase):
         self.assertFalse(decision["admitted"])
         self.assertEqual(decision["count"], "8/12")
         self.assertFalse(decision["runsOk"])
-        live = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-recovery-1"
         self.assertTrue(observer.pre_join_flag_before_join(
-            observer.ROOT, ".cache/tasks/repair-9-12/lifecycle-join-recovery-1"))
-        self.assertEqual(
-            (live / "run/join-probe/run-executable.stdout").read_text(),
-            "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n")
-        self.assertEqual(observer.qualify_nine_of_twelve(observer.ROOT)["count"], "8/12")
+            root, observer.LIFECYCLE_RUNS[0]))
 
-    def test_live_checkpoint_matches_two_lifecycle_receipts(self):
-        decision = observer.qualify_nine_of_twelve(observer.ROOT)
+    def test_cached_success_banners_do_not_close_the_checkpoint(self):
+        root = self._tree(count_line="Cumulative completion is **9/12**.",
+            closed_line="The lifecycle failure/rollback gate is closed.",
+            others="Complete GC/FFI, Gerbil correctness, and release performance remain open.",
+            runs=tuple((name, "banner") for name in observer.LIFECYCLE_RUNS))
+        decision = observer.qualify_nine_of_twelve(root)
         self.assertFalse(decision["admitted"])
         self.assertEqual(decision["count"], "8/12")
         self.assertIsNone(decision["closed"])
         self.assertFalse(decision["runsOk"])
         for name in observer.LIFECYCLE_RUNS:
-            text = (observer.ROOT / name / "run/join-probe/run-executable.stdout").read_text()
-            receipt = json.loads((observer.ROOT / name / "receipt.json").read_text())
+            text = (root / name / "run/join-probe/run-executable.stdout").read_text()
+            receipt = json.loads((root / name / "receipt.json").read_text())
             self.assertEqual(text, observer.LIFECYCLE_STDOUT)
             self.assertEqual(receipt["outcome"], "PASS")
             self.assertFalse(observer.os_join_error_then_success(text))
@@ -256,6 +254,27 @@ class CheckpointObserverTests(unittest.TestCase):
         self.assertEqual(waited_stdout, stdout)
         self.assertEqual(waited_receipt["outcome"], "DENY")
         self.assertFalse(observer.os_join_error_then_success(waited_stdout))
+
+    def test_real_recovery_receipts_lack_an_os_join_error_and_stay_at_eight(self):
+        root = observer.ROOT
+        for name in observer.LIFECYCLE_RUNS:
+            stdout = (root / name / "run/join-probe/run-executable.stdout").read_text()
+            receipt = json.loads((root / name / "receipt.json").read_text())
+            self.assertEqual(stdout, observer.LIFECYCLE_STDOUT)
+            self.assertEqual(receipt["outcome"], "PASS")
+            self.assertEqual(receipt["exit"], 0)
+            self.assertTrue(observer.pre_join_flag_before_join(root, name))
+            self.assertFalse(observer.os_join_errno_recorded(root, name))
+            self.assertFalse(observer.os_join_error_then_success(stdout))
+            self.assertFalse(observer._lifecycle_run_ok(root, name))
+        decision = observer.qualify_nine_of_twelve(root)
+        self.assertEqual(decision, {
+            "admitted": False, "count": "8/12", "closed": None, "runsOk": False})
+        milestone = (root / observer.MILESTONE_PATH).read_text()
+        review = (root / observer.REVIEW_PATH).read_text()
+        self.assertIn("Cumulative completion is **8/12**", milestone)
+        self.assertNotIn("Cumulative completion is **9/12**", milestone)
+        self.assertIn("remains 8/12", review)
 
 
 if __name__ == '__main__':

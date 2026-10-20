@@ -58,6 +58,7 @@ class MechanismGranularityTests(unittest.TestCase):
         cls.catalog=load_component_catalog(ROOT/'evidence/dsl/modeling-guidance.components.json',entry='modeling-guidance',constructor='make-modeling-guidance',trusted=True)
         cls.context=engine_api();cls.engine,_=cls.context.__enter__()
         cls.rows=[]
+        cls.jar=Path(os.environ.get('QUINT_TLC_JAR', ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar'))
     @classmethod
     def tearDownClass(cls):
         cls.context.__exit__(None,None,None)
@@ -68,17 +69,17 @@ class MechanismGranularityTests(unittest.TestCase):
     def tlc(self,initializer,invariant,negative=False,temporal=None):
         folder=self.out/(initializer+'-'+invariant);folder.mkdir()
         if not negative:
-            with prepared_compiler(folder/'compiler',ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar'):
-                row,log,trace=check(self.projection,initializer='init',invariant=invariant,negative=False,timeout=30,cwd=folder,config=self.config,executable=shutil.which('quint'),step='step',temporal=temporal,liveness_schedule='final',tlc_jar=ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar')
+            with prepared_compiler(folder/'compiler',self.jar):
+                row,log,trace=check(self.projection,initializer='init',invariant=invariant,negative=False,timeout=30,cwd=folder,config=self.config,executable=shutil.which('quint'),step='step',temporal=temporal,liveness_schedule='final',tlc_jar=self.jar)
                 (folder/'checker.log').write_text(log)
                 (folder/'receipt.json').write_text(json.dumps(dict(row,trace=trace,inputs=self.inputs,nativeAdmitted=False),indent=2))
             if row['accepted']:
                 self.compiled=folder/'mechanism_projection.tla'
                 self.compiled_sha=digest(self.compiled)
-                self.jar_sha=digest(ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar')
+                self.jar_sha=digest(self.jar)
         else:
             row,log,trace=compiled_control(self.compiled,folder,invariant,
-                ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar',expected_sha=self.compiled_sha,
+                self.jar,expected_sha=self.compiled_sha,
                 jar_sha=self.jar_sha,model_sha=digest(self.projection),workers=1)
 
         (folder/'checker.log').write_text(log);(folder/'receipt.json').write_text(json.dumps(dict(row,trace=trace,inputs=self.inputs,nativeAdmitted=False),indent=2))

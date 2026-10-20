@@ -562,8 +562,14 @@ print(json.dumps(result))'''
           (relation question (claim))
           ((question C) <-- (clue I D C _ _ _) (attested I D _)))'''
         oracle = repository_clues(ROOT, selector=source, display_bytes=1024 * 1024)
-        self.assertTrue(oracle["brief"]["presentationComplete"])
         expected = {family["claim"] for family in oracle["brief"]["families"]}
+        tokens = set()
+        while not oracle["brief"]["presentationComplete"]:
+            self.assertNotIn(oracle["checkpoint"], tokens, "oracle pagination made no progress")
+            tokens.add(oracle["checkpoint"])
+            oracle = repository_clues(ROOT, selector=source, display_bytes=1024 * 1024,
+                                      checkpoint=oracle["checkpoint"])
+            expected.update(family["claim"] for family in oracle["brief"]["families"])
         expected_relations = {tuple(row) for row in
             load_clue_checkpoint(ROOT, oracle["checkpoint"])["body"]["relations"]}
         packet = repository_clues(ROOT, selector=source, display_bytes=8192)

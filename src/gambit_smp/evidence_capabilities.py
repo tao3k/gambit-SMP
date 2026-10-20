@@ -6,7 +6,6 @@ from contextlib import contextmanager, nullcontext
 import os
 import selectors
 import subprocess
-from gambit_smp.task_processes import spawn as _task_spawn
 import time
 import traceback
 import hashlib
@@ -74,6 +73,7 @@ class EvaluationOwner:
         execution_origin(self.engine)
         request_sha = digest(request_path)
         if self.process is None:
+            from gambit_smp.task_processes import spawn as _task_spawn
             self.policy_identity()
             self.directory.mkdir(parents=True, exist_ok=False)
             self.log = (self.directory / "stderr.log").open("wb")

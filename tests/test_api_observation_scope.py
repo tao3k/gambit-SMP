@@ -25,6 +25,7 @@ class ApiObservationScopeTests(unittest.TestCase):
         stack.enter_context(patch.object(api, "_loaded_identity", None))
         self.hashes = stack.enter_context(patch.object(api, "_file_identities", wraps=api._file_identities))
         self.engine = Mock()
+        self.outer_scope = api._active_api.get()
 
     def test_nested_loads_hash_at_outer_entry_and_exit_and_later_requests_recheck(self):
         with api.engine_api(engine=self.engine):
@@ -33,7 +34,7 @@ class ApiObservationScopeTests(unittest.TestCase):
                     self.assertEqual(self.hashes.call_count, 1)
             self.assertEqual(self.hashes.call_count, 1)
         self.assertEqual(self.hashes.call_count, 2)
-        self.assertIsNone(api._active_api.get())
+        self.assertIs(api._active_api.get(), self.outer_scope)
         with api.engine_api(engine=self.engine):
             pass
         self.assertEqual(self.hashes.call_count, 4)
@@ -43,7 +44,7 @@ class ApiObservationScopeTests(unittest.TestCase):
             with api.engine_api(engine=self.engine):
                 with api.engine_api(engine=self.engine):
                     self.source.write_bytes(b"changed during the request")
-        self.assertIsNone(api._active_api.get())
+        self.assertIs(api._active_api.get(), self.outer_scope)
         self.assertEqual(self.hashes.call_count, 2)
 
     def test_exception_unwinds_and_still_checks_the_outer_identity(self):
@@ -51,7 +52,7 @@ class ApiObservationScopeTests(unittest.TestCase):
             with api.engine_api(engine=self.engine):
                 with api.engine_api(engine=self.engine):
                     raise RuntimeError("caller failed")
-        self.assertIsNone(api._active_api.get())
+        self.assertIs(api._active_api.get(), self.outer_scope)
         self.assertEqual(self.hashes.call_count, 2)
 
     def test_inherited_scope_cannot_reuse_another_process_or_thread_observation(self):

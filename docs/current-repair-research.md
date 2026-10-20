@@ -1127,3 +1127,46 @@ in 4.243 seconds after the explicit native-task correction. A real Git-index
 control restored the stale `23ae26e` Zig binding and the publication check
 rejected it; the valid index was then restored. That expected rejection is
 retained separately from the successful producer/reference check.
+
+
+### Full-Campaign Failures And Scoped Repairs
+
+The full `5e2a373` campaign retained 1,982 tests, 116 errors and seven failures.
+The subsequent `c500a7b` campaign retained 1,987 tests, 117 errors and seven
+failures. These are actual failed campaigns, not whole-suite successes. The
+sealed native owner stderr identifies the first cascading cause:
+`ModuleNotFoundError: gambit_smp` before its isolated `serve()` path installed
+the sealed package search path. The native build reached its verdict stage and
+failed through the same evaluator startup path. Deferred controller-side task
+transport import fixes startup without reopening a terminal owner or replacing
+its `closed` flag. A real `python -I -B` packaged-source regression now reaches
+the missing-manifest boundary; 24 owner/API-scope controls passed in 1.224 s.
+
+Other exact-log repairs distinguish fixtures and historical claims from live
+state: lifecycle controls now construct their own failed-join/banner fixtures;
+historical transport drift is calculated from all actual inputs; changed model
+projection inputs remain unqualified; partial private source maps do not become
+portable native witnesses; old Current Work citations expose missing Scheme
+premises instead of acquiring new hashes; and historical CLI reproduction still
+requires an explicit owned fixture task. The fixture restores its caller's
+root environment. Eighteen affected controls passed in 40.657 s. The clue oracle
+follows real checkpoint pages and rejects repeated cursors rather than assuming
+that the expanded graph fits into one display packet.
+
+Both formal harnesses now honor the explicit pinned `QUINT_TLC_JAR`. A local
+replay used an actual separate copy of the pinned Jar and retained its exact
+command path. Its positive TLC attempt exceeded the unchanged 30-second cap
+before reporting states; the composite local attempt was interrupted at 180 s.
+It is not a passing model replay or counterexample. No checker cap was widened.
+The owned compiler receipt records real termination, reaping and group absence;
+only the auditor's validation process was explicitly reconciled.
+
+The two changed harness references were reviewed with exact c500a7b baselines
+and applicable patches under
+`evidence/review/repair-trajectory-closure/declared-jar-source/`. The real view
+producer first rejected the incomplete reference update; its interrupted audit
+process was reconciled before the second explicit review. Final generation
+produced `2f2f0680ae765c7224c1d3436fb477807b78516e42c34b05c29e639d5d57cff3`,
+retaining six native requirements unclosed and zero `applicable`,
+`recovery_valid`, `capture_valid` and `pass_observed` rows. This is genuine source
+binding and query evaluation, not a forged recovery or fresh formal PASS.
