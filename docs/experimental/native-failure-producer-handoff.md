@@ -25,6 +25,11 @@ The existing [root contract](root-map-lifetime-contract.md),
 [handoff Recipe](stage-one-handoff-recipe.md) and
 [compatibility boundary](c-backend-compatibility.md) remain in force.
 
+The separately checked [retirement handoff composition](retirement-handoff-model.md)
+lives in `models/experimental/`: its proposed root/handler obligations are not
+current native guarantees. Its explicit campaign is separate from this note's
+source audit and does not change the native owner's milestone or checkpoint.
+
 ### Observation Identity, Not Cache Authority
 
 These are inspected summaries/receipts. Cache locations identify historical
@@ -381,6 +386,72 @@ reviewed lifecycle operation is needed; changing the model alone cannot add it.
 | `root_signal_retirement` / `runtime_generation_recovery` | Terminal sealing, admitted consumers and explicit missing host-quiet premise. | Coalescing/event policy, pre-admission delivery identity and actual host quiet; fresh module metadata remains separate. |
 | `runtime_retirement_quarantine` / callsite projection / `descriptorRetirementExcludesConsumers` | Retained error/storage and conditional consumer lifetime, with excluded false recovery routes. | Enumerated GC/root handoff, queued collective work, source-reachable same-cohort retry and delayed reuse. |
 
+### Cross-Model Composition Conditions
+
+The following joins reuse existing models; no model code or native run was
+changed. A local invariant is not a proof that the input assumptions of the next
+model hold. In particular, object incarnation, moving-GC epoch, scheduler-cohort
+epoch and runtime-generation identity have different meanings. Source may use
+stable owned storage and quiescence rather than adding a new runtime counter;
+this review does not require a universal ID allocator or hot-path instrumentation.
+
+| Join | Existing coverage and source support | Unclosed condition and refutation |
+| --- | --- | --- |
+| Descriptor -> relocated input -> consumer | `structure_type_lifetime`, `gc_forward_publication` and `gc_scan_claim_transfer` distinguish object/type epochs, early canonical identity and copy-ready exclusive scan ranges. | They do not establish that their abstract objects/physical slots denote the same failed instance, or that the formatter was the first failing consumer. Two aliases of an object are not evidence of revisiting the same relocated slot. Require the matched producer/edge/phase; neither a valid address nor an injected duplicate-slot trace supplies it. |
+| Generated host -> state/RA -> loader | Existing FFI/root-map contracts apply once the actual read/write resource sets, return kind, discovery order and map extent match. | The loader's current-host cursor has no direct state in those models. A-B-A regrouping with unchanged table layout refutes arbitrary host partitioning. A proposal whose effective generated representation matches a previously rejected one is not a new cost experiment. |
+| Retired cohort -> roots -> delayed publisher | `scan_barrier_quiescence`, `shared_msection_copy_retirement` and `resize_queue_epoch_reuse` already cover callback-return aggregation, borrower/range premises and delayed stale publication as separate abstractions. | Aggregate completion does not establish valid copy bounds; kept bytes do not enumerate roots; a changed epoch does not transfer a publisher's payload. The epoch/reject protocol is proposed in the model, not automatically implemented by similarly named scheduler fields. |
+| Root seal -> OS delivery -> fresh image | Existing root-signal, recovery and module-fixup models expose distinct admitted-reader, host-quiet and metadata-freshness premises. | A delayed queue publisher's epoch guard is not an OS delivery token. Scheduler startup readiness is neither old-handler quiescence nor fresh static fixups. Each source must supply its own ownership and lifetime correspondence before these models compose. |
+
+The range model's `finishCopyPhase` clears abstract borrowers after all copies;
+the source must establish that this list includes all actual borrowers. Its
+valid-range guard is also a premise, not a proof that a generated RA describes
+the native frame. Similarly `resize_queue_epoch_reuse.rejectStalePublisher`
+marks abstract payload ownership moved: a real rejection path needs a collector-
+visible destination owner or continued traced ownership, not merely an error
+return or a newer scheduler number. `generatedMapRelocation` supplies no such
+destination by itself. Preserve the original error and existing valid FFI exits.
+
+### Normal Collective Return Provides A Narrow Bridge
+
+The inspected mutex-return candidate remains bound to the source lock above.
+`mem.c`:7720-7821 has phase barriers followed by an epilogue and return; that
+last phase barrier is not itself completion of every callback's epilogue.
+However, `setup.c`:1338-1404 dispatches `OP_GARBAGE_COLLECT`, and 1428-1530
+returns normally to the collective loop before entering its next
+`barrier_sync_op`. In 755-925, that operation takes the old population, receives
+child messages up the tree, and only then handles `OP_SET_PROCESSOR_COUNT` at
+the root before propagating the result. This supplies a source-order bridge for
+the model's callback-return/upward-aggregation premise on this normal route.
+
+The bridge assumes the same collective cohort, ordinary callback return and
+all relevant queue borrowers participating in the protocol. It is not a C
+memory-model proof or a complete census of nested/foreign/signal consumers.
+Nonlocal throws, startup admission and OS-thread join/storage reuse remain
+distinct paths. Thus "no final barrier in the GC function" is insufficient
+evidence of premature queue destruction. A low-cost implementation Recipe
+should reuse this normal collective closure, audit the exceptional/missing-
+borrower edges, and repair only a demonstrated missing edge. Do not insert a
+second unconditional global barrier or equate callback return with OS join.
+
+### Retained Refutation Of A Representation-Equivalent Host Candidate
+
+The inspected auditor receipt
+`.cache/codex-repair-audit-20261020/host-equivalence-02/exact-location-comparison.json`
+has SHA `33da602826bbed9bdeac68e71a620cbf79285999c3329223c966ae50ce79ee75`.
+It records identical preprocessed text after explicit source-path and diagnostic-
+location normalization: 3307 diagnostic literals adjusted by a seven-line source
+offset, zero remaining different lines, normalized SHA
+`44d34e1be88bbe72b3bc388dd8eed02080d497d4d59ca0ed1b937981a0817d4c`,
+and `nativeAdmitted=false`. This is a historical comparison receipt, not a source
+Recipe input, binary-equivalence proof or newly executed experiment here.
+
+It refutes treating that candidate as a distinct effective host representation
+for another full compile. Do not reuse this normalization to erase semantic
+constants, labels, types or configuration differences in an unrelated proposal.
+The open research direction is an actually different, semantics-preserving
+resource/label/control cut with a bounded cost hypothesis, not another spelling
+of the same threshold. No native compiler or stress test was rerun for this audit.
+
 These correspondences are registered using the existing `source_section` and
 `transfer_premise` relations in `runtime-entry-facts.json`. Coverage stays
 `partial`, and `satisfies` stays empty. Owner-local models retain the snapshot
@@ -634,3 +705,12 @@ failures/unexpected successes, complete inventory, unchanged inputs,
 The audited source-cut follow-up was then published as `ba59caa`; its duplicate
 native run `39348868607` was cancelled. No observation in this later research
 section upgrades those framework results into GC or join-recovery acceptance.
+
+At `21021240ebd627ae51ee6fffdce58783d2e23960`,
+[framework run 39349474528](https://github.com/tao3k/gambit-SMP/actions/runs/39349474528)
+completed successfully: 1809 tests, zero failures/errors/skips, complete
+inventory, unchanged inputs, `frameworkValidated=true`, `runtimeAdmitted=false`,
+348.188 seconds. Artifact `12232711875` has `test-result.json` SHA
+`ed6fcab89ed7cf34d3ee8e447eea84ab79ca32275eb123674dea465fa2b1ae4e`.
+This is exact-head framework qualification, not evidence of a native speedup or
+closure of the later cross-model source assumptions recorded in this document.
