@@ -404,6 +404,94 @@ narrowing valid continuations or serializing independent VM execution.
 
 ## Handoff Frontier And Validation Boundary
 
+### Follow-Up Source Cuts For Implementation Review
+
+The following additional source audit was performed after publication of
+`8c41b60`; it is not covered by that commit's CI. No runtime was changed and
+no native test was rerun. The candidate observations below use the identified
+mutex-return source lock, not the older root-signal lock. Relevant candidate
+hashes are: `_kernel.scm` `dede9ab818a272de32ec4984be72fdc35ac1a442365f71603ef4bee684093bc8`,
+`mem.c` `11402bbbc1efc9ff42d4b1ae10a5909cc9ff15778251835e1ac8dbb1d26023b5`,
+`setup.c` `9b86f40c780b68e0a285ee50f3391676c6b4f6a9351ba6d73a32af293b8ac34a`.
+These are inspected source observations, not a new reproducible candidate
+recipe or executable/checkpoint binding published by this research lane.
+
+**Constructor cut.** The candidate `_kernel.scm`:5019-5048 saves `type_` in
+GC_SAVE1 around allocation, restores it, then initializes the structure payload
+before returning the result. The local allocation macros at 43-116 publish
+cached state/RA around their slow allocation/collection paths; the following
+fill contains no explicit Scheme callback or allocation. This is counterevidence
+to the blanket claim that this constructor simply forgot to protect its type.
+It is not proof of all nested callees, actual generated roots, later setters or
+the failed instance's constructor. The source cut for a small repair is the
+first demonstrated init/exposure or relocation/reload mismatch, not another
+unqualified GC_SAVE slot. Preserve the type field while filling payload fields;
+the suspected writer/first read must be matched to the same incarnation.
+
+Chez's generator provides a more precise comparison: `s/mkgc.ss`:1736-1762
+installs `copy-extra-rtd` into the destination during copy generation, with a
+special tag-reflexive/counting case. It is an emitted descriptor-edge operation,
+not a universal extra root. The source refinement needs the edge-update event,
+the view used to interpret it and its consumer; epoch equality alone cannot
+derive those. A proposed fix is refuted if the bound failed path shows no such
+mismatch or if observation itself adds a retaining root that removes the fault.
+
+**Host/fixup cut.** Gambit baseline `gsc/_t-c-1.scm`:1870-1905,2066-2125 emits
+module and procedure host bodies and their label tables from procedure records.
+Baseline `lib/setup.c`:1750-1842 iterates the generated label table: it queries
+the host when ownership changes, skips INTRO entries, writes host-local label
+addresses, and advances out-of-line map storage using frame size and return
+kind. This closes the source reference from generator through header discovery
+to loader consumption; it does not close the proposed representation change.
+The handoff artifact for any cut must associate each label's host, position,
+INTRO treatment, return kind and map extent with its generated source. Changed
+host grouping without corresponding discovery/fixup/table changes is not an
+admissible C-only optimization. Preserve the existing switched-dispatch profile
+as a separate supported encoding, not a false computed-goto control. Whether
+this cut reduces the actual alias-analysis cost remains experimentally unknown.
+
+**Notification cut.** Candidate `setup.c`:116-179,256-309 already uses a pending
+bitset and admission-aware replay, with a distinct deferred root-only USER bit.
+The signal path does not take the VM-list mutex. Therefore adopting OCaml's
+pending-bit idea is not a new missing mechanism here. The unresolved contract
+is who owns an OS delivery paused before admission, and which generation may
+consume it. Copying OCaml's all-domain notification would additionally lose
+Gambit's root-only versus broadcast distinction unless independently preserved.
+The small Recipe is a source-bound policy/ownership repair within the supported
+lifecycle; a new receiver or generation-event source needs the separate host
+contract already described above. Test or model the routing class independently
+from handler lifetime, replay, freshness and admitted-reader drainage.
+
+**Retirement cut.** Candidate `setup.c`:1270-1299 publishes pending joins before
+the collective count reduction. On successful OS join it transfers donor memory,
+cleans memory state, then clears pending ownership. The retry helper at
+1106-1133 follows the same success order. Candidate `mem.c`:5499-5566 transfers
+the still-object chain, associated counters and RC list under the miscellaneous
+memory lock. It does not itself implement an arbitrary saved-frame/queue/root
+transfer; its comment requires the caller to have completed GC/queue borrower
+drain. Thus a second generic retention/transfer implementation is not indicated.
+
+The open proof is that this exact caller establishes the donor/receiver identity,
+GC and queue borrower census, no concurrent users and valid pending lifetime.
+`cleanup_owned_vmstate`:5408-5447 requires a non-root single-processor VM, invokes
+recovery before closing foreign admission, and assumes direct users already
+joined; closing that admission first is not automatically compatible with worker
+interrupt progress. Root `cleanup_checked`:5609-5686 instead seals and preserves
+a sticky resize/join failure; repeated cleanup returns the error before calling
+child recovery. Neither a bare child nor normal successful shrink witnesses
+recovery from an actual join error. A child-owner retry remains conditional on a
+legal sequence that starts and retires a real cohort and preserves joinability;
+no supported retryable OS error has been demonstrated here.
+
+The implementation decision is consequently narrow: retain the existing
+success-path transfer, prove or repair its missing borrower/ownership bridge,
+and explicitly choose terminal versus recoverable error for each supported
+entry. A new root recovery operation is a lifecycle capability, not a call to
+the child helper under a different pointer. The existing model's
+`joinSuccess`/`resourcesLive` do not supply that bridge. Its refinement needs
+distinct OS-exit/join, scanner ownership and permission-to-reuse events, with
+the queued-collective counterexample from OCaml's retirement audit retained.
+
 The discriminating frontier is producer/first-error identity; a semantics-safe
 representation cut with completed cost evidence; OS-delivery and module-image
 generation ownership; and a source-reachable same-cohort recovery transition.
