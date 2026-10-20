@@ -107,6 +107,14 @@ class RepairConsumerInterfaceTests(unittest.TestCase):
         self.assertIn("outer-cleanup-attempts-handler-removal-before-io-cleanup",
                       factors["counterevidence"])
         self.assertIn("root-vm-lease-is-not-a-tty-consumer-census", factors["reuse-boundary"])
+        self.assertIn("ocaml-forced-stop-terminal-message-is-not-ordinary-return",
+                      factors["counterevidence"])
+        self.assertIn("chez-carrier-reuse-and-collector-entry-have-tc-mutex-preconditions",
+                      factors["counterevidence"])
+        self.assertEqual(factors["applicability-condition"],
+                         ["acknowledgement-writer-path-resource-and-failure-policy-must-match"])
+        self.assertIn("retained-storage-is-not-complete-cleanup-or-retry-authority",
+                      factors["reuse-boundary"])
         self.assertFalse(first["brief"]["runtimeAdmitted"])
         continued = repository_clues(ROOT, checkpoint=first["checkpoint"], display_bytes=16384)
         self.assertEqual(continued["brief"]["delta"]["added"], 0)

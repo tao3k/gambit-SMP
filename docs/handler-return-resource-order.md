@@ -251,3 +251,60 @@ C generation, multi-shot continuations, TLS or FFI semantics:
 This is a source-correspondence Recipe, not an asserted current bug fix or a
 mandatory Agent workflow. Passing an interface check does not close item 9,
 complete GC/FFI, Gerbil correctness or release performance.
+
+## Termination Policy Is Part Of The Witness
+
+The acknowledgement comparison above applies to the ordinary backup-thread
+exit, not every writer of `BT_INIT`. At the same pinned OCaml revision,
+`runtime/domain.c:2432-2461` implements a different, forced-shutdown path. If a
+backup thread handles the stop request while its domain thread executes C,
+it sets `domain_canceled`, requests cancellation and release-stores `BT_INIT`.
+The source explicitly does not wait for that thread or claim knowledge of its
+locks. The other forced-exit branch also declines general resource cleanup.
+Thus equal message values, even with release/acquire access, do not establish
+equal last-use or ownership premises.
+
+The caller preserves that distinction: `caml_free_domains` at :2479-2508 skips
+the canceled domain's `domain_lock` destruction and returns false; TSan builds
+also return false. `runtime/startup_aux.c:230-246` invokes the pool destructor
+only if this result is true. This does not prove every shutdown resource safe,
+nor does it establish a bug. It is concrete counterevidence to importing a
+successful acknowledgement as a universal cleanup/retry guarantee. Storage
+retention and complete cleanup are different outcomes.
+
+Chez supplies the corresponding population premise, not a lock-free analogue:
+`c/thread.c:58-108` takes the TC mutex before taking a recycled `thread_gc` and
+resetting its owner/work fields. `destroy_thread` at :261-341 uses the same
+mutex while retaining the carrier and freeing its TC. `s/7.ss:811-829` holds
+`with-tc-mutex` and rejects collection with more than one active mutator before
+calling the C collector; the C-side precondition is explicit at
+`c/gcwrapper.c:1187-1196`. Parallel collector workers do not imply concurrent
+arbitrary mutators. The visible consumers are not confined to creator tests:
+`c/gc.c:2197-2220` redirects dirty work through the carrier, and the PTHREADS
+heap-check helper at `c/gcwrapper.c:632-640` reads its allocation frontier.
+This narrows the reusable lesson to a retained, synchronized metadata carrier;
+it is not a complete census of all Chez consumers or a Gambit epoch proof.
+
+### Existing Formal Contracts And Implementation Handoff
+
+| Question | Existing formal owner | Exact outstanding source premise |
+| --- | --- | --- |
+| Can a zero count or terminal message stand for handler return? | `handler_admission_window.qnt`: `counterAccurate`, `noPostReleaseTail`, `tailHasNoCountedLease`; Lean `unfinishedInvocationBlocksDrain` | Identify the producer path and actual invocation population. OCaml's forced `BT_INIT` cannot instantiate ordinary-return premises. |
+| Does a retained carrier make every consumer finished? | `saved_stack_last_access.qnt`: `completeCensusSafe`; Lean `declaredAndPrivateConsumersCompose` | Enumerate all actual aliases, including private work and foreign tails. Chez carrier retention prevents freeing that carrier; it does not finish its consumers. The saved-stack transitions are an analogy, not a TTY refinement. |
+| Can cleanup report success after an unknown cancellation outcome? | Lean `omittedPrivateConsumerDefeatsPublicCompletion`, `lastResourceAccessCanPrecedeInvocationReturn` | Bind the supported failure policy and per-resource last use. Retention can preserve ownership without proving successful close, retryability or whole-handler return. |
+
+These already modeled counterexamples require stronger source premises, not
+another copy of the same state machine. Existing formal bytes and their receipts
+remain unchanged. No new C weak-memory, forced-cancellation or OS-drain theorem
+is asserted. The registered current-repair query exposes this policy qualifier
+alongside the existing missing TTY census; it grants no native completion.
+
+For the first-stage implementation, extend the existing per-resource census with
+the terminating path, acknowledgement writer, protected fields, last consumers,
+actual visibility edge and the outcome on failure. A legal no-consumer branch
+may supply scoped absence. A retained/unknown branch must not be labeled complete
+or automatically retried. The native lane, not this research, must discriminate
+the supported ordinary return, actual outstanding foreign tail and partial
+cleanup outcome against its exact candidate. A general host cancellation API or
+new incarnation/collector protocol remains an Experimental milestone; none is
+selected here.

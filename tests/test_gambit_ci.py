@@ -253,6 +253,12 @@ class GambitCIContracts(unittest.TestCase):
         self.assertIn("-C " + engine + " engine", workflow)
         self.assertIn("sealed-engine.tar -C " + engine, workflow)
 
+    def test_framework_ci_uses_explicit_task_for_all_execution_steps(self):
+        workflow = (ROOT / ".github/workflows/verify.yml").read_text()
+        for command in ("research --seal", "validate-review --profile full", "evidence --validate"):
+            self.assertIn("gambit-smp --task repair-9-12 " + command, workflow)
+        self.assertNotIn("python -m gambit_smp.review_validation", workflow)
+
     def test_contract_batch_uses_the_same_fixture_isolation_as_full_validation(self):
         request = recipes.read_json(ROOT / ".github/gambit/contracts.json")
         self.assertEqual(15, request["budgetSeconds"])

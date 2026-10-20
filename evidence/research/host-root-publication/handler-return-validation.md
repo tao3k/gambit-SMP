@@ -259,3 +259,55 @@ be reassigned to the current collector. This completes the source reason for
 retaining the carrier after TC free, without claiming that every carrier field
 or incarnation can be reused concurrently. It complements, rather than
 replaces, the existing saved-origin and producer-lifetime conditions.
+
+## Forced-Exit Policy And Current Publication
+
+The continued pinned-source audit distinguishes OCaml's ordinary backup-thread
+return from `stw_terminate_domain` (`runtime/domain.c:2432-2461`). The latter
+can release-store the same `BT_INIT` while explicitly declining to wait for the
+canceled domain thread. `caml_free_domains` preserves the canceled domain lock
+and returns false; `runtime/startup_aux.c:230-246` consequently does not destroy
+the stat pool. This is an outcome/last-consumer premise, not an observed OCaml
+defect or proof that Gambit's pending handler has the same path.
+
+Chez's carrier reuse is also conditional: `c/thread.c:58-108` and :261-341
+hold the TC mutex; `s/7.ss:811-829` and `c/gcwrapper.c:1187-1196` bind collector
+entry to the same protocol and one active mutator. The added dirty-work and
+heap-check consumers (`c/gc.c:2197-2220`, `c/gcwrapper.c:632-640`) prevent treating
+the earlier two creator checks as a complete source census. Parallel collector
+workers are not evidence of arbitrary concurrent mutator access.
+
+The existing source Recipe and registered current-repair view now expose the
+acknowledgement writer/path/resource/failure-policy qualifier and both source
+counterchecks on the first related query. Checkpoint continuation must not
+repeat that unchanged slice. The current QNT and Lean obligations already
+distinguish these cases; their bytes/receipts are unchanged, and actual Gambit
+source applicability and all native requirements remain open. General host
+cancellation or new ownership protocols remain Experimental, not a current fix.
+
+Latest merged head `f42828f535d32b5fe48dbd779b494562e54b8eeb` failed framework run
+`39413684443` before the tests at the seal step: execution had no task identity.
+Follow-up `6f1fc33b4eaf6f9261f136408a1e858076786ca1`, run `39414721276`, failed
+at the same point. The adopted work item exists, but `workspace start --adopt`
+does not select a default task. Framework CI now names the already registered
+task on seal, full validation and export through the existing dispatcher. This
+does not weaken the execution policy or alter native workflows/budgets. Those
+failed runs remain failed; neither is called a timeout or deadlock.
+
+Isolated research setup initially lacked a Git evidence index, local wheel
+metadata and pinned vendor inputs. Their typed errors were setup failures,
+not candidate runtime failures. Only the isolated setup was corrected: exact
+published source tree, original pinned vendor read inputs, installed wheel plus
+its distribution metadata, and guarded Lean prerequisite compilation. No test
+assertion, observation window, source lock or qualification claim was weakened.
+
+The final isolated snapshot passed all **27/27** tests in
+`tests.test_gambit_ci` and `tests.test_repair_consumer_interfaces`, in **34.211
+seconds**. This includes the real clean-checkout adoption/owned-child control,
+the explicit framework-CI task contract, original negative evidence custody,
+first-related-query policy factors, unchanged checkpoint continuation, source
+withdrawal and six guarded Lean declarations. The check elaborates the pinned
+LeanPoo dependency with 200000 heartbeats, recursion depth 512 and a 15-second
+owned-process guard; it does not run Gambit bootstrap or stress. Unchanged QNT
+controls are checked against their retained exact-byte receipts, not rerun as
+new native evidence. A new source head still needs its own full framework CI.
