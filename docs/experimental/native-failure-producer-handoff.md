@@ -47,9 +47,14 @@ The supplied root-signal source lock pins `setup.c` to `bc6867d...`, while the
 inspected mutable candidate file hashes to
 `9b86f40c780b68e0a285ee50f3391676c6b4f6a9351ba6d73a32af293b8ac34a`.
 Its `os_thread.c` and `os_setup.c` still match that lock. Do not silently attach
-the whole candidate to this older lock. The native owner must identify which
-setup producer its checkpoint uses; this note does not reseal it or invalidate
-unrelated historical stages. The structure source map also names cache files:
+the whole candidate to this older lock. Follow-up correction: the existing
+`runtime-mutex-return-source.lock.json` has SHA
+`df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466`
+and binds that newer `setup.c`; all 26 candidate files independently matched
+its recorded candidate hashes. This is a different, identified producer, not
+unowned drift. Matching these inputs does not by itself bind an executable or
+prove which producer a native checkpoint used. This note does not reseal it or
+invalidate unrelated historical stages. The structure source map also names cache files:
 its source correspondences are partial observations until the owner binds the
 actual source recipe, generated C, compiler/header configuration and executable.
 
@@ -243,6 +248,160 @@ recovery operation and its error states. Repeating bare setup or a platform
 control cannot decide this architectural choice. Do not promise a retryable
 POSIX error without a supported source/OS contract.
 
+## Source-Discriminating Refinement Of The Four Tracks
+
+This follow-up changes the research correspondence, not the running candidate.
+The source pins above still apply. Existing model runs are not rerun or promoted;
+the following are explicit refinement obligations for their owners, not another
+parallel set of models. In particular, no new guard may simply require the
+desired read/recovery result to make a positive trace pass.
+
+### Descriptor View Is More Than Root Reachability
+
+Chez [`mkgc.ss`](../../vendor/chez/s/mkgc.ss):337-377 selects record size, space
+and field scanning using its record descriptor. At 811-889, field-mask traversal
+has mode/dirty/parallel branches; at 1549-1577, `trace-early-rtd` emission treats
+copy/mark differently from measure/sweep/check, including avoiding inspection of
+descriptor data overwritten by forwarding. Thus even a retained descriptor has
+an **interpretation phase**, not merely an address and a live/dead bit.
+Chez [`alloc.c`](../../vendor/chez/c/alloc.c):832-838 is a useful counterweight:
+`S_record` obtains storage and returns it without installing the descriptor.
+This primitive alone proves neither complete construction nor safe publication.
+Its callers and collector-entry envelope remain necessary premises; it is not
+evidence that Chez publishes malformed records.
+
+For Gambit, relate any proposed fix to the actual object/type edge, storage
+class and scanner/consumer phase. Do not transplant Chez's forwarding marker or
+assume Gambit's TYPEID follows Chez's layout. The owner model's `typeValid` and
+epoch equality do not currently express this view/phase correspondence; the
+published `generatedMapRelocation` theorem also assumes a correct relocation
+function rather than deriving a valid object descriptor. Extending either
+requires actual source events, not a second independent-root policy.
+
+The refutation distinguishes a well-initialized object whose descriptor alias
+is read through the wrong relocation view from an object exposed before fill.
+Record the source-mapped edge before and after its legitimate update, with the
+consumer phase and incarnation. If the actual path never crosses a relevant
+move/fixup/reuse boundary, this explanation loses support; it is not a default
+GC diagnosis. The existing absent-scene and primary-versus-printer unknowns stay.
+
+### Host Cuts Must Preserve Label Discovery As Well As Execution
+
+Gambit [`gambit.h.in`](../../vendor/gambit/include/gambit.h.in):6901-6948 adds a
+constraint to the earlier host/state proposal. With label values enabled, the
+host owns a static label-address table; a `pc == FIX(0)` entry returns that
+table through `ps->pc` without ordinary Scheme dispatch. Normal dispatch jumps
+through the label descriptor, and `JUMPFAST` checks its host before taking a
+computed goto. At 8097-8104, `JUMPINT` changes from a local C goto to a regular
+procedure transfer when selecting multiple hosts. This is a generator/header/
+fixup contract, not permission to split a C function at arbitrary lexical braces.
+
+A representation Recipe must therefore bind both the label-discovery entry
+and every executable/return label to its owning host. Preserve the effective
+profile's state publication, reload, return-kind/RA maps and proper tail transfer.
+OCaml's per-function liveness passes remain a contrast, not proof of this cut.
+The existing FFI projection has state/RA obligations but no computed-label-table
+discovery event. Its positive result cannot certify this missing boundary.
+
+Falsification conditions include a table entry that names another function's
+local C label, a discovery call that executes Scheme code, and a return label
+whose owner/map differs from the generated host. Keep a separate success
+criterion for completed C compilation and unchanged runtime semantics. A correct
+cut can still be slower; neither fewer PHIs nor a smaller dump decides its cost.
+No SINGLE_HOST/MULTIPLE_HOSTS flag experiment was run by this research lane.
+
+### A Pending Signal Bit Is A Policy, Not An Event Identity
+
+OCaml [`signals.c`](../../vendor/ocaml/runtime/signals.c):43-103,112-137 uses a
+process-scoped bit vector. Recording uses atomic OR; dispatch clears a selected
+bit with compare/exchange before executing the handler, then reloads pending
+state. Two recordings of one already-pending signal need not yield two retained
+events. These excerpts carry neither VM generation nor delivery-instance ID.
+They support deferred, coalescing notification, not a per-generation queue or
+proof that an old OS handler has ceased executing.
+
+For the existing `root_signal_retirement`/`runtime_generation_recovery` models,
+keep notification policy separate from terminal generation sealing and physical
+handler lifetime. The latter's `hostQuiet` is still an external premise. A
+process-level notification policy could explicitly allow a replacement root to
+consume pending notification, but must not call that no-cross-generation
+delivery. An alternative generation-owned event queue needs a source that binds
+ownership before delayed dispatch, plus token-storage lifetime. Neither choice
+follows automatically from adopting atomics.
+
+The distinguishing counterexample is old delivery paused before admission,
+followed by new-root publication and delayed old dispatch. A second control
+records the same signal twice while its bit is set: it refutes an exactly-once
+event interpretation, not ordinary coalescing semantics. A native notification
+contract and supported host mask/receiver topology must decide the policy before
+implementation; a zero admitted-reader count cannot decide it.
+
+### Retirement Can Create New Collector Work
+
+OCaml [`domain.c`](../../vendor/ocaml/runtime/domain.c):2262-2360 makes the
+retirement/GC composition explicit. It finishes sweeping, empties the minor
+heap while still participating in incoming STW work, and orphans ephemerons and
+finalizers. Orphaning can create new marking/sweeping work, so completion is
+rechecked. Removal from the STW participant set is serialized against new STW
+requests, only when no interrupt is queued. The subsequent comment distinguishes
+slot reuse from state teardown: the domain lock still prevents a new owner from
+touching the state. This is stronger than retaining a pointer or broadcasting a
+termination result, and relies on OCaml's collector/domain design.
+
+Chez's retained `thread_gc` supplies a different implementation of a related
+obligation: other heap segments may still refer to creator metadata after the
+thread context is gone. Neither source licenses retaining Gambit bytes without
+enumerated scanner ownership. Gambit baseline [`mem.c`](../../vendor/gambit/lib/mem.c):6996-7041
+has phased collective setup/strong marking/weak marking/cleanup barriers; its
+participation contract must be matched to the actual candidate, not replaced by
+OCaml's STW lock or Chez's free-list policy.
+
+The existing quarantine model retains resources after join failure, but does not
+enumerate these roots or a handoff that may create fresh collector obligations.
+The callsite model classifies unreachable recovery paths; it does not establish
+a positive public sequence. Its abstract successful join cannot be imported into
+the root sticky branch. The existing Lean dependency/lifetime theorem requires
+a complete consumer census and does not prove this collector-participant census.
+
+The source handoff needs distinct witnesses for result publication, last GC
+participation/root transfer, OS termination/join, and permission to reuse the
+same slot/incarnation. Relevant counterexamples remove a participant while a
+collective request is pending, free creator metadata still named by retained
+objects, or recycle a slot before its former owner's teardown finishes. A safe
+retained error is not yet a recovery success. If legal public entry cannot reach
+the needed retry, either the supported contract remains terminal or an explicit
+reviewed lifecycle operation is needed; changing the model alone cannot add it.
+
+### Existing Model Correspondence And Research Admission
+
+| Existing projection | Reusable result | Remaining source refinement, not assumed closed |
+| --- | --- | --- |
+| `structure_type_lifetime` | Separate construction, overwrite/reuse, relocation and event-time read validity. | Actual descriptor view and producer/read source events; `safeRead` remains conditional. |
+| `ffi_gc_frame_protocol` / `generatedMapRelocation` | Published cached state, RA/root map coverage, reload and interpretation lifetime. | Label-discovery entry and cross-host control simulation; compiler cost is outside the theorem. |
+| `root_signal_retirement` / `runtime_generation_recovery` | Terminal sealing, admitted consumers and explicit missing host-quiet premise. | Coalescing/event policy, pre-admission delivery identity and actual host quiet; fresh module metadata remains separate. |
+| `runtime_retirement_quarantine` / callsite projection / `descriptorRetirementExcludesConsumers` | Retained error/storage and conditional consumer lifetime, with excluded false recovery routes. | Enumerated GC/root handoff, queued collective work, source-reachable same-cohort retry and delayed reuse. |
+
+These correspondences are registered using the existing `source_section` and
+`transfer_premise` relations in `runtime-entry-facts.json`. Coverage stays
+`partial`, and `satisfies` stays empty. Owner-local models retain the snapshot
+qualification stated earlier; no unpublished model is made a reproducible input
+merely by naming it here. No QNT/Lean implementation proof or native pass is
+claimed for these newly identified composition obligations.
+
+### Low-Cost Scope Versus A Separate Architectural Milestone
+
+| Track | Conditional first-stage scope | Separate milestone / evidence that rejects the small Recipe |
+| --- | --- | --- |
+| Structure/type | Repair the identified producer's initialization/exposure or its existing traced-owner reload boundary, once actual events distinguish them. | No identified producer yet. A new descriptor/collector representation or blanket pinning is not justified by a formatter crash. |
+| Numeric host | Reuse an already supported host/procedure boundary with complete label discovery, state/map and tail-transfer correspondence. | Arbitrary intra-procedure partition, new cross-host continuation representation, or a required change to supported FFI belongs to a separately reviewed generator milestone. No completed compile improvement has been measured. |
+| Signal generation | Preserve terminal sealing and make existing notification policy/ownership explicit within its supported lifecycle. | A new all-host mask contract, receiver thread, generation-token event source or reusable module image changes embedding/lifecycle assumptions. Do not call it a local atomic-counter repair. |
+| Retirement/join | Finish a source-reachable same-owner retirement and explicit root/metadata handoff without slot reuse before completion. | If the public contract has no legal retry edge, adding restart/recovery authority is a new lifecycle capability; a model-only successful retry does not make it a small repair. |
+
+These are feasibility boundaries, not selected fixes or promises of a particular
+gain. The implementation lane must bind the actual supported caller and failed
+event before choosing between them. None requires replacing Gambit's C backend,
+narrowing valid continuations or serializing independent VM execution.
+
 ## Handoff Frontier And Validation Boundary
 
 The discriminating frontier is producer/first-error identity; a semantics-safe
@@ -263,3 +422,16 @@ remotely qualified by this run. This note does not fix CI, rerun it or promote
 local proof results into native acceptance. See the
 [framework job](https://github.com/tao3k/gambit-SMP/actions/runs/39284711008/job/118167266861)
 and [native run](https://github.com/tao3k/gambit-SMP/actions/runs/39284711041).
+
+Follow-up CI at `8e0bef313e7628369cdd01fe55b610d884289915`:
+[framework run 39346446928](https://github.com/tao3k/gambit-SMP/actions/runs/39346446928)
+and job `118380093541` completed successfully. Artifact `12231462524` reports
+1809 outcomes, all pass, zero failures/errors/skips/expected failures/unexpected
+successes, complete test inventory, no changed inputs, `frameworkValidated=true`
+and `runtimeAdmitted=false`; elapsed framework time is 381.301 seconds. The
+artifact's `test-result.json` SHA is
+`f9cbacc3ccba2d051d47873fc2fcc6a2ffab7a0fdb5cddeb23681eebe8749118`.
+This qualifies that published framework revision, not these subsequent research
+edits or the current native overlay. The docs push also triggered a duplicate
+native workflow (`39346446959`) through cumulative PR paths; it was cancelled
+without rerunning the earlier native failures. No new native result follows.
