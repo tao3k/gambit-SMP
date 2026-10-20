@@ -124,3 +124,130 @@ Implementation handoff remains conditional, not an instruction to add a lock:
 
 A general signal generation token, host-attachment API, new root ABI or collector
 organization still belongs in Experimental, not an unreviewed current fix.
+
+## Outer Cleanup, Device Aliases And Failure Returns
+
+This continuation follows the callers before interpreting the inner cleanup
+order. All baseline anchors still refer to the pinned Gambit revision above;
+patch anchors name the retained reconstruction, not another thread's binary.
+
+### Actual Entry And Counterevidence
+
+The retained `___cleanup_checked` calls `___cleanup_all_interrupt_handling`
+before `vm_registry_seal`, processor/VM teardown and `cleanup_os_and_mem`.
+Baseline `os_setup.c:518-523` shows that the first call already invokes
+`___cleanup_user_interrupt_handling`. Therefore the later inner order
+`___cleanup_io_module` then `___cleanup_tty_module` at `os_setup.c:3224-3235`
+is **not** evidence that global cleanup never attempts to disable the TTY
+handler before destroying devices. Inferring a race solely from that inner
+order would omit the actual caller and should be rejected.
+
+The distinction that survives this countercheck is narrower:
+
+- `os_tty.c:8804-8834` attempts disposition reset and unblocks four signals;
+  neither it nor the void `___set_signal_handler` wrapper reports success or
+  completion of already executing callbacks. This audit observed no failed
+  syscall and asserts no new OS delivery/drain guarantee.
+- `os_thread.c:874-894` selects `pthread_sigmask` in the POSIX thread profile,
+  otherwise `sigprocmask` where available. The user-interrupt masking helpers
+  at `os_tty.c:8837-8868` do not enumerate or acknowledge all possible host
+  receiver threads. Their presence is not an OS-wide completion witness.
+- The wrapper's VM registry admission protects VM delivery, not the outer
+  TTY chain traversal or mode restoration. The supported receiver population
+  and host exclusion contract remain required source premises.
+
+### Per-Resource Consumers And Error Paths
+
+| Resource / alias | Concrete consumer and retirement boundary | Remaining source obligation |
+| --- | --- | --- |
+| Process-static callback fields | `tty_signal_handler` reads `___tty_mod.user_interrupt_handler` or `terminate_interrupt_handler`; setup assigns them at `os_tty.c:8874-8895`. | Static field storage is not itself a freed VM object. Establish callback code lifetime and reinitialization ownership rather than claiming a dangling VM pointer from a field read. |
+| TTY record and `mode_save_stack_next` | SIGWINCH loads `probe`, writes `size_needs_update` and follows links at `os_tty.c:8716-8727`; SIGCONT calls `___device_tty_mode_restore` at :8731-8732. | The local `probe` / `curr` / `prev` / `next` aliases must finish before their record is freed or repurposed. A changed head alone cannot revoke them. |
+| Mode-save chain | `___device_tty_mode_restore` at `os_tty.c:638-700` reverses and restores links and may return an error; it finally assigns `mode_save_stack`. | Treat restoration as mutation, not just a read. Map every exit and surviving alias under the selected signal/host contract. A final head store is not a concurrent-reader acknowledgement. |
+| Group membership versus device storage | `___device_cleanup` at `os_io.c:1625-1670` removes group membership before close/select; non-EAGAIN errors return before `___device_release`. The latter frees only when refcount reaches zero at :1602-1623. | Removing a device from a group is not successful close, TTY-chain unlink, zero refcount or free. Classify each actual outcome separately. |
+| Cleanup failure and retry state | `___device_tty_close_raw_virt` at `os_tty.c:7570-7610` marks both stages closed before calling `___device_tty_cleanup`; :8161-8199 can return on mode-restore or handle-close error. | Closed stage bits alone do not witness successful mode unlink or close. This identifies an error-path proof obligation, not an observed cleanup error or authorization to retry an unsupported entry. |
+| Group carrier | `___device_group_cleanup` at `os_io.c:183-193` breaks on a device cleanup error, then frees the group; `io_module_cleanup` at :11895-11906 does not return a per-device result. | Do not interpret a void global cleanup return as an enumerated all-device success witness. Establish the surviving devices' actual ownership, group pointers and last consumers before proposing a change. |
+
+There is no native proof here that a TTY callback overlaps those operations,
+that the error paths occurred, or that they caused a GC/TFIB/pipe failure.
+Conversely, a root-VM lease count cannot exclude those possibilities. A
+supported exclusion witness can legitimately discharge an empty callback
+population; an unrecorded population is not such a witness.
+
+### Existing QNT And Lean Correspondence
+
+No duplicate model or fictitious native action is needed for the distinctions
+already represented. The qualified model and proof bytes remain unchanged:
+
+| Existing owner | Exact reusable result | What this source audit still cannot instantiate |
+| --- | --- | --- |
+| `handler_admission_window.qnt`, `noPostReleaseTail` negative control and `tailHasNoCountedLease` | A successfully admitted interval can end before invocation return. | Neither property proves that a TTY consumer participates in the VM lease, or that an OS disposition change completes an invocation. |
+| `saved_stack_last_access.qnt`, `lastAccessSafe` / `completeCensusSafe` | Registered-root completion and a separate in-flight consumer have distinct last-use obligations. | This model's root/GC actions concern saved stacks. A TTY-chain alias is a structural countercheck, **not** a newly source-refined instance of those GC transitions. |
+| `RepairConsumerInterfaces.lean`, `declaredAndPrivateConsumersCompose` / `omittedPrivateConsumerDefeatsPublicCompletion` | Completion composes only with coverage of every actual consumer; an omitted live consumer defeats the universal conclusion. | Actual device/host consumer enumeration, incarnation, and exclusion/last-use witnesses are source premises. The theorem cannot manufacture them from a zero VM census. |
+| Same proof, `lastResourceAccessCanPrecedeInvocationReturn` | Nonempty resource use can finish before the enclosing invocation returns. | Whole-handler drain is sufficient only under its stated complete population, and is not necessary for every process-static resource. |
+
+Rechecking unchanged formal bytes would not answer these source questions.
+The registered DSL therefore exposes an additional **unbound source-census
+premise**, not a new proof or native completion. A model extension is warranted
+only if the supported source contract supplies an actual mechanism not captured
+by these interfaces; a general callback/host-generation redesign remains in
+Experimental.
+
+### OCaml's Concrete Acknowledgement Countercheck
+
+The pinned OCaml source supplies a narrower reusable mechanism than "join every
+thread": `terminate_backup_thread` at `runtime/domain.c:1262-1275` publishes
+`BT_TERMINATE` and wakes the backup thread; it does **not** wait for return.
+The backup thread release-publishes `BT_INIT` immediately before returning at
+:1218-1221. `backup_thread_running` acquire-loads this message at :405-408;
+`caml_free_domains` at :2479-2500 waits for the acknowledgement before freeing
+the carrier's mutexes/conditions. New backup installation also waits at
+:1233-1240, then creates a detached thread at :1250-1259.
+
+This demonstrates the precise distinction between a stop request and observed
+last use of a retained synchronization carrier. It relies on no further carrier
+access after the acknowledgement, stable carrier storage, the actual release /
+acquire pair and the supported thread population. The installer explicitly
+blocks signals around thread creation (:1242-1257); Gambit cannot inherit that
+receiver-population premise merely by borrowing the message pattern. The TSan
+comment at :2503-2508 also explicitly limits what this source claims about
+termination observations; this audit does not declare OCaml globally race-free.
+
+Chez provides a complementary lifetime split: `c/thread.c:283-298` closes
+thread-local allocation work; :324-330 retains/recycles `thread_gc` because
+segments can still name its creator. The TC is freed at :331 before updating
+the distinct Scheme thread record and broadcasting termination at :333-336.
+A retained carrier therefore needs an explicit surviving consumer, not simply
+"keep all old state". None of these contracts changes Gambit's C backend,
+continuation representation or FFI calling convention.
+
+The current QNT post-release tail and Lean resource-use-before-return witness
+already distinguish these boundaries. They do not prove an OCaml-style atomic
+acknowledgement exists in Gambit. Introducing one requires its own actual
+publisher, stable carrier, read-side ordering and no-later-use correspondence;
+it is a Recipe alternative, not an accepted source repair.
+
+### Coordinated Small-Refactor Recipe
+
+The implementation lane can evaluate a single bounded package without changing
+C generation, multi-shot continuations, TLS or FFI semantics:
+
+1. Bind the supported cleanup caller, configuration and signal receiver set;
+   retain the early `cleanup_all_interrupt_handling` counterevidence. Audit a
+   direct lower-level cleanup caller separately rather than granting it the
+   global entry's preconditions.
+2. For each resource/incarnation, identify actual last aliases and the event
+   that excludes later access. Keep disposition outcome, admitted-VM drain,
+   TTY-chain retirement and code lifetime separate. No new blocking lock in a
+   signal handler follows from this research.
+3. Preserve success/error distinctions through the relevant cleanup boundary:
+   attempted disposition change, stage-closed, group-removed, last-reference
+   release and storage-free are different observations. A proposed internal
+   status propagation must specify the supported failure retention/exit policy.
+4. Handoff the exact source delta and original acceptance obligations to the
+   native lane. Its necessary falsifiers include an already entered callback,
+   a legal no-callback branch, a close failure before release, and a final
+   successful last-use boundary. Do not repeat its unchanged bootstrap here.
+
+This is a source-correspondence Recipe, not an asserted current bug fix or a
+mandatory Agent workflow. Passing an interface check does not close item 9,
+complete GC/FFI, Gerbil correctness or release performance.

@@ -217,6 +217,15 @@ Its admitted-only counterexample refines the existing handler model; it does
 not turn a delayed event into an observed old-pointer fault or force every
 resource to wait for every C function's return.
 
+Its outer-cleanup continuation checks the early global interrupt cleanup before
+interpreting the inner I/O/TTY order. The registered `tty-device-last-access`
+mechanism now exposes this counterevidence alongside unbound disposition,
+in-flight alias and close-error ownership premises. OCaml's backup-thread
+release/acquire acknowledgement and Chez's separately retained GC carrier are
+source comparisons, not proof that Gambit already implements either mechanism.
+The same checked QNT/Lean interfaces remain the owners; no new native credit or
+GC-to-TTY refinement is inferred from those comparisons.
+
 ## Acceptance Of The Connection
 
 This refinement is complete only when the following are actually demonstrated:

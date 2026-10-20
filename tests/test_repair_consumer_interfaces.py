@@ -58,8 +58,9 @@ class RepairConsumerInterfaceTests(unittest.TestCase):
             self.assertEqual(len(original["model_gaps"]), 3)
             self.assertEqual({r[3] for r in original["applicability_gaps"]}, {
                 "handler-delivery-before-c", "handler-post-release-tail",
-                "inflight-last-access-source", "consumer-census-source"})
-            self.assertEqual(len(original["assumption_deltas"]), 4)
+                "inflight-last-access-source", "consumer-census-source",
+                "tty-last-consumer-source"})
+            self.assertEqual(len(original["assumption_deltas"]), 5)
             self.assertEqual(original["revision_gaps"], [])
             self.assertEqual(original["current_scope_review"], [])
             self.assertEqual(original["applicable"], [])
@@ -87,6 +88,25 @@ class RepairConsumerInterfaceTests(unittest.TestCase):
         self.assertIn("models/gambit/saved_stack_retirement_window.qnt",
                       factors["related-model-reference"])
         self.assertNotIn("model-reference", factors)
+        self.assertFalse(first["brief"]["runtimeAdmitted"])
+        continued = repository_clues(ROOT, checkpoint=first["checkpoint"], display_bytes=16384)
+        self.assertEqual(continued["brief"]["delta"]["added"], 0)
+        self.assertEqual(continued["brief"]["families"], [])
+
+    def test_tty_census_query_preserves_outer_caller_counterevidence(self):
+        from gambit_smp import repository_clues
+        first = repository_clues(ROOT, bindings=[("mechanism", "tty-device-last-access")],
+                                 display_bytes=16384)
+        family = next(f for f in first["brief"]["families"]
+                      if f["claim"] == "tty-last-consumer-source")
+        factors = family["observations"][0]["factors"]
+        self.assertEqual(factors["model-source-path"],
+                         ["models/gambit/lean/RepairConsumerInterfaces.lean"])
+        self.assertEqual(factors["model-source-sha"],
+                         [digest(ROOT / factors["model-source-path"][0])])
+        self.assertIn("outer-cleanup-attempts-handler-removal-before-io-cleanup",
+                      factors["counterevidence"])
+        self.assertIn("root-vm-lease-is-not-a-tty-consumer-census", factors["reuse-boundary"])
         self.assertFalse(first["brief"]["runtimeAdmitted"])
         continued = repository_clues(ROOT, checkpoint=first["checkpoint"], display_bytes=16384)
         self.assertEqual(continued["brief"]["delta"]["added"], 0)

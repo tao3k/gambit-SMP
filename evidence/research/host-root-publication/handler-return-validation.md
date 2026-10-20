@@ -141,3 +141,81 @@ changes only that dependent reference in the publication index, without changing
 the concurrently maintained working-tree view or DSL. Native and model results
 are not rebound. Registered references are checked from the publication Git
 objects and pinned vendor objects, not inferred from the dirty working tree.
+
+The corrected publication tree `d1e6559e53ee2285e87402c5d11e340962fecc7d`
+was checked against all **287 registered repository references**, including
+vendor files loaded from the tree's pinned submodule commits: zero mismatches.
+It was published as `882a6eb4b42995ceb2a6edf529c0c767b9f98a9a`.
+
+## Outer Caller And Device-Consumer Continuation
+
+The updated Recipe follows the actual global cleanup caller, device close /
+release failure paths and TTY aliases. It retains the counterevidence that
+`cleanup_all_interrupt_handling` already attempts user-handler removal before
+the inner I/O cleanup. No race is asserted from inner call order alone.
+Disposition success, already entered callback completion and per-device error
+ownership still lack source-bound witnesses. No such failure was injected or
+observed in this research.
+
+OCaml's `BT_TERMINATE` request, last-use `BT_INIT` release publication and
+acquire-observing carrier cleanup distinguish a concrete acknowledgement from
+join or a stop request. Chez's separately recycled GC carrier prevents equating
+TC free with universal consumer completion. Their populations, storage lifetime
+and no-later-access premises cannot be silently borrowed by Gambit.
+
+The existing registered view adds the `tty-device-last-access` mechanism and
+its unbound `consumer-interface-lemmas` census obligation, including the outer
+caller counterevidence. It adds no native requirement, completion receipt,
+scope review or Python inference. Existing QNT sources/checks and six-lemma
+proof bytes remain unchanged; saved-stack GC transitions are explicitly not
+claimed as a TTY-source refinement. No unchanged TLC run was repeated.
+
+Focused working-tree verification:
+`python -m unittest tests.test_repair_consumer_interfaces -fv` passed **7/7**
+in **107.189 seconds**. This includes the new real registered factor query,
+exact proof-path/hash association, counterevidence, checkpoint continuation,
+absence of native admission and source-revocation controls. The guarded Lean
+subcheck completed in **2.969 seconds**, exit 0, no timeout, process group
+quiescent; the same six lemmas have no `sorryAx`. This is a working-tree result,
+not a relabelled exact-head CI or a new native test campaign. This lane did not
+write candidate locks, runtime patches, native checkpoints, the shared Git index
+or the main checkout's HEAD. Publication uses an alternate index; concurrent
+shared-checkout changes are retained, not reset to an earlier index snapshot.
+
+Independent publication-scope verification used tree
+`e462ac42377691225f94b6e8b0a6c99b45c0ccf3`, without the dirty checkout's Python
+or extra DSL rules. It materialized the tree and 74 exact referenced vendor
+files, copied the installed Library wheel and reused only the pinned Lean
+dependency cache. No native runtime fixture was cloned or built.
+
+The first guard invocation lacked the disposable Lake manifest and attempted
+network dependency resolution: exit 1 after 0.190 seconds, no timeout, process
+group quiescent, `Could not resolve host: github.com`. This was a validation
+environment failure, not a theorem counterexample. Reusing the existing manifest
+for the exact same pinned LeanPoo dependency corrected the environment; no
+source, theorem, timeout or assertion was changed.
+
+On that isolated tree, the seven repair-interface plus six reasoning-method
+tests passed **13/13 in 52.767 seconds**. Actual full Evidence export returned
+`DATALOG-COVERAGE-OK`. Its open protocol/source/native obligations remain open;
+neither result is native acceptance or a performance improvement measurement.
+The subsequent text-only receipt addition does not change the tested Recipe,
+DSL view, proofs, model bytes, framework source or test source.
+
+## Definitive Latest-Head Framework CI Boundary
+
+Head `882a6eb4b42995ceb2a6edf529c0c767b9f98a9a`, framework run
+`39406034219`, job `118572075122`, was **cancelled**, not PASS. The test step
+started at 10:12:26 UTC and was cancelled at 10:20:44 UTC on 2026-10-20.
+GitHub's annotation states: `The job has exceeded the maximum execution time
+of 10m0s`. Setup and sealing passed. The final export and artifact upload were
+skipped, so there is no complete test inventory/verdict or retained CI producer
+receipt from which to infer a particular test failure or deadlock.
+
+The 10-minute workflow cap already exists in pre-research parent
+`dcd91b2c6948f19c55da9046796012516c7f0207`; it is separate from the unchanged
+300-second completed-test-inactivity watchdog. This research neither raises
+that cap nor calls the cancelled full campaign green. The corrected reference
+and new declarations have the independent publication-tree results above.
+The additional five-file research change remains in the working tree rather
+than pushing another known-cap campaign or touching native acceptance.

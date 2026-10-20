@@ -1,6 +1,8 @@
 import importlib.util
 import io
 import json
+import shutil
+import signal
 from pathlib import Path
 import sys
 import subprocess
@@ -8,15 +10,19 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from gambit_smp.framework import digest
-from gambit_smp.review_validation import load, run_suite, supervise
+from gambit_smp.framework import ROOT, digest
+from gambit_smp.review_validation import load, run_suite, supervise, ValidationProgress
 
 
 class ReviewValidationTests(unittest.TestCase):
     def test_watchdog_counts_only_unique_complete_typed_test_records(self):
-        from gambit_smp.review_validation import _completed_test_progress
-        path = self.root / "progress.log"
-        count = _completed_test_progress(path)
+        epoch = "test-attempt"
+        inventory = {"schema": "gambit-validation-inventory.v1", "epoch": epoch,
+                     "actor": "123", "tests": ["one", "two"], "source": digest(self.source)}
+        (self.root / "inventory.json").write_text(json.dumps(inventory))
+        path = self.root / "tests.log"
+        count = ValidationProgress(ROOT, self.root, {"pid": 123}, epoch)
+        self.addCleanup(count.close)
         self.assertEqual(count("heartbeat", ""), 0)
         path.write_text('heartbeat\n  elapsed {"test":"one","seconds":0.1}')
         self.assertEqual(count("", ""), 0)
@@ -30,6 +36,85 @@ class ReviewValidationTests(unittest.TestCase):
             stream.write('  elapsed {"test":"two","seconds":0.2}\n')
         self.assertEqual(count("", ""), 2)
         self.assertEqual(count("repeated heartbeat", ""), 2)
+        self.assertTrue((self.root / "progress.jsonl").is_file())
+        self.assertIn(["one", "123", epoch, "completed-test", digest(self.source), 1],
+                      count.witness["cursorAfter"])
+
+    def test_unknown_test_and_wrong_incarnation_do_not_renew(self):
+        epoch = "test-attempt"
+        inventory = {"schema": "gambit-validation-inventory.v1", "epoch": epoch,
+                     "actor": "123", "tests": ["known"], "source": digest(self.source)}
+        path = self.root / "inventory.json"
+        path.write_text(json.dumps(inventory))
+        (self.root / "tests.log").write_text('  elapsed {"test":"unknown","seconds":0.1}\n')
+        count = ValidationProgress(ROOT, self.root, {"pid": 123}, epoch)
+        self.addCleanup(count.close)
+        self.assertEqual(count("", ""), 0)
+        self.assertTrue(count.witness["rejected"])
+        wrong = ValidationProgress(ROOT, self.root, {"pid": 456}, epoch)
+        self.addCleanup(wrong.close)
+        with self.assertRaisesRegex(ValueError, "identity mismatch"):
+            wrong("", "")
+
+    def test_registered_policy_does_not_classify_inactivity_as_deadlock(self):
+        progress = ValidationProgress(ROOT, self.root, {}, "policy-only")
+        self.addCleanup(progress.close)
+        self.assertGreater(progress.policy(), 0)
+        self.assertEqual(progress.observe("inactivity-expired"),
+                         [["no-admitted-progress-within-window"]])
+        self.assertEqual(progress.observe("external-interruption"), [["externally-interrupted"]])
+
+    def test_window_is_configured_in_registered_scheme_not_python(self):
+        directory = self.root / "evidence/dsl"
+        shutil.copytree(ROOT / "evidence/dsl", directory)
+        source = (ROOT / "evidence/dsl/validation-progress.ss").read_text()
+        (directory / "validation-progress.ss").write_text(source.replace("(lit 300)", "(lit 7)"))
+        progress = ValidationProgress(self.root, self.root, {}, "configured-policy")
+        self.addCleanup(progress.close)
+        self.assertEqual(progress.policy(), 7)
+
+    def test_real_scheme_admitted_journal_can_outlive_its_inactivity_window(self):
+        from gambit_smp.framework import execute
+        metadata, epoch = {}, "actual-journal"
+        progress = ValidationProgress(ROOT, self.root, metadata, epoch)
+        self.addCleanup(progress.close)
+        progress.policy()
+        program = ("import json,os,time\nfrom pathlib import Path\np=Path('.')\n"
+                   "inventory={'schema':'gambit-validation-inventory.v1','epoch':'actual-journal',"
+                   "'actor':str(os.getpid()),'tests':['a','b','c','d'],'source':'fixture'}\n"
+                   "(p/'inventory.json').write_text(json.dumps(inventory))\n"
+                   "with (p/'tests.log').open('w') as f:\n"
+                   " for name in inventory['tests']:\n"
+                   "  f.write('  elapsed '+json.dumps({'test':name,'seconds':.1})+'\\n');f.flush();time.sleep(.35)\n")
+        code, _, expired, seconds = execute([sys.executable, "-u", "-c", program],
+            self.root, .8, metadata=metadata, progress_check=progress)
+        self.assertEqual(code, 0)
+        self.assertFalse(expired)
+        self.assertGreater(seconds, .8)
+        self.assertTrue(metadata["parentReaped"])
+        self.assertTrue(metadata["processGroupQuiescent"])
+        self.assertTrue(progress.witness["advanced"])
+
+    def test_real_repeated_journal_records_do_not_prevent_inactivity_stop(self):
+        from gambit_smp.framework import execute
+        metadata, epoch = {}, "actual-replay"
+        progress = ValidationProgress(ROOT, self.root, metadata, epoch)
+        self.addCleanup(progress.close)
+        progress.policy()
+        program = ("import json,os,time\nfrom pathlib import Path\np=Path('.')\n"
+                   "inventory={'schema':'gambit-validation-inventory.v1','epoch':'actual-replay',"
+                   "'actor':str(os.getpid()),'tests':['a'],'source':'fixture'}\n"
+                   "(p/'inventory.json').write_text(json.dumps(inventory))\n"
+                   "with (p/'tests.log').open('w') as f:\n"
+                   " for _ in range(100):\n"
+                   "  f.write('  elapsed '+json.dumps({'test':'a','seconds':.1})+'\\n');f.flush();time.sleep(.05)\n")
+        _, _, expired, _ = execute([sys.executable, "-u", "-c", program],
+            self.root, .8, metadata=metadata, progress_check=progress)
+        self.assertTrue(expired)
+        self.assertEqual(progress.progress.renewals, 1)
+        self.assertTrue(progress.witness["rejected"])
+        self.assertTrue(metadata["parentReaped"])
+        self.assertTrue(metadata["processGroupQuiescent"])
 
     def setUp(self):
         self.temporary = TemporaryDirectory()
@@ -185,7 +270,8 @@ class ReviewValidationTests(unittest.TestCase):
             child["log"] = {"path": "tests.log", "sha256": digest(out / "tests.log")}
             (out / "test-result.json").write_text(json.dumps(child))
             return -11, "test output completed; native teardown failed\n", False, 0.1
-        with patch("gambit_smp.review_validation.execute", side_effect=failed_worker):
+        with patch("gambit_smp.review_validation.execute", side_effect=failed_worker), \
+                patch.object(ValidationProgress, "policy", return_value=10):
             path, receipt = supervise(self.root, "evidence-review", "model", out, 10)
         self.assertEqual("PASS", receipt["childStatus"])
         self.assertEqual(-11, receipt["producer"]["exit"])
@@ -193,11 +279,50 @@ class ReviewValidationTests(unittest.TestCase):
         self.assertEqual("DENY", load(self.root, path, self.inputs, self.engine)["status"])
 
     def test_timeout_without_a_completed_result_is_preserved(self):
-        with patch("gambit_smp.review_validation.execute", return_value=(-9, "incomplete\n", True, 10)):
+        with patch("gambit_smp.review_validation.execute", return_value=(-9, "incomplete\n", True, 10)), \
+                patch.object(ValidationProgress, "policy", return_value=10), \
+                patch.object(ValidationProgress, "observe", return_value=[["no-admitted-progress-within-window"]]):
             path, _ = supervise(self.root, "full", "model", self.root / ".cache/timeout", 10)
         checked = load(self.root, path, self.inputs, self.engine)
         self.assertEqual("TIMEOUT", checked["status"])
         self.assertFalse(checked["frameworkValidated"])
+
+    def test_external_interruption_retains_journal_without_timeout_or_pass(self):
+        out = self.root / ".cache/interrupted"
+        def interrupted(*args, **kwargs):
+            (out / "tests.log").write_text("completed before interruption\n")
+            raise KeyboardInterrupt()
+        with patch("gambit_smp.review_validation.execute", side_effect=interrupted), \
+                patch.object(ValidationProgress, "policy", return_value=10), \
+                patch.object(ValidationProgress, "observe", return_value=[["externally-interrupted"]]):
+            path, receipt = supervise(self.root, "full", "model", out, 10)
+        self.assertFalse(receipt["producer"]["timeout"])
+        self.assertIsNotNone(receipt["producer"]["interruptionSignal"])
+        self.assertFalse(receipt["frameworkValidated"])
+        self.assertEqual((out / "tests.log").read_text(), "completed before interruption\n")
+        self.assertEqual(load(self.root, path, self.inputs, self.engine)["status"], "INTERRUPTED")
+
+    def test_actual_sigterm_preserves_partial_journal_and_reaps_owned_child(self):
+        from gambit_smp.framework import execute as actual_execute
+        out = self.root / ".cache/signal-interrupted"
+        program = ("import os,signal,time\nfrom pathlib import Path\n"
+                   + "Path(" + repr(str(out / "tests.log")) + ").write_text('partial actual journal\\n')\n"
+                   + "os.kill(os.getppid(),signal.SIGTERM)\ntime.sleep(10)\n")
+        def execute_fixture(_command, cwd, window, **kwargs):
+            return actual_execute([sys.executable, "-u", "-c", program], cwd, window, **kwargs)
+        with patch("gambit_smp.review_validation.execute", side_effect=execute_fixture), \
+                patch.object(ValidationProgress, "policy", return_value=10), \
+                patch.object(ValidationProgress, "observe", return_value=[["externally-interrupted"]]):
+            path, receipt = supervise(self.root, "full", "model", out, 10)
+        self.assertEqual(receipt["producer"]["interruptionSignal"], signal.SIGTERM)
+        self.assertFalse(receipt["producer"]["timeout"])
+        self.assertIsNone(receipt["producer"]["exit"])
+        self.assertFalse(receipt["frameworkValidated"])
+        self.assertEqual((out / "tests.log").read_text(), "partial actual journal\n")
+        self.assertEqual(load(self.root, path, self.inputs, self.engine)["status"], "INTERRUPTED")
+        import os
+        with self.assertRaises(ProcessLookupError):
+            os.killpg(receipt["producer"]["pid"], 0)
 
     def test_readmission_requires_explicit_reaping_and_group_quiescence(self):
         path = self.receipt()
@@ -221,7 +346,8 @@ class ReviewValidationTests(unittest.TestCase):
             child["log"] = {"path": "tests.log", "sha256": digest(out / "tests.log")}
             (out / "test-result.json").write_text(json.dumps(child))
             return 0, "worker exited; descendant remains\n", False, 0.1
-        with patch("gambit_smp.review_validation.execute", side_effect=unsettled_worker):
+        with patch("gambit_smp.review_validation.execute", side_effect=unsettled_worker), \
+                patch.object(ValidationProgress, "policy", return_value=10):
             path, receipt = supervise(self.root, "evidence-review", "model", out, 10)
         self.assertEqual("PASS", receipt["childStatus"])
         self.assertEqual("DENY", receipt["status"])

@@ -1,5 +1,6 @@
 """Produce and recheck input-bound Python evidence-pipeline test receipts."""
 import argparse
+from contextlib import ExitStack, contextmanager
 import hashlib
 import importlib.metadata
 import io
@@ -8,6 +9,8 @@ import math
 import os
 from pathlib import Path
 import platform
+import secrets
+import signal
 import sys
 import time
 import unittest
@@ -246,7 +249,8 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
         log.relative_to(path.parent)
         if digest(log) != saved["producer"]["log"]["sha256"]:
             raise ValueError("validation process log identity mismatch")
-        return {"status": "TIMEOUT" if saved["producer"]["timeout"] else "ERROR",
+        return {"status": ("INTERRUPTED" if saved["producer"].get("interruptionSignal") is not None
+                           else "TIMEOUT" if saved["producer"]["timeout"] else "ERROR"),
                 "frameworkValidated": False, "profile": saved["profile"],
                 "receiptPath": str(path), "receiptSha256": hashlib.sha256(content).hexdigest(),
                 "producer": saved["producer"], "testFiles": [], "testInputHashes": {}}
@@ -291,7 +295,9 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
     environment_changed = saved["environment"] != environment()
     profile_mismatch = required_profile is not None and saved["profile"] not in (required_profile, "full")
     accepted = positive and not changed and not uncovered and not added_python and not changed_assets and not backend_changed and not environment_changed and not profile_mismatch
-    status = "PASS" if accepted else "STALE" if (changed or uncovered or added_python or changed_assets or backend_changed or environment_changed) else "INCOMPLETE_PROFILE" if profile_mismatch else "DENY"
+    status = ("PASS" if accepted else "INTERRUPTED" if producer.get("interruptionSignal") is not None
+              else "STALE" if (changed or uncovered or added_python or changed_assets or backend_changed or environment_changed)
+              else "INCOMPLETE_PROFILE" if profile_mismatch else "DENY")
     selected_files = saved["testFiles"]
     if not selected_files or not set(selected_files).issubset(saved["pythonFiles"]) or not set(selected_files).issubset(saved["inputs"]):
         raise ValueError("validation test files are not identity-bound")
@@ -312,34 +318,130 @@ def load(root, path, required_inputs, engine_inputs, required_profile=None):
             "testIds": expected, "executionAuthorized": False, "runtimeAdmitted": False}
 
 
-def _completed_test_progress(path):
-    """Observe unique completed tests, never elapsed wall time or heartbeats."""
-    position, pending, completed = 0, "", set()
+class ValidationProgress:
+    """Decode the owned journal; registered Scheme rules admit each frontier."""
+    def __init__(self, root, out, process, epoch):
+        self.root, self.out, self.process, self.epoch = root, out, process, epoch
+        self.resources = ExitStack()
+        self.session = self.progress = None
+        self.inputs, self.position, self.pending = {}, 0, ""
+        self.inventory = None
+        self.witness = None
 
-    def count(_stdout, _stderr):
-        nonlocal position, pending
+    def policy(self):
+        if self.session is None:
+            from gambit_smp.ascent_program import definitions, load_component_catalog
+            catalog = load_component_catalog(self.root / "evidence/dsl/components.json",
+                entry="validation-progress", constructor="make-validation-progress", trusted=True)
+            module, binding = self.resources.enter_context(definitions(catalog))
+            with module.call("make-validation-progress") as value:
+                self.session = value.open_session()
+            self.resources.callback(self.session.close)
+            self.inputs = binding["sourceInputs"]
+        self.session.replace({})
+        result = self.session.run()
+        handle = self.session.result(result)
         try:
-            with path.open() as stream:
-                stream.seek(position)
-                pending += stream.read()
-                position = stream.tell()
-        except FileNotFoundError:
-            return len(completed)
-        lines = pending.split("\n")
-        pending = lines.pop()
-        for line in lines:
+            windows = result["relations"]["watchdog_window"]
+            if (not result["complete"] or len(windows) != 1
+                    or type(windows[0][0]) is not int or windows[0][0] <= 0):
+                raise ValueError("one positive registered inactivity window required")
+            return windows[0][0]
+        finally:
+            handle.close()
+
+    def observe(self, kind):
+        self.policy()
+        self.session.replace({"watchdog_observation": [(kind,)]})
+        result = self.session.run()
+        handle = self.session.result(result)
+        try:
+            if not result["complete"]:
+                raise ValueError("incomplete watchdog assessment")
+            return result["relations"]["watchdog_assessment"]
+        finally:
+            handle.close()
+
+    def __call__(self, _stdout, _stderr):
+        path = self.out / "inventory.json"
+        if not path.is_file():
+            return 0
+        if self.inventory is None:
+            inventory = json.loads(path.read_bytes())
+            if (inventory.get("schema") != "gambit-validation-inventory.v1"
+                    or inventory.get("epoch") != self.epoch
+                    or inventory.get("actor") != str(self.process.get("pid"))
+                    or not isinstance(inventory.get("tests"), list)
+                    or any(not isinstance(name, str) or not name for name in inventory["tests"])
+                    or len(set(inventory["tests"])) != len(inventory["tests"])
+                    or not isinstance(inventory.get("source"), str)):
+                raise ValueError("validation journal producer/inventory identity mismatch")
+            self.policy()
+            from gambit_smp.process_observation import EvidenceProgress
+            actor, source = inventory["actor"], inventory["source"]
+            contracts = [(test, actor, self.epoch, "completed-test", source)
+                         for test in inventory["tests"]]
+            facts = {"progress_contract": contracts,
+                     "progress_active": [row[:3] for row in contracts],
+                     "progress_cursor": [(*row, 0) for row in contracts]}
+            self.progress = EvidenceProgress(self.session, facts, lambda *_: self.sample)
+            self.inventory = digest(path)
+        elif digest(path) != self.inventory:
+            raise ValueError("validation progress inventory changed")
+        journal = self.out / "tests.log"
+        if not journal.exists():
+            return self.progress.renewals
+        with journal.open() as stream:
+            stream.seek(self.position)
+            self.pending += stream.read()
+            self.position = stream.tell()
+        lines = self.pending.split("\n")
+        self.pending = lines.pop()
+        self.sample = {"progress_sample": [], "progress_attested": [], "progress_completed": []}
+        for index, line in enumerate(lines):
             if not line.startswith("  elapsed "):
                 continue
             try:
                 event = json.loads(line.removeprefix("  elapsed "))
             except json.JSONDecodeError:
                 continue
-            if (isinstance(event, dict) and isinstance(event.get("test"), str) and event["test"]
-                    and type(event.get("seconds")) in (int, float)
-                    and math.isfinite(event["seconds"]) and event["seconds"] >= 0):
-                completed.add(event["test"])
-        return len(completed)
-    return count
+            if (not isinstance(event, dict) or not isinstance(event.get("test"), str)
+                    or type(event.get("seconds")) not in (int, float)
+                    or not math.isfinite(event["seconds"]) or event["seconds"] < 0):
+                continue
+            identity = f"{self.position}:{index}"
+            contract = self.progress.facts["progress_contract"]
+            actor = str(self.process["pid"])
+            source = contract[0][-1] if contract else "unbound"
+            self.sample["progress_sample"].append(
+                (identity, event["test"], actor, self.epoch, "completed-test", source, 1))
+            self.sample["progress_attested"].append((identity,))
+            self.sample["progress_completed"].append((identity,))
+        if self.sample["progress_sample"]:
+            self.progress("", "")
+            self.witness = self.progress.witness
+            with (self.out / "progress.jsonl").open("a") as stream:
+                stream.write(json.dumps(self.witness, sort_keys=True) + "\n")
+        return self.progress.renewals
+
+    def close(self):
+        self.resources.close()
+
+
+class _ValidationInterrupted(BaseException):
+    def __init__(self, signum):
+        self.signum = signum
+
+
+@contextmanager
+def _interruptible_validation():
+    def interrupt(signum, _frame):
+        raise _ValidationInterrupted(signum)
+    previous = signal.signal(signal.SIGTERM, interrupt)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 def supervise(root, profile, model, out, timeout):
@@ -352,13 +454,32 @@ def supervise(root, profile, model, out, timeout):
     if model is not None:
         command.extend(("--model", model))
     process = {}
-    code, output, timed_out, seconds = execute(command, root, timeout, metadata=process,
-                                              progress_check=_completed_test_progress(out / "tests.log"))
+    epoch = secrets.token_hex(16)
+    (out / "context.json").write_text(json.dumps({"epoch": epoch}) + "\n")
+    progress = ValidationProgress(root, out, process, epoch)
+    interruption = None
+    started = time.monotonic()
+    try:
+        configured_window = progress.policy()
+        window = configured_window if timeout is None else timeout
+        with _interruptible_validation():
+            code, output, timed_out, seconds = execute(command, root, window, metadata=process,
+                                                      progress_check=progress)
+        assessment = progress.observe("inactivity-expired") if timed_out else []
+    except (KeyboardInterrupt, _ValidationInterrupted) as error:
+        interruption = getattr(error, "signum", signal.SIGINT)
+        code, timed_out, seconds = None, False, time.monotonic() - started
+        output = "Supervisor externally interrupted; partial worker output is retained in tests.log.\n"
+        assessment = progress.observe("external-interruption")
+    finally:
+        progress.close()
     log = out / "process.log"
     with log.open("x") as stream:
         stream.write(output)
     producer = {**process, "exit": code, "timeout": timed_out, "seconds": seconds,
-                "budgetSeconds": timeout, "watchdog": "completed-test-inactivity",
+                "budgetSeconds": window, "watchdog": "scheme-admitted-test-inactivity",
+                "watchdogAssessment": assessment, "interruptionSignal": interruption,
+                "progressInputs": progress.inputs,
                 "log": {"path": log.name, "sha256": digest(log)}}
     result_path = out / "test-result.json"
     if result_path.is_file():
@@ -381,7 +502,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", choices=("evidence-review", "full"), default="evidence-review")
     parser.add_argument("--model")
-    parser.add_argument("--timeout", type=positive_int, default=300)
+    parser.add_argument("--timeout", type=positive_int,
+                        help="explicit inactivity-window override; default comes from the registered Scheme policy")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
@@ -409,6 +531,13 @@ def main():
     suite = (loader.discover(str(root / "tests"), top_level_dir=str(root)) if args.profile == "full"
              else loader.loadTestsFromNames(EVIDENCE_TESTS))
     args.out.mkdir(parents=True, exist_ok=True)
+    context = json.loads((args.out / "context.json").read_text())
+    inventory = {"schema": "gambit-validation-inventory.v1", "epoch": context["epoch"],
+                 "actor": str(os.getpid()), "tests": sorted(test_ids(suite)),
+                 "source": hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()}
+    pending_inventory = args.out / "inventory.pending"
+    pending_inventory.write_text(json.dumps(inventory, sort_keys=True) + "\n")
+    pending_inventory.replace(args.out / "inventory.json")
     log = args.out / "tests.log"
     with log.open("x") as stream:
         with engine_api() as (_, engine_inputs):
