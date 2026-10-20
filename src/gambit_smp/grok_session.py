@@ -38,6 +38,7 @@ class Launch:
     task: str | None = None
     query_request: str | None = "query.ss"
     query_root: Path | None = None
+    read_window_bytes: int | None = None
 
     def evidence_read(self, root, owned):
         """One literal read command; the request is inert Scheme, not a script."""
@@ -69,7 +70,12 @@ class Launch:
             for executable in (str(console), ".venv/bin/gambit-smp"):
                 bases.append([executable] if query_root == root else
                              [executable, '--root', str(query_root)])
-        from gambit_smp.trajectory_exploration import argument_parser
+        from gambit_smp.trajectory_exploration import argument_parser, DEFAULT_CLUE_DISPLAY_BYTES
+        window = self.read_window_bytes
+        if window is None:
+            window = DEFAULT_CLUE_DISPLAY_BYTES
+        if type(window) is not int or window <= 0:
+            raise ValueError('positive Evidence wire window required')
         parser = argument_parser()
         routes = [("trajectory", name) for action in parser._actions
                   if isinstance(action, argparse._SubParsersAction)
@@ -87,7 +93,8 @@ class Launch:
             # glob matching, not its otherwise permissive string-prefix rule.
             literal = ' '.join([executable, '-c', help_code])
             permissions.append('[' + literal[0] + ']' + glob.escape(literal[1:]))
-        return dict(root=str(query_root), request=str(request), command=command, permission=program,
+        return dict(root=str(query_root), wireBytes=window,
+                    request=str(request), command=command, permission=program,
                     permissions=permissions)
 
     def prepare(self):
@@ -121,7 +128,8 @@ class Launch:
         if self.scripts or read:
             tools += ",run_terminal_cmd"
         argv += ["--tools", tools, "--allow", "read_file",
-                 "--allow", f"Edit({owned}/**)"]
+                 "--allow", f"Edit({owned}/**)",
+                 "--deny", f"Edit({owned}/grok-runs/**)"]
         if read and read['root'] != str(root):
             argv += ['--deny', 'Edit(' + read['root'] + '/**)']
         for directory in (".grok", ".codex", ".claude", ".cursor", ".ssh", ".aws"):
@@ -144,6 +152,8 @@ class Launch:
             argv += ["--rules", "Available project Evidence CLI (read-only): " + read["command"]
                      + "\nCaller-authored Scheme request data: " + read["request"]
                      + "\nWritable scratch directory: " + str(owned)
+                     + "\nEvidence wire window: " + str(read['wireBytes'])
+                     + " UTF-8 bytes; deferred references remain expandable. This does not bound query scope."
                      + "\nInterface help: " + read["permission"] + " --help"
                      + "\nQuery output: Scheme data on stdout. Shell output redirection and mixed command chains"
                      + " are outside the read grant; owner-local writes use the edit tools."
@@ -182,6 +192,25 @@ def write_record(path, value):
         stream.flush()
         os.fsync(stream.fileno())
     temporary.replace(path)
+
+
+def terminal_deliveries(path):
+    """Observe public terminal delivery, not private reasoning or query intent."""
+    completed = {}
+    with path.open() as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(event, dict) or event.get('type') != 'tool_call_update' or event.get('status') != 'completed':
+                continue
+            output = event.get('rawOutput') or {}
+            if isinstance(output, dict) and output.get('type') == 'Bash':
+                completed[event['toolCallId']] = dict(
+                    toolCallId=event['toolCallId'], bytes=output.get('total_bytes'),
+                    truncated=output.get('truncated'))
+    return list(completed.values())
 
 
 def run(launch, *, execute=False, wall_seconds=1800):
@@ -236,13 +265,18 @@ def _run(launch, *, execute=False, wall_seconds=1800):
     child_record=recorder();child_token=uuid.uuid4().hex
     child_record("planned",child_token,dict(argv=argv,cwd=root))
     with raw.open("xb") as output, (attempt / "stderr.private.log").open("xb") as error:
+        environment = dict(os.environ, GAMBIT_SMP_TASK_ID=launch.task,
+                           GAMBIT_SMP_TASK_ROOT=str(root), GAMBIT_SMP_TASK_CACHE=str(owned.parent.parent))
+        if record['evidenceRead']:
+            environment['GAMBIT_SMP_CLUE_WIRE_BYTES'] = str(record['evidenceRead']['wireBytes'])
+            environment['PYTHONIOENCODING'] = 'utf-8'
+        else:
+            environment.pop('GAMBIT_SMP_CLUE_WIRE_BYTES', None)
         try:
             process = subprocess.Popen(argv, cwd=root, stdout=output, stderr=error,
                                        stdin=subprocess.DEVNULL, start_new_session=True,
                                        pass_fds=(int(os.environ["GAMBIT_SMP_TASK_LOCK_FD"]),),
-                                       env=dict(os.environ, GAMBIT_SMP_TASK_ID=launch.task,
-                                                GAMBIT_SMP_TASK_ROOT=str(root),
-                                                GAMBIT_SMP_TASK_CACHE=str(owned.parent.parent)))
+                                       env=environment)
         except OSError as exc:
             child_record("spawn-failed",child_token,{})
             record.update(spawnError=type(exc).__name__, detail=str(exc), nativeAdmitted=False)
@@ -288,6 +322,7 @@ def _run(launch, *, execute=False, wall_seconds=1800):
                   seconds=time.monotonic() - started, parentReaped=True,
                   completion=ending, sessionCompleted=completed,
                   nativeDescendantQuiescence="not-inferred",
+                  terminalDeliveries=terminal_deliveries(raw),
                   nativeAdmitted=False)
     write_record(receipt, record)
     observed_session=None

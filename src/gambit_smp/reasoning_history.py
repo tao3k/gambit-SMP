@@ -157,8 +157,14 @@ def _database(root):
         yield db
 
 
-def cache_clue_checkpoint(root, checkpoint):
+def cache_clue_checkpoint(root, checkpoint, *, wire_bytes=None, frame_bytes=None):
     """Content-addressed read hint, separate from observations and admission."""
+    if wire_bytes is not None or frame_bytes is not None:
+        if (type(wire_bytes) is not int or type(frame_bytes) is not int
+                or not 0 < frame_bytes <= wire_bytes):
+            raise ValueError('complete bounded clue frame required')
+        checkpoint = dict(schema='gambit-smp.clue-wire-frame.v1', checkpoint=checkpoint,
+                          wireBytes=wire_bytes, frameBytes=frame_bytes, encoding='utf-8')
     encoded, identity = canonical(checkpoint), fingerprint(checkpoint)
     with _database(root) as db:
         db.execute("INSERT OR IGNORE INTO clue_read_checkpoints VALUES (?,?)", (identity, encoded))
@@ -168,7 +174,7 @@ def cache_clue_checkpoint(root, checkpoint):
     return "clue-read:" + identity
 
 
-def load_clue_checkpoint(root, token):
+def load_clue_checkpoint(root, token, *, require_framed=False):
     """Missing disposable cache safely replays; altered bytes never suppress reads."""
     identity = token.removeprefix("clue-read:")
     if (not token.startswith("clue-read:") or len(identity) != 64
@@ -181,6 +187,14 @@ def load_clue_checkpoint(root, token):
     checkpoint = json.loads(row[0])
     if fingerprint(checkpoint) != identity:
         raise ValueError("clue read checkpoint cache identity mismatch")
+    if isinstance(checkpoint, dict) and checkpoint.get('schema') == 'gambit-smp.clue-wire-frame.v1':
+        window, size = checkpoint.get('wireBytes'), checkpoint.get('frameBytes')
+        if (type(window) is not int or type(size) is not int or not 0 < size <= window
+                or checkpoint.get('encoding') != 'utf-8' or 'checkpoint' not in checkpoint):
+            raise ValueError('clue wire-frame cache contract differs')
+        return checkpoint['checkpoint']
+    if require_framed:
+        return None
     return checkpoint
 
 

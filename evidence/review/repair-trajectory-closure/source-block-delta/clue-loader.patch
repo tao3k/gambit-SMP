@@ -1,22 +1,109 @@
 diff --git a/src/gambit_smp/trajectory_exploration.py b/src/gambit_smp/trajectory_exploration.py
-index 327e969..314e166 100644
+index 314e166..63c301d 100644
 --- a/src/gambit_smp/trajectory_exploration.py
 +++ b/src/gambit_smp/trajectory_exploration.py
-@@ -475,7 +475,7 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
+@@ -9,6 +9,8 @@ from gambit_smp.reasoning_history import (append_trajectory_attempt, canonical,
+                                           fingerprint, read_trajectory_attempts,
+                                           append_trajectory_clues, read_trajectory_clues)
  
-     root = Path(root).resolve()
-     snapshot = _repository_snapshot(root)
--    if bindings and selector is None:
-+    if bindings is not None and selector is None:
-         if question:
-             raise ValueError("use an exact question or relational bindings, not both")
-         document = json.loads((root / "evidence/views.json").read_text())
-@@ -678,7 +678,7 @@ def main():
-         import sys
-         source = sys.stdin.read() if args.declaration == "-" else args.declaration
++DEFAULT_CLUE_DISPLAY_BYTES = 8192
++
+ 
+ def _current(snapshot):
+     if snapshot.get("executionAuthorized") is not False:
+@@ -352,7 +354,7 @@ def _coverage(snapshot):
+ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | None = None,
+                      engine: object = None, *,
+                      bindings: Sequence[tuple[str, str]] | None = None, expansions: Sequence[str] | None = None,
+-                     checkpoint: object = None, display_bytes: int = 8192,
++                     checkpoint: object = None, display_bytes: int = DEFAULT_CLUE_DISPLAY_BYTES,
+                      selector: str | None = None, constructor: str = "query") -> dict:
+     """Return a source-bound incremental Evidence slice using ASCENT inference.
+ 
+@@ -402,6 +404,9 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
+     matching. With bindings and no selector, the repository's optional registered
+     Scheme selection is used; an explicit selector replaces that default.
+     expansions is a sequence of arbitrary additional claim strings.
++    question(C) requests complete claim families, not just the columns in other
++    selector outputs. For metadata-only discovery, leave question without rules;
++    the declared output may be empty while additional relations return metadata.
+ 
+     The Library's (include clue-selection-schema) declares those input schemas
+     without adding rules. With it, relation clauses declare only additional
+@@ -663,6 +668,58 @@ def execution_policy(arguments):
+     return argument_parser().parse_args(arguments).execution_policy
+ 
+ 
++def _clue_output(root, request, engine, *, wire_bytes=None):
++    """Fit the whole UTF-8 carrier using native folding, never string slicing."""
++    from ascent.trajectory import ClueExchange
++    from gambit_smp.reasoning_history import load_clue_checkpoint, cache_clue_checkpoint
++
++    budget = request.get('displayBytes', DEFAULT_CLUE_DISPLAY_BYTES)
++    if type(budget) is not int or budget <= 0:
++        raise ValueError('positive displayBytes required')
++    if wire_bytes is not None:
++        if type(wire_bytes) is not int or wire_bytes <= 0:
++            raise ValueError('positive Evidence wire window required')
++        budget = min(budget, wire_bytes)
++    checkpoint = request.get('checkpoint')
++    unconfirmed = False
++    if wire_bytes is not None and checkpoint is not None:
++        checkpoint = (load_clue_checkpoint(root, checkpoint, require_framed=True)
++                      if isinstance(checkpoint, str) else None)
++        unconfirmed = checkpoint is None
++        if unconfirmed:
++            checkpoint = []
++    identity = None
++    while True:
++        packet = repository_clues(root, request.get('questions'), engine,
++            bindings=request.get('bindings'), expansions=request.get('expand'),
++            checkpoint=checkpoint, display_bytes=budget,
++            selector=request.get('selector'), constructor=request.get('constructor', 'query'))
++        current = packet['brief']['inputIdentity']
++        if identity is not None and identity != current:
++            raise ValueError('Evidence source changed while framing output')
++        identity = current
++        if unconfirmed:
++            packet['brief']['checkpointStatus'] = 'delivery-unverified'
++        frame = ClueExchange.render(packet) + '\n'
++        excess = len(frame.encode('utf-8')) - wire_bytes if wire_bytes is not None else 0
++        if excess <= 0:
++            if wire_bytes is not None:
++                hint = load_clue_checkpoint(root, packet['checkpoint'])
++                if hint is None:
++                    raise ValueError('read hint disappeared before framing')
++                packet['checkpoint'] = cache_clue_checkpoint(root, hint,
++                    wire_bytes=wire_bytes, frame_bytes=len(frame.encode('utf-8')))
++                frame = ClueExchange.render(packet) + '\n'
++                if len(frame.encode('utf-8')) > wire_bytes:
++                    raise ValueError('framed checkpoint exceeds the wire window')
++            return packet, frame
++        # Re-evaluate from the original read hint; unpublished trial tokens do
++        # not acknowledge delivery. A strictly decreasing budget bounds retry.
++        budget -= excess
++        if budget <= 0:
++            raise ValueError('Evidence wire window cannot carry the response header')
++
++
+ def main():
+     from gambit_smp.framework import ROOT
+ 
+@@ -680,12 +737,12 @@ def main():
          request = ClueExchange.parse_request(source)
--        if not any(request.get(key) for key in ("bindings", "questions", "selector", "expand", "checkpoint")):
-+        if not any(key in request for key in ("bindings", "questions", "selector", "expand", "checkpoint")):
+         if not any(key in request for key in ("bindings", "questions", "selector", "expand", "checkpoint")):
              parser.error("a relational query or resumable checkpoint is required")
++        import os
++        capacity = os.environ.get('GAMBIT_SMP_CLUE_WIRE_BYTES')
++        capacity = int(capacity) if capacity is not None else None
          with engine_api() as (engine, _):
-             packet = repository_clues(ROOT, request.get("questions"), engine,
+-            packet = repository_clues(ROOT, request.get("questions"), engine,
+-                bindings=request.get("bindings"), expansions=request.get("expand"),
+-                checkpoint=request.get("checkpoint"), display_bytes=request.get("displayBytes", 8192),
+-                selector=request.get("selector"), constructor=request.get("constructor", "query"))
+-        print(ClueExchange.render(packet))
++            _, frame = _clue_output(ROOT, request, engine, wire_bytes=capacity)
++        sys.stdout.write(frame)
+         return
+     if args.request:
+         if any(getattr(args, field, None) for field in (

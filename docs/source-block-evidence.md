@@ -7,9 +7,9 @@ a native repair or certify a complete C dependency extractor.
 ## Reuse the existing engine
 
 The locked ASCENT revision is `e119827e588ea7b6d8a3195ac8e0ee8f61de6c11`.
-The additional proof-only source-summary laws are published in ASCENT PR #1 at
-`62dd2893969565a06962b5a637f8a5f7e2b5dd10`; this does not relabel the installed
-runtime dependency or its native qualification as that newer revision.
+Additional proof-only source-summary and carrier laws are maintained in ASCENT
+PR #1; this does not relabel the installed runtime dependency or its native
+qualification as a newer proof-source revision.
 Its `packages/proofs/lean/SourceCertificates.lean` already defines the required
 conditional dependency argument: `resultObligation` requires semantic locality;
 `reuse_after_batch` preserves a certificate after disjoint updates;
@@ -237,3 +237,39 @@ action or closed exploration space. Real-source controls continue from unbound
 metadata to the same-witness `entity=msection` relation and test CLI restart,
 macro-change invalidation and disjoint-edit preservation separately. These are
 not guarantees that a probabilistic Agent will choose the best query.
+
+## The receiving carrier is part of presentation
+
+Library rendering and terminal delivery are distinct observations. A complete
+Library packet can still be clipped by a provider while its checkpoint survives
+in the visible tail. Provider completion therefore does not qualify delivery.
+The existing launch receipt records public terminal byte counts and truncation
+flags separately, without inspecting private reasoning or assigning query intent.
+Provider-owned attempt logs and receipts are not writable Agent scratch.
+
+`Launch.read_window_bytes` configures the complete UTF-8 stdout window. Its
+default reuses the Library's existing display capacity. The task passes this
+capacity through `GAMBIT_SMP_CLUE_WIRE_BYTES`; this is a transport observation,
+not another query endpoint or a scope/iteration limit. The CLI uses the existing
+native folding operation until the entire serialized carrier, including host
+metadata and checkpoint, fits. A tighter retry starts from the original hint,
+strictly decreases its rendering budget and rejects a changed source generation.
+It never slices serialized Scheme or reports hidden content as absent. An
+insufficient header window fails explicitly. Unpublished trial hints are Cache,
+not evidence, delivery confirmation or execution progress.
+
+The existing content-addressed hint cache binds a bounded-frame observation to
+the native hint, including the UTF-8 byte count and configured window. It does
+not grant evidence or execution authority. In a bounded carrier, an old hint
+without that observation is `delivery-unverified`: replay read confirmations
+from the existing native fallback, without deleting source evidence, history or
+execution milestones. Confirmed hints continue through the same Session path.
+This conservative recovery is necessary when an older terminal displayed only
+the beginning and end of a larger response.
+
+The bound assumes a calibrated receiving capacity. Each real provider run must
+still inspect its actual truncation observations; a successful end-turn is not
+proof of that assumption. Source selection, inference and arbitrary reference
+expansion remain in ASCENT. The existing `AnchoredEvidenceSlice` QNT/Lean model
+adds this carrier composition and the acknowledgement-before-delivery failure;
+it does not prove that an LLM understands a displayed fact.

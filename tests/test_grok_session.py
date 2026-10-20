@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from gambit_smp.grok_session import Launch, run
+from gambit_smp.grok_session import Launch, run, terminal_deliveries
 from gambit_smp.workspace import start
 import subprocess
 import shlex
@@ -65,6 +65,7 @@ class GrokSessionTests(unittest.TestCase):
             self.assertFalse(result["executed"])
             self.assertIn('Read(' + str(Path.home() / '.grok') + '/**)', argv)
             self.assertIn('Read(' + str(Path.home() / '.codex') + '/**)', argv)
+            self.assertIn('Edit(' + str(root / '.cache/tasks/repair/agents/diagnostic/grok-runs') + '/**)', argv)
 
     def test_evidence_read_is_a_separate_literal_grant_not_an_editable_script(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,6 +91,8 @@ class GrokSessionTests(unittest.TestCase):
                 'Available project Evidence CLI (read-only): ' + read['command']
                 + '\nCaller-authored Scheme request data: ' + read['request']
                 + '\nWritable scratch directory: ' + str(Path(read['request']).parent)
+                + '\nEvidence wire window: ' + str(read['wireBytes'])
+                + ' UTF-8 bytes; deferred references remain expandable. This does not bound query scope.'
                 + '\nInterface help: ' + read['permission'] + ' --help'
                 + '\nQuery output: Scheme data on stdout. Shell output redirection and mixed command chains'
                 + ' are outside the read grant; owner-local writes use the edit tools.'
@@ -97,6 +100,12 @@ class GrokSessionTests(unittest.TestCase):
             disabled = run(replace(launch, query_request=None))
             self.assertIsNone(disabled['evidenceRead'])
             self.assertNotIn('--rules', disabled['argv'])
+            configured = run(replace(launch, read_window_bytes=4096))['evidenceRead']
+            self.assertEqual(configured['wireBytes'], 4096)
+            self.assertEqual(configured['permissions'], read['permissions'])
+            for invalid in (0, -1, True, '4096'):
+                with self.assertRaisesRegex(ValueError, 'wire window'):
+                    run(replace(launch, read_window_bytes=invalid))
             for bad in ("../outside.ss", "query.ss; echo unsafe", "request.py"):
                 with self.subTest(name=bad), self.assertRaisesRegex(ValueError, "basename"):
                     run(replace(launch, query_request=bad))
@@ -209,6 +218,17 @@ class GrokSessionTests(unittest.TestCase):
             self.assertIn("unknown-native-cause", output)
             self.assertIn("clue-read:", output)
             self.assertFalse(list((root / ".cache/tasks/repair/programs").glob("*.py")))
+
+    def test_terminal_delivery_observation_is_distinct_from_provider_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            events = Path(tmp) / 'events.jsonl'
+            row = dict(type='tool_call_update', status='completed', toolCallId='read',
+                       rawOutput=dict(type='Bash', total_bytes=56233, truncated=True))
+            events.write_text('\n'.join(json.dumps(event) for event in (
+                dict(type='thought', data='not inspected'), row, row,
+                dict(type='end', stopReason='end_turn'))))
+            self.assertEqual(terminal_deliveries(events),
+                             [dict(toolCallId='read', bytes=56233, truncated=True)])
 
     def test_private_events_and_repeated_runs_keep_separate_receipts(self):
         with tempfile.TemporaryDirectory() as tmp:

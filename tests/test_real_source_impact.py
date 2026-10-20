@@ -10,11 +10,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from gambit_smp.ascent_program import engine_api
 from gambit_smp.evidence_views import evaluate
 from gambit_smp.framework import ROOT, digest
-from gambit_smp.trajectory_exploration import repository_clues
+from gambit_smp.trajectory_exploration import repository_clues, _clue_output
 
 VIEW = 'evidence/scenarios/stack-header/source-byte-clues.view.json'
 SUMMARIES = [name + '-understanding' for name in ('msection-unit', 'msection-size', 'msection-allocation')]
@@ -106,6 +107,80 @@ class RealSourceImpactTests(unittest.TestCase):
         self.assertNotIn('#define ___MSECTION_SIZE', accepted.stdout)
         absent = subprocess.run(command, input='()', text=True, capture_output=True, timeout=30)
         self.assertNotEqual(absent.returncode, 0)
+
+    def test_wire_window_folds_before_delivery_and_resumes_unseen_source(self):
+        request = dict(bindings=[('entity', 'msection')], displayBytes=262144)
+        with engine_api() as (engine, _):
+            full, large = _clue_output(self.root, request, engine)
+            self.assertGreater(len(large.encode('utf-8')), 20000)
+            packet, frame = _clue_output(self.root, request, engine, wire_bytes=8192)
+            self.assertLessEqual(len(frame.encode('utf-8')), 8192)
+            self.assertEqual(packet['brief']['counts'], full['brief']['counts'])
+            self.assertFalse(packet['brief']['presentationComplete'])
+            shown = {f['claim'] for f in packet['brief']['families']}
+            deferred = next(f['claim'] for f in full['brief']['families'] if f['claim'] not in shown)
+            self.assertTrue(packet['brief'].get('deferredScope') or packet['brief']['deferred']
+                            or packet['brief']['deferredRelations'])
+            resumed, next_frame = _clue_output(self.root,
+                dict(questions=[deferred], checkpoint=packet['checkpoint'], displayBytes=262144),
+                engine, wire_bytes=8192)
+            self.assertLessEqual(len(next_frame.encode('utf-8')), 8192)
+            self.assertIn(deferred, [f['claim'] for f in resumed['brief']['families']])
+            self.assertFalse(resumed['brief']['runtimeAdmitted'])
+
+    def test_cli_carries_complete_scheme_inside_inherited_transport_window(self):
+        import os
+        command = [sys.executable, '-m', 'gambit_smp', '--root', str(self.root), 'trajectory', 'clues']
+        result = subprocess.run(command,
+            input='((bindings (("entity" "msection"))) (displayBytes 262144))', text=True,
+            capture_output=True, timeout=30,
+            env=dict(os.environ, GAMBIT_SMP_CLUE_WIRE_BYTES='8192'))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertLessEqual(len(result.stdout.encode('utf-8')), 8192)
+        self.assertIn('("presentationComplete" #f)', result.stdout)
+        self.assertIn('clue-read:', result.stdout)
+        self.assertTrue(result.stdout.endswith('))\n'))
+        rejected = subprocess.run(command, input='((bindings ()))', text=True,
+            capture_output=True, timeout=30,
+            env=dict(os.environ, GAMBIT_SMP_CLUE_WIRE_BYTES='1'))
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertEqual(rejected.stdout, '')
+
+    def test_unverified_delivery_replays_reads_without_deleting_evidence(self):
+        from gambit_smp.reasoning_history import load_clue_checkpoint, cache_clue_checkpoint
+        legacy = repository_clues(self.root, SUMMARIES)
+        self.assertIsNone(load_clue_checkpoint(self.root, legacy['checkpoint'], require_framed=True))
+        with engine_api() as (engine, _):
+            recovered, _ = _clue_output(self.root,
+                dict(questions=SUMMARIES, checkpoint=legacy['checkpoint']), engine, wire_bytes=16384)
+            self.assertEqual(recovered['brief']['checkpointStatus'], 'delivery-unverified')
+            self.assertEqual({f['claim'] for f in recovered['brief']['families']}, set(SUMMARIES))
+            self.assertIsNotNone(load_clue_checkpoint(self.root, recovered['checkpoint'], require_framed=True))
+            continued, _ = _clue_output(self.root,
+                dict(questions=SUMMARIES, checkpoint=recovered['checkpoint']), engine, wire_bytes=16384)
+            self.assertEqual(continued['brief']['families'], [])
+        self.assertEqual(repository_clues(self.root, SUMMARIES)['brief']['counts'], legacy['brief']['counts'])
+        invalid = cache_clue_checkpoint(self.root, {
+            'schema': 'gambit-smp.clue-wire-frame.v1', 'checkpoint': [],
+            'wireBytes': 2, 'frameBytes': 3, 'encoding': 'utf-8'})
+        with self.assertRaisesRegex(ValueError, 'wire-frame cache contract'):
+            load_clue_checkpoint(self.root, invalid, require_framed=True)
+
+    def test_wire_retry_counts_utf8_and_rejects_mixed_source_generations(self):
+        budgets = []
+
+        def observed(root, question, engine, **request):
+            budgets.append(request['display_bytes'])
+            return dict(brief=dict(inputIdentity='first' if len(budgets) == 1 else 'changed',
+                                  text='\u03b1' * 4096 if len(budgets) == 1 else ''),
+                        checkpoint='clue-read:' + '0' * 64)
+
+        with patch('gambit_smp.trajectory_exploration.repository_clues', side_effect=observed):
+            with self.assertRaisesRegex(ValueError, 'source changed'):
+                _clue_output(self.root, dict(questions=['example'], displayBytes=262144),
+                             object(), wire_bytes=6000)
+        self.assertEqual(len(budgets), 2)
+        self.assertLess(budgets[1], budgets[0])
 
     def test_fresh_context_recovers_summaries_and_cache_cleanup_preserves_read_history(self):
         first = repository_clues(self.root, SUMMARIES)

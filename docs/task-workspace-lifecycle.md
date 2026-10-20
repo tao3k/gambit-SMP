@@ -36,6 +36,13 @@ path does not gain permission merely because it is temporary.
 The descriptor distinguishes stdout delivery from file edits: read-command
 permission does not include shell output writes or mixed command chains. Owner
 write permission belongs to the edit tools, not an extra shell grant.
+`Launch.read_window_bytes` supplies the existing read CLI's complete UTF-8
+carrier capacity (the Library's default when unspecified). It is recorded as
+`evidenceRead.wireBytes` and inherited through `GAMBIT_SMP_CLUE_WIRE_BYTES`.
+The native renderer folds before delivery; query scope is not narrowed. Match
+this configuration to the actual recipient and inspect `terminalDeliveries`
+for post-render truncation rather than treating end-turn as delivery evidence.
+`grok-runs/` remains host-owned read-only history, not writable Agent scratch.
 Receipt discovery is therefore not a prerequisite for using the granted read.
 The documented public Python help expression is a literal introspection grant;
 directory inspection uses the provider's existing read-only `list_dir` tool.
