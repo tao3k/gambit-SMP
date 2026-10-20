@@ -26,6 +26,13 @@ marker-tail, root/work, join and external-release boundaries. Its
 omission counterexamples and non-vacuous success/retention witnesses. Source
 refinement remains open and is exposed by the existing Scheme component.
 
+[Repeated repair campaigns](gambit/retirement_repair_campaign.qnt) reuse that
+retirement machine across cohort incarnations and check source freshness, receipt
+replay, partial inventories, retained failure and cancellation. The
+[test contract](../docs/retirement-repair-test-contract.md) maps current and
+Experimental contracts to independent native oracles; its Lean companion proves
+join-once and retention properties for arbitrary finite test-event traces.
+
 The current milestone count belongs to source-bound native qualification, not
 this directory index. The owner's reported 9/12 is not re-certified or changed
 by organizing research. Historical native failures and completed stages remain

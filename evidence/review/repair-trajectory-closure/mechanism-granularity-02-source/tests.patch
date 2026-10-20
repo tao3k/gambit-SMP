@@ -1,0 +1,77 @@
+--- a/tests/test_mechanism_granularity.py
++++ b/tests/test_mechanism_granularity.py
+@@ -11,7 +11,8 @@
+ from gambit_smp.artifact_storage import runtime_output
+ from gambit_smp.ascent_program import engine_api,evaluate,load_component_catalog
+ from gambit_smp.process_observation import capture
+-from gambit_smp.quint_backend import check,counterexample,summarize,interpret
++from gambit_smp.quint_backend import check,counterexample,summarize
++from tests.test_retirement_repair_campaign import prepared_compiler
+ 
+ class MechanismGranularityTests(unittest.TestCase):
+     @classmethod
+@@ -19,14 +20,13 @@
+         cls.out=runtime_output(ROOT,'.cache/mechanism-granularity-tests')
+         cls.out.mkdir(parents=True,exist_ok=False)
+         cls.files=[ROOT/'models/gambit'/n for n in ('retirement_repair_campaign.qnt','structure_fault_observation.qnt','native_compiler_probe_correspondence.qnt','retirement_exit_handoff.qnt','callback_return_owned_result.qnt','resize_saved_stack_retirement_isolated.qnt','sync_slot_retained_resources.qnt')]
+-        cls.files += [ROOT/'models/library/gc/WorkObligations.qnt',ROOT/'models/gambit/lean/RetirementRepairCampaign.lean',ROOT/'models/gambit/lean/lean-toolchain',ROOT/'evidence/dsl/modeling-guidance.ss',Path(__file__)]
++        cls.files += [ROOT/'models/library/gc/WorkObligations.qnt',ROOT/'models/gambit/lean/RetirementRepairCampaign.lean',ROOT/'models/gambit/lean/lean-toolchain',ROOT/'evidence/dsl/modeling-guidance.ss',ROOT/'tests/test_retirement_repair_campaign.py',Path(__file__)]
+         cls.inputs={str(p.relative_to(ROOT)):digest(p) for p in cls.files}
+         # A test projection imports the production pure transition, not a
+         # second implementation. Idle campaign/protocol state is not copied.
+-        symbols=('RecoveryState','recoveryInitial','recoveryKeys','recoveryKinds','recoveryEvent','recoveryPolicy','recoverySafe','recoveryRank')
+         relative=os.path.relpath(ROOT/'models/gambit/retirement_repair_campaign',cls.out)
+         cls.projection=cls.out/'mechanism_projection.qnt'
+-        cls.projection.write_text('module mechanism_projection {\n'+''.join(f' import retirement_repair_campaign.{name} from "{relative}"\n' for name in symbols)+'''
++        cls.projection.write_text('module mechanism_projection {\n'+f' import retirement_recovery_model.* from "{relative}"\n'+'''
+  var r: RecoveryState
+  var policy: int
+  action init = { nondet p = Set(0,1,2,3,4).oneOf()
+@@ -64,33 +64,11 @@
+ 
+     def tlc(self,initializer,invariant,negative=False,temporal=None):
+         folder=self.out/(initializer+'-'+invariant);folder.mkdir()
+-        seed=os.environ.get('GAMBIT_SMP_MECHANISM_COMPILED') if not negative else None
+-        if seed:
+-            # The seed grants compilation reuse only. Re-run the complete TLC
+-            # safety/temporal check below; no old acceptance flag is a new pass.
+-            prior=Path(seed);saved=json.loads((prior/'receipt.json').read_text())
+-            checker=saved['checker'];self.assertEqual(checker['phase'],'tlc')
+-            self.assertEqual(checker['modelSha256'],digest(self.projection))
+-            self.assertTrue(checker['inputsStable'])
+-            for name in ('retirement_repair_campaign.qnt','retirement_exit_handoff.qnt','callback_return_owned_result.qnt','resize_saved_stack_retirement_isolated.qnt','sync_slot_retained_resources.qnt'):
+-                key='models/gambit/'+name;self.assertEqual(saved['inputs'][key],digest(ROOT/key))
+-            key='models/library/gc/WorkObligations.qnt';self.assertEqual(saved['inputs'][key],digest(ROOT/key))
+-            jar=ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar'
+-            self.assertEqual(checker['tlcJarSha256'],digest(jar))
+-            self.assertEqual(checker['javaLauncherSha256'],digest(Path(shutil.which('java')).resolve()))
+-            self.compiled=folder/'mechanism_projection.tla'
+-            for name,sha in checker['artifacts'].items():
+-                self.assertEqual(digest(prior/name),sha);shutil.copyfile(prior/name,folder/name)
+-            cfg=folder/'mechanism_projection.cfg'
+-            self.assertEqual(cfg.read_text(),'INIT q_init\nNEXT q_step\nINVARIANT q_inv\nPROPERTY q_temporalProps\n')
+-            code,log,timed_out,seconds=execute([shutil.which('java'),'-Xmx1G','-Xss8m','-cp',str(jar),'tlc2.TLC','-deadlock','-lncheck','final','-workers','1','-metadir',str(folder/'states'),str(self.compiled)],folder,30)
+-            stable=all(digest(folder/name)==sha for name,sha in checker['artifacts'].items())
+-            accepted,trace=interpret(code,log,timed_out,negative=False,temporal=temporal)
+-            row=dict(accepted=accepted and stable,exit=code,timeout=timed_out,seconds=round(seconds,3),temporal=temporal,states=summarize(log),checker=dict(backend='source-bound-compiled-TLC',artifacts=checker['artifacts'],compiledFromSha256=digest(self.projection),compileSeed=str(prior.relative_to(ROOT)),sourceClosureVerified=True,tlcJarSha256=digest(jar),inputsStable=stable))
+-            self.compiled_sha=digest(self.compiled);self.jar_sha=digest(jar)
+-            shutil.rmtree(folder/'states',ignore_errors=True)
+-        elif not negative:
+-            row,log,trace=check(self.projection,initializer='init',invariant=invariant,negative=False,timeout=30,cwd=folder,config=self.config,executable=shutil.which('quint'),step='step',temporal=temporal,liveness_schedule='final',tlc_jar=ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar')
++        if not negative:
++            with prepared_compiler(folder/'compiler',ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar'):
++                row,log,trace=check(self.projection,initializer='init',invariant=invariant,negative=False,timeout=30,cwd=folder,config=self.config,executable=shutil.which('quint'),step='step',temporal=temporal,liveness_schedule='final',tlc_jar=ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar')
++                (folder/'checker.log').write_text(log)
++                (folder/'receipt.json').write_text(json.dumps(dict(row,trace=trace,inputs=self.inputs,nativeAdmitted=False),indent=2))
+             if row['accepted']:
+                 self.compiled=folder/'mechanism_projection.tla'
+                 self.compiled_sha=digest(self.compiled)
+@@ -143,7 +121,7 @@
+         for line in row.stdout.splitlines():
+             if 'depends on axioms: [' in line:
+                 names=line.split('depends on axioms: [',1)[1].rstrip(']').split(',')
+-                self.assertLessEqual({n.strip() for n in names},{'propext','Quot.sound','Classical.choice'})
++                self.assertLessEqual({n.strip() for n in names},{'propext','Quot.sound'})
+         for theorem in ('recovery_trace_preserves','recovery_other_worker_ignored','recovery_old_generation_ignored','recovery_other_owner_ignored','unfinished_consumer_blocks_reclaim','clear_before_transfer_ignored','terminal_error_retains','same_identity_recovery_reachable','body_only_cannot_reclaim','failed_read_is_not_zero_witness','compile_zero_without_dump_is_not_phase','equal_numbers_do_not_identify_units'):
+             self.assertIn(theorem,row.stdout)
+ 

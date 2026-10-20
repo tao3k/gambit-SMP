@@ -1,4 +1,5 @@
 """Provision an exact upstream revision using verified Git objects, online or offline."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import hashlib
 import json
@@ -13,7 +14,7 @@ DEFAULT_CACHE = ".cache/source-cache/gambit.git"
 
 
 def git(root, *args):
-    return subprocess.check_output(["git", "-C", str(root), *args],
+    return _task_check_output(["git", "-C", str(root), *args],
                                    stderr=subprocess.STDOUT, text=True, timeout=30).strip()
 
 
@@ -60,7 +61,7 @@ def verify_objects(repository, record):
     git(repository, "fsck", "--full", "--no-reflogs")
     for field, args in (("commitSha256", ("cat-file", "commit", revision)),
                         ("treeManifestSha256", ("ls-tree", "-r", "-z", revision))):
-        value = subprocess.check_output(["git", "-C", str(repository), *args],
+        value = _task_check_output(["git", "-C", str(repository), *args],
                                         stderr=subprocess.PIPE, timeout=30)
         if hashlib.sha256(value).hexdigest() != record[field]:
             raise ValueError("source object digest drift: " + field)
@@ -167,5 +168,9 @@ def main():
         parser.exit(1, f"SOURCE-PROVISION-DENY: {error}\n")
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('source-provision')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('source-provision',main))

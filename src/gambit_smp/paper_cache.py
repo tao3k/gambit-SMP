@@ -1,4 +1,5 @@
 """Bounded, integrity-checked local paper cache; no network on a valid hit."""
+from gambit_smp.task_processes import run as _task_run
 
 import argparse
 import hashlib
@@ -65,7 +66,7 @@ def download(url):
 
 
 def extract(pdf):
-    result = subprocess.run(["pdftotext", "-layout", str(pdf), "-"],
+    result = _task_run(["pdftotext", "-layout", str(pdf), "-"],
                             check=True, capture_output=True, timeout=30)
     text = result.stdout.decode("utf-8")
     if not text.strip():
@@ -75,7 +76,7 @@ def extract(pdf):
 
 def ocr_scanned(pdf):
     """Explicit, page-bounded fallback; retain no rendered-page cache."""
-    info = subprocess.run(["pdfinfo", str(pdf)], check=True, capture_output=True,
+    info = _task_run(["pdfinfo", str(pdf)], check=True, capture_output=True,
                           text=True, timeout=10).stdout
     match = re.search(r"^Pages:\s+(\d+)\s*$", info, re.MULTILINE)
     if not match or not 1 <= int(match[1]) <= 16:
@@ -85,10 +86,10 @@ def ocr_scanned(pdf):
     with tempfile.TemporaryDirectory(prefix="ocr-", dir=pdf.parent) as temporary:
         prefix = Path(temporary) / "page"
         for page in range(1, pages + 1):
-            subprocess.run(["pdftoppm", "-f", str(page), "-l", str(page),
+            _task_run(["pdftoppm", "-f", str(page), "-l", str(page),
                 "-r", "150", "-singlefile", "-png", str(pdf), str(prefix)],
                 check=True, capture_output=True, timeout=30)
-            result = subprocess.run(["tesseract", str(prefix.with_suffix(".png")), "stdout",
+            result = _task_run(["tesseract", str(prefix.with_suffix(".png")), "stdout",
                 "-l", "eng"], check=True, capture_output=True, timeout=30)
             page_text = result.stdout.decode("utf-8")
             if not page_text.strip():
@@ -172,6 +173,9 @@ def main():
         print(f"{paper['id']}: {status}, {receipt['pages']} pages, "
               f"{receipt['pdfBytes']} bytes, SHA256 {receipt['sha256']['paper.pdf']}", flush=True)
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('papers')(main)
 
 if __name__ == "__main__":
     main()

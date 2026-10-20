@@ -436,7 +436,7 @@ class ActionTransportTests(unittest.TestCase):
         with patch.object(sys, "argv", ["actions", "select", "--request", str(path)]), \
                 patch.object(actions, "select", return_value={"result": {"outcome": "DENY"}}), \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(actions.main(), 2)
+            self.assertEqual(actions.main.__wrapped__(), 2)
 
     def test_concurrent_duplicate_observes_reserved_request_without_second_launch(self):
         entered, release = threading.Event(), threading.Event()

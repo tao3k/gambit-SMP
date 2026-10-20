@@ -1,0 +1,73 @@
+--- a/models/gambit/retirement_repair_campaign.qnt
++++ b/models/gambit/retirement_repair_campaign.qnt
+@@ -1,6 +1,4 @@
+-module retirement_repair_campaign {
+-  import retirement_exit_handoff.* from "./retirement_exit_handoff"
+-
++module retirement_recovery_model {
+   // Refinement of recovery evidence inside this existing campaign, not an OS
+   // errno oracle. join-error-pending is a declared still-joinable premise.
+   // The two consumer roles are a finite public/private witness population.
+@@ -72,10 +70,16 @@
+       { ...r, phase: 6, pending: false }
+     else recoveryStep(r, e)
+ 
++}
++
++module retirement_repair_campaign {
++  import retirement_exit_handoff.* from "./retirement_exit_handoff"
++  import retirement_recovery_model.*
++
+   // Test-workflow model over the real existing finite retirement protocol.
+   // Two consecutive cohort incarnations are a nonvacuity bound, not native
+   // inventory coverage or a CPU limit. No action grants native admission.
+-  type Campaign = { recovery: RecoveryState, policy: int, phase: str, generation: int,
++  type Campaign = { policy: int, phase: str, generation: int,
+     source: int, built: int, runSource: int, changed: bool,
+     observed: Set[int], credited: Set[int], receiptSource: int,
+     receiptGeneration: int, erasedFailure: bool, priorCompleted: bool,
+@@ -83,7 +87,7 @@
+     receivedRoots: Set[int], ownedRoots: Set[int], completedRoots: Set[int] }
+   var c: Campaign
+   pure def campaignInitial(policy: int): Campaign = {
+-    recovery: recoveryInitial, policy: policy, phase: "build", generation: 0,
++    policy: policy, phase: "build", generation: 0,
+     source: 1, built: 0, runSource: 0, changed: false,
+     observed: Set(), credited: Set(), receiptSource: 0,
+     receiptGeneration: -1, erasedFailure: false, priorCompleted: false,
+@@ -181,33 +185,8 @@
+   val rejectEraseFailure = c.policy != 5 or campaignSafe
+   temporal campaignCompletion = correctedPolicy.implies( weakFair(campaignStep, Set((c, configuration)))
+     .implies(eventually(c.phase == "done" or c.phase == "failed" or c.phase == "cancelled")))
+-  action mechanismStep = {
+-    nondet key = recoveryKeys.oneOf()
+-    nondet kind = recoveryKinds.oneOf()
+-    nondet errno = Set(11, 35).oneOf()
+-    all { keepProtocol,
+-      c' = { ...c, recovery: recoveryPolicy(c.recovery, recoveryEvent(key, kind, errno), c.policy) } }
+-  }
+-  val mechanismSafe = Set(1, 2, 3, 4).contains(c.policy) or recoverySafe(c.recovery)
+-  val noMechanismCompletion = c.policy != 0 or c.recovery.phase != 6
+-  val noTerminalRetention = c.policy != 0 or c.recovery.phase != 7
+-
+-  val mixedIdentitySafe = c.policy != 1 or recoverySafe(c.recovery)
+-  val bodyReturnSafe = c.policy != 2 or recoverySafe(c.recovery)
+-  val earlyClearSafe = c.policy != 3 or recoverySafe(c.recovery)
+-  val earlyReclaimSafe = c.policy != 4 or recoverySafe(c.recovery)
+-  temporal mechanismOrder = always(mechanismSafe)
+-  action mechanismAdvance = {
+-    nondet key = recoveryKeys.oneOf()
+-    nondet kind = recoveryKinds.oneOf()
+-    nondet errno = Set(11, 35).oneOf()
+-    val advanced = recoveryPolicy(c.recovery, recoveryEvent(key, kind, errno), c.policy)
+-    all { keepProtocol, recoveryRank(advanced) < recoveryRank(c.recovery),
+-      c' = { ...c, recovery: advanced } }
+-  }
+-  temporal mechanismCompletion = (c.policy == 0).implies(
+-    weakFair(mechanismAdvance, Set(c)).implies(
+-      eventually(c.recovery.phase == 6 or c.recovery.phase == 7)))
++  // The pure recovery transition above is checked by an importing test
++  // projection. It does not enlarge this campaign's receipt/protocol state.
+   pure def recoveryTrace(events: List[str]): RecoveryState =
+     events.foldl(recoveryInitial, (r, kind) => recoveryStep(r, recoveryEvent(recoveryKey, kind, 11)))
+   run mechanismRecoveryReachableTest = init.then(all {

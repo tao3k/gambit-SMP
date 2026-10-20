@@ -7,6 +7,7 @@ import os
 import math
 import signal
 import subprocess
+from gambit_smp.task_processes import spawn as _task_spawn
 import time
 
 
@@ -131,7 +132,7 @@ def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, r
     if recorder is not None:
         recorder("planned", token, {"argv": [str(arg) for arg in argv], "cwd": str(cwd)})
     try:
-        process = subprocess.Popen(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+        process = _task_spawn(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True, start_new_session=True)
     except OSError:
@@ -264,5 +265,9 @@ def main():
                     and row["observation"]["group_quiescent"] is True for row in result["runs"]) else 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('process-observation')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('process-observation',main))

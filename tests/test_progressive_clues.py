@@ -362,7 +362,8 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
         from gambit_smp.trajectory_exploration import main
         output = io.StringIO()
         argv = ["trajectory", "clues",
-                '((bindings (("candidate" "c-continuation-debug-projection"))))']
+                '((bindings (("candidate" "c-continuation-debug-projection") '
+                '("stage" "source-integration"))))']
         with patch.object(sys, "argv", argv), redirect_stdout(output):
             main()
         self.assertIn("debug-projection-source-integrated", output.getvalue())

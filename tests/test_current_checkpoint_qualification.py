@@ -1,0 +1,221 @@
+"""Audit the observer's actual invocation and fail-closed evidence boundaries."""
+import importlib.util
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from gambit_smp.framework import digest
+
+spec = importlib.util.spec_from_file_location('checkpoint_observer', Path(__file__).with_name('run_current_checkpoint_qualification.py'))
+observer = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(observer)
+
+
+class CheckpointObserverTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.runtime = self.root / 'native'
+        for name in ('gsi/gsi', 'gsc/gsc', 'lib/libgambit.a', 'tests/run-unit-tests.scm', 'tests/unit-tests/#.scm', 'tests/unit-tests/03-number/_num.scm'):
+            p = self.runtime / name
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(name)
+        self.identity = {k: digest(self.runtime / name) for k, name in (
+            ('binarySha256', 'gsi/gsi'), ('gscSha256', 'gsc/gsc'), ('librarySha256', 'lib/libgambit.a'))}
+        self.identity['sourceFiles'] = {}
+        self.out = self.root / 'observation'
+        self.out.mkdir()
+
+    def observe(self, *, code=0, quiet=True, drift=False):
+        calls = []
+        def execute(argv, cwd, budget, env, meta):
+            calls.append((argv, cwd, budget, env))
+            meta.update(parentReaped=True, processGroupQuiescent=quiet)
+            if drift:
+                (self.runtime / 'tests/unit-tests/03-number/_num.scm').write_text('changed during run')
+            return code, 'PASSED ALL 1 UNIT TESTS\n', False, .01
+        with patch.object(observer, 'RUNTIME', self.runtime), patch.object(observer, 'EXPECTED_UNIT_FILES', 1), patch.object(observer, 'execute', execute):
+            campaign = observer.Campaign(self.out, 'gsc')
+            observer.qualify_suite(campaign, self.identity)
+            observer.finish(campaign, self.identity)
+        return campaign.receipt, calls
+
+    def test_original_gsc_suite_is_driven_by_gsi_and_keeps_numeric_budget(self):
+        receipt, calls = self.observe()
+        argv, cwd, budget, env = calls[0]
+        self.assertEqual(argv[0], self.runtime / 'gsi/gsi')
+        self.assertIn('-gsc', argv)
+        self.assertIn('unit-tests/03-number/_num.scm', argv)
+        self.assertEqual(cwd, self.out / 'runtime-view/tests')
+        self.assertEqual(budget, 90)
+        self.assertEqual(env['GAMBIT_SMP_EXPECTED_PROCESSORS'], '2')
+        self.assertTrue((cwd / 'unit-tests/#.scm').is_file())
+        self.assertEqual(receipt['status'], 'COVERAGE-PASS')
+        self.assertFalse(receipt['releaseAdmitted'])
+
+    def test_success_marker_cannot_hide_nonzero_exit(self):
+        receipt, _ = self.observe(code=1)
+        self.assertEqual(receipt['status'], 'DENY')
+        self.assertEqual(receipt['failedFiles'], ['03-number/_num.scm'])
+
+    def test_unquiesced_process_cannot_pass(self):
+        receipt, _ = self.observe(quiet=False)
+        self.assertEqual(receipt['status'], 'DENY')
+
+    def test_changed_source_cannot_pass(self):
+        receipt, _ = self.observe(drift=True)
+        self.assertFalse(receipt['inputsStable'])
+        self.assertEqual(receipt['status'], 'DENY')
+
+    def test_existing_receipt_is_immutable(self):
+        (self.out / 'receipt.json').write_text(json.dumps({'status': 'DENY'}))
+        with self.assertRaisesRegex(ValueError, 'immutable'):
+            observer.Campaign(self.out, 'gsi')
+
+    def _tree(self, *, count_line, closed_line, others, runs):
+        self._trees = getattr(self, "_trees", 0) + 1
+        root = Path(self.temp.name) / f"case-{self._trees}"
+        root.mkdir()
+        docs = root / "docs"
+        docs.mkdir()
+        review_dir = root / "evidence/research/processor-interrupt-collective-wait"
+        review_dir.mkdir(parents=True)
+        milestone = "\n".join([
+            "Historical stack-entry progress 6/12.",
+            "Cumulative completion is **8/12**.",
+            count_line,
+            closed_line,
+            others,
+        ]) + "\n"
+        review = "\n".join([
+            "The historical aggregate count remains 8/12 because the four gate contracts have not been fully satisfied.",
+            "| Complete GC/FFI | advancement | Numerical compiled case within its contract; complete current producer GC/FFI and stress/PR obligations |",
+            "| Gerbil correctness | advancement | Source-causal crash repair, stdlib/libgerbil/lang/tools completion and actual complete tests |",
+            "| Release performance | advancement | Matched accepted full producer latency/build/test campaigns; no speed or release claim follows from these observations |",
+            count_line,
+            closed_line,
+            others,
+        ]) + "\n"
+        (docs / "smp-threaded-vm-milestone.md").write_text(milestone)
+        (review_dir / "current-checkpoint-qualification-review.md").write_text(review)
+        for relative, kind in runs:
+            run = root / relative
+            probe = run / "run/join-probe"
+            probe.mkdir(parents=True)
+            if kind == "missing":
+                continue
+            passed = kind in {"pass", "one", "fixture"}
+            if kind == "pass":
+                stdout = ("LIFECYCLE-JOIN:OS-JOIN-ERROR 11\n"
+                          "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n"
+                          "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n")
+                setup = run / "run/core/source/lib/setup.c"
+                setup.parent.mkdir(parents=True, exist_ok=True)
+                setup.write_text(
+                    "join_err = ___thread_join (t);\n"
+                    "if (join_err != ___FIX(___NO_ERR))\n"
+                    "  ps->lifecycle_os_join_errno = ___ERRNO_FROM_ERR_CODE (join_err);\n"
+                    "join_err = ___thread_join (t);\n"
+                    "if (join_err == ___FIX(___NO_ERR))\n"
+                    "  ps->lifecycle_same_owner_joined = 1;\n")
+            elif kind == "einval":
+                stdout = ("LIFECYCLE-JOIN:OS-JOIN-ERROR 22\n"
+                          "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n"
+                          "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n")
+                passed = True
+            elif kind == "banner":
+                stdout = observer.LIFECYCLE_STDOUT
+                passed = True
+            else:
+                stdout = "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n"
+            (probe / "run-executable.stdout").write_text(stdout)
+            processors = "11" if kind != "one" else "1"
+            (probe / "run-executable.process.json").write_text(json.dumps({
+                "exit": 0 if passed else 2, "timeout": False,
+                "environment": {"GAMBIT_SMP_EXPECTED_PROCESSORS": processors}}))
+            (run / "run/join-probe.observation.json").write_text(json.dumps({
+                "step": {"arguments": {
+                    "processorTopology": "host-managed" if kind != "fixture" else "fixture-managed",
+                    "stdout": stdout}}}))
+            (run / "receipt.json").write_text(json.dumps({
+                "outcome": "PASS" if passed else "DENY",
+                "childOutcome": "PASS" if passed else "DENY",
+                "exit": 0 if passed else 2, "timeout": False,
+                "runtimeAdmitted": False}))
+        return root
+
+    def test_text_edit_partial_and_model_shape_do_not_admit_nine(self):
+        current = "Cumulative completion is **9/12**."
+        closed = "The lifecycle failure/rollback gate is closed."
+        others = "Complete GC/FFI, Gerbil correctness, and release performance remain open."
+        both = tuple((name, "pass") for name in observer.LIFECYCLE_RUNS)
+        deny = self._tree(count_line=current, closed_line=closed, others=others,
+                          runs=tuple((name, "deny") for name in observer.LIFECYCLE_RUNS))
+        self.assertFalse(observer.qualify_nine_of_twelve(deny)["admitted"])
+        partial = self._tree(count_line=current, closed_line=closed, others=others,
+                             runs=((observer.LIFECYCLE_RUNS[0], "pass"),
+                                   (observer.LIFECYCLE_RUNS[1], "deny")))
+        self.assertEqual(observer.qualify_nine_of_twelve(partial)["count"], "8/12")
+        bare = self._tree(count_line=current, closed_line=closed, others=others, runs=())
+        self.assertIsNone(observer.qualify_nine_of_twelve(bare)["closed"])
+        one = self._tree(count_line=current, closed_line=closed, others=others,
+                         runs=tuple((name, "one") for name in observer.LIFECYCLE_RUNS))
+        self.assertFalse(observer.qualify_nine_of_twelve(one)["admitted"])
+        historical = self._tree(count_line="Cumulative progress remains **8/12**.",
+                                closed_line="The four open gates remain open.",
+                                others=others, runs=both)
+        self.assertFalse(observer.qualify_nine_of_twelve(historical)["admitted"])
+        extra = self._tree(count_line=current, closed_line=closed,
+                           others="The GC/FFI gate is closed.", runs=both)
+        self.assertFalse(observer.qualify_nine_of_twelve(extra)["admitted"])
+        ready = self._tree(count_line=current, closed_line=closed, others=others, runs=both)
+        decision = observer.qualify_nine_of_twelve(ready)
+        self.assertTrue(decision["admitted"])
+        self.assertEqual(decision["closed"], "lifecycle")
+        self.assertEqual(decision["count"], "9/12")
+        banner = self._tree(count_line=current, closed_line=closed, others=others,
+                            runs=tuple((name, "banner") for name in observer.LIFECYCLE_RUNS))
+        self.assertFalse(observer.qualify_nine_of_twelve(banner)["admitted"])
+        einval = self._tree(count_line=current, closed_line=closed, others=others,
+                            runs=tuple((name, "einval") for name in observer.LIFECYCLE_RUNS))
+        self.assertFalse(observer.qualify_nine_of_twelve(einval)["admitted"])
+        flagged = (observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-recovery-1/run/join-probe/run-executable.stdout").read_text()
+        self.assertFalse(observer.os_join_error_then_success(flagged))
+
+    def test_pre_join_flag_blocks_a_three_line_transcript(self):
+        current = "Cumulative completion is **9/12**."
+        closed = "The lifecycle failure/rollback gate is closed."
+        others = "Complete GC/FFI, Gerbil correctness, and release performance remain open."
+        root = self._tree(count_line=current, closed_line=closed, others=others,
+                          runs=tuple((name, "pass") for name in observer.LIFECYCLE_RUNS))
+        for name in observer.LIFECYCLE_RUNS:
+            setup = root / name / "run/core/source/lib/setup.c"
+            setup.parent.mkdir(parents=True, exist_ok=True)
+            setup.write_text(
+                "___vms->lifecycle_witness |= ___LW_REFUSED;\n"
+                "___thread_join (t);\n")
+        decision = observer.qualify_nine_of_twelve(root)
+        self.assertFalse(decision["admitted"])
+        self.assertEqual(decision["count"], "8/12")
+        self.assertFalse(decision["runsOk"])
+        live = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-recovery-1"
+        self.assertTrue(observer.pre_join_flag_before_join(
+            observer.ROOT, ".cache/tasks/repair-9-12/lifecycle-join-recovery-1"))
+        self.assertEqual(
+            (live / "run/join-probe/run-executable.stdout").read_text(),
+            "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n")
+        self.assertEqual(observer.qualify_nine_of_twelve(observer.ROOT)["count"], "8/12")
+
+    def test_live_checkpoint_matches_two_lifecycle_receipts(self):
+        decision = observer.qualify_nine_of_twelve(observer.ROOT)
+        self.assertFalse(decision["admitted"])
+        self.assertEqual(decision["count"], "8/12")
+        self.assertIsNone(decision["closed"])
+        self.assertFalse(decision["runsOk"])
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,4 +1,5 @@
 """Render ASCENT conclusions with their evidence and catalog provenance."""
+from gambit_smp.task_processes import run as _task_run
 import hashlib
 import json
 from pathlib import Path
@@ -23,7 +24,7 @@ def checkout(root, paths):
     """Separate committed bytes from staged, modified and local-only inputs."""
     root = Path(root).resolve()
     def git(*args, input=None):
-        return subprocess.run(["git", *args], cwd=root, input=input,
+        return _task_run(["git", *args], cwd=root, input=input,
                               capture_output=True, check=True, timeout=10).stdout
     head = git("rev-parse", "HEAD").decode().strip()
     indexed = set(git("ls-files", "-z").decode().split("\0"))
@@ -49,7 +50,7 @@ def checkout(root, paths):
     nested_paths = {name: [path for path in paths if path.startswith(name + "/")]
                     for name in links}
     outer_paths = set(paths) - {path for values in nested_paths.values() for path in values}
-    ignored_result = subprocess.run(["git", "check-ignore", "--stdin", "-z"], cwd=root,
+    ignored_result = _task_run(["git", "check-ignore", "--stdin", "-z"], cwd=root,
         input=("\0".join(sorted(outer_paths)).encode() + b"\0") if outer_paths else b"",
         capture_output=True, timeout=10)
     if ignored_result.returncode not in (0, 1):

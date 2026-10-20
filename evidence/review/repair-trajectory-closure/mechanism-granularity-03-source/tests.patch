@@ -1,0 +1,61 @@
+--- a/tests/test_mechanism_granularity.py
++++ b/tests/test_mechanism_granularity.py
+@@ -12,7 +12,7 @@
+ from gambit_smp.ascent_program import engine_api,evaluate,load_component_catalog
+ from gambit_smp.process_observation import capture
+ from gambit_smp.quint_backend import check,counterexample,summarize
+-from tests.test_retirement_repair_campaign import prepared_compiler
++from tests.test_retirement_repair_campaign import prepared_compiler,compiled_control
+ 
+ class MechanismGranularityTests(unittest.TestCase):
+     @classmethod
+@@ -24,9 +24,12 @@
+         cls.inputs={str(p.relative_to(ROOT)):digest(p) for p in cls.files}
+         # A test projection imports the production pure transition, not a
+         # second implementation. Idle campaign/protocol state is not copied.
+-        relative=os.path.relpath(ROOT/'models/gambit/retirement_repair_campaign',cls.out)
++        maintained=(ROOT/'models/gambit/retirement_repair_campaign.qnt').read_text()
++        start=maintained.index('module retirement_recovery_model {')
++        end=maintained.index('module retirement_recovery_tests {',start)
++        component=maintained[start:end]
+         cls.projection=cls.out/'mechanism_projection.qnt'
+-        cls.projection.write_text('module mechanism_projection {\n'+f' import retirement_recovery_model.* from "{relative}"\n'+'''
++        cls.projection.write_text(component+'module mechanism_projection {\n import retirement_recovery_model.*\n'+'''
+  var r: RecoveryState
+  var policy: int
+  action init = { nondet p = Set(0,1,2,3,4).oneOf()
+@@ -74,22 +77,9 @@
+                 self.compiled_sha=digest(self.compiled)
+                 self.jar_sha=digest(ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar')
+         else:
+-            # All properties are emitted by the same real compiler invocation.
+-            # Reuse its exact bytes, selecting a named property through TLC's
+-            # configuration; never patch generated TLA or refresh an old hash.
+-            self.assertEqual(digest(self.compiled),self.compiled_sha)
+-            self.assertEqual(digest(ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar'),self.jar_sha)
+-            self.assertIn(invariant+' ==',self.compiled.read_text())
+-            target=folder/self.compiled.name;shutil.copyfile(self.compiled,target)
+-            cfg=folder/'control.cfg';cfg.write_text(f'INIT q_init\nNEXT q_step\nINVARIANT {invariant}\n')
+-            snapshots={target.name:digest(target),cfg.name:digest(cfg)}
+-            code,log,timed_out,seconds=execute([shutil.which('java'),'-Xmx1G','-Xss8m','-cp',str(ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar'),'tlc2.TLC','-deadlock','-lncheck','final','-workers','1','-metadir',str(folder/'states'),'-config',str(cfg),str(target)],folder,30)
+-            stable=all(digest(folder/name)==sha for name,sha in snapshots.items())
+-            expected=f'Error: Invariant {invariant} is violated.'
+-            accepted=code!=0 and not timed_out and stable and expected in log
+-            trace=counterexample(log) if accepted else None
+-            row=dict(accepted=accepted,exit=code,timeout=timed_out,seconds=round(seconds,3),temporal=None,states=summarize(log),checker=dict(backend='same-compiled-TLC',artifacts=snapshots,compiledFromSha256=digest(self.projection),tlcJarSha256=self.jar_sha,inputsStable=stable))
+-            shutil.rmtree(folder/'states',ignore_errors=True)
++            row,log,trace=compiled_control(self.compiled,folder,invariant,
++                ROOT/'.cache/tools/apalache-0.62.1/lib/apalache.jar',expected_sha=self.compiled_sha,
++                jar_sha=self.jar_sha,model_sha=digest(self.projection),workers=1)
+ 
+         (folder/'checker.log').write_text(log);(folder/'receipt.json').write_text(json.dumps(dict(row,trace=trace,inputs=self.inputs,nativeAdmitted=False),indent=2))
+         self.rows.append(dict(kind='TLC',initializer='init',invariant=invariant,**row))
+@@ -111,7 +101,7 @@
+ 
+     def test_quint_mechanism_runs(self):
+         for name in ('retirement_repair_campaign','structure_fault_observation','native_compiler_probe_correspondence'):
+-            row=capture([shutil.which('quint'),'test',str(ROOT/'models/gambit'/f'{name}.qnt'),'--match','mechanism.*Test','--max-samples','1'],self.out,30,dict(os.environ))
++            row=capture([shutil.which('quint'),'test',str(ROOT/'models/gambit'/f'{name}.qnt'),*(['--main','retirement_recovery_tests'] if name=='retirement_repair_campaign' else []),'--match','mechanism.*Test','--max-samples','1'],self.out,30,dict(os.environ))
+             (self.out/(name+'-runs.json')).write_text(json.dumps(asdict(row),indent=2));self.assertEqual(row.exit,0,row.stdout+row.stderr);self.assertTrue(row.group_quiescent);self.assertFalse(row.timeout)
+ 
+     def test_lean_arbitrary_trace_and_negative_contracts(self):

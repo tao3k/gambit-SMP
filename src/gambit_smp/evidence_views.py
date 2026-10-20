@@ -5,6 +5,15 @@ from pathlib import Path
 from gambit_smp.framework import digest
 
 
+class ReferenceUnavailable(ValueError):
+    """Byte observations, never a substitute for the view's declared facts."""
+
+    def __init__(self, document, inputs, references):
+        self.document, self.inputs, self.references = document, inputs, references
+        super().__init__("Evidence view reference changed or missing: "
+                         + ", ".join(row["path"] for row in references))
+
+
 def registry(root):
     from gambit_smp.recipes import source_path
     path = Path(root) / "evidence/views.json"
@@ -12,15 +21,17 @@ def registry(root):
         return [], {}
     document = json.loads(path.read_text())
     if (not {"schema", "views"} <= set(document)
-            or set(document) - {"schema", "views", "historical", "selection"}
+            or set(document) - {"schema", "views", "historical", "selection", "availability"}
             or document["schema"] != "ascent.evidence-views.v1"
             or not isinstance(document["views"], list)
             or any(type(name) is not str for name in document["views"])
             or len(set(document["views"])) != len(document["views"])):
         raise ValueError("unique explicit Evidence view registry required")
     inputs = {str(path.resolve()): digest(path)}
-    if "selection" in document:
-        selection = document["selection"]
+    for key in ("selection", "availability"):
+        if key not in document:
+            continue
+        selection = document[key]
         if (not isinstance(selection, dict) or set(selection) != {"source", "constructor"}
                 or any(not isinstance(value, str) or not value for value in selection.values())):
             raise ValueError("Evidence selection requires a Scheme source and constructor")
@@ -60,29 +71,43 @@ def load(root, name):
     if (set(document) != {"schema", "id", "manifest", "entry", "constructor", "facts", "queries", "references"}
             or document["schema"] != "ascent.evidence-view.v1"):
         raise ValueError("typed Evidence view required")
-    references, inputs = {}, {str(path): digest(path)}
+    references, inputs, unavailable = {}, {str(path): digest(path)}, []
     for ref in document["references"]:
         if (not {"id", "path", "sha256", "pointer"} <= set(ref)
                 or set(ref) - {"id", "path", "sha256", "pointer", "origin"}
                 or ref["id"] in references):
             raise ValueError("unique exact view reference required")
+        if (not isinstance(ref["id"], str) or not ref["id"]
+                or not isinstance(ref["sha256"], str) or len(ref["sha256"]) != 64
+                or any(c not in "0123456789abcdef" for c in ref["sha256"])):
+            raise ValueError("exact reference identity and SHA-256 required")
         origin = ref.get("origin", "repository")
         if origin == "repository":
-            original = source_path(root, ref["path"])
+            from gambit_smp.framework import relative
+            from gambit_smp.recipes import CACHE_PARTS
+            original = relative(root, ref["path"])
+            if any(part.casefold() in CACHE_PARTS for part in (
+                    *Path(ref["path"]).parts, *original.relative_to(root).parts)):
+                raise ValueError("view references must not be Cache aliases")
         elif origin == "observed-artifact":
             # Direct read-only observations are not Recipe source inputs or
             # aliases for a pinned vendor file. They never confer admission.
             from gambit_smp.framework import relative
             original = relative(root, ref["path"])
-            if not original.is_file():
-                raise ValueError("regular observed artifact required")
         else:
             raise ValueError("explicit view reference origin required")
-        if digest(original) != ref["sha256"]:
-            raise ValueError("Evidence view reference changed: " + ref["path"])
-        inputs[str(original)] = ref["sha256"]
-        references[ref["id"]] = (ref["sha256"] if ref["pointer"] is None else
-                                  pointer(json.loads(original.read_text()), ref["pointer"]))
+        if original.exists() and not original.is_file():
+            raise ValueError("regular Evidence reference required")
+        actual = digest(original) if original.is_file() else None
+        inputs[str(original)] = actual
+        if actual != ref["sha256"]:
+            unavailable.append(dict(id=ref["id"], path=ref["path"],
+                expected=ref["sha256"], observed=actual,
+                reason="missing" if actual is None else "changed"))
+            references[ref["id"]] = None
+        else:
+            references[ref["id"]] = (ref["sha256"] if ref["pointer"] is None else
+                                      pointer(json.loads(original.read_text()), ref["pointer"]))
     def cell(value):
         if isinstance(value, dict):
             if set(value) != {"reference"} or value["reference"] not in references:
@@ -103,8 +128,10 @@ def load(root, name):
     catalog = load_component_catalog(source_path(root, document["manifest"]),
         entry=document["entry"], constructor=document["constructor"], trusted=True)
     inputs.update(catalog["sourceInputs"])
-    if any(digest(Path(p)) != sha for p, sha in inputs.items()):
+    if any((digest(Path(p)) if Path(p).is_file() else None) != sha for p, sha in inputs.items()):
         raise ValueError("Evidence view changed during loading")
+    if unavailable:
+        raise ReferenceUnavailable(document, inputs, unavailable)
     return document, facts, catalog, inputs
 
 

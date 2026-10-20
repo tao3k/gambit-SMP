@@ -166,8 +166,14 @@ def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None, j
     output = ValidationOutput(journal)
     # Spawn avoids sharing loaded Library state or unittest patches with domains.
     domain_started = time.monotonic()
-    pool = ProcessPoolExecutor(max_workers=len(domains), mp_context=get_context("spawn")) if domains else None
+    from contextlib import ExitStack
+    resources=ExitStack()
+    pool=None
     try:
+        if domains and os.environ.get('GAMBIT_SMP_TASK_ID') and not os.environ.get('GAMBIT_SMP_TASK_SOCKET'):
+            from gambit_smp.task_broker import serve
+            resources.enter_context(serve(root,os.environ['GAMBIT_SMP_TASK_ID'],os.environ['GAMBIT_SMP_TASK_RUN'],int(os.environ['GAMBIT_SMP_TASK_LOCK_FD'])))
+        pool = ProcessPoolExecutor(max_workers=len(domains), mp_context=get_context("spawn")) if domains else None
         futures = [pool.submit(run_domain, root, tests, policy,
                                Path(os.environ["GAMBIT_SMP_TEST_ENGINE"]).resolve(),
                                Path(domain_out) / str(index), started=domain_started)
@@ -190,11 +196,14 @@ def run_suite(root, suite, inputs, engine_inputs, profile, *, domain_out=None, j
                 return super().run(result, debug)
 
         scheduled = unittest.TestSuite([unittest.TestSuite(early), DomainBarrier(deferred)])
-        result = unittest.TextTestRunner(stream=output, verbosity=2, resultclass=Outcomes).run(scheduled)
+        from gambit_smp.validation_domains import isolated_test_context
+        with isolated_test_context():
+            result = unittest.TextTestRunner(stream=output, verbosity=2, resultclass=Outcomes).run(scheduled)
         join_domains()
     finally:
         if pool is not None:
             pool.shutdown(wait=True, cancel_futures=True)
+        resources.close()
     for domain in domain_results:
         if set(result.outcomes) & set(domain["outcomes"]):
             raise ValueError("validation domain duplicated a test identity")
@@ -557,5 +566,9 @@ def main():
     return 0 if receipt["frameworkValidated"] else 2
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('validate-review')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('validate-review', main))

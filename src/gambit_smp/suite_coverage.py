@@ -150,3 +150,11 @@ def main():
     print(json.dumps({"outcome": record["outcome"], "answers": answers,
                       "runtimeAdmitted": False, "performanceAdmitted": False}))
     return 0 if accepted else 2
+
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('suite-coverage')(main)
+
+if __name__ == "__main__":
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('suite-coverage', main))

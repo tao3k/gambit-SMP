@@ -24,6 +24,7 @@ _retained_engine = None
 _retained_owner = None
 _query_owners = {}
 _verified_api = ContextVar("verified_sealed_api", default=None)
+_active_api = ContextVar("active_api_observation", default=None)
 _construction_slot = ContextVar("source_session_construction_slot", default=None)
 _construction_owner = ContextVar("source_session_construction_owner", default=None)
 
@@ -206,6 +207,13 @@ def engine_api(*, engine=None, retain=False):
     exit unless retain=True. This does not admit a native runtime result.
     """
     engine, identities, files, owned, boundary = _api_entry(engine, retain)
+    parent = _active_api.get()
+    owner = (os.getpid(), threading.get_ident())
+    nested = (parent is not None and parent["owner"] == owner
+              and parent["boundary"] is boundary and parent["files"] == files
+              and parent["identities"] == identities)
+    token = _active_api.set(dict(owner=owner, boundary=boundary,
+                                files=dict(files), identities=dict(identities)))
     try:
         yield engine, identities
     except BaseException:
@@ -213,17 +221,20 @@ def engine_api(*, engine=None, retain=False):
             close_queries(engine)
         raise
     finally:
-        if owned and not retain:
-            try:
-                close_queries(engine)
-            finally:
-                engine.close()
-        if boundary is None:
-            current_files = artifact_paths()
-            if current_files != files or _file_identities(files) != identities:
-                if owned:
+        try:
+            if owned and not retain:
+                try:
                     close_queries(engine)
-                raise ValueError("ASCENT implementation changed during audit")
+                finally:
+                    engine.close()
+            if boundary is None and not nested:
+                current_files = artifact_paths()
+                if current_files != files or _file_identities(files) != identities:
+                    if owned:
+                        close_queries(engine)
+                    raise ValueError("ASCENT implementation changed during audit")
+        finally:
+            _active_api.reset(token)
 
 
 def _api_entry(engine, retain):
@@ -235,7 +246,14 @@ def _api_entry(engine, retain):
     files, build, receipt_sha = _api_inventory()
     boundary = _verified_api.get()
     if boundary is None:
-        identities = _file_identities(files)
+        active = _active_api.get()
+        # This call's outer boundary rehashes at exit, including exceptional
+        # exits. No verdict survives that request, thread or process lifetime.
+        if (active is not None and active["owner"] == (os.getpid(), threading.get_ident())
+                and active["boundary"] is None and active["files"] == files):
+            identities = dict(active["identities"])
+        else:
+            identities = _file_identities(files)
     else:
         root, manifest = boundary
         identities = _sealed_api_identities(files, root, manifest)

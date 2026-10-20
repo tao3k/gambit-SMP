@@ -3,6 +3,7 @@ import argparse
 from contextlib import closing
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
@@ -70,9 +71,77 @@ def _inputs(root, paths):
     return result
 
 
+def _catalog_fallback_paths(root):
+    """Catalog denial binds source files, never Python/runtime-generated caches."""
+    excluded = {".cache", ".data", ".git", ".venv", ".state", "__pycache__"}
+    for name in ("evidence", "models", "docs"):
+        for directory, dirs, files in os.walk(root / name, followlinks=False):
+            dirs[:] = sorted(part for part in dirs if part not in excluded)
+            for filename in sorted(files):
+                path = Path(directory) / filename
+                if path.suffix not in {".pyc", ".pyo"} and path.is_file():
+                    yield path
+
+
+def _request_database_path(root):
+    """Migrate real rows and fence old writers before admitting new requests."""
+    from gambit_smp.artifact_storage import durable_database_path, cache_path, repository_root
+    legacy = cache_path(root, "research-actions/requests.sqlite")
+    expected = repository_root(root) / ".state/research-actions/requests.sqlite"
+    if not expected.exists() and legacy.exists():
+        with closing(sqlite3.connect(legacy.as_uri() + "?mode=ro", uri=True)) as old:
+            if old.execute("SELECT 1 FROM sqlite_schema WHERE type='trigger' "
+                           "AND name LIKE 'gambit_smp_retired_requests_%'").fetchone():
+                raise ValueError("durable request store missing; retired cache is not recovery authority")
+    path = durable_database_path(root, ".state/research-actions/requests.sqlite", "research-actions/requests.sqlite")
+    if not legacy.exists():
+        return path
+    fences = {"gambit_smp_retired_requests_" + operation.lower():
+              "CREATE TRIGGER gambit_smp_retired_requests_" + operation.lower() +
+              " BEFORE " + operation + " ON requests BEGIN SELECT RAISE(ABORT, "
+              "'requests moved to .state/research-actions/requests.sqlite'); END"
+              for operation in ("INSERT", "UPDATE", "DELETE")}
+    with closing(sqlite3.connect(legacy, timeout=1, isolation_level=None)) as owner:
+        existing = dict(owner.execute("SELECT name,sql FROM sqlite_schema WHERE type='trigger'"))
+        if all(existing.get(name) == sql for name, sql in fences.items()):
+            return path
+        owner.execute("BEGIN IMMEDIATE")
+        try:
+            with closing(sqlite3.connect(path, timeout=1, isolation_level=None)) as current:
+                current.execute("BEGIN IMMEDIATE")
+                try:
+                    old = owner.execute("SELECT id,body,result FROM requests ORDER BY id").fetchall()
+                    new = dict((row[0], row[1:]) for row in current.execute("SELECT id,body,result FROM requests"))
+                    if any(new.get(row[0]) != row[1:] for row in old):
+                        raise ValueError("legacy request rows diverged during migration; explicit reconciliation required")
+                    # Preserve the pre-fence SQLite snapshot, including failed/pending
+                    # rows. A cached boolean or a new empty store cannot retire it.
+                    snapshot = path.parent / ("legacy-" + identity(old) + ".sqlite")
+                    if not snapshot.exists():
+                        with closing(sqlite3.connect(legacy.as_uri() + "?mode=ro", uri=True)) as origin, \
+                                closing(sqlite3.connect(snapshot)) as destination:
+                            origin.backup(destination)
+                    with closing(sqlite3.connect(snapshot)) as saved:
+                        if saved.execute("SELECT id,body,result FROM requests ORDER BY id").fetchall() != old:
+                            raise ValueError("legacy request snapshot changed")
+                    snapshot.chmod(0o600)
+                    with snapshot.open("rb") as stream:
+                        os.fsync(stream.fileno())
+                    for name, sql in fences.items():
+                        if name in existing and existing[name] != sql:
+                            raise ValueError("legacy request fence differs")
+                        if name not in existing:
+                            owner.execute(sql)
+                    owner.commit()
+                finally:
+                    current.rollback()
+        finally:
+            owner.rollback()
+    return path
+
+
 def _outcomes(root):
-    from gambit_smp.artifact_storage import database_path
-    path = database_path(root, "research-actions/requests.sqlite", ".data/research-actions/requests.sqlite")
+    path = _request_database_path(root)
     if not path.exists():
         return []
     with closing(sqlite3.connect("file:" + str(path) + "?mode=ro", uri=True)) as db:
@@ -311,8 +380,7 @@ def discover(root, context):
             # A failed catalog cannot license graph validation, but must not
             # suppress unrelated read-only investigation of bound receipts.
             gaps.append({"action": "graph:" + graph["model"], "premise": "current-catalog", "reason": str(error)})
-            paths.extend(path for directory in ("evidence", "models", "docs")
-                         for path in (root / directory).rglob("*") if path.is_file())
+            paths.extend(_catalog_fallback_paths(root))
         paths.extend(root / path for path in python_files(root))
         paths.extend(root / path for path in asset_files(root))
         add_action("graph:" + graph["model"], "current-graph", model=graph["model"], budgetSeconds=300,
@@ -407,8 +475,7 @@ def discover(root, context):
 
 
 def _database(root):
-    from gambit_smp.artifact_storage import database_path
-    path = database_path(root, "research-actions/requests.sqlite", ".data/research-actions/requests.sqlite")
+    path = _request_database_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=1)
     db.execute("CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, body TEXT NOT NULL, result TEXT)")
@@ -461,8 +528,8 @@ def select(root, snapshot, action, inputs, request_id, *, authorize_execution=Fa
         reusable = _reusable_view_result(current, selected)
         db.execute("INSERT INTO requests VALUES (?, ?, NULL)", (request_id, encoded))
         db.commit()
-        from gambit_smp.artifact_storage import cache_path
-        out = cache_path(root, "research-actions/" + request_id)
+        from gambit_smp.artifact_storage import cache_path, runtime_output
+        out = runtime_output(root, cache_path(root, "research-actions/" + request_id))
         try:
             if reusable is not None:
                 result = reusable
@@ -626,3 +693,11 @@ def main():
     except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
         print("ACTION-DENY " + str(error), file=sys.stderr)
         return 2
+
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('actions')(main)
+
+if __name__ == "__main__":
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('actions', main))

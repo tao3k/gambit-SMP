@@ -3,12 +3,22 @@
 This directory organizes research by subject rather than filename prefixes.
 It is not a runtime qualification or a separate implementation branch.
 
+[Repair and architectural redesign](../repair-and-redesign.md) separates the
+current 9/12 repair's robustness/source obligations from mechanism-level
+refactoring. A current native pass cannot qualify this architecture, and an
+Experimental model pass cannot qualify the current runtime.
+
 The current Stage-One selection and acceptance boundary is
 [the integration design](stage-one-integration.md). Earlier audits preserve
 their explored alternatives and source limitations; they are not additional
 fallback implementations or requirements to keep defective SMP behavior.
 
 - [C-backend assets, matched rebuild and first-stage boundary](c-backend-compatibility.md)
+- [Zig research collection, semantic design, evidence and D2 architecture diagrams](zig/README.md)
+- [Zig as a future system engineering layer: responsibilities, C integration and compiler services](zig/zig-system-engineering-architecture.md)
+- [Concrete native contract: Gambit/Zig ownership, source changes and decoupled MLIR AOT service](zig/zig-native-contract-design.md)
+- [Zig architecture sources, papers, reading coverage and transfer limits](zig/zig-system-engineering-sources.md)
+- [Narrower Zig/MLIR backend feasibility assessment](zig/zig-mlir-feasibility.md)
 - [Whole-package composition, selected small refactor and acceptance](stage-one-integration.md)
 - [Whole-package formal/DSL validation and limitations](stage-one-integration-validation.md)
 - [One coordinated source-refactor milestone and native checklist](stage-one-implementation-milestone.md)
@@ -25,6 +35,8 @@ fallback implementations or requirements to keep defective SMP behavior.
 - [SMP foundations and two implementation horizons](smp-design-foundations.md)
 - [Chez and OCaml transfer applicability](transfer-applicability.md)
 - [Runtime shared metadata and host entry contracts](runtime-entry-contracts.md)
+- [Root registry exclusion, scanner-owned deletion, carrier reuse and current RC Recipe](root-registry-retirement.md)
+- [Host root registration, lifetime carriers and epoch-design boundaries](host-root-registration.md)
 - [Actual callers, reference mechanisms and refactor decisions](runtime-entry-callers.md)
 - [Complete transactions, capture/delivery and failure contracts](metadata-transaction-recipe.md)
 - [Transaction/callback model and evidence validation](metadata-transaction-validation.md)

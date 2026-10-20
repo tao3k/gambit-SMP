@@ -2,6 +2,7 @@
 
 Only new protocol checks run; no native candidate or known failed route runs.
 """
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import json
 from pathlib import Path
@@ -134,7 +135,7 @@ def main():
         parser.error("unknown case")
     if any(case.get("registrationOnly") is True for case in cases):
         parser.error("registration-only metadata is not executable protocol acceptance; use its declared safety recipe")
-    version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
+    version = _task_check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != manifest["quintVersion"]:
         raise ValueError("Quint version differs from reviewed version")
     plan = resources(available_processors(), physical_memory(), args.jobs)
@@ -246,5 +247,9 @@ def main():
     return 0 if ok and stable else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('verify')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('verify', main))

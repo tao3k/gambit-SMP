@@ -1,0 +1,194 @@
+# Scheme Semantic Completion: Operations, Roots and Exceptional Control
+
+Date: 2026-10-20. Research design only; no backend implementation or native /
+performance validation. Refines [G3 generation](hostgraph-generation-contract.md).
+Read with the [15 runtime-role contracts](runtime-role-entry-contracts.md),
+[source evidence](semantic-completion-evidence.md) and
+[ASCENT research chains](zig-research-chains.md).
+
+## 1. The Extraction Boundary
+
+Scheme's G3 pass makes the semantic work currently interleaved with C emission
+explicit. Zig realizes that plan in C1/native CFG and one physical frame layout.
+Existing Gambit runtime algorithms remain runtime-owned: declaring a GC/helper
+operation in Scheme does not run the collector during compilation or require
+porting the collector into Scheme. Neither Zig nor LLVM may discover the only
+copy of a root, resume point or exceptional edge while rendering instructions.
+
+Two inputs are required: GVM's frame/live/slot information, and a profile-bound
+resource/materialization plan. In the existing code, dirty flonum boxing itself
+reserves heap space; a backend with different caches may need different budget
+and check placement. Scheme need not reproduce Zig's register allocator. The
+provider declares representation/materialization requirements before freeze;
+Scheme places legal operations and closes roots/frames. Any later collecting
+spill/helper requires an amendment/new graph revision (SC02-SC05).
+
+The operation inventory below covers this extraction seam and the 15-role
+domain. It is not an exhaustive lowering of the primitive catalogue, arbitrary
+`##c-code`, foreign conversions or task scheduling. Unknown operations remain
+outside the admitted domain; no fallback to the whole old C emitter closes a row.
+
+## 2. State Shapes and Operation Records
+
+```text
+CompletionOperation {
+  op_id, semantic_anchor, origin_gvm_instruction,
+  phase_position: before_value | after_value | edge | handler_entry | resume,
+  input_state_shape, output_state_shape,
+  ordered_effects, required_live_values, mandatory_protocol_roots,
+  frame_spec_ref?, normal_successor?, exceptional_successors,
+  runtime_role_ref?, resource_debt_before_and_after,
+  materialize_plan?, reload_plan?, source_evidence_refs
+}
+CheckPlan {
+  kind: heap | poll | stack_only | ssb,
+  requested_amount: None | Some(nonnegative_words),
+  representation_class, legal_masking_region, stack_frontier,
+  check_origin: ordinary_poll | stack_only | heap_check | ssb_check,
+  private_resume_point, caller_frame_spec, helper_contract,
+  slow_path_state_transition, fast_path_state_transition
+}
+```
+
+`None` and `Some(0)` are distinct. Scheme zero is true: the current block-end
+code passes `0` to request checks. A Zig optional/count conversion must not erase
+these operations as false. The inspected baseline has combined checks disabled;
+block-end order is heap, SSB, poll. The ordinary header heap-check macro tests
+hp against heap_limit; its `m` argument is not a general checked-reservation
+guarantee. Preserve this distinction instead of assigning semantics to a macro
+argument by its name (SC02/SC04).
+
+| State shape | Meaning / legal collection boundary |
+| --- | --- |
+| CALL | Invocation arguments in profile-defined registers/stack, R0 continuation, SELF/na and role-specific scratch fields. A partial argument area is not a continuation frame |
+| IPRE | Private RETI resume identity and caller extent exist; required cached values are materialized, but the full saved-register extension is not yet built. No collecting/reentrant call during this transition |
+| IFULL | Handler has aligned the caller extent, saved every GVM register and actual internal RA, set R0 to internal-return, and established the declared frame. Collection also requires RA store/state publication |
+| PUBLISHED | Actual RA stored with break-frame rules, fp/hp/register state written back and relevant complete frames/root carriers reachable; collecting helper is now permitted by its own contract |
+| ARGPART | Rest/key processing holds partial arguments and possibly local key arrays/list state. No GC/poll/capture/reentry may be inserted here |
+| PACKAGED | Partial argument area consumed; processed parameters live in a vector passed with the procedure through ordinary Scheme call state over complete continuation frames |
+| FOREIGN | Two-slot return-to-C marker frame and matching catcher/processor/invocation context; marker validity and actual unwind destination are separate from code addressability |
+| BREAK | Break frame points to stack or heap continuation; special restore/copy/link semantics apply, not a generic ordinary frame |
+| DENV | Ordinary post-thunk continuation with saved old-denv field and return link; normal resumption restores denv/caches, while nonlocal paths use continuation/environment protocols |
+
+These are proposed state-contract names, not existing C structs. A complete
+frame alone does not establish all thread/VM/global/foreign roots. Scratch
+`temp1`-`temp4` fields are role-typed: they can hold a Scheme object, raw count,
+runtime label or raw global-cell pointer. Do not scan every scratch word as a
+Scheme root or assume a scratch field protects a moving object indefinitely.
+The collector separately marks processor registers and continuation maps
+(SC17); add explicit carriers/reloads for values that must survive a helper.
+
+## 3. Operation Inventory and Ownership
+
+All OP rows are proposed extraction operations. Source references SCxx resolve
+to [exact source scopes](semantic-completion-evidence.md). Scheme owns their
+semantic contracts and ordering; Zig owns C/native instruction/layout realization.
+
+| ID / operation | Scheme-produced meaning and pre/postcondition | Old source to split / retained runtime work |
+| --- | --- | --- |
+| OP01 EntryParameterPlan | Required/optional/key/rest/default laws, argument locations, retry entry and arity failures; preserve na=-1 processed-parameter convention | `_t-c-2` entry dispatch + header GET/WRONG macros; R07-R10 runtime algorithms (SC08-SC11) |
+| OP02 PrepareTransfer | Select local/procedure call/tail/return edge; preserve destination if it aliases return register; assign return point/R0/SELF/na explicitly | `targ-gen-jump`; string selection/host exit goes to Zig (SC01) |
+| OP03 AccrueResourceDebt | Record heap/flo/SSB reservations and representation-sensitive worst-case materialization cost | Heap/cache accounting extracted from target state; profile budgets remain explicit (SC02/SC03) |
+| OP04 MaterializeLiveValues | Dirty live stack/register values and closure-env dependencies become Scheme-visible; boxing consumes accounted heap budget | `targ-update-fr`, fp-cache write/dirty clearing; F64BOX spelling and cache realization move to Zig (SC03) |
+| OP05 EstablishFrontier | Use slots-needed and operand/result temporaries to declare legal fp extent and frame snapshot at this exact point | `targ-adjust-stack` call sites; arithmetic/layout realized from profile, not raw C expressions (SC01/SC04) |
+| OP06 DeclarePrivateResume | Create a private PointId with incoming state, RETI FrameSpec, mandatory saved roots and reload obligations | `targ-check-conditions` and force's late labels; no inheritance of runtime-role authority (SC04/SC12) |
+| OP07 TestAndDispatchCheck | Explicit fast/slow branches, Some(0), masking legality and role destination; no silent fusion/reordering of checks | CHECK/POLL strings/macros; stack-only retained patch distinguished from interrupt polling (SC04/SC18) |
+| OP08 PrepareRolePayload | Typed temp/na/SELF/RA inputs required by the chosen role, with ownership/reload lifetime | Header dispatch macros and conversion wrapper exits (SC07/SC08/SC12) |
+| OP09 CompleteInternalFrame | IPRE -> IFULL: align caller, save all registers, save actual resume RA, install internal-return marker | R03/R04/R11 prologues; one shared recipe, not three unrelated root policies (SC05) |
+| OP10 PublishForRuntime | IFULL/ordinary complete frame -> PUBLISHED: store RA unless break boundary, write state, retain roots | FRAME_STORE_RA + W_ALL around helpers; existing runtime root owners retained (SC05/SC17) |
+| OP11 InvokeRuntimeService | Explicit service effects/result: stack/heap section helper, collection, interrupts, promise or foreign service; classify collection/reentry/nonlocal exits separately | Runtime helpers retained; no generic no-GC assumption for all C calls (SC05/SC12/SC19) |
+| OP12 ReloadAfterService | Reload state and current RA after possible movement/frame changes; raw local pointer reuse is prohibited unless contract permits | R_ALL / FRAME_FETCH_RA sequences; provider must implement aliases/reloads (SC05/SC17) |
+| OP13 RestoreInternalResume | Preserve result in temp2 when needed, pop actual RA/all saved registers, undo alignment and transfer to private point | R14 handler, FORCE2/3 consumers; internal-return role is not the private RETI point (SC12/SC15) |
+| OP14 ForceProtocol | Nonpromise/determined/undetermined branches, state identity, reentrant Scheme thunk behavior and result delivery | FORCE1/2/3 + R11 + Scheme force-out-of-line; no pure/memo-only replacement (SC12) |
+| OP15 ReshapeErrorArguments | Preserve original continuation; prepend operator or conversion tuple and retain original arguments in specified order | R01/R02/R05-R07; global nonproc's name-search branch is disabled in baseline (SC07/SC08) |
+| OP16 ProcessRestKeywords | CALL -> ARGPART; defaults, duplicate-key precedence, unknown/odd/nonkeyword/DSSSL policy and ordered list construction | R08-R10 loops; local arrays/list pointers require no-collection transition contract (SC09-SC11) |
+| OP17 PackageBeforeCollection | ARGPART -> PACKAGED: finish rest construction, consume argument area, build parameter vector and tail-call rest-param-check-heap | R08/R10 slow path and resume-procedure; do not collect between partial arguments and packaging (SC09/SC11/SC19) |
+| OP18 PrepareForeignFrame | CFUN arity+1 all-live wrapper frame / SFUN two-slot marker frame and exact conversion-mode/error contract | `targ-scan-c-procedure`, SFUN/CFUN macros and ___call; cleanup/marker rooting gaps remain explicit (SC06/SC07/SC13) |
+| OP19 TransferConversionError | Distinguish status code, conversion error, UNWIND_C_STACK and custom error handler; maintain entry argument/return shape | Inline/OOL CFUN paths plus SFUN error loop; no automatic exception-to-status flattening (SC07) |
+| OP20 UnwindForeignReturn | Check processor and marker validity; preserve frame for catcher; publish state then nonlocal throw to matching ___call | R12 + ___call error/catcher logic; no ordinary host return bridge (SC13) |
+| OP21 RestoreBreakContinuation | BREAK -> stack/heap caller frame, RETN/RETI decode, actual frame copy/link rewrite and break-chain compression | R13 and stack_overflow_undo_if_possible; runtime algorithm retained under typed effects (SC14) |
+| OP22 BindAndRestoreDenv | Save old-denv, call thunk, preserve multiple-values result, reacquire current thread and restore denv/three caches on normal return | R15 Scheme body + continuation walker saved-field contract; no invented finally-on-every-exception semantics (SC16) |
+| OP23 DeclareRuntimeAnchor | Bind each role to actual semantic entry/resume body and its state/descriptor purpose; expose non-Scheme-callable external roots | Hand-managed kernel C regions and setup numeric assignments (SC05-SC16) |
+| OP24 SealCompletion | Recompute affected dataflow/frames/frontiers, close exceptional edges, resource and role signatures, reject unsupported operations before G4 | Replaces discovering the missing semantic facts during C rendering; task/SSB/opaque regions cannot silently pass (SC01/SC18) |
+
+Pure C rendering, local variable names, label ordinal allocation, bitmap chunk
+packing and descriptor bytes are not OP semantics. Conversely `side-effects? =
+#f` on some allocation inliners does not make OP03/OP07 removable. The source
+SSB hooks and `targ-need-ssb` TODO are preserved as unresolved capability work;
+the inventory is not a claim that a complete SSB path exists (SC18).
+
+## 4. Checkpoint and Root Materialization Protocol
+
+![Check to collecting runtime to private resume](semantic-checkpoint-protocol.svg)
+[D2 source](semantic-checkpoint-protocol.d2).
+
+For a heap/poll slow path, G3 first emits OP03-OP08 at the selected before/after
+value or edge position. Use the correct **incoming** frame snapshot: the current
+scanner often derives it from the previous instruction, while a label uses its
+own frame. A new private point is not justified by copying the next instruction's
+frame. Roots, temporary operands, closure environment and materialization
+allocation must all correspond to that precise position (SC01/SC03/SC04).
+
+The fast path reaches the private resume point directly. The slow path passes
+that same resume identity in temp1, then R03/R04 completes the internal frame.
+The private point's RETI descriptor describes the expanded frame when scanned;
+its CFS field names the caller extent. After normal service completion, R14
+undoes the extension and returns to that private point. The body therefore
+needs explicit cache invalidation/reload obligations for both incoming paths.
+RETI descriptor data and the runtime handler's own entry metadata are different.
+
+No collecting or Scheme-reentrant helper is allowed before IFULL/PUBLISHED.
+The stack handler can raise stack overflow or dispatch Scheme interrupts; the
+heap handler delegates to check-heap, whose overflow branch raises and can retry
+if the raise returns. Those branches keep the complete continuation and cannot
+be modeled as a single C error return. Masking constrains poll placement, not
+permission to omit heap safety or complete-frame construction (SC04/SC05).
+
+OP04 may allocate boxed values **before** the check. This is supported only by
+the declared reservation/fudge invariant. The proposal does not insert a
+collecting generic allocator inside that materialization loop. If a provider
+cannot bound its materialization within the selected reserve, it must request
+an earlier legal checkpoint and revised roots, or reject the plan. Proof of
+those bounds for every retained helper/representation remains open.
+
+## 5. Partial Argument Areas and Exceptional Exits
+
+![No collection in partial argument processing](partial-argument-root-protocol.svg)
+[D2 source](partial-argument-root-protocol.d2).
+
+`___heap_limit` can obtain another section or return a request to collect; its
+inspected body does not call the collector (SC19). In rest processing that
+request is **not** permission to collect immediately. Finish construction using
+the runtime's reserved-space protocol, put all processed parameters in a vector,
+and remove the partial stack area before entering rest-param-check-heap. Its
+Scheme arguments root procedure/vector across GC and possible overflow raise;
+resume-procedure reconstructs arguments and uses `na=-1` to avoid reprocessing.
+
+The amount of space needed to finish packaging is a real qualification
+obligation. Do not infer an unlimited emergency reserve from the fact that the
+old C loops perform it. Local `key_vals` and rest-list pointers must not survive
+an inserted collecting call without new root carriers; generic LLVM/MLIR
+instrumentation or boxing cannot introduce one unnoticed.
+
+Exceptions are explicit control edges: wrong arity, unknown keyword, keyword
+expected, stack/heap overflow, custom conversion handler, wrong-processor C
+return, multiple C return, promise thunk reentry/raise and arbitrary nonlocal
+Scheme continuation. The destination may return, raise, reenter or escape as
+its existing Scheme/runtime contract allows. Do not label every raising call
+`noreturn`, synthesize a normal result or undo effects automatically. Denv's
+post-thunk restore executes on normal resumption; captured/nonlocal environment
+restoration remains with Gambit's continuation/dynamic-environment machinery.
+
+## 6. Refactor Closure and Research Evidence
+
+Retire the target scanner's semantic branches only after OP records, all
+runtime-role edges and their selected-domain callers are explicit. New C and
+native emitters must use the same records. An opaque kernel fragment forwarded
+unchanged, a private point invented by an emitter, or a GC-capable helper hidden
+inside ARGPART keeps the relevant H03/H09 retirement gate open.
+
+The source facts, design choices, runtime qualification requirements and benefit
+measures are separately represented in the [ASCENT view](zig-research-chains.md).
+Its dependency closure reports missing premises; it does not execute these
+operations, qualify root bounds or convert a source-derived design into native
+acceptance. No backend or performance experiment was performed.

@@ -127,11 +127,8 @@ class ToolReasoningTests(unittest.TestCase):
     def test_actual_action_discover_select_observe_is_read_only(self):
         # Separate operational history, never fabricated inference or outcomes.
         with tempfile.TemporaryDirectory() as directory:
-            from gambit_smp import artifact_storage
-            original = artifact_storage.database_path
-            def database(root, name, previous):
-                return Path(directory) / "actions.sqlite" if name == "research-actions/requests.sqlite" else original(root, name, previous)
-            with patch.object(artifact_storage, "database_path", side_effect=database):
+            with patch.object(research_actions, "_request_database_path",
+                              return_value=Path(directory) / "actions.sqlite"):
                 self.check_action_consumer()
 
     def check_action_consumer(self):

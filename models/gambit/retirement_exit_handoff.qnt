@@ -29,6 +29,8 @@ module retirement_exit_handoff {
     releaseCalls: int, releaseError: int, reclaimed: bool,
     original: int, delivered: int }
   var h: State
+  // Complete imported state for callers composing fairness or freshness.
+  val configuration = (h, C::s, R::retirementState, S::s)
   pure def initial(fault: int): State = {
     fault: fault, tail: 0, converted: false, quiesced: false,
     retired: false, exited: false, joined: false,
@@ -43,6 +45,11 @@ module retirement_exit_handoff {
       result: 1, saved: -1, rooted: false, epoch: 0, savedEpoch: 0, migration: true }
   // Quint's TLA target cannot share an init action with alternative inits.
   action initFixed = all { h' = initial(0), C::s' = callbackInitial,
+    R::retirementState' = R::initial("copy-before-retire"),
+    S::s' = { ...S::initial(0), sender: Map(0 -> 0, 1 -> 4) } }
+  // Quint's TLA backend requires distinct init and transition action identities.
+  // Callers may use this only after the prior cohort's obligations are closed.
+  action restartFixed = all { h' = initial(0), C::s' = callbackInitial,
     R::retirementState' = R::initial("copy-before-retire"),
     S::s' = { ...S::initial(0), sender: Map(0 -> 0, 1 -> 4) } }
   action initMarkerAsExit = all { h' = initial(1), C::s' = callbackInitial,

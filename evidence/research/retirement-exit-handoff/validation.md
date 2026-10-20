@@ -123,3 +123,21 @@ argument was fixed in test orchestration, not in the Library's semantic layer.
 The earlier 111.052 s model campaign and its eleven-statement proof remain
 historical cache evidence. Final qualification adds the source/refinement and
 all-declared-interface contracts; earlier proof identities are not relabeled.
+
+
+## Campaign Composition Requalification
+
+The model now exposes its complete `configuration` and a distinct `restartFixed`
+action for a caller's subsequent cohort. Neither is added to the original `step`;
+all existing single-cohort transitions and invariants remain unchanged. A caller
+must preserve the surviving recipient's work/roots before starting another donor.
+The campaign loss-on-restart control tests this extra obligation separately.
+
+The existing three guarded tests passed again as part of the six-test run in
+258.265 s, with unchanged formal inputs. Receipt family:
+`.cache/retirement-exit-handoff/run-roojjv8v/`. Its ten QNT checks include the
+positive 621-distinct-state safety/progress check, seven decoded omission traces
+and two reachability witnesses. Its existing fourteen-statement Lean contract
+also passed. New QNT SHA-256: `6678a2de5f4b297b7e12bcbaa524e88bbec9a1bcfac757edee6cb42d67f1040e`.
+The historical identities and executions above are retained, not rewritten.
+This requalification does not establish a native restart/owner-transfer operation.

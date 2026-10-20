@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+from gambit_smp.task_processes import spawn as _task_spawn
 import time
 
 from gambit_smp.framework import digest
@@ -24,7 +25,7 @@ def sample(process, cwd, budget, environment, diagnostic):
         return
     started = time.monotonic()
     argv = [str(tool), str(process.pid), "1", "-file", str(report)]
-    child = subprocess.Popen(argv, cwd=cwd, env=environment,
+    child = _task_spawn(argv, cwd=cwd, env=environment,
         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         text=True, start_new_session=True)
     timed_out = False

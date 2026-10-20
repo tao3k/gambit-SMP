@@ -1,0 +1,100 @@
+# Native Request Migration: Evidence and Mapping
+
+Date: 2026-10-20. Companion to the
+[request/configuration/retirement design](native-request-configuration-migration.md).
+Reading and documentation checks only. No configure, compiler, runtime or
+performance workload is executed.
+
+## 1. Source Identity
+
+Research HEAD `b67da6262a973a0ae898002d5c7f5be2d8b5a90d`; vendor Gambit HEAD
+`7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`. Inspected vendor files have no
+tracked diff. Materialized Gerbil tree at parent `.data/ci-source-patch-check`
+has HEAD `1cfb032c7a1612637da6205f5f8a15683eba3ba0`; the driver has local
+270-line additions / 43-line deletions. Its Darwin path is patched behavior,
+not an unmodified upstream claim. Prior runtime/overlay evidence is separate.
+
+| ID | Source / coverage | Consequence |
+| --- | --- | --- |
+| R1 | Vendor `configure.ac:2978-3034,3265-3313` | Configured defaults and runtime overrides are distinct; typed mode records must preserve template segment order; inspected BUILD_LIB is a placeholder |
+| R2 | Vendor `bin/gambuild-C.unix.in:1-55,285-410` | Captured defaults can be overridden only when environment bindings are set; CC override clears mode FLAGS; current command substitutions end in shell eval |
+| R3 | Same driver `:95-283` | Conditional metadata reduction/decoding, warning/ignore behavior, metadata/package/request ordering and prepend-based search precedence must be explicitly mapped |
+| R4 | Gerbil `src/gerbil/compiler/driver.ss:38-54,952-1053` | Environment tool ingress and phase/debug/static option filtering; gcc-ld-options splits at spaces; linker name encoding is producer behavior |
+| R5 | Same Gerbil driver `:295-381,533-587,1054-1113` | Existing object jobs and semantic-link barrier, direct GCC executable link, runtime/static C paths and patched Darwin env/gambuild delegation |
+| R6 | Vendor `gsc/_gsclib.scm:498-593` | Environment request encoding and operation-specific native driver dispatch are concrete managed-path replacement seams |
+| R7 | [Compilation unit source audit](compilation-unit-artifact-contract.md), U1-U5 | Gambit generation, semantic module-link, FFI and runtime metadata remain producer responsibilities; earlier direct audit, not a new compiler run |
+| R8 | Vendor `lib/gambit/process/process.scm:76-150`; [process ownership evidence](zig-system-layer-evidence.md), S9 | Generic Scheme process API/status stays; native executor's children have a different process owner |
+| R9 | [Native contract source map](zig-native-contract-design.md), setup/module/FFI entries | Result publication and platform ABI are not Gambit runtime admission; previous direct source audit retained |
+
+Direct source entry links: [configuration producer](../../../vendor/gambit/configure.ac),
+[configured driver](../../../vendor/gambit/bin/gambuild-C.unix.in),
+[Gambit native dispatch](../../../vendor/gambit/gsc/_gsclib.scm),
+[materialized Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss).
+The final link depends on the local source tree; hashes identify actual bytes.
+
+| Input | SHA-256 |
+| --- | --- |
+| Vendor `configure.ac` | `2a62dade3dd7174d9c091df7ed1018cb376619163c1e0ac1185dee923d874fc5` |
+| Vendor `bin/gambuild-C.unix.in` | `bdd99a03bb24206e348bdc6ae760a02c04573694090e21cc0a9b748dc8522b4c` |
+| Vendor `gsc/_gsclib.scm` | `c4068e8d8c34135354d26c8a6e79adcac73bf34f432b857961bdb4932da94dd0` |
+| Gerbil `compiler/driver.ss` (patched) | `07a175646c90b16c690cf32d670b8368d534963966bbc84d89896f9bb8e5e300` |
+| Vendor `lib/gambit/process/process.scm` | `31029718e7798ad764a3895ceccb10d4a8b29d2a41ea4558e9cfe2b859dfe17c` |
+
+## 2. Particularly Important Mappings
+
+R1 emits different non-MSVC object/shared/executable templates. For example,
+the executable orders configured runtime-library location, output, explicit CC
+and link-prelude segments, input files, runtime link segment, configured LIBS
+and requested LD tail. It is not equivalent to “all compiler flags, then sorted
+libraries”. FLAGS_* already contain composed defaults and can contain repeats.
+
+R2's compiler override is not a clean toolchain reselection: it clears a mode
+FLAGS variable but leaves other template segments. A managed profile must model
+the behavior or refuse that override form; retaining all configured flags is
+also a behavior change. No compiler or configure is run to explore it here.
+
+R3 processes metadata package search paths, then explicit paths, with each
+prepended; it then processes metadata package requests and explicit package
+requests before file CC/LD metadata and explicit additions. This source order
+is the evidence for precedence, not an inferred universal pkg-config rule.
+Unsupported conditions currently warn/ignore; changing that is a declared
+profile restriction, not silent compatibility.
+
+R5 already generates runtime C once on its inspected Darwin branch and copies
+it for the static-path object. The migration must not advertise “one generation
+instead of two” there. Retiring copies is conditional on path/name/metadata/debug
+parity. Semantic module-ref/linker-name and alias symbols remain explicit.
+
+## 3. LLVM Engineering Reuse: Primary Evidence
+
+| ID | Primary reference / sections read | Supported reuse and limit |
+| --- | --- | --- |
+| L1 | [MLIR pass infrastructure](https://mlir.llvm.org/docs/PassManagement/), analyses/invalidation, pass manager, instrumentation and crash/failure reproduction | Reusable pipeline/analysis/diagnostic machinery; custom passes still have state/thread restrictions and semantic obligations |
+| L2 | [Dialect conversion](https://mlir.llvm.org/docs/DialectConversion/), conversion target, modes, patterns/type conversion | Explicit legality framework. Partial conversion may retain unknown operations; full conversion checks selected legal target, not Scheme equivalence |
+| L3 | [LLVM code generator](https://llvm.org/docs/CodeGenerator.html), target description classes, TargetMachine/DataLayout/TargetLowering | Target description and native lowering infrastructure; correct client layout/calling/runtime requirements remain necessary |
+| L4 | [MLIR C API](https://mlir.llvm.org/docs/CAPI/), design/scope/ownership | Opaque C-accessible IR/pass implementation detail, with no stability guarantee; a project protocol contains this churn |
+| L5 | [MLIR bytecode](https://mlir.llvm.org/docs/BytecodeFormat/), versioning introduction | Container and dialect version handling do not freeze the meaning of the project export or runtime protocol |
+
+These upstream pages were read across the 2026-10-19/20 session boundary;
+they are rolling documentation, not a pinned service implementation. The
+[earlier system-layer ledger](zig-system-layer-evidence.md) retains paper and
+custom dialect build evidence. The new comparison emphasizes positive reusable
+engineering capabilities as well as the semantic work they leave to us.
+
+## 4. Benefit Evidence and Remaining Boundary
+
+The [generation and request-cost reports](zig-system-layer-evidence.md#2-historical-positive-and-negative-evidence)
+retain positive component reuse and negative added-coordinator evidence with
+their own hashes and scope. No unchanged run is repeated or reclassified.
+They constrain the cost model but cannot quantify a future Zig resolver or
+LLVM upgrade's maintenance return.
+
+M1-M12 are source-bound retirement proposals. Configuration fields, managed
+support restrictions and evaluation criteria are architectural selections, not
+evidence that a parser, executor, supported target matrix or migration exists.
+No legacy path, runtime guard, diagnostic or native acceptance gate is removed.
+
+Documentation checks at this checkpoint: 253 local file references resolve;
+105 Markdown tables have consistent widths. Both new D2 sources render with
+D2 0.9.0 (`dagre`, theme 0), and the rendered diagrams were visually inspected.
+No implementation, configuration probe, native/model test or timing run occurred.

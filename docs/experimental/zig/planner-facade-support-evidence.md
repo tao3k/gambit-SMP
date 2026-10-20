@@ -1,0 +1,111 @@
+# Planner / Facade Support Evidence
+
+Reviewed: 2026-10-20. Research HEAD `b67da6262a973a0ae898002d5c7f5be2d8b5a90d`;
+vendor Gambit HEAD `7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`.
+Local SHA bindings identify working-copy sources and these reviewed notes.
+No implementation, compiler/native test, timing or ASCENT evaluation occurred.
+
+## 1. Gambit Source Premises
+
+| ID | Direct reading | Finding / comparison limit |
+| --- | --- | --- |
+| PF01 | [_t-c-3.scm](../../../vendor/gambit/gsc/_t-c-3.scm):471-520 | Logical map construction, internal expansion, alignment, chunks and descriptor selection are concrete laws. Moving them to a native planner does not remove them. |
+| PF02 | [gambit.h.in](../../../vendor/gambit/include/gambit.h.in):9224-9267 | Runtime packing and decoding fields/chunks constrain native arithmetic. A checked primitive still needs target/protocol bounds and field meaning. |
+| PF03 | [c_intf.c](../../../vendor/gambit/lib/c_intf.c):1683-1712 | Foreign release clears release/pointer fields before callback and can return an error without rollback. Lexical cleanup is not an alternative external state contract. |
+| PF04 | [os_dyn.c](../../../vendor/gambit/lib/os_dyn.c):408-454 | Configured dynamic-library handles survive helpers and are later unloaded/freed under selected branches. Request-local cleanup cannot replace the whole lifetime. |
+
+The [physical/provider design](native-layout-provider-design.md),
+[ForeignPlan](foreign-plan-contract.md) and
+[support/change certificate](native-support-change-certificate.md) supply the
+existing project premises: one physical decision, stage-specific effects,
+ordinary-return restriction and SC-ADT-C overlap. They are design premises,
+not source observations of an implemented native service or cost reduction.
+
+## 2. Primary Provider / Library Premises
+
+The notes below bind this local interpretation, not downloaded upstream bytes.
+Versioned sources identify reading versions; no installed compiler, compatible
+LLVM/MLIR cohort or target qualification is implied. Published tests were not
+run here. Failed lookups are not used as evidence of absence.
+
+**FP01 — Crucial failure-output and mutation behavior.**
+[LLVM 21.1.0 TargetMachineC.cpp](https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.0/llvm/lib/Target/TargetMachineC.cpp):268-324
+sets module layout before the emission-support error branch. The memory-output
+wrapper calls emission, then assigns a copied buffer without conditioning that
+assignment on its status. Our deduction is to adopt/dispose raw outputs before
+propagation and not assume unchanged input on error. This describes ordinary
+return paths, not provider crashes, fatal errors or a reproduced local failure.
+
+**FP02 — Six resource kinds have explicit provider boundaries.**
+[LLVM 21.1.0 Core.h](https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.0/llvm/include/llvm-c/Core.h)
+exposes context/module disposal, memory-buffer disposal and message operations;
+[Target.h](https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.0/llvm/include/llvm-c/Target.h)
+disposes owned TargetData; [TargetMachine.h](https://raw.githubusercontent.com/llvm/llvm-project/llvmorg-21.1.0/llvm/include/llvm-c/TargetMachine.h)
+disposes target machines and documents emission errors/messages. The six-kind
+owner graph and cache/request lifetime choices are project design. These
+interfaces do not establish six acquisitions per call or automatic ownership.
+
+**FP03 — Generic checked primitives are real reusable support.**
+[Zig 0.15.1 math.zig](https://raw.githubusercontent.com/ziglang/zig/0.15.1/lib/std/math.zig),
+`add`, `sub`, `mul`, `shlExact` and `cast`, provide explicit overflow/range
+results. The design may reuse those mechanics while retaining Gambit-specific
+target/packing laws. This is a library boundary, not a timing claim, a selected
+build policy or a proof every existing macro is safely replaced.
+
+**FP04 — Credit modern C's primitive support.**
+[GCC integer-overflow builtins](https://gcc.gnu.org/onlinedocs/gcc/Integer-Overflow-Builtins.html)
+documents generic checked add/subtract/multiply forms. Our C-G design credits
+these qualified extensions rather than assuming handwritten overflow detection
+or one helper per width. This rolling documentation does not prove configured
+compiler/version admission or portability to every ISO-C toolchain.
+
+**FP05 — Private results/cleanup and their limits.**
+[Zig 0.15.1 language reference](https://ziglang.org/documentation/0.15.1/),
+Error Set/Union, try, errdefer, tagged union and Build Mode: private typed
+propagation and cleanup are language mechanisms; default safety varies by
+mode. Our deductions require explicit facade errors, rich diagnostic records
+and external lifetime rules. No stable public error ordinals, affine ownership,
+automatic callback cleanup or all-build recoverable-overflow policy is inferred.
+
+**FP06 — Storage reuse has invalidation and transfer duties.**
+[Zig 0.15.1 array_list.zig](https://raw.githubusercontent.com/ziglang/zig/0.15.1/lib/std/array_list.zig),
+pointer-invalidation comments and `toOwnedSlice`, and
+[Allocator.zig](https://raw.githubusercontent.com/ziglang/zig/0.15.1/lib/std/mem/Allocator.zig),
+ptr/vtable and resize/remap/free contracts, provide reusable native support.
+They retain ownership, relocation and allocator-identity constraints. The
+project may avoid its own growth body; no existing C body is proven retired.
+
+**FP07 — Upgrades are an actual support boundary.**
+[Zig 0.16.0 release notes](https://ziglang.org/download/0.16.0/release-notes.html),
+C translation moving toward the build system and I/O/process migration, supplies
+concrete upgrade examples. The inference is to charge only selected incremental
+language/library/import work against C-G or C-ZT. No annual frequency, hour
+budget, prediction of later breakage or automatic need for I/O APIs follows.
+
+**FP08 — Provider wrappers still own semantic adaptation.**
+[MLIR C API](https://mlir.llvm.org/docs/CAPI/), Ownership and Stability,
+distinguishes owning/borrowed/transfer handles and lacks stability guarantees.
+The same normalization laws apply under C and Zig; importing a signature does
+not import those laws. MLIR contexts and IR ownership are not Scheme GC roots.
+
+The attempted LLVM 21.1 raw Types.h access failed and supplies no additional
+handle-type finding. The existing paper connection remains in
+[the provider ledger](native-layout-provider-evidence.md#3-paper-connection-and-evidence-limits);
+no historical performance or language preference is added from those papers.
+
+## 3. Evidence-to-Conclusion Map
+
+| Design item | Premises | What is a project deduction |
+| --- | --- | --- |
+| PS01/PS02 and Case A | PF01/PF02, FP03/FP04/FP05 | Retained physical laws; no necessary per-target C generic generator; conditional primitive-body reuse |
+| PS03/PS04/PS07 | FP05 plus existing SC-ADT-C comparison | Local result/propagation support can shrink; public diagnostic/schema mapping stays; overlap must not be double counted |
+| PS05 | FP06 and retained Scheme-support design | Native growth is optional when counts permit exact allocation; compare actual reusable C support |
+| PS06/PS08 and Case B | FP01/FP02/FP08, PF03/PF04 | Raw-output ownership normalization precedes status propagation; same lifetime graph and mutation policy in both |
+| PS09/PS10 | Existing state/control gates, FP05/FP07/FP08 | Private types do not establish unique/fresh/concurrent ownership; version/facade work is incremental to the chosen control |
+| C-G versus C-ZT | Prior independent Zig tool-role finding plus FP07 | Shared driver support cancels only when actually common; language/stdlib/import review remains |
+| Positive domain / countermodel | Explicit paired mechanisms and disjoint cost model | Conditional theorem and a feasible nonpositive design counterexample, not observed cost bounds |
+
+No reference count, code-site count, support-family count or diagram closes
+TG5. The finding narrows exactly what could save project work and supplies a
+source-grounded contrary case. It does not issue an architecture/native witness
+or change the user's prohibition on implementation and native tests.

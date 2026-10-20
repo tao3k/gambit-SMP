@@ -192,15 +192,21 @@ class ArtifactStorageTests(unittest.TestCase):
                  (evidence_index, ["--validate"]), (review_validation, []))
         with tempfile.TemporaryDirectory() as directory:
             root = self.repository(directory)
+            from gambit_smp import workspace
+            workspace.git(root,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-qm','policy')
+            workspace.start(root,'artifact-policy',adopt=True)
             for module, args in cases:
                 target = root / "evidence/unpublished-run"
                 with self.subTest(module=module.__name__), \
                      patch.object(module, "ROOT", root, create=True), \
                      patch.object(evidence_index, "ROOT", root), \
+                     patch("gambit_smp.framework.project_root",return_value=root), \
+                     patch("gambit_smp.task_dependencies.default_task",return_value="artifact-policy"), \
                      patch("sys.argv", [module.__name__, *args, "--out", str(target)]), \
                      self.assertRaisesRegex(ValueError, "runtime output"):
                     module.main()
                 self.assertFalse(target.exists())
+                workspace.resume(root,"artifact-policy")
 
     def test_cache_root_is_git_toplevel_not_selected_subdirectory(self):
         with tempfile.TemporaryDirectory() as directory:

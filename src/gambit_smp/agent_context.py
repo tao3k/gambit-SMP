@@ -148,5 +148,9 @@ def main():
     return 0 if manifest["frameworkValidated"] else 2
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('agent-context')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('agent-context', main))

@@ -1,4 +1,5 @@
 """Isolated workspace transfers and separately sealed generation custody."""
+from gambit_smp.task_processes import run as _task_run, check_output as _task_check_output
 import ctypes
 from contextlib import contextmanager
 import errno
@@ -18,7 +19,7 @@ from pathlib import Path
 def _repository_root(directory):
     # Cache path routing only, never source verification or evidence admission.
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    result = subprocess.run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+    result = _task_run(["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
                             env=environment, capture_output=True, text=True, check=True)
     return Path(result.stdout.rstrip("\n")).resolve(strict=True)
 
@@ -47,6 +48,10 @@ def runtime_output(root, path):
     Existing .data/.ci observations are read in place, not new output locations.
     """
     root, path = repository_root(root), Path(path)
+    from gambit_smp.workspace import task_output
+    from gambit_smp.task_dependencies import default_task
+    if os.environ.get("GAMBIT_SMP_TASK_ID") or default_task(root):
+        return task_output(root, path)
     if not path.is_absolute() and path.parts and path.parts[0] == ".cache":
         path = root / path
     declared_cache = path.is_absolute() and path.is_relative_to(root / ".cache")
@@ -201,6 +206,18 @@ def archived_record(root, reference):
     """Read explicitly indexed historical bytes, not a source/cache alias."""
     from gambit_smp.framework import relative
     root = repository_root(root)
+    retired=root/'.state/storage/retired-records/index.json'
+    if retired.exists():
+        from gambit_smp.workspace import bounded
+        local=json.loads(retired.read_text())
+        if local.get('schema')!='retired-custody-records.v1':raise ValueError('unknown retired custody index')
+        versions=local['records'].get(reference['path'])
+        if versions is not None:
+            name=versions.get(reference['sha256'])
+            if name is None:raise ValueError('historical record not bound by retired custody')
+            raw=bounded(root,name).read_bytes()
+            if hashlib.sha256(raw).hexdigest()!=reference['sha256']:raise ValueError('retired custody record digest mismatch')
+            return raw
     index = json.loads((root / "evidence/storage-history.json").read_bytes())
     if index.get("schema") != "git-record-archive.v1":
         raise ValueError("typed historical record archive required")
@@ -215,7 +232,7 @@ def archived_record(root, reference):
         raise ValueError("fixed Git record identity required")
     environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
     def git(*args):
-        return subprocess.check_output(["git", "-C", str(root), *args], env=environment,
+        return _task_check_output(["git", "-C", str(root), *args], env=environment,
                                        stderr=subprocess.PIPE)
     if git("rev-parse", revision + ":" + name).decode().strip() != blob:
         raise ValueError("historical record does not belong to pinned revision")

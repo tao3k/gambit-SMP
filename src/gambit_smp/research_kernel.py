@@ -229,6 +229,13 @@ def implementation_paths(package):
             if child not in used and child not in pending:
                 parents[child] = name
                 pending.append(child)
+    # Seal command transport bytes without treating its lazy operator registry as
+    # kernel imports. A direct core import of cli still fails above.
+    if 'task_entry' in used:
+        transport=package/'cli.py'
+        if not transport.is_file() or transport.is_symlink():
+            raise ValueError('unavailable task command transport')
+        used.add('cli')
     return [package / (name + ".py") for name in sorted(used)]
 
 
@@ -399,6 +406,11 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, 
     package = Path(__file__).resolve().parent
     if out.is_relative_to(package):
         raise ValueError("engine seal cannot overwrite its implementation")
+    # Imported API callers obey the same output placement as the CLI.
+    from gambit_smp.artifact_storage import runtime_output
+    if out.is_relative_to(ROOT.resolve()):
+        out = runtime_output(ROOT, out)
+    # Explicit external export/test directories retain their existing contract.
     # The installed extension is authoritative; no alternate ABI directory.
     api = ascent_api.resolve(strict=True)
     if provider_sources is not None:
@@ -547,6 +559,15 @@ def evaluation_teardown_deadline(recipe, requested_deadline, owner):
 
 
 def worker(engine):
+    task=os.environ.get('GAMBIT_SMP_TASK_ID')
+    if task:
+        from gambit_smp.workspace import execution_scope
+        with execution_scope(Path(os.environ['GAMBIT_SMP_TASK_ROOT']),task):
+            return _worker(engine)
+    return _worker(engine)
+
+
+def _worker(engine):
     from gambit_smp.recipes import load, read_json, run
     if sys.argv[1] == "runtime-export":
         from gambit_smp.runtime_artifact import export
@@ -1017,8 +1038,7 @@ def inspect(out, *, input_archive=None, include_resumption=False):
     return result
 
 
-def main():
-    from gambit_smp.recipes import discover, load, source_path
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
     selection.add_argument("--seal", type=Path)
@@ -1040,6 +1060,17 @@ def main():
                         help="validated engine archive for exact provider build inputs")
     parser.add_argument("--portable-seal", action="store_true",
                         help="copy sealed generations for transport to another host job")
+    return parser
+
+
+def execution_policy(arguments):
+    args = argument_parser().parse_args(arguments)
+    return "read" if args.read and args.out is None and not args.portable_seal else "task"
+
+
+def main():
+    from gambit_smp.recipes import discover, load, source_path
+    parser = argument_parser()
     args = parser.parse_args()
     if args.portable_seal and not args.seal:
         parser.error("--portable-seal requires --seal")
@@ -1096,3 +1127,11 @@ def main():
     except (OSError, ValueError, KeyError, TypeError) as error:
         print("RESEARCH-DENY " + str(error), file=sys.stderr)
         return 2
+
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('research')(main)
+
+if __name__ == "__main__":
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('research', main))

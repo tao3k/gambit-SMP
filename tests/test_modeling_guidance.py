@@ -193,15 +193,16 @@ class ModelingGuidanceTests(unittest.TestCase):
         self.assertIn(("native-lock-wait-resolution",), state["unclosed"])
 
         import json
-        import subprocess
+        from gambit_smp.task_processes import run
         import sys
         import os
         for seed in ("1", "2"):
-            child = subprocess.run([sys.executable, "-c",
+            child = run([sys.executable, "-c",
                 "import json,sys; from gambit_smp import repository_clues; "
                 "print(json.dumps(repository_clues(bindings=[['goal','native-lock-wait-resolution']], checkpoint=sys.argv[1])))",
                 packet["checkpoint"]], cwd=ROOT, capture_output=True, text=True,
-                env={**os.environ, "PYTHONHASHSEED": seed}, timeout=30, check=True)
+                env={**os.environ, "PYTHONHASHSEED": seed}, timeout=30, check=False)
+            self.assertEqual(child.returncode, 0, child.stderr)
             fresh = json.loads(child.stdout)
             self.assertEqual(fresh["brief"]["mode"], "incremental")
             self.assertEqual(fresh["brief"]["families"], [])

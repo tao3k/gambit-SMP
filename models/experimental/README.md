@@ -6,6 +6,36 @@ an applicability/migration argument, not merely a missing proof or a new local
 failure condition. These models are executable, but their passes
 do not close current native obligations or advance the milestone count.
 
+## Participant Exit And Publication
+
+[QNT](participant_exit_publication.qnt) imports the unchanged public retirement
+machine and adds work reopening, request/member exclusion and post-exit shared
+publication. [Lean](lean/ParticipantExitPublication.lean) reuses `WorkAccounting`.
+Three omission controls and both request-order witnesses are checked by
+`test_participant_exit.py`; this is an explicit Experimental campaign, not a
+current native test. [Source correspondence and limits](../../docs/experimental/participant-exit-publication.md)
+retain exclusive host/OS preflight, root coverage and C ordering as separate
+premises. The abstract publication guard does not select a new runtime lock.
+
+## Root Registry Callback And Last Use
+
+[QNT](root_registry_callback.qnt) reuses the current `vm_list_reader_retirement`
+machine without editing it. [Lean](lean/RootRegistryCallback.lean) reuses
+`WorkAccounting`. The shared `test_participant_exit.py` adapter checks same-owner
+deferred deletion, ordinary external deletion, recursive relock, false depth
+authority and premature storage reclamation. [Source contracts and Recipe](../../docs/experimental/root-registry-retirement.md)
+separate registry topology, live slot storage, value-update policy and trusted
+scanner effects. It is not permission for arbitrary callbacks or new concurrent
+RC operations. [Qualification](../../evidence/research/root-registry-retirement/validation.md)
+also records the participant recheck after the test adapter was shared.
+The same model now has a separate global-scan/resume projection: domain entry
+ownership and local-root completion do not release global-root scanning.
+Its omission control and post-scan mutation witness do not model a write barrier,
+same-slot writer synchronization or physical relocation. Earlier receipts remain
+bound to their earlier model hashes.
+[Scan-phase continuation](../../evidence/research/root-registry-retirement/scan-phase-validation.md)
+records the checked revision and preserves the typed-set assertion failure.
+
 ## Retirement Handoff
 
 - [QNT composition](retirement_root_handler_composition.qnt) reuses the existing
