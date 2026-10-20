@@ -207,3 +207,15 @@ A lower read count is not sufficient acceptance. Measure duplicate returned
 observations separately from overlapping source windows, missing-condition
 discovery, corrections, useful new evidence and native gate closure. No fixed
 number of calls or elapsed minutes defines an invalid reasoning path.
+
+Pagination completion is conditional on finite unchanged inputs and adequate
+capacity for each indivisible evidence unit and its references. Repeating an
+undersized page can legitimately retain the same checkpoint: no body was shown,
+so no read may be acknowledged. The caller may expand a reference, change its
+query or increase presentation capacity; none restricts inference or exploration.
+The framework regression corpus tests both eventual complete, non-repeating
+delivery under the fitting premise and honest deferral without it. It does not
+assume an ever-growing repository can be fully paged at one fixed capacity.
+An inactivity termination retains a partial failure; it is not a deadlock proof.
+Observed test exceptions must be flushed before suite finalization so a later
+interruption cannot erase their causes. Runtime qualification remains separate.

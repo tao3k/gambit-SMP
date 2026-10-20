@@ -32,6 +32,7 @@ class GambitCIContracts(unittest.TestCase):
             (source / "lib").mkdir()
             (source / "lib/makefile").write_text("define-cond-expand-feature|enable-smp|")
             ctx = Mock(directory=source, tools={"aclocal": "aclocal", "autoconf": "autoconf", "sh": "sh"})
+            ctx.receipt = {'steps': [{'id': 'source', 'arguments': {}}]}
             ctx.progress_mode = False
             ctx.remaining.return_value = 10
             ctx.require.side_effect = lambda name, *args: "#define ___MULTIPLE_VMS\n#define ___MULTIPLE_THREADED_VMS\n" if name == "configuration-macros" else ""
@@ -53,6 +54,7 @@ class GambitCIContracts(unittest.TestCase):
             (source / "lib").mkdir()
             (source / "lib/makefile").write_text("define-cond-expand-feature|enable-smp|")
             ctx = Mock(tools={"aclocal": "aclocal", "autoconf": "autoconf", "sh": "sh"})
+            ctx.receipt = {'steps': [{'id': 'source', 'arguments': {}}]}
             ctx.progress_mode = False
             ctx.remaining.return_value = 10
             ctx.require.return_value = "#define ___MULTIPLE_VMS\n"

@@ -97,10 +97,18 @@ class Outcomes(unittest.TextTestResult):
     def addFailure(self, test, error):
         super().addFailure(test, error)
         self.record(test, "failure")
+        self.retain_failure(test, error)
 
     def addError(self, test, error):
         super().addError(test, error)
         self.record(test, "error")
+        self.retain_failure(test, error)
+
+    def retain_failure(self, test, error):
+        # A later interruption must not discard failures already observed.
+        self.stream.write("\nObserved failure: " + test.id() + "\n")
+        self.stream.write(self._exc_info_to_string(error, test))
+        self.stream.flush()
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
@@ -118,6 +126,7 @@ class Outcomes(unittest.TextTestResult):
         super().addSubTest(test, subtest, error)
         if error is not None:
             self.record(test, "failure" if issubclass(error[0], test.failureException) else "error")
+            self.retain_failure(subtest, error)
 
 
 def test_ids(suite):

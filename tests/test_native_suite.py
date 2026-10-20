@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from gambit_smp import native_suite
 from unittest.mock import patch
+from tests.support import task_fixture
 
 from gambit_smp.native_suite import admitted_suite, selected_files, campaign_status, extra_fixture, admitted_processors, fixture_patch, partitions, runtime_view, capacity, runner_option, atomic_suite
 
 
 class NativeSuiteTests(unittest.TestCase):
     def test_retry_preflight_denies_before_any_runtime_probe_or_suite_launch(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+        with task_fixture('suite-preflight') as (root, cache):
             runtime = root / "source"
             unit = runtime / "tests/unit-tests"
             unit.mkdir(parents=True)
@@ -21,7 +21,7 @@ class NativeSuiteTests(unittest.TestCase):
             (runtime / "tests/run-unit-tests.scm").write_text("original runner")
             candidate = root / "candidate.json"
             candidate.write_text("{}")
-            out = root / "attempt"
+            out = cache / "attempt"
             argv = ["gambit_smp.native_suite.py", "--runtime", str(runtime),
                     "--toolchain-receipt", str(candidate), "--gcc", "/selected/gcc",
                     "--out", str(out), "--timeout", "30", "--mode", "gsc", "case.scm"]

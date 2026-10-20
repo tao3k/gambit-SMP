@@ -137,6 +137,16 @@ class CheckpointObserverTests(unittest.TestCase):
             elif kind == "banner":
                 stdout = observer.LIFECYCLE_STDOUT
                 passed = True
+            elif kind == "pre-join-flag":
+                stdout = observer.LIFECYCLE_STDOUT
+                passed = True
+                setup = run / "run/core/source/lib/setup.c"
+                setup.parent.mkdir(parents=True, exist_ok=True)
+                setup.write_text(
+                    "___vms->lifecycle_witness |= ___LW_REFUSED;\n"
+                    "___thread_join (t);\n")
+            elif kind == "no-error":
+                stdout = "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n"
             else:
                 stdout = "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n"
             (probe / "run-executable.stdout").write_text(stdout)
@@ -231,32 +241,22 @@ class CheckpointObserverTests(unittest.TestCase):
             self.assertEqual(text, observer.LIFECYCLE_STDOUT)
             self.assertEqual(receipt["outcome"], "PASS")
             self.assertFalse(observer.os_join_error_then_success(text))
-        os1 = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-os-1"
-        stdout = (os1 / "run/join-probe/run-executable.stdout").read_text()
-        receipt = json.loads((os1 / "receipt.json").read_text())
-        self.assertEqual(stdout, "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n")
-        self.assertEqual(receipt["outcome"], "DENY")
-        self.assertEqual(receipt["exit"], 2)
-        self.assertFalse(observer.os_join_error_then_success(stdout))
-        self.assertFalse(observer.pre_join_flag_before_join(
-            observer.ROOT, ".cache/tasks/repair-9-12/lifecycle-join-os-1"))
-        later = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-later-1"
-        later_stdout = (later / "run/join-probe/run-executable.stdout").read_text()
-        later_receipt = json.loads((later / "receipt.json").read_text())
-        self.assertEqual(later_stdout, stdout)
-        self.assertEqual(later_receipt["outcome"], "DENY")
-        self.assertFalse(observer.os_join_error_then_success(later_stdout))
-        self.assertFalse(observer.pre_join_flag_before_join(
-            observer.ROOT, ".cache/tasks/repair-9-12/lifecycle-join-later-1"))
-        waited = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-wait-2"
-        waited_stdout = (waited / "run/join-probe/run-executable.stdout").read_text()
-        waited_receipt = json.loads((waited / "receipt.json").read_text())
-        self.assertEqual(waited_stdout, stdout)
-        self.assertEqual(waited_receipt["outcome"], "DENY")
-        self.assertFalse(observer.os_join_error_then_success(waited_stdout))
+        failed = self._tree(count_line="Cumulative completion is **8/12**.",
+            closed_line="The four open gates remain open.", others="",
+            runs=tuple((name, "no-error") for name in observer.LIFECYCLE_RUNS))
+        for name in observer.LIFECYCLE_RUNS:
+            stdout = (failed / name / "run/join-probe/run-executable.stdout").read_text()
+            receipt = json.loads((failed / name / "receipt.json").read_text())
+            self.assertEqual(stdout, "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n")
+            self.assertEqual(receipt["outcome"], "DENY")
+            self.assertEqual(receipt["exit"], 2)
+            self.assertFalse(observer.os_join_error_then_success(stdout))
+            self.assertFalse(observer.pre_join_flag_before_join(failed, name))
 
-    def test_real_recovery_receipts_lack_an_os_join_error_and_stay_at_eight(self):
-        root = observer.ROOT
+    def test_synthetic_pre_join_flag_cannot_promote_historical_progress(self):
+        root = self._tree(count_line="Cumulative completion is **8/12**.",
+            closed_line="The four open gates remain open.", others="",
+            runs=tuple((name, "pre-join-flag") for name in observer.LIFECYCLE_RUNS))
         for name in observer.LIFECYCLE_RUNS:
             stdout = (root / name / "run/join-probe/run-executable.stdout").read_text()
             receipt = json.loads((root / name / "receipt.json").read_text())

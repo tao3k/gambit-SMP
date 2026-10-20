@@ -153,22 +153,14 @@ class GateTests(unittest.TestCase):
         self.assertLess(free, 131072)
 
     def test_first_unadmitted_model_stops_remaining_checks_and_native_execution(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            from gambit_smp import workspace
-            root = Path(temporary).resolve()
-            workspace.git(root, 'init', '-q')
-            workspace.git(root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
-                          'commit', '--allow-empty', '-qm', 'test')
-            workspace.start(root, 'model-stop', adopt=True)
-            out = root / '.cache/tasks/model-stop/attempt'
+        from tests.support import task_fixture
+        with task_fixture('model-stop') as (_, cache):
+            out = cache / 'attempt'
             version = json.loads((gate.MODELS / "cases.json").read_text())["quintVersion"]
             argv = ["gambit_smp.check_gambit.py", "--case", "gc_table_header_lifetime", "--out", str(out),
                     "--native-gsi", str(out / "unused-gsi"),
                     "--toolchain-receipt", str(out / "unused-identity")]
             with patch.object(sys, "argv", argv), \
-                    patch('gambit_smp.framework.project_root', return_value=root), \
-                    patch('gambit_smp.framework.ROOT', root), \
-                    patch('gambit_smp.task_dependencies.default_task', return_value='model-stop'), \
                     patch.object(gate, "_task_check_output", return_value=version), \
                     patch.object(gate, "check_model", return_value=(
                         {"accepted": False, "exit": 1, "timeout": False, "seconds": 0.1},
