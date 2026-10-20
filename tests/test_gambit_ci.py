@@ -235,6 +235,69 @@ class GambitCIContracts(unittest.TestCase):
                          "evidence/fixtures/**/source.lock.json", "pyproject.toml", "uv.lock"):
                 self.assertIn("'" + path + "'", paths)
 
+    def test_ci_adopts_one_work_item_and_transfers_the_declared_runtime_path(self):
+        workflow = (ROOT / ".github/workflows/gambit.yml").read_text()
+        framework = (ROOT / ".github/workflows/verify.yml").read_text()
+        install = (ROOT / ".github/actions/framework/action.yml").read_text()
+        self.assertIn("workspace start repair-9-12 --adopt", install)
+        self.assertIn("workspace start repair-9-12 --adopt", workflow)
+        self.assertIn("--task repair-9-12 tool process-observation", workflow)
+        for source in (workflow, framework, install):
+            self.assertNotIn(".cache/ci", source)
+            self.assertNotIn(".cache/fixtures", source)
+        archive = recipes.read_json(DIRECTORY / "runtime-input.json")["path"]
+        self.assertIn("--out " + archive, workflow)
+        self.assertIn("path: " + archive, workflow)
+        self.assertTrue(archive.startswith(".cache/tasks/repair-9-12/"))
+        engine = ".cache/tasks/repair-9-12/ci"
+        self.assertIn("-C " + engine + " engine", workflow)
+        self.assertIn("sealed-engine.tar -C " + engine, workflow)
+
+    def test_contract_batch_uses_the_same_fixture_isolation_as_full_validation(self):
+        request = recipes.read_json(ROOT / ".github/gambit/contracts.json")
+        self.assertEqual(15, request["budgetSeconds"])
+        for job in request["jobs"]:
+            self.assertEqual(15, job["budgetSeconds"])
+            self.assertEqual(["python", "-c"], job["argv"][:2])
+            self.assertIn("with isolated_test_context()", job["argv"][2])
+            self.assertTrue(job["argv"][3:])
+
+    def test_clean_ci_checkout_adopts_then_observes_a_real_owned_child(self):
+        from gambit_smp import workspace
+        from gambit_smp.task_processes import run
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            workspace.git(root, "init", "-q")
+            workspace.git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                          "commit", "--allow-empty", "-qm", "fixture")
+            (root / "models/gambit").mkdir(parents=True)
+            (root / "models/gambit/cases.json").write_text("{}")
+            (root / "evidence").mkdir()
+            request = {"schema": "process-observation-batch.v1", "budgetSeconds": 15,
+                       "jobs": [{"argv": [sys.executable, "-c", "print('owned-ci-child')"],
+                                 "cwd": str(root), "budgetSeconds": 15}]}
+            (root / "request.json").write_text(json.dumps(request))
+            environment = {key: value for key, value in os.environ.items()
+                           if not key.startswith("GAMBIT_SMP_TASK_")}
+            environment["PYTHONPATH"] = str(ROOT / "src")
+            command = [sys.executable, "-m", "gambit_smp", "--root", str(root)]
+            adopted = run([*command, "workspace", "start", "repair-9-12", "--adopt"],
+                          cwd=root, env=environment, capture_output=True, text=True, timeout=30)
+            self.assertEqual(0, adopted.returncode, adopted.stderr)
+            out = ".cache/tasks/repair-9-12/ci/contracts"
+            observed = run([*command, "--task", "repair-9-12", "tool", "process-observation",
+                            str(root / "request.json"), "--out", out],
+                           cwd=root, env=environment, capture_output=True, text=True, timeout=30)
+            self.assertEqual(0, observed.returncode, observed.stderr)
+            receipt = json.loads((root / out / "receipt.json").read_text())
+            child = receipt["runs"][0]["observation"]
+            self.assertEqual("owned-ci-child\n", child["stdout"])
+            self.assertEqual(0, child["exit"])
+            self.assertFalse(child["timeout"])
+            self.assertTrue(child["group_quiescent"])
+            self.assertFalse(receipt["runtimeAdmitted"])
+            self.assertTrue(list((root / ".state/task-processes/repair-9-12").glob("*/*.json")))
+
     def test_known_failure_observations_are_committed_with_complete_archives(self):
         from gambit_smp.native_archive import validate
 

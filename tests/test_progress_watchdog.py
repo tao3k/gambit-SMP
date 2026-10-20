@@ -174,12 +174,13 @@ class ProgressWatchdogTests(unittest.TestCase):
         for path in run.iterdir():
             path.unlink()
         run.rmdir()
-        import subprocess
+        from gambit_smp.task_processes import run as task_run
         code = ("import json,sys; from tests.test_progress_watchdog import resume_retained_progress; "
                 "print(json.dumps(resume_retained_progress(json.load(sys.stdin))))")
-        child = subprocess.run([sys.executable, "-c", code],
+        child = task_run([sys.executable, "-c", code],
             input=json.dumps({"root": str(fixture.root), "run": str(run)}),
-            text=True, capture_output=True, check=True, timeout=30)
+            text=True, capture_output=True, timeout=30)
+        self.assertEqual(child.returncode, 0, child.stderr)
         restored = json.loads(child.stdout)
         self.assertEqual(restored["prefixIdentity"], prefix)
         self.assertEqual(restored["cursor"][0][-1], 3)

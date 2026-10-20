@@ -980,3 +980,59 @@ error/join chain, complete last-consumer and handoff witnesses, actual header/ty
 capture and exercised compiler-pass evidence. Complete native and Gerbil
 build/test acceptance remains with the active 9–12 workflow and its retained
 checkpoint; this model audit did not trigger another configure/seed/core cycle.
+
+
+## Publication And Framework Entry Audit (2026-10-20)
+
+The complete working snapshot was committed as `33c3a4d` and integrated into
+SMP PR #1 as `f42828f`, preserving both the local snapshot and the existing
+published research history. The separate gerbil-bazel checkout was published as
+`260f944` in draft PR #57. It remains divergent from its current main branch;
+publication does not claim a conflict-free merge or native qualification. No
+active runtime checkout, worker or retained native checkpoint was reset.
+
+The first exact-head SMP CI attempt exposed a real migration omission. Both
+the three-flag build/patch jobs (`39413685638`) and framework job
+(`39413684443`) rejected execution before validation because the fresh checkout
+had no adopted work item. This is a framework entry failure, not a native test
+failure, an inactivity verdict or a model counterexample. The original logs
+are retained under `evidence/review/framework-publication-20261020/`.
+
+The existing composite setup action now adopts the same `repair-9-12` work
+item. The lightweight patch job does so explicitly and invokes the existing
+`tool process-observation` dispatcher. CI output, engine archives and native
+runtime transfers use that work item's Cache tree. The source-controlled runtime
+input declaration, archive producer, upload, download and import paths agree.
+The shared SDK checkout uses the existing tools cache. This adds no compatibility
+entry, provider-specific task or new supervisor. Contract tests use the same
+fixture isolation context as the full validation runner, so fixture cleanup does
+not borrow production task custody. Existing execution and inactivity budgets
+remain unchanged.
+
+Two further transport gaps were corrected in the existing implementation. Direct
+process budgets and progress windows reject NaN, infinity and booleans before
+spawning, polling or journaling a process. The cross-process checkpoint test uses
+the existing managed child transport, preserves child stderr, deletes the
+disposable run files and then checks the immutable prefix in a fresh process.
+Its production-task execution passed after the original failing attempt; it does
+not restore worker memory or inherit producer liveness. Intermediate test
+failures, including the temporary run-path/function name collision, are retained
+rather than relabelled.
+
+The current native observation still reports **8/12**, with native and runtime
+admission false. Its recorded pre-join flag is not an OS join error; acquire-load
+or compiler temporary changes have not produced complete native acceptance.
+The lifecycle qualification helper checks a supported transcript and source
+markers, but these alone are not a worker/generation/owner event census or a C
+refinement proof. The existing mechanism model's complete identity, consumer
+return/exit and reclaim ordering obligations remain the required distinction.
+Actual header/type reads, complete alias-pass population and cost units, real
+same-incarnation pending-join recovery, and full native/Gerbil build and test
+receipts remain with the active repair. This audit did not start another local
+bootstrap, runtime build or native acceptance campaign.
+
+Final directed validation completed **34/34 tests in 29.669 s**, with all nine
+input hashes unchanged. The real owned checkpoint-replay test also passed
+separately in 9.008 s. The receipt binds the production audit process run and
+retains both rejected intermediate runs and successful controls. This is local
+framework evidence; the next GitHub head still requires its own CI result.
