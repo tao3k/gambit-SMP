@@ -402,6 +402,106 @@ gain. The implementation lane must bind the actual supported caller and failed
 event before choosing between them. None requires replacing Gambit's C backend,
 narrowing valid continuations or serializing independent VM execution.
 
+## Reusing The Deeper Publication And Work Models
+
+This additional research follows `ba59caa`; it changes neither the existing
+model algorithms nor runtime source. The initial structure/FFI correspondence
+is not the entire available model inventory. Four published projections already
+address parts of the more concrete collector protocol and must be reused before
+considering another model:
+
+| Existing model | Relevant transition/predicate | Source correspondence and remaining premise |
+| --- | --- | --- |
+| `gc_forward_publication.qnt` | `claim`, `redirect`, `copyWord`, `publish`, `scan`; `publicationSafe`, `terminationSafe`, `destinationSafe` | Baseline `mem.c`:3568-3628 claims a forwarding destination before copying its payload; a loser redirects a reference and continues rather than scanning that unfinished copy. Completed-chunk publication at 3251-3312 and scanning at 4320-4387 are separate events. The model assumes stopped mutators, abstract queue visibility and correctly classified input slots. It does not establish that the failed native reader followed this protocol. |
+| `gc_scan_claim_transfer.qnt` | `exportTail`, `acquire`, `scan`, `nextEpoch`; `ownershipSafe`, `inputSafe`, `readySafe`, `epochSafe` | A copy-ready frontier and exclusive logical scan range are different from canonical object identity. Two aliases of one object are permitted; rescanning the same physical relocated input slot is a different schedule. Actual source ownership/cursor ranges, storage reuse and RA interpretation must instantiate the model's slots and epochs. |
+| `gc_queue_probe_access.qnt` | `probe`, `recheck`, `retire`; `raceFree`, `hintIsNotAuthority` | Candidate `mem.c`:3566-3575,7397-7442 uses atomic endpoint hints and protected payload/recheck access. An empty unlocked hint alone cannot authorize idling or retirement. The model's abstract conflict flag is an access-discipline control, not a C11 data-race proof. |
+| `gc_queue_wait_composition.qnt` | `releasePublication`, `acquireSignalMutex`, `probeRecheckQueue`, `registerWait`, `resume`; `countSafe`, `producerLifetimeSafe`, `closureSafe` | Candidate `mem.c`:3586-3607 releases queue Q before acquiring termination M for notification; 7430-7482 rechecks queues under M, then decrements/counts/waits and restores the count on nonterminal wake. The model's combined policy is the relevant comparison; its older source policy is not automatically the current candidate. Copy-ready work and finite counted producers remain premises. |
+
+The inspected four model files are unchanged from the published research tree.
+No old verifier campaign was rerun. Their finite worker/word bounds describe
+abstract schedules, not a machine-concurrency configuration. The forwarding
+model's shared `WorkObligations.canonicalReferences` says where aliases point;
+it does not establish at-most-once physical-slot scanning or complete payload.
+Do not replace those distinct predicates with one generic "valid object" flag.
+
+For the host Recipe, generator `targ-begin-cod` at `_t-c-1.scm`:2132-2192
+derives declaration/reload/writeback sets from actual read/write resources and
+emits label entries in procedure order. Loader `setup.c`:1750-1842 retains only
+`current_host`, not an independent cursor for each host. A new A -> B -> A
+host ordering would query A's table from its start again, so it cannot silently
+reuse the old table order for a later A label run. Preserve contiguous matching
+host/table runs, or explicitly redesign and verify the fixup correspondence.
+This conditional layout counterexample rejects arbitrary regrouping, not the
+existing single-host or per-procedure-host encodings. Neither the FFI state
+model nor `generatedMapRelocation` currently represents this discovery cursor.
+
+### Two Publication Frontiers And The Lock Handoff
+
+A forwarding CAS can expose **identity** before the winner has copied all
+payload words. A later queue handoff exposes **scannable completed work**. In
+the bound candidate, continuation copying can also accumulate a private segment
+before `publish_heap_chunk_segment` makes it stealable. Its relaxed endpoint
+loads are hints; they are not the release/acquire payload contract by themselves.
+The Q critical section and complete private-to-shared handoff must be checked.
+Making the earlier forwarding CAS stronger cannot publish stores that occur
+after it. Conversely, this ordering is not itself a race: the existing stopped-
+mutator and queue/scanner discipline can make early identity publication valid.
+
+The small-refactor review therefore has a concrete target: retain the existing
+queue publication/claim helpers, verify their actual copy-ready frontier and
+range ownership, and repair only a demonstrated consumer or ownership violation.
+Do not add a second queue, pin every descriptor or globally serialize GC. For
+lock order, the observed producer uses Q then releases Q before taking M; the
+waiter holds M while briefly checking Q and releases M before scanning. This
+excerpt does not contain a Q-held-while-waiting-for-M edge. All other callers,
+recursive scans and callbacks must still be audited before claiming a complete
+lock-order proof. A notification is not durable work storage: either the waiter
+sees queued work on its protected recheck or the publisher synchronizes with its
+wait-registration boundary. Private producers must remain counted throughout.
+
+The reusable counterexamples already distinguish early payload publication,
+uncounted producers, duplicate relocated input slots, stale epoch claims,
+retained local ownership after export, stale empty hints, lost notifications and
+failure to restore active count on wake. Keep their source-reachability status:
+an extracted/injected duplicate-slot schedule is not proof that the full native
+root enumerator produces it. These are discriminators for a proposed repair,
+not eight new diagnosed native bugs.
+
+### Lean Premises Must Be Instantiated, Not Renamed
+
+`WorkAccounting.zeroCountAndEmptyQueuesExcludeHiddenWork` quantifies over a list
+of workers and needs `ProducerLifetimeSafe` in addition to zero count and empty
+queues. The source must enumerate all private producers in that list; the
+theorem does not discover a producer missing from it. Its existing
+`missingLifetimeCounterexample` and `reopenedWorkRevokesZeroCount` are directly
+relevant to OCaml's retirement that can create new marking/sweeping work. Reuse
+them rather than asserting that a one-time empty observation stays true.
+
+`RuntimeEntryContracts.generatedMapRelocation` separately requires complete
+live-to-mapped coverage and a correct `scanned` relocation relation. It says
+nothing about a half-copied descriptor, host-label discovery or whether a native
+slot can be revisited. `descriptorRetirementExcludesConsumers` requires a
+complete live-consumer dependency census; interpreting `available` as merely
+"allocated bytes exist" would not supply scanner interpretation readiness.
+`ownedNestedExitAccounting` assumes balanced entries and preserved original
+errors; it neither creates an OS join retry nor proves the ownership handoff.
+
+OCaml `stdlib/domain.ml`:264-307 completes the previously one-sided termination
+reference: `Domain.join` waits under the termination mutex until `Finished`,
+then returns the result or raises the captured exception/backtrace. The C-side
+signal before teardown does not alone let the joiner pass the still-held mutex.
+This is language-domain result synchronization, not evidence of a retryable
+POSIX join error. Keep exception delivery, root retention, collector completion
+and OS thread ownership as separate obligations for Gambit's supported FFI.
+
+The signal model needs the same distinction in interpreting results:
+`runtime_generation_recovery.safe` permits the deliberately selected cross-
+generation control; `noCross` is the property that rejects that trace. A union
+characterization passing `safe` cannot establish no cross-generation dispatch.
+Likewise a model field named `nativeQualified` is only a modeled conjunction,
+not admission of an executable or a source-reachable recovery. No new native
+result or model-proof completeness is inferred from this correspondence audit.
+
 ## Handoff Frontier And Validation Boundary
 
 ### Follow-Up Source Cuts For Implementation Review
@@ -523,3 +623,14 @@ This qualifies that published framework revision, not these subsequent research
 edits or the current native overlay. The docs push also triggered a duplicate
 native workflow (`39346446959`) through cumulative PR paths; it was cancelled
 without rerunning the earlier native failures. No new native result follows.
+
+At `8c41b602aa87273ec1e34b4f6d1ab0d2f1fb47eb`,
+[framework run 39347919635](https://github.com/tao3k/gambit-SMP/actions/runs/39347919635)
+also completed successfully: 1809 tests, zero failures/errors/skips/expected
+failures/unexpected successes, complete inventory, unchanged inputs,
+`frameworkValidated=true`, `runtimeAdmitted=false`, 400.217 seconds. Artifact
+`12231888454` has `test-result.json` SHA
+`fd6827c903c440df8840451fd7f406e7730140672346a0c91a23bea39840abf6`.
+The audited source-cut follow-up was then published as `ba59caa`; its duplicate
+native run `39348868607` was cancelled. No observation in this later research
+section upgrades those framework results into GC or join-recovery acceptance.
