@@ -475,7 +475,7 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
 
     root = Path(root).resolve()
     snapshot = _repository_snapshot(root)
-    if bindings and selector is None:
+    if bindings is not None and selector is None:
         if question:
             raise ValueError("use an exact question or relational bindings, not both")
         document = json.loads((root / "evidence/views.json").read_text())
@@ -678,7 +678,7 @@ def main():
         import sys
         source = sys.stdin.read() if args.declaration == "-" else args.declaration
         request = ClueExchange.parse_request(source)
-        if not any(request.get(key) for key in ("bindings", "questions", "selector", "expand", "checkpoint")):
+        if not any(key in request for key in ("bindings", "questions", "selector", "expand", "checkpoint")):
             parser.error("a relational query or resumable checkpoint is required")
         with engine_api() as (engine, _):
             packet = repository_clues(ROOT, request.get("questions"), engine,

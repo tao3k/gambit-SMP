@@ -1,5 +1,6 @@
 """Launcher controls, never native/model acceptance or an external API test."""
 import json
+import fnmatch
 import os
 import sys
 import tempfile
@@ -76,6 +77,7 @@ class GrokSessionTests(unittest.TestCase):
             self.assertIn("trajectory clues < ", read["command"])
             tools = result["argv"][result["argv"].index("--tools") + 1].split(",")
             self.assertIn("run_terminal_cmd", tools)
+            self.assertIn("list_dir", tools)
             self.assertNotIn("run_terminal_command", tools)
             self.assertNotIn("<", read["permission"])
             self.assertEqual(read["command"], read["permission"] + " < " + shlex.quote(read["request"]))
@@ -83,7 +85,15 @@ class GrokSessionTests(unittest.TestCase):
             self.assertFalse(Path(read["request"]).exists())
             self.assertEqual([a for a in result["argv"] if a.startswith("Bash(")],
                              ["Bash(" + p + ")" for p in read['permissions']])
-            self.assertIsNone(run(replace(launch, query_request=None))["evidenceRead"])
+            interface = result['argv'][result['argv'].index('--rules') + 1]
+            self.assertEqual(interface,
+                'Available project Evidence CLI (read-only): ' + read['command']
+                + '\nCaller-authored Scheme request data: ' + read['request']
+                + '\nInterface help: ' + read['permission'] + ' --help'
+                + '\nTerminal permission covers registered read/help commands, not general shell.')
+            disabled = run(replace(launch, query_request=None))
+            self.assertIsNone(disabled['evidenceRead'])
+            self.assertNotIn('--rules', disabled['argv'])
             for bad in ("../outside.ss", "query.ss; echo unsafe", "request.py"):
                 with self.subTest(name=bad), self.assertRaisesRegex(ValueError, "basename"):
                     run(replace(launch, query_request=bad))
@@ -100,14 +110,49 @@ class GrokSessionTests(unittest.TestCase):
             for executable in (str(binary), '.venv/bin/gambit-smp'):
                 self.assertIn(shlex.join([executable, 'trajectory', 'clues']), read['permissions'])
                 self.assertIn(shlex.join([executable, 'research', '--help']), read['permissions'])
-            self.assertEqual(len(read['permissions']), 16)
+                self.assertIn(shlex.join([executable, 'trajectory', '--help']), read['permissions'])
+            metadata = {p for p in read['permissions'] if ' -c ' in p}
+            for executable in (str(binary.with_name('python3')), '.venv/bin/python3'):
+                command = ' '.join([executable, '-c',
+                    'from gambit_smp import repository_clues; help(repository_clues)'])
+                matches = [p for p in metadata if fnmatch.fnmatchcase(command, p)]
+                self.assertEqual(len(matches), 1)
+                self.assertFalse(command.startswith(matches[0]))
+                self.assertFalse(fnmatch.fnmatchcase(command + '; print("extra")', matches[0]))
+                self.assertFalse(fnmatch.fnmatchcase(command.replace('help(repository_clues)',
+                    'print("other code")'), matches[0]))
+            self.assertTrue(metadata <= set(read['permissions']))
             self.assertTrue(all(p.endswith(('trajectory clues', 'trajectory catalog', '--help'))
-                                for p in read['permissions']))
+                                or p in metadata for p in read['permissions']))
             binary.unlink()
             with patch('gambit_smp.grok_session.sys.executable', str(binary.with_name('python3'))):
-                self.assertEqual(len(run(launch)['evidenceRead']['permissions']), 8)
+                without_console = run(launch)['evidenceRead']['permissions']
+                self.assertFalse(any(shlex.join([executable, 'trajectory', 'clues']) in without_console
+                                     for executable in (str(binary), '.venv/bin/gambit-smp')))
             self.assertFalse(any(p.endswith(('submit', 'record', 'inspect', 'context', 'research'))
                                  for p in read['permissions']))
+
+    def test_replay_evidence_root_reuses_cli_without_changing_execution_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            launch = self.make_launch(root)
+            data = root / '.cache/tasks/repair/agents/diagnostic/data'
+            data.mkdir()
+            result = run(replace(launch, query_root=data))
+            self.assertEqual(result['argv'][result['argv'].index('--cwd') + 1], str(root))
+            self.assertEqual(result['evidenceRead']['root'], str(data))
+            self.assertIn('Edit(' + str(data) + '/**)', result['argv'])
+            self.assertIn('--root ' + str(data) + ' trajectory clues', result['evidenceRead']['command'])
+            self.assertFalse(any(p.endswith('-m gambit_smp trajectory clues')
+                                 for p in result['evidenceRead']['permissions']))
+            with self.assertRaises(ValueError):
+                run(replace(launch, query_root=root.parent))
+            with self.assertRaisesRegex(ValueError, 'mutable request'):
+                run(replace(launch, query_root=data.parent))
+            alias = data.with_name('alias')
+            alias.symlink_to(data, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'aliases'):
+                run(replace(launch, query_root=alias))
 
     def test_provider_executes_real_evidence_cli_without_native_program_or_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:

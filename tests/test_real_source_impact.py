@@ -26,16 +26,34 @@ class RealSourceImpactTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         subprocess.run(['git', 'init', '-q', str(self.root)], check=True, capture_output=True)
-        self.document = json.loads((ROOT / VIEW).read_text())
-        names = {VIEW, self.document['manifest'],
+        self.document = self.copy_fixture(self.root)
+
+    @staticmethod
+    def copy_fixture(root):
+        document = json.loads((ROOT / VIEW).read_text())
+        names = {VIEW, document['manifest'],
                  'evidence/scenarios/stack-header/source-understanding.ss',
-                 *(row['path'] for row in self.document['references'])}
+                 'evidence/scenarios/stack-header/clues.ss',
+                 *(row['path'] for row in document['references'])}
         for name in names:
-            target = self.root / name
+            target = root / name
+            if target.exists():
+                raise ValueError('fixture destination already contains source')
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
-        (self.root / 'evidence/views.json').write_text(json.dumps({
-            'schema': 'ascent.evidence-views.v1', 'views': [VIEW]}))
+        (root / 'evidence/views.json').write_text(json.dumps({
+            'schema': 'ascent.evidence-views.v1', 'views': [VIEW],
+            'selection': json.loads((ROOT / 'evidence/views.json').read_text())['selection']}))
+        (root / 'models/gambit').mkdir(parents=True)
+        (root / 'models/gambit/cases.json').write_text('{}\n')
+        storage = root / 'evidence/dsl'
+        storage.mkdir()
+        for name in ('storage.ss', 'history.ss'):
+            shutil.copyfile(ROOT / 'evidence/dsl' / name, storage / name)
+        manifest = json.loads((ROOT / 'evidence/dsl/components.json').read_text())
+        manifest['components'] = [row for row in manifest['components'] if row['id'] == 'state-storage']
+        (storage / 'components.json').write_text(json.dumps(manifest))
+        return document
 
     def save(self):
         (self.root / VIEW).write_text(json.dumps(self.document))
@@ -62,6 +80,33 @@ class RealSourceImpactTests(unittest.TestCase):
                          {('msection-unit-understanding',), ('msection-size-understanding',)})
         self.assertNotIn(('msection-allocation-understanding',), answers['summary_reusable'])
 
+    def test_unbound_scope_discovers_names_without_dumping_bodies_or_inventing_a_hit(self):
+        first = repository_clues(self.root, bindings=())
+        brief = first['brief']
+        self.assertEqual(brief['association']['unbound_scope'], [[]])
+        self.assertIn(['entity'], brief['association']['available_factor'])
+        self.assertEqual(brief['association']['question'], [])
+        self.assertEqual(brief['families'], [])
+        self.assertEqual(brief['counts']['support'], 0)
+        self.assertFalse(brief['runtimeAdmitted'])
+        self.assertNotIn('#define ___MSECTION_SIZE', json.dumps(first))
+        linked = repository_clues(self.root, bindings=(('entity', 'msection'),),
+                                  checkpoint=first['checkpoint'])
+        self.assertEqual(linked['brief']['association']['unbound_scope'], [])
+        self.assertEqual(linked['brief']['counts']['support'], 16)
+        self.assertEqual(linked['brief']['counts']['hypotheses'], 3)
+        self.assertTrue(linked['brief']['families'])
+
+    def test_cli_accepts_explicit_unbound_discovery_but_not_an_absent_request(self):
+        command = [sys.executable, '-m', 'gambit_smp', '--root', str(self.root), 'trajectory', 'clues']
+        accepted = subprocess.run(command, input='((bindings ()))', text=True,
+                                  capture_output=True, timeout=30)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertIn('unbound_scope', accepted.stdout)
+        self.assertNotIn('#define ___MSECTION_SIZE', accepted.stdout)
+        absent = subprocess.run(command, input='()', text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(absent.returncode, 0)
+
     def test_fresh_context_recovers_summaries_and_cache_cleanup_preserves_read_history(self):
         first = repository_clues(self.root, SUMMARIES)
         continued = self.child(question=SUMMARIES, checkpoint=first['checkpoint'])
@@ -78,8 +123,7 @@ class RealSourceImpactTests(unittest.TestCase):
         self.assertNotIn('#define ___MSECTION_SIZE', json.dumps(recap))
         self.assertFalse(recap['brief']['runtimeAdmitted'])
 
-    def test_real_macro_edit_reopens_only_affected_understanding_then_expands_checked_bytes(self):
-        first = repository_clues(self.root, SUMMARIES)
+    def change_fixture_macro(self):
         path = self.root / 'vendor/gambit/lib/mem.h'
         before = path.read_bytes()
         old, new = b'#define ___MSECTION_SIZE        131072', b'#define ___MSECTION_SIZE        65536'
@@ -98,6 +142,10 @@ class RealSourceImpactTests(unittest.TestCase):
                     span['end'] -= 1
                 span['sha256'] = hashlib.sha256(after[span['start']:span['end']]).hexdigest()
         self.save()
+
+    def test_real_macro_edit_reopens_only_affected_understanding_then_expands_checked_bytes(self):
+        first = repository_clues(self.root, SUMMARIES)
+        self.change_fixture_macro()
         changed = self.child(question=SUMMARIES, checkpoint=first['checkpoint'])
         claims = {f['claim'] for f in changed['brief']['families']}
         self.assertEqual(claims, {'msection-size-understanding', 'msection-allocation-understanding'})

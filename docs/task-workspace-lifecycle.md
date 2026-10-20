@@ -28,6 +28,22 @@ The command uses the existing stdin interface, not another endpoint or a broad
 Python permission. `Launch.query_request` configures the basename or disables
 this grant with `None`; sealed native-program grants remain independent. It
 does not preload evidence or investigation steps into the model prompt.
+The same literal interface descriptor is also exposed with the provider's
+existing `--rules` mechanism. It contains only the CLI, caller-authored request
+path and help command, not evidence, query factors or an investigation order.
+Receipt discovery is therefore not a prerequisite for using the granted read.
+The documented public Python help expression is a literal introspection grant;
+directory inspection uses the provider's existing read-only `list_dir` tool.
+Neither grants arbitrary Python, scripts or native execution.
+The provider matches parsed argument words without shell quotes. The fixed
+Python help grant uses an escaped whole-command glob, so a longer Python
+payload cannot inherit a prefix approval. See the provider's
+[rule matching contract](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/22-permissions-and-safety.md#bash-rules).
+`Launch.query_root` can bind a data-only replay below the workspace through
+the existing CLI `--root`. Execution custody, working directory and owner output
+remain unchanged; only root-bound read/help aliases are granted for that replay.
+It rejects external paths and symlink aliases. A source-evidence fixture is not
+another runtime checkout, installation or native acceptance result.
 
 The executed command retains stdin redirection; the Bash permission names only
 the normalized executable and argument words. Grok's `run_terminal_cmd` tool ID

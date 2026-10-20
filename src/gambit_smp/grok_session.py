@@ -7,6 +7,7 @@ responsible for their own process groups and unchanged acceptance budgets.
 """
 
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -36,6 +37,7 @@ class Launch:
     max_turns: int = 45
     task: str | None = None
     query_request: str | None = "query.ss"
+    query_root: Path | None = None
 
     def evidence_read(self, root, owned):
         """One literal read command; the request is inert Scheme, not a script."""
@@ -45,25 +47,47 @@ class Launch:
             raise ValueError("query request must be an owner-local Scheme basename")
         from gambit_smp.workspace import bounded
         request = bounded(root, (owned / self.query_request).relative_to(root))
-        base = [sys.executable, "-m", "gambit_smp", "--root", str(root)]
+        query_root = root
+        if self.query_root is not None:
+            selected = Path(self.query_root)
+            relative = selected.relative_to(root) if selected.is_absolute() else selected
+            query_root = bounded(root, relative)
+            if not query_root.is_dir():
+                raise ValueError('existing evidence root required')
+            if query_root != root and request.is_relative_to(query_root):
+                raise ValueError('evidence data must not contain the mutable request')
+        base = [sys.executable, "-m", "gambit_smp", "--root", str(query_root)]
         program = shlex.join([*base, "trajectory", "clues"])
         command = program + " < " + shlex.quote(str(request))
         # The project documents the installed dispatcher; grant only equivalent
         # read routes, not the interpreter or the whole dispatcher.
-        bases = [base, [sys.executable, "-m", "gambit_smp"]]
+        bases = [base]
+        if query_root == root:
+            bases.append([sys.executable, "-m", "gambit_smp"])
         console = Path(sys.executable).parent / "gambit-smp"
         if console.is_file() and console.parent == root / ".venv/bin":
             for executable in (str(console), ".venv/bin/gambit-smp"):
-                bases.append([executable])
+                bases.append([executable] if query_root == root else
+                             [executable, '--root', str(query_root)])
         from gambit_smp.trajectory_exploration import argument_parser
         parser = argument_parser()
         routes = [("trajectory", name) for action in parser._actions
                   if isinstance(action, argparse._SubParsersAction)
                   for name, operation in action.choices.items()
                   if operation.get_default('execution_policy') == 'read']
-        routes += [("research", "--help"), ("--help",)]
+        routes += [("trajectory", "--help"), ("research", "--help"), ("--help",)]
         permissions = [shlex.join([*entry, *route]) for entry in bases for route in routes]
-        return dict(request=str(request), command=command, permission=program,
+        # Public introspection is not a grant for arbitrary interpreter code.
+        help_code = "from gambit_smp import repository_clues; help(repository_clues)"
+        interpreters = [sys.executable]
+        if Path(sys.executable).parent == root / '.venv/bin':
+            interpreters.append('.venv/bin/' + Path(sys.executable).name)
+        for executable in interpreters:
+            # Grok matches parsed words without quotes. Force whole-command
+            # glob matching, not its otherwise permissive string-prefix rule.
+            literal = ' '.join([executable, '-c', help_code])
+            permissions.append('[' + literal[0] + ']' + glob.escape(literal[1:]))
+        return dict(root=str(query_root), request=str(request), command=command, permission=program,
                     permissions=permissions)
 
     def prepare(self):
@@ -93,11 +117,13 @@ class Launch:
         if self.resume:
             argv += ["--resume", str(uuid.UUID(self.resume))]
         read = self.evidence_read(root, owned)
-        tools = "read_file,write,search_replace"
+        tools = "read_file,list_dir,write,search_replace"
         if self.scripts or read:
             tools += ",run_terminal_cmd"
         argv += ["--tools", tools, "--allow", "read_file",
                  "--allow", f"Edit({owned}/**)"]
+        if read and read['root'] != str(root):
+            argv += ['--deny', 'Edit(' + read['root'] + '/**)']
         for directory in (".grok", ".codex", ".claude", ".cursor", ".ssh", ".aws"):
             argv += ["--deny", "Read(" + str(Path.home() / directory) + "/**)"]
         for key in self.scripts:
@@ -115,6 +141,10 @@ class Launch:
         if read:
             for permission in read["permissions"]:
                 argv += ["--allow", "Bash(" + permission + ")"]
+            argv += ["--rules", "Available project Evidence CLI (read-only): " + read["command"]
+                     + "\nCaller-authored Scheme request data: " + read["request"]
+                     + "\nInterface help: " + read["permission"] + " --help"
+                     + "\nTerminal permission covers registered read/help commands, not general shell."]
         if self.resume:
             session=bounded(root,'.state/provider-sessions/'+self.task+'/'+self.owner+'.json')
             prior=json.loads(session.read_text()) if session.exists() else {}

@@ -1,9 +1,11 @@
 # Project Interface
 
 Use the single `gambit-smp` dispatcher and one stable task ID across Codex/Grok: `gambit-smp --task TASK COMMAND`
-or the `workspace` supervisor. New worktrees use `.data/worktrees/TASK`; never
-create provider/date-specific top-level output directories or root `campaigns/`. For starting,
-finishing or reclaiming tasks, read `docs/task-workspace-lifecycle.md`.
+or the `workspace` supervisor. Task artifacts belong in `.cache/tasks/TASK/`;
+explicit Git worktrees belong in `.data/worktrees/TASK/`.
+For changing task ownership or storage, read `docs/task-workspace-lifecycle.md`.
+Evidence reads use the installed dispatcher directly; wrappers and startup
+resources are not prerequisites.
 
 Evidence, prior failures, provenance and open references are already registered:
 `.venv/bin/gambit-smp trajectory clues --help`. No catalog/file discovery or
@@ -14,6 +16,7 @@ match one observation identity, not keywords. The registered Scheme association
 derives scope; a caller-written `selector` may use arbitrary Scheme/Datalog.
 Python callers use `from gambit_smp import repository_clues` and
 `help(repository_clues)`; this is a function, not a submodule.
+Empty bindings expose the registered DSL's discovery metadata, not all claims.
 
 Results contain `brief` and `checkpoint`. `(checkpoint "TOKEN")` continues
 acknowledged evidence across processes/scopes; omission explicitly requests a

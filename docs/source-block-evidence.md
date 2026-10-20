@@ -219,3 +219,21 @@ assume an ever-growing repository can be fully paged at one fixed capacity.
 An inactivity termination retains a partial failure; it is not a deadlock proof.
 Observed test exceptions must be flushed before suite finalization so a later
 interruption cannot erase their causes. Runtime qualification remains separate.
+
+## Unbound discovery is not an evidence hit
+
+An explicit `((bindings ()))` request reaches the registered Scheme association.
+The SMP declaration returns `unbound_scope` and observed factor names through
+the existing association results, without selecting claims or raw source bodies.
+An absent request remains an input error. Python distinguishes field presence
+from truthiness and transports the declaration; it does not choose factors,
+expand the scope or implement the relation rules. Other applications can supply
+their own association policy.
+
+The existing ASCENT `AnchoredEvidenceSlice` QNT/Lean models distinguish this
+discovery branch from a conjunctive evidence match. Empty anchors do not select
+every witness, discovered names have a source witness, and discovery grants no
+action or closed exploration space. Real-source controls continue from unbound
+metadata to the same-witness `entity=msection` relation and test CLI restart,
+macro-change invalidation and disjoint-edit preservation separately. These are
+not guarantees that a probabilistic Agent will choose the best query.
