@@ -9,13 +9,18 @@ from unittest.mock import patch
 
 from gambit_smp.ascent_program import load_catalog
 from gambit_smp import evidence_index as index
+from gambit_smp import workspace
 from tests.support import protocol_fixture
 
 
 class EvidenceTests(unittest.TestCase):
     def test_portable_validation_does_not_refresh_or_accept_a_stale_saved_index(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = Path(temporary).resolve()
+            workspace.git(root, "init", "-q")
+            workspace.git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                          "commit", "--allow-empty", "-qm", "fixture")
+            workspace.start(root, "repair-9-12", adopt=True)
             (root / "evidence").mkdir()
             saved = root / "evidence/relations.json"
             saved.write_text("stale\n")
@@ -25,7 +30,8 @@ class EvidenceTests(unittest.TestCase):
             (root / "evidence/dsl/catalog.ss").write_text(
                 "(def (make-catalog) (make-recorded-module "
                 "(ascent-fragment (relation input ((value symbol?)))) '(input) 4096 32768 32768))\n")
-            with patch.object(index, "ROOT", root), patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
+            with workspace.execution_scope(root, "repair-9-12"), \
+                    patch.object(index, "ROOT", root), patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
                     patch.object(index, "query", return_value={"pending": ["source"]}), \
                     patch("gambit_smp.reasoning_history.record", return_value={}), \
                     contextlib.redirect_stdout(io.StringIO()):

@@ -328,3 +328,48 @@ editable and without dependencies or a `PYTHONPATH` override. Its actual import
 resolved to the declared source checkout. The existing clean-checkout
 adoption/owned-child test passed **1/1 in 1.273 seconds** in that environment.
 This is an installed-entry control, not a replacement for the pending full CI.
+
+## Merged Model Receipt Correspondence
+
+Run `39416317943` for `3a8eaa13fa214738c42757fa1603e7da2e6bf745` passed
+seal, then stopped before test inventory publication. Its producer exit was one,
+not a timeout; parent reaping and group quiescence were recorded. The first
+typed failure was an existing model receipt which did not match the merged
+`native_compiler_probe_correspondence.qnt` bytes. Auditing every primary model
+receipt found this one stale reference: the old receipt covered model
+`a2545e4a5eb767bcac088f44c36b8fa5cd30d03ceb1aaf13975ab6d0f6812993`,
+whereas the merged source is
+`15390f0e794b4a72935ad053add35828a4754f7ea7049c37a70140594cb03301`.
+No accepted/hash field in the old receipt was rewritten.
+
+The existing registered `host-root-research` validation process checked only
+this affected model, using the existing `check` dispatcher and original
+`initBypass` / `init` controls. The negative counterexample was admitted in
+**14.476 seconds**; the positive safety check in **12.133 seconds**, with
+**3076 distinct states and zero queued**. Both recorded stable current source,
+Quint 0.33.0 and `native.status=not-run`. The original per-check guard and model
+semantics were unchanged. This is a new source qualification, not a repeated
+run of an unchanged already-admitted model.
+
+`models/gambit/cases.json` now points to the separate current receipt under
+`evidence/model-results/native-compiler-probe-current/`; the historical receipt
+remains unchanged. The existing `recover-model` dispatcher revalidated the raw
+logs/snapshot and produced portable logs, trace and model bytes, retained beside
+the actual generated receipt. Its source snapshot hash is the current model
+hash above. Real `evidence --validate` then completed with
+`DATALOG-COVERAGE-OK`. No fresh generic model, native artifact, original stress
+run, widened guard or synthetic completion was introduced.
+
+The current raw-log attestation is updated to those newly recovered bytes;
+both historical receipt and historical raw files remain untouched. The existing
+catalog/recovery modules passed **19/19 in 32.471 seconds**, including actual
+raw-log reinterpretation, exact model checks, source/timeout drift rejection,
+and missing/incomplete log denial. The saved-index unit fixture now creates its
+own real task scope instead of potentially consulting the production checkout's
+default task. Its stale-index assertions and original mocks are unchanged.
+
+An earlier local catalog run was manually interrupted before completion. Its
+retained stack shows ordinary source hashing, not a proved deadlock; it is not
+a timeout, PASS, or evidence of a production lock conflict. Its failed current
+attestation assertion preceded the corrected current binding above. Only the
+final complete 19-test run is reported as local qualification.
