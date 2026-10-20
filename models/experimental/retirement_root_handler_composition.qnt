@@ -6,13 +6,15 @@ module retirement_root_handler_composition {
   type State = { policy: int, borrower: bool, publisher: bool,
     sourceRoot: bool, destinationRoot: bool, payloadLive: bool, exitKind: int,
     installed: bool, handler: int, badHandler: bool,
-    syncRoot: bool, syncLive: bool, syncLocked: bool, badJoinRelease: bool }
+    syncRoot: bool, syncLive: bool, syncLocked: bool, badJoinRelease: bool,
+    waiter: str }
   var h: State
   pure def initial(policy: int): State = {
     policy: policy, borrower: true, publisher: true,
     sourceRoot: true, destinationRoot: false, payloadLive: true, exitKind: 0,
     installed: true, handler: 0, badHandler: false,
     syncRoot: true, syncLive: true, syncLocked: true, badJoinRelease: false,
+    waiter: "blocked",
   }
   action initFixed = all {
     P::s' = P::initial("owned", false, false, false), h' = initial(0),
@@ -34,6 +36,12 @@ module retirement_root_handler_composition {
   }
   action initJoinReleasedEarly = all {
     P::s' = P::initial("owned", false, false, false), h' = initial(6),
+  }
+  action initOsReturnAsExit = all {
+    P::s' = P::initial("owned", false, false, false), h' = initial(7),
+  }
+  action initReentryAsExit = all {
+    P::s' = P::initial("owned", false, false, false), h' = initial(8),
   }
   action protocolStep = all {
     any { P::readerEnter, P::readerLeave, P::readerCancel,
@@ -76,11 +84,28 @@ module retirement_root_handler_composition {
     h' = { ...h, handler: 2,
       badHandler: h.badHandler or not(P::s.memory and P::s.resource) },
   }
+  // One finite normal wait episode, independent of the payload borrower.
+  // OS return reacquires the user mutex; runtime restoration and its return
+  // tail still own live context/storage. No asynchronous cancellation claim.
+  action returnFromWait = all {
+    h.waiter == "blocked", P::s' = P::s,
+    h' = { ...h, waiter: "os-returned" },
+  }
+  action restoreWaiterRuntime = all {
+    h.waiter == "os-returned", P::s.memory, P::s.resource,
+    P::s' = P::s, h' = { ...h, waiter: "runtime-restored" },
+  }
+  action leaveWaiter = all {
+    h.waiter == "runtime-restored", P::s.memory, P::s.resource,
+    P::s' = P::s, h' = { ...h, waiter: "left" },
+  }
   action releaseResources = all {
     not(h.borrower) or h.policy == 4,
     not(h.publisher),
     not(h.payloadLive) or h.policy == 2,
     not(h.installed), h.handler == 2 or h.policy == 3,
+    h.waiter == "left" or (h.policy == 7 and h.waiter == "os-returned") or
+      (h.policy == 8 and h.waiter == "runtime-restored"),
     P::release, h' = h,
   }
   action reclaim = all { P::reclaim, h' = h }
@@ -106,15 +131,18 @@ module retirement_root_handler_composition {
   val externalQuiet = P::s.resource or
     (not(h.installed) and h.handler == 2 and not(h.borrower) and not(h.publisher))
   val syncSafe = (h.syncLocked.implies(h.syncLive)) and not(h.badJoinRelease)
-  val safe = P::safe and rooted and externalQuiet and not(h.badHandler) and syncSafe
+  val waitTailSafe = h.waiter == "left" or (P::s.memory and P::s.resource)
+  val safe = P::safe and rooted and externalQuiet and not(h.badHandler) and
+    syncSafe and waitTailSafe
   val terminal = P::terminal and not(h.payloadLive) and not(h.borrower) and
     not(h.publisher) and not(h.installed) and h.handler == 2 and
-    not(h.syncLocked) and not(h.syncRoot)
+    not(h.syncLocked) and not(h.syncRoot) and h.waiter == "left"
   action finished = all { terminal, P::s' = P::s, h' = h }
   action step = any { protocolStep, transferRoot, normalExit, nonlocalExit,
     finishPublisher, consumePayload, deliverHandler, uninstall, finishHandler,
+    returnFromWait, restoreWaiterRuntime, leaveWaiter,
     releaseResources, reclaim, unlockSync, dropSyncRoot, finalizeSync, finished }
-  // Finite environment: an already delivered handler eventually completes.
+  // Finite environment: a delivered handler and this wait episode complete.
   // Not proof of arbitrary host progress, physical GC or C memory ordering.
   temporal completion = weakFair(step, Set((P::s, h))).implies(eventually(terminal))
   action closeAdmission = all { P::request, h' = h }

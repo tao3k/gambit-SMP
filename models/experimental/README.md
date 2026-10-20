@@ -11,8 +11,9 @@ do not close current native obligations or advance the milestone count.
 - [Lean contracts](lean/RetirementHandoff.lean) reuse existing `WorkAccounting`;
   they do not introduce another Lean package or root ABI.
 - The same composition distinguishes a synchronization object's independent
-  keepalive from VM teardown and release of the joining consumer. Six omission
-  controls include last-root loss/finalization and early consumer release.
+  keepalive from VM teardown and release of the joining consumer. Eight omission
+  controls include last-root loss/finalization, early consumer release and
+  treating OS return or runtime restoration as completion of a wait call.
 - [Scope, source correspondence and results](../../docs/experimental/retirement-handoff-model.md)
   distinguish proposed root/handler protocols from observed implementation.
 - [Declarative Evidence](../../evidence/research/retirement-handoff/facts.json)

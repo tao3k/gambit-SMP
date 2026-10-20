@@ -221,7 +221,7 @@ current failure models and their manifests are not modified merely to show a
 larger model count. A larger refactor, generalized foreign attachment, new root
 ABI or backup-thread topology still requires a separate design milestone.
 
-## Follow-Through Validation
+## Six-Control Validation At 14aa800
 
 The extended campaign completed in 74.618 s using the existing 30-second
 per-check guards and host-derived control plan, with no timeout or skip. The
@@ -261,3 +261,123 @@ Separately, published research HEAD
 That remote pass covers its exact published head, not this later local extension.
 No native build, bootstrap, stress test, debugger or runtime source edit was
 performed for this follow-through.
+
+## OS Return Is Not Waiter Exit
+
+The next source join distinguishes a completed OS wait, restored runtime
+ownership and the completion of the calling function. None of the first two
+events alone releases all return-tail consumers:
+
+| Pinned source | Actual sequence | Transfer limitation |
+| --- | --- | --- |
+| OCaml `sync.c`:193-207 and `sync_posix.h`:114-117 | Root condition/mutex wrappers; enter blocking section; `pthread_cond_wait`; restore runtime; check error and emit end event; release the root frame on C return. | The separately allocated raw handles do not replace wrapper roots. Completion of the OS wait does not complete runtime reacquisition or the remaining C tail. |
+| OCaml `st_stubs.c`:304-324 and `signals.c`:193-222 | Runtime reacquisition precedes thread-state restoration. Leave-blocking preserves errno and marks pending signal work for later examination. | Runtime restoration is a real intermediate phase, not permission to free context needed by the remaining return/error path. These hooks do not prove arbitrary foreign unwinding. |
+| Chez `thread.c`:576-603 | OS wait returns; mutex owner/count are restored; eligible thread is reactivated; collector-wait registration is removed; result/error handling follows. | The collector-waiter count is not the entire call's consumer inventory. Removing that registration is not proof of C return or release of every context/handle. Entry also requires ownership and recursion count exactly one at 538-541. |
+| Gambit baseline `mem.c`:6738-6767 | The last active scanner signals peers; resumed peers read the work predicate and unlock before leaving the scan loop. | A wakeup or zero work counter is not complete GC-callback return. Reuse the existing callback-return/tree-aggregation model and actual source bridge; do not add another unconditional barrier on this evidence alone. |
+
+The existing Experimental composition now exposes one normal wait episode as
+`blocked -> os-returned -> runtime-restored -> left`. The waiter is a distinct
+consumer from the payload borrower, old delivered handler and independent
+synchronization keepalive. Its entire return tail needs the context/resources
+to remain live. This is a logical lifetime requirement; the model does not add
+a waiter counter, generic root ABI, new runtime lock or scheduler to Gambit.
+
+Two omission controls allow reclamation at the wrong prefix:
+`initOsReturnAsExit` releases resources while the waiter is `os-returned`;
+`initReentryAsExit` releases them at `runtime-restored`. They must fail the
+`waitTailSafe` property even when payload, publisher, old handler and ordinary
+borrower obligations are already discharged. They expose an unsafe release
+permission, not a measured native crash instruction or proof of its cause.
+
+The normal path retains the resource until `left`. Progress assumes this finite
+wait episode completes; lost wakeups, unbounded retries, OS fairness and arbitrary
+asynchronous cancellation are not established. Error/timeout outcomes need their
+actual source exits and ownership restoration; a stuck or abandoned thread is
+not silently converted to a successful return. Existing exceptional-entry and
+pending-join models retain those separate obligations.
+
+Three additional Lean contracts state that OS return and runtime restoration
+do not discharge the return tail, and derive live storage from the declared
+tail-protection premise. They are not a refinement proof of the C functions.
+The first Lean attempt used `decide` on an unexpanded contract;
+elaboration rejected the missing `Decidable` instances. Its failed guarded
+receipt remains in `experimental-retirement-handoff/run-3mrjh4rv/lean.json`.
+Replacing those two proof bodies with explicit contract simplification passed;
+no statement, source protocol, budget or axiom allowance was weakened.
+
+### Entry Effects Must Match The Specific Wrapper
+
+`sync.c`:201 calls **ordinary** `caml_enter_blocking_section`, not
+`caml_enter_blocking_section_no_pending`. `signals.c`:166-185 may process pending
+signals before the blocking hook releases runtime ownership; 188-191 provides
+a different no-pending entry. Therefore the earlier no-pending mutex-helper
+contract cannot be imported wholesale into the condition-wait path. Calling a
+generic service under a Gambit metadata/registry lock still requires a reentry,
+GC-participation and lock-ownership argument.
+
+The current `predicate_lock_retry_rooting` executable model already has
+`initRegistryService`/`effectRegistrySafe` for a service that reenters a held
+registry and `initErasedServiceError`/`effectErrorSafe` for swallowed errors.
+This audit adds reference provenance to those existing obligations rather than
+copying them into a new current model. It does not claim that Chez/OCaml provide
+a universally callback-free wait, or that the actual 9/12 candidate has this
+particular source defect. The newly explicit full-return-tail protocol remains
+in `models/experimental/` pending source instantiation.
+
+### Applicable Handoff, Not A Universal Wait Adapter
+
+For an existing GC participant, preserve its actual collective role and complete
+callback-return witness; do not silently deactivate it at an OS wait. For a
+mutator-side blocking adapter, establish state/root publication and restoration,
+consistent user-lock/runtime-lock acquisition, entry effects and the full return
+tail. For a retired/error worker, keep its actual storage/root owner until the
+matching join or supported ownership handoff succeeds. These are different
+source cases, not one generic helper or an instruction to adopt OCaml's backup
+thread architecture.
+
+In particular, Chez's writes restoring `m->owner`/`m->count` describe its source
+sequence; they do not establish POSIX ownership for every malformed/error call.
+The finite normal wait episode cannot qualify arbitrary OS errors or cancellation.
+Also, reacquiring runtime execution after the OS wait can itself wait for another
+owner: model progress assumes completion of that handoff, not absence of all
+lock cycles. Keep the existing service/lock-order obligations visible rather than
+turning a fairness premise into a native deadlock-freedom theorem.
+
+### Waiter-Tail Validation
+
+The extended guarded campaign completed in 68.828 s with no skipped or timed-out
+check. The fixed protocol exhausts **2,328 distinct / 10,953 generated states**,
+queue empty; safety and conditional completion pass in 9.298 s. All eight
+counterexamples are decoded and checked for their specific cause. The two new
+last states both have no payload, publisher, borrower or delivered handler left,
+live VM memory and no registry lease, but resources have been released:
+
+- `initOsReturnAsExit` retains `waiter="os-returned"` (15.717 s).
+- `initReentryAsExit` retains `waiter="runtime-restored"` (16.360 s).
+
+Thus these counterexamples isolate the missing full-tail owner; they do not
+attribute a native crash to it. Fourteen Lean contracts pass with no `sorryAx`
+and only the existing `propext`/`Quot.sound` dependencies where needed. Existing
+Scheme relations expose four transfer conditions/eight partial model scopes,
+withdraw/restore their sources, reuse the Session and retain all five native
+obligations as missing with `satisfies=[]`.
+
+The receipt family is `experimental-retirement-handoff/run-o3m1hqps/`;
+QNT SHA-256
+`b410452cb2746c2b2bc8c355c768e195ad5fe51e7532012f9e2ec31e325040d2`,
+Lean SHA-256
+`f8c52003c952e9f055577dfc7abae9a7932d2ace690c4533df1ceac958eb7a02`.
+The retained Lean elaboration failure is separate from these passing proofs.
+Later document/Evidence hash updates are checked with the Scheme consumer;
+formal source bytes are unchanged, and historical receipt inputs are not rewritten.
+
+Published HEAD `14aa8005cdaa09b26d72f5ceece63208618c3315` separately passed
+[framework CI 39354153343](https://github.com/tao3k/gambit-SMP/actions/runs/39354153343):
+1,809 tests, zero failures/errors/skips, complete inventory, unchanged inputs,
+401.043156859 s, `frameworkValidated=true`, `runtimeAdmitted=false`.
+Artifact `12235250074` has `test-result.json` SHA-256
+`bf553871d3c6b7361b49ff5202018ee0ee9559234306b361c118a0ec8e15d70b`.
+That exact-head framework result does not cover this later local model extension
+and is not native acceptance. Runtime sources, current qualification manifests,
+native source locks and checkpoints are unchanged; no bootstrap, native stress
+test or debugger was launched for this research.

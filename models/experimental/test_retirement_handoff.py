@@ -38,7 +38,7 @@ class RetirementHandoffExperimentalTests(unittest.TestCase):
         if any(digest(ROOT / p) != sha for p, sha in cls.inputs.items()):
             raise AssertionError("experimental input changed during checks")
 
-    def test_quint_composition_and_six_counterexamples(self):
+    def test_quint_composition_and_eight_counterexamples(self):
         quint = shutil.which("quint")
         self.assertIsNotNone(quint)
         jar = Path(os.environ.get("QUINT_TLC_JAR",
@@ -69,12 +69,22 @@ class RetirementHandoffExperimentalTests(unittest.TestCase):
         verify("initFixed")
         controls = ("initDroppedRoot", "initPayloadForgotten",
                     "initHandlerForgotten", "initBorrowerForgotten",
-                    "initSyncRootForgotten", "initJoinReleasedEarly")
+                    "initSyncRootForgotten", "initJoinReleasedEarly",
+                    "initOsReturnAsExit", "initReentryAsExit")
         with ThreadPoolExecutor(max_workers=min(plan["parallelControls"], len(controls))) as pool:
             list(pool.map(verify, controls))
 
     def assert_counterexample(self, initializer, state):
         h, p = state["h"], state["P_s"]
+        if initializer in ("initOsReturnAsExit", "initReentryAsExit"):
+            self.assertTrue(p["memory"])
+            self.assertFalse(p["resource"])
+            self.assertFalse(h["borrower"] or h["publisher"] or h["payloadLive"])
+            self.assertFalse(h["installed"])
+            self.assertEqual(h["handler"], 2)
+            expected = "os-returned" if initializer == "initOsReturnAsExit" else "runtime-restored"
+            self.assertEqual(h["waiter"], expected)
+            return
         if initializer == "initSyncRootForgotten":
             self.assertFalse(p["memory"])
             self.assertFalse(h["syncRoot"] or h["syncLive"])
@@ -138,7 +148,7 @@ class RetirementHandoffExperimentalTests(unittest.TestCase):
                            "handoff-model", "handoff-proof", "ocaml-sync-storage",
                            "ocaml-join-consumer", "chez-wait-ownership", "chez-sweeper-assignment",
                            "ocaml-systhread-state", "existing-wait-model", "gambit-sync-layout",
-                           "existing-cohort-model"):
+                           "existing-cohort-model", "ocaml-posix-wait", "ocaml-blocking-effects"):
                 withdrawn = dict(facts, source=[r for r in facts["source"] if r[0] != source])
                 missing, _ = evaluate(engine, withdrawn, catalog, queries)
                 self.assertIn("premise-source-missing", {r[1] for r in missing["transfer_unbound"]})
@@ -170,6 +180,8 @@ class RetirementHandoffExperimentalTests(unittest.TestCase):
                         "registryDrainIsNotHandlerQuiet", "retirementDischargesEachOwner",
                         "retainedSynchronizationRemainsLive", "removingLastSyncRootLosesProtection",
                         "notificationDoesNotReleaseJoiner", "earlyJoinReleaseViolatesOrdering",
+                        "osReturnDoesNotDischargeTail", "runtimeRestorationDoesNotDischargeTail",
+                        "protectedWaitTailRetainsStorage",
                         "balancedExceptionalEntries"):
             self.assertIn(theorem, output)
 

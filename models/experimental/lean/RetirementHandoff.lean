@@ -64,6 +64,24 @@ theorem notificationDoesNotReleaseJoiner :
 theorem earlyJoinReleaseViolatesOrdering : ¬ ReleasedAfterTeardown true false := by
   simp [ReleasedAfterTeardown]
 
+inductive WaitStage where
+  | blocked | osReturned | runtimeRestored | left
+  deriving DecidableEq
+
+def WaitTailProtected (stage : WaitStage) (storageLive : Bool) : Prop :=
+  stage ≠ .left → storageLive = true
+
+theorem osReturnDoesNotDischargeTail : ¬ WaitTailProtected .osReturned false := by
+  simp [WaitTailProtected]
+
+theorem runtimeRestorationDoesNotDischargeTail :
+    ¬ WaitTailProtected .runtimeRestored false := by
+  simp [WaitTailProtected]
+
+theorem protectedWaitTailRetainsStorage (stage : WaitStage) (storageLive : Bool)
+    (notLeft : stage ≠ .left) (protectedTail : WaitTailProtected stage storageLive) :
+    storageLive = true := protectedTail notLeft
+
 theorem balancedExceptionalEntries
     (a1 a2 r1 r2 : Nat) (original1 original2 delivered1 delivered2 : Int)
     (first : WorkAccounting.EntryBalanced a1 r1 original1 delivered1)
@@ -82,6 +100,9 @@ theorem balancedExceptionalEntries
 #print axioms removingLastSyncRootLosesProtection
 #print axioms notificationDoesNotReleaseJoiner
 #print axioms earlyJoinReleaseViolatesOrdering
+#print axioms osReturnDoesNotDischargeTail
+#print axioms runtimeRestorationDoesNotDischargeTail
+#print axioms protectedWaitTailRetainsStorage
 #print axioms balancedExceptionalEntries
 
 end GambitSMP.Experimental.RetirementHandoff
