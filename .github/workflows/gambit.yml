@@ -24,15 +24,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
+      - name: Adopt the declared repair work item
+        env:
+          PYTHONPATH: src:tests
+        run: python -m gambit_smp workspace start repair-9-12 --adopt
       - name: Framework, patch and inventory controls (one 15s batch)
         env:
           PYTHONPATH: src:tests
-        run: python -m gambit_smp.process_observation .github/gambit/contracts.json --out .cache/ci/patch-contracts
+        run: python -m gambit_smp --task repair-9-12 tool process-observation .github/gambit/contracts.json --out .cache/tasks/repair-9-12/ci/patch-contracts
       - uses: actions/upload-artifact@v4
-        if: ${{ always() && hashFiles('.cache/ci/patch-contracts/*.json') != '' }}
+        if: ${{ always() && hashFiles('.cache/tasks/repair-9-12/ci/patch-contracts/*.json') != '' }}
         with:
           name: gambit-patch-contracts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .cache/ci/patch-contracts/
+          path: .cache/tasks/repair-9-12/ci/patch-contracts/
           include-hidden-files: true
           if-no-files-found: error
 
@@ -48,37 +52,37 @@ jobs:
       - name: Install upstream C build prerequisites
         run: sudo apt-get update && sudo apt-get install -y gcc make texinfo autoconf automake pkg-config
       - name: Seal the installed framework and Library
-        run: uv run --no-sync gambit-smp research --seal .cache/ci/engine --portable-seal --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
+        run: uv run --no-sync gambit-smp research --seal .cache/tasks/repair-9-12/ci/engine --portable-seal --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
       - name: Execute the source-bound build Recipe (600s whole budget)
-        run: uv run --no-sync gambit-smp research --run evidence/research/ci/three-flag-core.recipe.json --engine .cache/ci/engine --out .cache/fixtures/ci-source-core
+        run: uv run --no-sync gambit-smp research --run evidence/research/ci/three-flag-core.recipe.json --engine .cache/tasks/repair-9-12/ci/engine --out .cache/tasks/repair-9-12/fixtures/ci-source-core
       - name: Export the completed source-core, not a bootstrap or permission
-        run: uv run --no-sync gambit-smp research --export-runtime .cache/fixtures/ci-source-core --step source-core --out .cache/ci/gambit-runtime.tar
+        run: uv run --no-sync gambit-smp research --export-runtime .cache/tasks/repair-9-12/fixtures/ci-source-core --step source-core --out .cache/tasks/repair-9-12/ci/gambit-runtime.tar
       - name: Package the exact sealed implementation and provider
-        run: tar -cf .cache/ci/sealed-engine.tar -C .cache/ci engine
+        run: tar -cf .cache/tasks/repair-9-12/ci/sealed-engine.tar -C .cache/tasks/repair-9-12/ci engine
       - uses: actions/upload-artifact@v4
-        if: ${{ always() && hashFiles('.cache/fixtures/ci-source-core/*.json', '.cache/ci/*.export-*.json') != '' }}
+        if: ${{ always() && hashFiles('.cache/tasks/repair-9-12/fixtures/ci-source-core/*.json', '.cache/tasks/repair-9-12/ci/*.export-*.json') != '' }}
         with:
           name: gambit-build-logs-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            .cache/fixtures/ci-source-core/**/*.json
-            .cache/fixtures/ci-source-core/**/*.log
-            .cache/fixtures/ci-source-core/**/*.stdout
-            .cache/fixtures/ci-source-core/**/*.stderr
-            !.cache/fixtures/ci-source-core/run/**/source/**
-            .cache/ci/*.export-*.json
+            .cache/tasks/repair-9-12/fixtures/ci-source-core/**/*.json
+            .cache/tasks/repair-9-12/fixtures/ci-source-core/**/*.log
+            .cache/tasks/repair-9-12/fixtures/ci-source-core/**/*.stdout
+            .cache/tasks/repair-9-12/fixtures/ci-source-core/**/*.stderr
+            !.cache/tasks/repair-9-12/fixtures/ci-source-core/run/**/source/**
+            .cache/tasks/repair-9-12/ci/*.export-*.json
           include-hidden-files: true
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
         with:
           name: gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .cache/ci/gambit-runtime.tar
+          path: .cache/tasks/repair-9-12/ci/gambit-runtime.tar
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: gambit-engine-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .cache/ci/sealed-engine.tar
+          path: .cache/tasks/repair-9-12/ci/sealed-engine.tar
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
@@ -100,39 +104,39 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: gambit-runtime-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .cache/ci/
+          path: .cache/tasks/repair-9-12/ci/
       - uses: actions/download-artifact@v4
         with:
           name: gambit-engine-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .cache/ci/
+          path: .cache/tasks/repair-9-12/ci/
       - name: Match the original C toolchain inventory
         run: sudo apt-get update && sudo apt-get install -y gcc make texinfo autoconf automake pkg-config
       - name: Restore the exact build-job implementation and provider
-        run: tar -xf .cache/ci/sealed-engine.tar -C .cache/ci
+        run: tar -xf .cache/tasks/repair-9-12/ci/sealed-engine.tar -C .cache/tasks/repair-9-12/ci
       - name: Import, review and execute the declared module
         env:
           MODULE: ${{ matrix.module }}
-        run: uv run --no-sync gambit-smp research --run "evidence/research/ci/$MODULE.recipe.json" --engine .cache/ci/engine --out ".cache/fixtures/ci-$MODULE"
+        run: uv run --no-sync gambit-smp research --run "evidence/research/ci/$MODULE.recipe.json" --engine .cache/tasks/repair-9-12/ci/engine --out ".cache/tasks/repair-9-12/fixtures/ci-$MODULE"
       - uses: actions/upload-artifact@v4
-        if: ${{ always() && hashFiles(format('.cache/fixtures/ci-{0}/*.json', matrix.module)) != '' }}
+        if: ${{ always() && hashFiles(format('.cache/tasks/repair-9-12/fixtures/ci-{0}/*.json', matrix.module)) != '' }}
         with:
           name: gambit-${{ matrix.module }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            .cache/fixtures/ci-${{ matrix.module }}/**/*.json
-            .cache/fixtures/ci-${{ matrix.module }}/**/*.log
-            .cache/fixtures/ci-${{ matrix.module }}/**/*.stdout
-            .cache/fixtures/ci-${{ matrix.module }}/**/*.stderr
-            !.cache/fixtures/ci-${{ matrix.module }}/run/**/source/**
-            !.cache/fixtures/ci-${{ matrix.module }}/run/**/generation/runtime/**
+            .cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/**/*.json
+            .cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/**/*.log
+            .cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/**/*.stdout
+            .cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/**/*.stderr
+            !.cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/run/**/source/**
+            !.cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/run/**/generation/runtime/**
           include-hidden-files: true
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: ${{ always() && hashFiles(format('.cache/fixtures/ci-{0}/run/*/source/tests/**', matrix.module), format('.cache/fixtures/ci-{0}/run/*/shards/*/tests/**', matrix.module)) != '' }}
+        if: ${{ always() && hashFiles(format('.cache/tasks/repair-9-12/fixtures/ci-{0}/run/*/source/tests/**', matrix.module), format('.cache/tasks/repair-9-12/fixtures/ci-{0}/run/*/shards/*/tests/**', matrix.module)) != '' }}
         with:
           name: gambit-${{ matrix.module }}-test-products-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            .cache/fixtures/ci-${{ matrix.module }}/run/*/source/tests/**
-            .cache/fixtures/ci-${{ matrix.module }}/run/*/shards/*/tests/**
+            .cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/run/*/source/tests/**
+            .cache/tasks/repair-9-12/fixtures/ci-${{ matrix.module }}/run/*/shards/*/tests/**
           include-hidden-files: true
           if-no-files-found: error
 

@@ -95,6 +95,8 @@ def probe_group(pid, deadline):
 
 def communicate_progress(process, window, progress, *, recorder=None, token=None):
     """Renew only for a strictly increasing completed-work counter."""
+    if isinstance(window, bool) or not math.isfinite(window) or window <= 0:
+        raise ValueError("positive finite progress window required")
     last, completed = time.monotonic(), 0
 
     def observe(stdout, stderr):
@@ -124,8 +126,8 @@ def communicate_progress(process, window, progress, *, recorder=None, token=None
 
 
 def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, recorder=None):
-    if budget <= 0:
-        raise ValueError("positive process budget required")
+    if isinstance(budget, bool) or not math.isfinite(budget) or budget <= 0:
+        raise ValueError("positive finite process budget required")
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).isoformat()
     token = os.urandom(16).hex()
