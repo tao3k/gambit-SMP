@@ -209,6 +209,14 @@ through the registered current-repair view, without granting a source-compositio
 or native acceptance witness. Its handoff table preserves the source evidence
 still required for an actual repair.
 
+The follow-up [return/resource ordering Recipe](handler-return-resource-order.md)
+maps the actual admitted lease release/flush tail and distinguishes it from
+whole-handler return, TTY callback storage and code lifetime. It also maps the
+old-frame/target-work/phase boundaries and configuration-selected C barriers.
+Its admitted-only counterexample refines the existing handler model; it does
+not turn a delayed event into an observed old-pointer fault or force every
+resource to wait for every C function's return.
+
 ## Acceptance Of The Connection
 
 This refinement is complete only when the following are actually demonstrated:

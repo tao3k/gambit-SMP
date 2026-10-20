@@ -1,0 +1,1215 @@
+[quint-compile]
+------------------------ MODULE saved_stack_last_access ------------------------
+
+EXTENDS Integers, Sequences, FiniteSets, TLC, Apalache, Variants
+
+VARIABLE
+  (*
+    @type: Int;
+  *)
+  rank
+
+VARIABLE
+  (*
+    @type: { active: Bool, badRead: Bool, recycled: Bool, requireDrain: Bool, returned: Bool, started: Bool };
+  *)
+  reader
+
+(*
+  @type: ((Bool) => { active: Bool, badRead: Bool, recycled: Bool, requireDrain: Bool, returned: Bool, started: Bool });
+*)
+readerInitial(required_30) ==
+  [requireDrain |-> required_30,
+    started |-> FALSE,
+    active |-> FALSE,
+    returned |-> FALSE,
+    recycled |-> FALSE,
+    badRead |-> FALSE]
+
+VARIABLE
+  (*
+    @type: { anchor: Bool, collection: Bool, cycleClosed: Bool, fault: Int, rawOrigins: Set(Str), workPending: Bool };
+  *)
+  g
+
+VARIABLE
+  (*
+    @type: { badRead: Bool, borrowed: Bool, copied: Bool, epoch: Int, fault: Int, owner: Str, phase: Int, recycled: Bool, slotCleaned: Bool, slotReused: Bool, vmAlive: Bool };
+  *)
+  a
+
+VARIABLE
+  (*
+    @type: { donorStorage: Bool, executing: Bool, heapFrame: Bool, policy: Str, published: Bool, released: Bool, retired: Bool, returned: Bool, saved: Bool, scanning: Bool };
+  *)
+  R_retirementState
+
+(*
+  @type: ((Int) => { badRead: Bool, borrowed: Bool, copied: Bool, epoch: Int, fault: Int, owner: Str, phase: Int, recycled: Bool, slotCleaned: Bool, slotReused: Bool, vmAlive: Bool });
+*)
+initial(fault_694) ==
+  [fault |-> fault_694,
+    phase |-> 0,
+    owner |-> "none",
+    borrowed |-> FALSE,
+    slotCleaned |-> FALSE,
+    slotReused |-> FALSE,
+    vmAlive |-> TRUE,
+    epoch |-> 0,
+    copied |-> FALSE,
+    recycled |-> FALSE,
+    badRead |-> FALSE]
+
+(*
+  @type: ((Str) => { donorStorage: Bool, executing: Bool, heapFrame: Bool, policy: Str, published: Bool, released: Bool, retired: Bool, returned: Bool, saved: Bool, scanning: Bool });
+*)
+R_initial(R_policy_1254) ==
+  [policy |-> R_policy_1254,
+    saved |-> FALSE,
+    executing |-> TRUE,
+    published |-> FALSE,
+    heapFrame |-> FALSE,
+    donorStorage |-> TRUE,
+    scanning |-> FALSE,
+    retired |-> FALSE,
+    released |-> FALSE,
+    returned |-> FALSE]
+
+(*
+  @type: ((Int) => { anchor: Bool, collection: Bool, cycleClosed: Bool, fault: Int, rawOrigins: Set(Str), workPending: Bool });
+*)
+graphInitial(fault_266) ==
+  [fault |-> fault_266,
+    anchor |-> FALSE,
+    collection |-> FALSE,
+    rawOrigins |-> { "tail-link", "escaped-origin" },
+    workPending |-> FALSE,
+    cycleClosed |-> FALSE]
+
+(*
+  @type: (() => Bool);
+*)
+R_releaseStorage ==
+  R_retirementState["retired"]
+    /\ ~(R_retirementState["scanning"])
+    /\ ~(R_retirementState["released"])
+    /\ R_retirementState'
+      := [
+        [ R_retirementState EXCEPT !["donorStorage"] = FALSE ] EXCEPT
+          !["released"] = TRUE
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+closureTerminal == a["phase"] = 7 \/ a["phase"] = 10
+
+(*
+  @type: (() => Bool);
+*)
+R_continuationStorageSafe ==
+  (~(R_retirementState["saved"]) \/ R_retirementState["heapFrame"])
+    \/ R_retirementState["donorStorage"]
+
+(*
+  @type: (() => Bool);
+*)
+R_exclusiveExecution ==
+  ~(R_retirementState["published"]) \/ ~(R_retirementState["executing"])
+
+(*
+  @type: (() => Bool);
+*)
+R_scannerStorageSafe ==
+  ~(R_retirementState["scanning"]) \/ R_retirementState["donorStorage"]
+
+(*
+  @type: (() => Bool);
+*)
+rawNeeded == a["owner"] = "thread" \/ a["owner"] = "break"
+
+(*
+  @type: (() => Bool);
+*)
+lastConsumerSafe == ~(a["badRead"])
+
+(*
+  @type: (() => Bool);
+*)
+rootCovered == ~(g["collection"]) \/ g["anchor"]
+
+(*
+  @type: (() => Bool);
+*)
+chainCovered == ~(a["recycled"]) \/ g["rawOrigins"] = {}
+
+(*
+  @type: (() => Bool);
+*)
+phaseCovered == ~(a["recycled"]) \/ ~(g["workPending"])
+
+(*
+  @type: (() => Bool);
+*)
+lastAccessSafe ==
+  ~(reader["badRead"]) /\ (~(reader["recycled"]) \/ ~(reader["active"]))
+
+(*
+  @type: (() => Bool);
+*)
+initFixed ==
+  a = initial(0) /\ R_retirementState = R_initial("copy-before-retire")
+
+(*
+  @type: (() => Bool);
+*)
+keepR == R_retirementState' := R_retirementState
+
+(*
+  @type: (() => Bool);
+*)
+R_capture ==
+  ~(R_retirementState["saved"])
+    /\ R_retirementState' := [ R_retirementState EXCEPT !["saved"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+R_detachExecution ==
+  R_retirementState["saved"]
+    /\ R_retirementState["executing"]
+    /\ R_retirementState' := [ R_retirementState EXCEPT !["executing"] = FALSE ]
+
+(*
+  @type: (() => Bool);
+*)
+R_publish ==
+  R_retirementState["saved"]
+    /\ ~(R_retirementState["published"])
+    /\ (~(R_retirementState["executing"])
+      \/ R_retirementState["policy"] = "publish-first")
+    /\ R_retirementState' := [ R_retirementState EXCEPT !["published"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+retireExecutor ==
+  a["phase"] = 3
+    /\ R_retirementState["published"]
+    /\ ~(R_retirementState["executing"])
+    /\ R_retirementState["donorStorage"]
+    /\ R_retirementState' := [ R_retirementState EXCEPT !["retired"] = TRUE ]
+    /\ a' := [ a EXCEPT !["phase"] = 4 ]
+
+(*
+  @type: (() => Bool);
+*)
+cleanupSlot ==
+  a["phase"] = 4
+    /\ R_retirementState'
+      := [
+        R_retirementState EXCEPT
+          !["donorStorage"] =
+            IF a["fault"] = 1 THEN FALSE ELSE R_retirementState["donorStorage"]
+      ]
+    /\ a' := [ [ a EXCEPT !["phase"] = 5 ] EXCEPT !["slotCleaned"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+restoreRaw ==
+  a["phase"] = 5
+    /\ a["owner"] = "thread"
+    /\ R_retirementState'
+      := [
+        R_retirementState EXCEPT
+          !["saved"] =
+            IF a["fault"] = 2 THEN FALSE ELSE R_retirementState["saved"]
+      ]
+    /\ a'
+      := [
+        [ [ a EXCEPT !["phase"] = 6 ] EXCEPT !["owner"] = "break" ] EXCEPT
+          !["borrowed"] = IF a["fault"] = 2 THEN FALSE ELSE a["borrowed"]
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+consumeRawFrame ==
+  a["phase"] = 6
+    /\ R_retirementState'
+      := [
+        [ R_retirementState EXCEPT !["saved"] = FALSE ] EXCEPT
+          !["returned"] = TRUE
+      ]
+    /\ a'
+      := [
+        [
+          [ [ a EXCEPT !["phase"] = 7 ] EXCEPT !["owner"] = "receiver" ] EXCEPT
+            !["borrowed"] = FALSE
+        ] EXCEPT
+          !["badRead"] =
+            (a["badRead"] \/ ~(R_retirementState["donorStorage"]))
+              \/ a["epoch"] /= 0
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+R_beginScan ==
+  R_retirementState["saved"]
+    /\ ~(R_retirementState["heapFrame"])
+    /\ ~(R_retirementState["scanning"])
+    /\ R_retirementState["donorStorage"]
+    /\ R_retirementState' := [ R_retirementState EXCEPT !["scanning"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+R_copyFrames ==
+  R_retirementState["scanning"]
+    /\ R_retirementState["donorStorage"]
+    /\ R_retirementState'
+      := [
+        [ R_retirementState EXCEPT !["scanning"] = FALSE ] EXCEPT
+          !["heapFrame"] = TRUE
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+resumeCopied ==
+  a["phase"] = 9
+    /\ R_retirementState'
+      := [
+        [ R_retirementState EXCEPT !["saved"] = FALSE ] EXCEPT
+          !["returned"] = TRUE
+      ]
+    /\ a' := [ [ a EXCEPT !["phase"] = 10 ] EXCEPT !["owner"] = "receiver" ]
+
+(*
+  @type: (() => Bool);
+*)
+recycleOldHalf ==
+  ~(a["recycled"])
+    /\ ((a["phase"] = 9 /\ ~(a["borrowed"]))
+      \/ ((a["fault"] = 2 /\ a["phase"] = 6) /\ ~(a["borrowed"])))
+    /\ R_releaseStorage
+    /\ a' := [ [ a EXCEPT !["recycled"] = TRUE ] EXCEPT !["epoch"] = 1 ]
+
+(*
+  @type: (() => Bool);
+*)
+accessTerminal == closureTerminal /\ ~(reader["active"])
+
+(*
+  @type: (() => Bool);
+*)
+R_safe ==
+  (R_continuationStorageSafe /\ R_exclusiveExecution) /\ R_scannerStorageSafe
+
+(*
+  @type: (() => Bool);
+*)
+backingCoverage ==
+  ~rawNeeded
+    \/ ((a["vmAlive"] /\ R_retirementState["donorStorage"]) /\ a["epoch"] = 0)
+
+(*
+  @type: (() => Bool);
+*)
+noClosedConsumerReuse ==
+  ~(((reader["requireDrain"] /\ reader["returned"]) /\ reader["recycled"])
+    /\ closureTerminal)
+
+(*
+  @type: (() => Bool);
+*)
+initClosure == \E fault \in { 0, 1, 2, 3 }: initFixed /\ g = graphInitial(fault)
+
+(*
+  @type: (() => Bool);
+*)
+keepA == a' := a /\ keepR
+
+(*
+  @type: (() => Bool);
+*)
+save ==
+  a["phase"] = 0
+    /\ R_capture
+    /\ a'
+      := [
+        [ [ a EXCEPT !["phase"] = 1 ] EXCEPT !["owner"] = "thread" ] EXCEPT
+          !["borrowed"] = TRUE
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+detach ==
+  a["phase"] = 1 /\ R_detachExecution /\ a' := [ a EXCEPT !["phase"] = 2 ]
+
+(*
+  @type: (() => Bool);
+*)
+publish == a["phase"] = 2 /\ R_publish /\ a' := [ a EXCEPT !["phase"] = 3 ]
+
+(*
+  @type: (() => Bool);
+*)
+reinitializeSlot ==
+  a["phase"] = 5
+    /\ ~(a["slotReused"])
+    /\ keepR
+    /\ a'
+      := [
+        [ a EXCEPT !["slotReused"] = TRUE ] EXCEPT
+          !["epoch"] = IF a["fault"] = 3 THEN 1 ELSE a["epoch"]
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+restoreHead == g["anchor"] /\ restoreRaw /\ g' := g
+
+(*
+  @type: (() => Bool);
+*)
+consumeHead == consumeRawFrame /\ g' := g
+
+(*
+  @type: (() => Bool);
+*)
+beginCollection ==
+  (a["phase"] = 5 \/ a["phase"] = 6)
+    /\ R_beginScan
+    /\ a' := [ a EXCEPT !["phase"] = 8 ]
+
+(*
+  @type: (() => Bool);
+*)
+finishCollection ==
+  a["phase"] = 8
+    /\ R_copyFrames
+    /\ a'
+      := [
+        [
+          [ [ a EXCEPT !["phase"] = 9 ] EXCEPT !["owner"] = "heap" ] EXCEPT
+            !["copied"] = TRUE
+        ] EXCEPT
+          !["borrowed"] = FALSE
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+resumeHead == a["recycled"] /\ resumeCopied /\ g' := g
+
+(*
+  @type: (() => Bool);
+*)
+completeCensusSafe == ~(reader["requireDrain"]) \/ lastAccessSafe
+
+(*
+  @type: (() => Bool);
+*)
+q_inv == lastAccessSafe
+
+(*
+  @type: (() => Bool);
+*)
+nextCycleReuse == g["cycleClosed"] /\ recycleOldHalf /\ g' := g
+
+(*
+  @type: (() => Bool);
+*)
+safe == (R_safe /\ backingCoverage) /\ lastConsumerSafe
+
+(*
+  @type: (() => Bool);
+*)
+initAccess ==
+  \E required \in { FALSE, TRUE }:
+    initClosure /\ reader = readerInitial(required) /\ rank = 0
+
+(*
+  @type: (() => Bool);
+*)
+keepRoots == keepA /\ g' := g
+
+(*
+  @type: (() => Bool);
+*)
+retirePrefix ==
+  (save
+      \/ detach
+      \/ publish
+      \/ retireExecutor
+      \/ cleanupSlot
+      \/ reinitializeSlot)
+    /\ g' := g
+
+(*
+  @type: (() => Bool);
+*)
+establishRoot ==
+  a["phase"] = 5
+    /\ ~(g["anchor"])
+    /\ keepA
+    /\ g' := [ g EXCEPT !["anchor"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+collect ==
+  (g["anchor"] \/ g["fault"] = 1)
+    /\ beginCollection
+    /\ g' := [ g EXCEPT !["collection"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+forwardHead == finishCollection /\ g' := [ g EXCEPT !["workPending"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+retargetOrigin ==
+  \E origin \in g["rawOrigins"]:
+    a["phase"] = 9
+      /\ ~(a["recycled"])
+      /\ keepA
+      /\ g' := [ g EXCEPT !["rawOrigins"] = g["rawOrigins"] \ {origin} ]
+
+(*
+  @type: (() => Bool);
+*)
+drainTargetWork ==
+  a["phase"] = 9
+    /\ g["workPending"]
+    /\ keepA
+    /\ g' := [ g EXCEPT !["workPending"] = FALSE ]
+
+(*
+  @type: (() => Bool);
+*)
+closeCycle ==
+  a["phase"] = 9
+    /\ ~(g["cycleClosed"])
+    /\ (((g["rawOrigins"] = {} /\ ~(g["workPending"])) \/ g["fault"] = 2)
+      \/ (g["fault"] = 3 /\ g["rawOrigins"] = {}))
+    /\ keepA
+    /\ g' := [ g EXCEPT !["cycleClosed"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+reuse ==
+  (~(reader["requireDrain"]) \/ ~(reader["active"]))
+    /\ nextCycleReuse
+    /\ reader' := [ reader EXCEPT !["recycled"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+closureSafe ==
+  g["fault"] /= 0 \/ (((safe /\ rootCovered) /\ chainCovered) /\ phaseCovered)
+
+(*
+  @type: (() => Bool);
+*)
+rootProtocol ==
+  (retirePrefix
+      \/ establishRoot
+      \/ restoreHead
+      \/ consumeHead
+      \/ collect
+      \/ forwardHead
+      \/ retargetOrigin
+      \/ drainTargetWork
+      \/ closeCycle
+      \/ resumeHead)
+    /\ reader' := reader
+
+(*
+  @type: (() => Bool);
+*)
+beginRead ==
+  g["collection"]
+    /\ g["workPending"]
+    /\ ~(reader["recycled"])
+    /\ g["rawOrigins"] /= {}
+    /\ ~(reader["started"])
+    /\ keepRoots
+    /\ reader'
+      := [ [ reader EXCEPT !["started"] = TRUE ] EXCEPT !["active"] = TRUE ]
+
+(*
+  @type: (() => Bool);
+*)
+lastAccess ==
+  reader["active"]
+    /\ keepRoots
+    /\ reader'
+      := [
+        [ [ reader EXCEPT !["active"] = FALSE ] EXCEPT !["returned"] = TRUE ] EXCEPT
+          !["badRead"] = reader["recycled"]
+      ]
+
+(*
+  @type: (() => Bool);
+*)
+q_init == initAccess
+
+(*
+  @type: (() => Bool);
+*)
+declaredRootSafe == closureSafe
+
+(*
+  @type: (() => Bool);
+*)
+accessStep ==
+  (g["fault"] = 0
+      /\ ~accessTerminal
+      /\ (rootProtocol
+        \/ beginRead
+        \/ lastAccess
+        \/ reuse)
+      /\ rank' := (rank + 1))
+    \/ ((g["fault"] /= 0 \/ accessTerminal)
+      /\ keepRoots
+      /\ reader' := reader
+      /\ rank' := rank)
+
+(*
+  @type: (() => Bool);
+*)
+accessCompletion ==
+  [](g["fault"] /= 0) \/ (WF_{rank}(accessStep) => <>accessTerminal)
+
+(*
+  @type: (() => Bool);
+*)
+q_step == accessStep
+
+================================================================================
+
+[TLC-final]
+TLC2 Version 2026.10.20.085501
+Warning: Please run the Java VM, which executes TLC with a throughput optimized garbage collector, by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 48 and seed -5194764517643429915 with 6 workers on 12 cores with 8192MB heap and 64MB offheap memory [pid: 67058] (Mac OS X 26.6.1 aarch64, Homebrew 25.0.2 64bit, MSBDiskFPSet, DiskStateQueue).
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/saved_stack_last_access.tla
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/Integers.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/Integers.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/Sequences.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/Sequences.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/FiniteSets.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/FiniteSets.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/TLC.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/TLC.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/Apalache.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/Apalache.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/Variants.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/Variants.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/_TLCTrace.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/_TLCTrace.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/Naturals.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/Naturals.tla)
+Parsing file <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/tlc-15930224994907655346/TLCExt.tla (jar:file:<HOME>/.quint/apalache-dist-0.62.1/apalache/lib/apalache.jar!/tla2sany/StandardModules/TLCExt.tla)
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module Apalache
+Semantic processing of module Variants
+Semantic processing of module TLCExt
+Semantic processing of module _TLCTrace
+Semantic processing of module saved_stack_last_access
+Linting of module Apalache
+Linting of module Variants
+Linting of module TLCExt
+Linting of module _TLCTrace
+Linting of module saved_stack_last_access
+Starting... (2026-10-20 16:55:03)
+Computing initial states...
+Computed 2 initial states...
+Computed 4 initial states...
+Finished computing initial states: 8 distinct states generated at 2026-10-20 16:55:04.
+Error: Invariant q_inv is violated.
+Error: The behavior up to this point is:
+State 1: <Initial predicate>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 0,
+  owner |-> "none",
+  borrowed |-> FALSE,
+  slotCleaned |-> FALSE,
+  slotReused |-> FALSE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> FALSE,
+  executing |-> TRUE,
+  published |-> FALSE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> FALSE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 0
+
+State 2: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 1,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> FALSE,
+  slotReused |-> FALSE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> TRUE,
+  published |-> FALSE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> FALSE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 1
+
+State 3: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 2,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> FALSE,
+  slotReused |-> FALSE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> FALSE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> FALSE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 2
+
+State 4: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 3,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> FALSE,
+  slotReused |-> FALSE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> FALSE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 3
+
+State 5: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 4,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> FALSE,
+  slotReused |-> FALSE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 4
+
+State 6: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 5,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> TRUE,
+  slotReused |-> FALSE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 5
+
+State 7: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 5,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> FALSE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 6
+
+State 8: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 5,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> FALSE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 7
+
+State 9: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 8,
+  owner |-> "thread",
+  borrowed |-> TRUE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> FALSE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> FALSE,
+  donorStorage |-> TRUE,
+  scanning |-> TRUE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 8
+
+State 10: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {"tail-link", "escaped-origin"},
+  workPending |-> TRUE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 9
+
+State 11: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {"escaped-origin"},
+  workPending |-> TRUE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> FALSE,
+  active |-> FALSE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 10
+
+State 12: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {"escaped-origin"},
+  workPending |-> TRUE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> TRUE,
+  active |-> TRUE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 11
+
+State 13: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {},
+  workPending |-> TRUE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> TRUE,
+  active |-> TRUE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 12
+
+State 14: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {},
+  workPending |-> FALSE,
+  cycleClosed |-> FALSE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> TRUE,
+  active |-> TRUE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 13
+
+State 15: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> FALSE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 0,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {},
+  workPending |-> FALSE,
+  cycleClosed |-> TRUE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> TRUE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> FALSE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> TRUE,
+  active |-> TRUE,
+  returned |-> FALSE,
+  recycled |-> FALSE,
+  badRead |-> FALSE ]
+/\ rank = 14
+
+State 16: <accessStep line 573, col 4 to line 579, col 28 of module saved_stack_last_access>
+/\ a = [ recycled |-> TRUE,
+  badRead |-> FALSE,
+  fault |-> 0,
+  phase |-> 9,
+  owner |-> "heap",
+  borrowed |-> FALSE,
+  slotCleaned |-> TRUE,
+  slotReused |-> TRUE,
+  vmAlive |-> TRUE,
+  epoch |-> 1,
+  copied |-> TRUE ]
+/\ g = [ fault |-> 0,
+  anchor |-> TRUE,
+  collection |-> TRUE,
+  rawOrigins |-> {},
+  workPending |-> FALSE,
+  cycleClosed |-> TRUE ]
+/\ R_retirementState = [ returned |-> FALSE,
+  policy |-> "copy-before-retire",
+  saved |-> TRUE,
+  executing |-> FALSE,
+  published |-> TRUE,
+  heapFrame |-> TRUE,
+  donorStorage |-> FALSE,
+  scanning |-> FALSE,
+  retired |-> TRUE,
+  released |-> TRUE ]
+/\ reader = [ requireDrain |-> FALSE,
+  started |-> TRUE,
+  active |-> TRUE,
+  returned |-> FALSE,
+  recycled |-> TRUE,
+  badRead |-> FALSE ]
+/\ rank = 15
+
+528 states generated, 292 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 19.
+Finished in 02s at (2026-10-20 16:55:04)
+Trace exploration spec path: <REPO>/.cache/tasks/host-root-research/processes/validation/runs/d56062eb87384b90b0950e4c38bb862b/outputs/last-access-check/checks/saved_stack_last_access-old-lastAccessSafe/saved_stack_last_access_TTrace_1792486501.tla

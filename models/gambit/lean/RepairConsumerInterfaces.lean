@@ -50,10 +50,20 @@ theorem newEntryEpochDoesNotRestoreDeliveryEpoch (old current : Nat)
     ¬ WorkAccounting.SameGeneration old (current + 1) :=
   WorkAccounting.reuseRevokesOldIdentity old current same
 
+-- Even a nonempty actual-use census can finish before its C invocation returns.
+-- A source proof must identify that last access; this witness does not supply it.
+theorem lastResourceAccessCanPrecedeInvocationReturn :
+    ∃ uses completed returned : Unit → Prop,
+      uses () ∧ (∀ c, uses c → completed c) ∧ ¬ returned () := by
+  refine ⟨fun _ => True, fun _ => True, fun _ => False, True.intro, ?_, ?_⟩
+  · intro _ _; exact True.intro
+  · intro impossible; exact impossible
+
 #print axioms unfinishedInvocationBlocksDrain
 #print axioms emptyEntryCensusDoesNotProveDrain
 #print axioms declaredAndPrivateConsumersCompose
 #print axioms omittedPrivateConsumerDefeatsPublicCompletion
 #print axioms newEntryEpochDoesNotRestoreDeliveryEpoch
+#print axioms lastResourceAccessCanPrecedeInvocationReturn
 
 end GambitSMP.RepairConsumerInterfaces
