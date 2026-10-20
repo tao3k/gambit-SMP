@@ -145,6 +145,8 @@ class Launch:
                      + "\nCaller-authored Scheme request data: " + read["request"]
                      + "\nWritable scratch directory: " + str(owned)
                      + "\nInterface help: " + read["permission"] + " --help"
+                     + "\nQuery output: Scheme data on stdout. Shell output redirection and mixed command chains"
+                     + " are outside the read grant; owner-local writes use the edit tools."
                      + "\nTerminal permission covers registered read/help commands, not general shell."]
         if self.resume:
             session=bounded(root,'.state/provider-sessions/'+self.task+'/'+self.owner+'.json')

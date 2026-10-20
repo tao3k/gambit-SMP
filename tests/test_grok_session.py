@@ -91,6 +91,8 @@ class GrokSessionTests(unittest.TestCase):
                 + '\nCaller-authored Scheme request data: ' + read['request']
                 + '\nWritable scratch directory: ' + str(Path(read['request']).parent)
                 + '\nInterface help: ' + read['permission'] + ' --help'
+                + '\nQuery output: Scheme data on stdout. Shell output redirection and mixed command chains'
+                + ' are outside the read grant; owner-local writes use the edit tools.'
                 + '\nTerminal permission covers registered read/help commands, not general shell.')
             disabled = run(replace(launch, query_request=None))
             self.assertIsNone(disabled['evidenceRead'])

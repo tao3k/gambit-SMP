@@ -33,6 +33,9 @@ existing `--rules` mechanism. It contains only the CLI, caller-authored request
 path and help command, not evidence, query factors or an investigation order.
 It also names the already-granted writable owner directory; an external scratch
 path does not gain permission merely because it is temporary.
+The descriptor distinguishes stdout delivery from file edits: read-command
+permission does not include shell output writes or mixed command chains. Owner
+write permission belongs to the edit tools, not an extra shell grant.
 Receipt discovery is therefore not a prerequisite for using the granted read.
 The documented public Python help expression is a literal introspection grant;
 directory inspection uses the provider's existing read-only `list_dir` tool.
