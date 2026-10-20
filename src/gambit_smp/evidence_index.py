@@ -561,5 +561,8 @@ def main():
     print("DATALOG-COVERAGE-OK")
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('evidence')(main)
+
 if __name__ == "__main__":
     main()

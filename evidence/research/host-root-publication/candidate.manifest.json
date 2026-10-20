@@ -1,0 +1,100 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "docs/host-root-candidate-recipe.md": "fbfeb374f87194e39377ee5ecaa1bec1fe7dfd88b8461d9ed851841cf26fb6ca",
+    "models/gambit/lean/HostRootSourceCensus.lean": "31535ef19da7184e45d54221e5a25597628513ce904838a0fe01b8bdb1618c18",
+    "models/gambit/scan_barrier_quiescence.qnt": "74e980283f97670fe58be5691c331a1d7f051fe6d42bd2b7a128fca4ca235f9f",
+    "models/gambit/sync_slot_retained_resources.qnt": "dad954671731833df73195b4f291141a8aa698f764b29b22c965cb8aaf256fc7",
+    "models/gambit/resize_saved_stack_retirement_isolated.qnt": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c",
+    "models/gambit/lean/WorkAccounting.lean": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+    "evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json": "df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466",
+    "patches/fixtures/runtime-mutex-return-cumulative.patch": "49514f1819da3ca6008b07690e732a13625a54811a3e44a7da3615e25fdf0d55",
+    "vendor/ocaml/runtime/domain.c": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c",
+    "vendor/chez/c/thread.c": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72",
+    "vendor/chez/s/mkgc.ss": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406",
+    "vendor/gambit/gsc/_t-c-1.scm": "cd9030133390377167b2b29ad5f06f3854606e762a8a7cb44d932b62127d6b0a",
+    "vendor/gambit/gsc/_t-c-3.scm": "b8b4e6ef94679e669ba62324ad15ea2d05689fff393451f23dd8e0c5dccaa035",
+    "vendor/gambit/lib/setup.h": "a3eb0f5049c7c4a4bdbeb06b0209395f98abb1af3e62301e96c8d57c26085dda",
+    "vendor/gambit/lib/setup.c": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "vendor/gambit/lib/c_intf.c": "40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae",
+    "vendor/gambit/include/gambit.h.in": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2"
+  },
+  "cases": [
+    {
+      "id": "resize_saved_stack_retirement_isolated",
+      "mode": "characterization",
+      "invariants": [
+        "safe"
+      ],
+      "protocolInitializers": {
+        "safe": "initFixed"
+      },
+      "oldInvariants": [
+        "continuationStorageSafe",
+        "exclusiveExecution"
+      ],
+      "oldInitializers": {
+        "continuationStorageSafe": "initQueueOnly",
+        "exclusiveExecution": "initPublishFirst"
+      },
+      "temporal": "completion",
+      "source": [
+        "setup.c:resize_vm conditional GC",
+        "gsc/_t-c-2.scm:return label maps"
+      ],
+      "scope": "Unchanged saved-continuation contract. Conditional resize GC is not evidence of copyFrames at every shrink. Actual complete root census and backing-store ownership remain source premises."
+    },
+    {
+      "id": "scan_barrier_quiescence",
+      "mode": "characterization",
+      "invariants": [
+        "safe"
+      ],
+      "protocolInitializers": {
+        "safe": "initFixed"
+      },
+      "oldInvariants": [
+        "destroySafe",
+        "admissionSafe"
+      ],
+      "oldInitializers": {
+        "destroySafe": "initLocal",
+        "admissionSafe": "initEarlyAdmission"
+      },
+      "temporal": "progress",
+      "source": [
+        "setup.c:barrier_sync_op",
+        "mem.c:garbage_collect_pstate"
+      ],
+      "scope": "Unchanged finite old-cohort callback closure. Root tracing, payload correctness, descriptor validity and last channel sender are separate obligations. Roles/population bounds are not native CPU configuration."
+    },
+    {
+      "id": "sync_slot_retained_resources",
+      "mode": "characterization",
+      "invariants": [
+        "safe"
+      ],
+      "protocolInitializers": {
+        "safe": "initFixed"
+      },
+      "oldInvariants": [
+        "resourceSafe",
+        "initializationSafe"
+      ],
+      "oldInitializers": {
+        "resourceSafe": "initChildDestruction",
+        "initializationSafe": "initRepeatedInitialization"
+      },
+      "temporal": "progress",
+      "source": [
+        "setup.c:SYNC_SEND_MSG",
+        "setup.c:setup_sync_op_pstate",
+        "setup.c:cleanup_vmstate_locked"
+      ],
+      "scope": "Unchanged channel-object lifetime contract. Candidate retains channel resources across shrink; joining receiver does not join remote sender. This source profile does not qualify VM-wide teardown or nonlocal C origins."
+    }
+  ]
+}

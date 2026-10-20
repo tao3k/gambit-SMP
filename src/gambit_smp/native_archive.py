@@ -743,5 +743,9 @@ def main():
     print(json.dumps(dict(artifacts=len(record["files"]), runtimeAdmitted=False)))
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('native-archive')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('native-archive',main))

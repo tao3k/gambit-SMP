@@ -1,4 +1,5 @@
 """Reproduce a pinned runtime source slice; never qualify built artifacts."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 from contextlib import contextmanager
 import difflib
@@ -22,7 +23,7 @@ COMPOSED_FILES = (*AUDIT_FILES, "lib/_system.scm", "lib/_io.scm", "gsc/_prims.sc
 
 
 def revision(checkout):
-    return subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"],
+    return _task_check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"],
                                    text=True, timeout=10).strip()
 
 
@@ -41,7 +42,7 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES):
         source_name(name)
     patches, files = [], {}
     for name in sorted(selected):
-        entry = subprocess.check_output(["git", "-C", str(checkout), "ls-tree", "-z", commit,
+        entry = _task_check_output(["git", "-C", str(checkout), "ls-tree", "-z", commit,
                                          "--", name], timeout=10)
         rows = entry.rstrip(b"\0").split(b"\0")
         if (len(rows) != 1 or b"\t" not in rows[0]
@@ -49,7 +50,7 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES):
                    ([b"100644", b"blob"], [b"100755", b"blob"])
                 or rows[0].split(b"\t", 1)[1] != name.encode()):
             raise ValueError("existing regular tracked source file required")
-        base = subprocess.check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
+        base = _task_check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
                                        timeout=10)
         current = source_file(candidate, name).read_bytes()
         patches.extend(difflib.unified_diff(base.decode().splitlines(True),
@@ -60,13 +61,13 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES):
     if not overlay:
         raise ValueError("empty source snapshot delta")
     # Prove the generated overlay restores exactly these bytes before publishing.
-    from gambit_smp.artifact_storage import cache_path
-    scratch = cache_path(ROOT, "source-materialize")
+    from gambit_smp.artifact_storage import cache_path, runtime_output
+    scratch = runtime_output(ROOT, cache_path(ROOT, "source-materialize"))
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=scratch) as temporary:
         target = Path(temporary)
         for name in sorted(selected):
-            data = subprocess.check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
+            data = _task_check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
                                            timeout=10)
             path = target / name
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -114,7 +115,7 @@ def _materialize(lock_path, out, *, root=None):
         raise ValueError("fresh output directory required")
     patch_bytes = patch.read_bytes()
     # Archive the commit, not a potentially dirty checkout or build cache.
-    archive = subprocess.check_output(["git", "-C", str(checkout), "archive", lock["revision"]],
+    archive = _task_check_output(["git", "-C", str(checkout), "archive", lock["revision"]],
                                       timeout=30)
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="source-", dir=out.parent) as temporary:
@@ -186,6 +187,9 @@ def main():
         record = materialize(args.lock, args.out)
         print(json.dumps(record, sort_keys=True))
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('materialize-source')(main)
 
 if __name__ == "__main__":
     main()

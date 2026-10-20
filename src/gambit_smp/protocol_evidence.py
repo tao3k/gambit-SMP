@@ -376,5 +376,8 @@ def main():
         publish(args.from_dir.resolve(), args.out.resolve(), args.manifest.resolve())
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('publish-protocol')(main)
+
 if __name__ == "__main__":
     main()

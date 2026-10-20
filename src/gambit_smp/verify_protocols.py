@@ -2,6 +2,7 @@
 
 Only new protocol checks run; no native candidate or known failed route runs.
 """
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import json
 from pathlib import Path
@@ -46,6 +47,23 @@ def load_manifest(path):
         if not case.get("temporal"):
             raise ValueError("unique checks and explicit progress property required")
     return manifest
+
+
+def retain_reused_artifacts(source, destination, row):
+    """A resumed verdict retains its checked compiler artifacts, not just logs."""
+    inputs = {}
+    for name, expected in row.get("checker", {}).get("artifacts", {}).items():
+        original, target = local(source, name), local(destination, name)
+        if digest(original) != expected:
+            raise ValueError("resumed checker artifact changed")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists() and digest(target) != expected:
+            raise ValueError("resumed checker artifact collision")
+        target.write_bytes(original.read_bytes())
+        if digest(original) != expected or digest(target) != expected:
+            raise ValueError("resumed checker artifact changed during retention")
+        inputs[str(original)] = expected
+    return inputs
 
 
 def reusable_check(directory, manifest, case, variant, invariant, initializer, sha):
@@ -117,7 +135,7 @@ def main():
         parser.error("unknown case")
     if any(case.get("registrationOnly") is True for case in cases):
         parser.error("registration-only metadata is not executable protocol acceptance; use its declared safety recipe")
-    version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
+    version = _task_check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != manifest["quintVersion"]:
         raise ValueError("Quint version differs from reviewed version")
     plan = resources(available_processors(), physical_memory(), args.jobs)
@@ -176,6 +194,9 @@ def main():
                 row, output, trace = reused
                 old_log = args.resume_from / row["log"]
                 inputs[str(old_log.relative_to(ROOT))] = digest(old_log)
+                inputs.update({str(Path(path).relative_to(ROOT)): expected
+                    for path, expected in retain_reused_artifacts(
+                        args.resume_from, args.out, row).items()})
                 (args.out / (name + ".log")).write_text(output)
                 row.update(log=name + ".log", reusedFromReceiptSha256=digest(args.resume_from / "receipt.json"))
                 if trace:
@@ -226,5 +247,9 @@ def main():
     return 0 if ok and stable else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('verify')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('verify', main))

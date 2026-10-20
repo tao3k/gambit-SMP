@@ -2,6 +2,31 @@
 
 ## Current Milestone Checkpoint
 
+### 2026-10-19 Current Checkpoint Full Native And Gerbil Execution
+
+Frozen FFI/GC negative traces are now bound to verified historical model bytes,
+without changing trace hashes or current model extensions. Complete original GSI
+first exposed a mutex-unlock return regression (373/374); Grok's two-branch void
+return repair was incrementally regenerated/linked from the retained checkpoint.
+The same original GSI inventory then passed **374/374**. No Gambit bootstrap was
+repeated, and the original failing fixture and every denied run remain retained.
+
+Complete GSC launched all **374** original files: **373 passed**, while the
+numerical case exceeded its unchanged 90-second cap. Official GC/FFI Make
+**test7/test8/test9 passed** on the same successor. All current lifecycle fixtures
+also passed, including actual runtime pending/sticky joins and terminal reader
+drain. These observations do not supply natural error-then-success join recovery
+or preadmission OS-handler generation quiescence.
+
+Gerbil consumed the exact current native products, built stage0 and stage1, then
+failed natively in stdlib. Matched-text symbolization maps the crash to the
+structure writer's type-field read. A separate message-only diagnostic still
+failed at that location. No complete Gerbil test run or release claim is made.
+The four open gates remain open; the aggregate stays **8/12**, with actual repairs,
+full inventories, source-bound controls and failures detailed in the
+[current checkpoint audit](../evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md).
+
+
 ### 2026-10-19 Lifecycle Admission Rollback And Work Bound
 
 Cumulative progress remains **8/12**. A new current-source official-FFI test

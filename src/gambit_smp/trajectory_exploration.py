@@ -14,8 +14,17 @@ def _current(snapshot):
     if snapshot.get("executionAuthorized") is not False:
         raise ValueError("recorded-only action snapshot required")
     for path, sha in snapshot["inputs"].items():
-        if digest(Path(path)) != sha:
+        if sha is None and Path(path).exists():
+            raise ValueError("trajectory action source appeared: " + path)
+        if (digest(Path(path)) if Path(path).is_file() else None) != sha:
             raise ValueError("trajectory action source changed: " + path)
+    for view in snapshot.get("unavailableViews", ()):
+        from gambit_smp.framework import relative
+        for ref in view["references"]:
+            path = relative(snapshot["repositoryRoot"], ref["path"])
+            if ((path.exists() and not path.is_file())
+                    or (digest(path) if path.is_file() else None) != ref["observed"]):
+                raise ValueError("unavailable reference changed during read: " + ref["path"])
 
 
 def candidate(snapshot, action_id, *, check_current=True):
@@ -175,6 +184,23 @@ def _native_exchange(root, snapshot, engine):
             owner = ClueExchange(engine, sources, document["constructor"], facts, attestations)
         else:
             owner.include(engine, sources, document["constructor"], facts, attestations)
+    availability = snapshot.get("availability")
+    if availability is not None and snapshot.get("unavailableViews"):
+        sources = [Path(availability["source"]).read_text()]
+        facts = {"unavailable": []}
+        for view in snapshot["unavailableViews"]:
+            for ref in view["references"]:
+                identity = fingerprint(dict(view=view, reference=ref))
+                facts["unavailable"].append([
+                    "view-reference:" + identity, view["declarationSha256"],
+                    "evidence-view-current:" + view["id"], view["id"], view["path"],
+                    ref["path"], ref["expected"], ref["observed"] or "absent", ref["reason"]])
+        attestations = {str(Path(path).relative_to(Path(root).resolve())): sha
+                        for path, sha in snapshot["inputs"].items() if sha is not None}
+        if owner is None:
+            owner = ClueExchange(engine, sources, availability["constructor"], facts, attestations)
+        else:
+            owner.include(engine, sources, availability["constructor"], facts, attestations)
     if owner is None:
         raise ValueError("context has no declarative Clue projection; use its declared View queries")
     _current(snapshot)
@@ -275,24 +301,49 @@ def clues(root, scope, snapshot, question, engine, *, proposed=(), bindings=(),
 
 def _repository_snapshot(root):
     """Bind the current registry for both discovery and evidence reads."""
-    from gambit_smp.evidence_views import registry, load
+    from gambit_smp.evidence_views import registry, load, ReferenceUnavailable
     from gambit_smp.recipes import source_path
 
     names, inputs = registry(root)
-    views = []
+    views, unavailable = [], []
+    configuration = json.loads((Path(root) / "evidence/views.json").read_text()) if names else {}
+    availability = configuration.get("availability")
     for name in names:
         path = source_path(root, name)
         identity = digest(path)
         document = json.loads(path.read_text())
         if not {"clue", "factor", "link"}.issubset(document["queries"]):
             continue
-        _, _, _, bound = load(root, name)
+        try:
+            _, _, _, bound = load(root, name)
+        except ReferenceUnavailable as observation:
+            if availability is None:
+                raise
+            bound = observation.inputs
+            unavailable.append(dict(id=document["id"], path=name,
+                declarationSha256=identity, references=observation.references))
+            if bound[str(path)] != identity:
+                raise ValueError("Evidence declaration changed during query binding")
+            inputs.update(bound)
+            continue
         if bound[str(path)] != identity:
             raise ValueError("Evidence declaration changed during query binding")
         inputs.update(bound)
         views.append(dict(id=document["id"], path=name, queries=document["queries"], inputs=bound))
-    return dict(evidenceViews=views, inputs=inputs, sourceIdentity=fingerprint(inputs),
-                executionAuthorized=False)
+    if availability is not None:
+        availability = dict(availability,
+            source=str(source_path(Path(root).resolve(), availability["source"])))
+    return dict(repositoryRoot=Path(root).resolve(), evidenceViews=views,
+                unavailableViews=unavailable, availability=availability,
+                inputs=inputs, sourceIdentity=fingerprint(inputs), executionAuthorized=False)
+
+
+def _coverage(snapshot):
+    return dict(scope="registered-clue-views",
+        availableViews=len(snapshot["evidenceViews"]),
+        unavailableViews=len(snapshot["unavailableViews"]),
+        availabilityFactor=["evidence-state", "provenance-unavailable"],
+        complete=not snapshot["unavailableViews"])
 
 
 def repository_clues(root: str | Path = ".", question: str | Sequence[str] | None = None,
@@ -453,6 +504,7 @@ def repository_clues(root: str | Path = ".", question: str | Sequence[str] | Non
         result = owner.slice(request)
     _current(snapshot)
     result["brief"]["inputIdentity"] = snapshot["sourceIdentity"]
+    result["brief"]["evidenceCoverage"] = _coverage(snapshot)
     if cache_miss:
         result["brief"]["checkpointStatus"] = "cache-miss"
     from gambit_smp.reasoning_history import cache_clue_checkpoint
@@ -470,13 +522,15 @@ def catalog(root, context_path=None, *, factor=None):
 
         snapshot = _repository_snapshot(root)
         pairs = []
-        if snapshot["evidenceViews"]:
+        available = bool(snapshot["evidenceViews"] or snapshot["unavailableViews"])
+        if available:
             with engine_api() as (engine, _):
                 pairs = _native_exchange(root, snapshot, engine).inventory()["factors"]
         result = dict(catalogIdentity=snapshot["sourceIdentity"],
                       factorNames=sorted({name for name, _ in pairs}),
                       inventoryComplete=False,
-                      clueExchangeAvailable=bool(snapshot["evidenceViews"]),
+                      clueExchangeAvailable=available,
+                      evidenceCoverage=_coverage(snapshot),
                       executionAuthorized=False, runtimeAdmitted=False)
         if factor is not None:
             result.update(factor=factor,
@@ -528,12 +582,14 @@ def argument_parser():
                "No flag inventory, catalog or Context selection is required. "
                "context reads retained scoped history only. Reads neither choose nor authorize actions.")
     operations = parser.add_subparsers(dest="operation", required=True)
+    parser.set_defaults(execution_policy="task")
     inventory = operations.add_parser("catalog", help="discover current DSL-projected factor names and values",
         description="Read factor names from the current registered Evidence; --factor reads its known values. "
                     "An optional --context restricts discovery to that caller-owned declaration. Inventories are not exhaustive "
                     "and do not restrict new questions or factors.")
     inventory.add_argument("--context", type=Path, help="optional caller-owned Evidence context")
     inventory.add_argument("--factor", help="read known values of this factor, not all evidence")
+    inventory.set_defaults(execution_policy="read")
     descriptions = {
         "context": "read scoped retained history (--scope required with --context), not repository Evidence",
         "clues": "query Evidence relations with Scheme/Datalog; return traceable incremental slices",
@@ -550,6 +606,7 @@ def argument_parser():
                 source.add_argument("--context", type=Path, help="caller-owned retained-history context")
                 operation.add_argument("--scope", help="required with --context; caller-chosen persistent investigation name")
         if name == "clues":
+            operation.set_defaults(execution_policy="read")
             operation.formatter_class = argparse.RawDescriptionHelpFormatter
             operation.epilog = """Registered Evidence is already loaded. Supply one inert Scheme association list,
 or read it from standard input. Bindings are relational anchors, not keywords:
@@ -596,6 +653,11 @@ not choose actions, close the hypothesis space or grant execution authority.
             clues_input.add_argument("--clues-json", help="inline JSON hypothesis list")
             operation.add_argument("--expected-prefix", help="clueJournal.prefix from the latest read")
     return parser
+
+
+def execution_policy(arguments):
+    """Parser-owned effects; read hints do not require an execution lease."""
+    return argument_parser().parse_args(arguments).execution_policy
 
 
 def main():
@@ -668,6 +730,9 @@ def main():
     print(ClueExchange.render(result))
 
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('trajectory')(main)
 
 if __name__ == "__main__":
     main()

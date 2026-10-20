@@ -60,8 +60,13 @@ class EvidenceViewTests(unittest.TestCase):
 
     def test_native_stress_witnesses_keep_the_positive_qualification_contract(self):
         registry = json.loads((ROOT / "evidence/views.json").read_text())
+        checked = 0
         for name in registry["views"]:
             view = json.loads((ROOT / name).read_text())
+            # Relation names are local to their Evidence component. The Zig
+            # observation relation references citations in a different column.
+            if view["entry"] != "stack-entry-clues":
+                continue
             references = {row["id"]: row for row in view["references"]}
             for _, claim, polarity, reference in view["facts"].get("observation", []):
                 path = ROOT / references[reference]["path"]
@@ -70,10 +75,13 @@ class EvidenceViewTests(unittest.TestCase):
                 observation = json.loads(path.read_text())
                 if observation.get("schema") != "gambit.native-stress-observation.v1":
                     continue
+                checked += 1
                 self.assertTrue(claim.endswith("-stress-qualified"), (name, claim))
                 self.assertEqual(polarity,
                                  "support" if observation["nativeStressEstablished"] else "counter",
                                  (name, claim))
+
+        self.assertGreater(checked, 0)
 
     def test_executed_declarations_do_not_project_obsolete_unexecuted_status(self):
         registry = json.loads((ROOT / "evidence/views.json").read_text())
@@ -265,16 +273,13 @@ class EvidenceViewTests(unittest.TestCase):
         self.assertGreater(len(inputs), 950)
 
     def test_real_actions_select_and_observe(self):
-        from gambit_smp.artifact_storage import cache_path, database_path
+        from gambit_smp.artifact_storage import cache_path
         parent = cache_path(ROOT, 'tests')
         parent.mkdir(parents=True, exist_ok=True)
         scratch = tempfile.TemporaryDirectory(prefix='evidence-actions-', dir=parent)
         self.addCleanup(scratch.cleanup)
-        def isolated_database(root, name, previous):
-            if name == 'research-actions/requests.sqlite':
-                return Path(scratch.name) / 'requests.sqlite'
-            return database_path(root, name, previous)
-        isolation = patch('gambit_smp.artifact_storage.database_path', side_effect=isolated_database)
+        isolation = patch('gambit_smp.research_actions._request_database_path',
+                          return_value=Path(scratch.name) / 'requests.sqlite')
         isolation.start()
         self.addCleanup(isolation.stop)
         with self.assertRaisesRegex(ValueError, "historical Evidence view"):

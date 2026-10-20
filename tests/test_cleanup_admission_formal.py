@@ -17,7 +17,8 @@ class CleanupAdmissionFormalTests(unittest.TestCase):
         lean = ROOT / "models/gambit/lean"
         files = [lean / "CleanupAdmissionWork.lean",
                  lean / "controls/UnboundedAdmissionReopen.lean",
-                 lean / "lean-toolchain", lean / "lakefile.toml"]
+                 lean / "WorkAccounting.lean", lean / "lean-toolchain",
+                 lean / "lakefile.toml"]
         inputs = {str(path.relative_to(ROOT)): digest(path) for path in files}
         parent = cache_path(ROOT, "cleanup-admission-formal")
         parent.mkdir(parents=True, exist_ok=True)
@@ -27,23 +28,25 @@ class CleanupAdmissionFormalTests(unittest.TestCase):
         lake = shutil.which("lake")
         self.assertIsNotNone(lake)
 
-        def observe(name, args):
-            row = capture([lake, "env", "lean", "-DmaxHeartbeats=200000",
-                           "-DmaxRecDepth=512", *args], lean, 15, environment)
+        def observe(name, args, timeout=15):
+            row = capture([lake, *args], lean, timeout, environment)
             (out / (name + ".json")).write_text(json.dumps(
                 dict(asdict(row), inputs=inputs), indent=2) + "\n")
             self.assertFalse(row.timeout, name)
             self.assertTrue(row.group_quiescent, name)
             return row
 
-        positive = observe("linear-work", ["CleanupAdmissionWork.lean"])
+        built = observe("dependencies", ["build", "WorkAccounting"], 120)
+        self.assertEqual(built.exit, 0, built.stdout + built.stderr)
+        guarded = ["env", "lean", "-DmaxHeartbeats=200000", "-DmaxRecDepth=512"]
+        positive = observe("linear-work", [*guarded, "CleanupAdmissionWork.lean"])
         self.assertEqual(positive.exit, 0, positive.stdout + positive.stderr)
         self.assertNotIn("sorryAx", positive.stdout + positive.stderr)
         for theorem in ("linearAdmissionWork", "singleProcessorRejectedPrefixWork",
                         "retriesPreserveAccounting", "attemptWorkSum",
                         "redundantScanViolatesSingleVisit"):
             self.assertIn(theorem, positive.stdout)
-        control = observe("unbounded-reopen", ["controls/UnboundedAdmissionReopen.lean"])
+        control = observe("unbounded-reopen", [*guarded, "controls/UnboundedAdmissionReopen.lean"])
         self.assertNotEqual(control.exit, 0)
         self.assertIn("false", control.stdout + control.stderr)
         self.assertNotIn("unknown module", control.stdout + control.stderr)

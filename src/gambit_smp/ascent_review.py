@@ -139,6 +139,8 @@ def _collect(root, selected=None, proposal=None, task_model=None):
     from gambit_smp.evidence_views import registry, load as load_view
     view_names, view_inputs = registry(root)
     for name in view_names:
+        from gambit_smp.view_materialize import check_binding
+        view_inputs.update(check_binding(root,name))
         _, _, _, bound_view = load_view(root, name)
         view_inputs.update(bound_view)
     inputs.update({str(Path(path).relative_to(root)): sha for path, sha in view_inputs.items()})
@@ -338,5 +340,9 @@ def main():
     return 2 if any(d["decision"] == "DENY" for d in result["decisions"]) else 3
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('ascent-review')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('ascent-review', main))

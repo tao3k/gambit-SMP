@@ -44,4 +44,41 @@ module native_compiler_probe_correspondence {
     .then(all { assert(not(safe)), s' = s })
   run unknownPhaseControlTest = initBypass.then(unknownPhase).then(admit)
     .then(all { assert(not(safe)), s' = s })
+  type PassSample = { exit: int, warnings: bool, functions: int, requested: str,
+    dumps: Set[str], source: int, dumpSource: int, compiler: int, dumpCompiler: int,
+    timeout: bool }
+  pure val passSample: PassSample = { exit: 0, warnings: false, functions: 1,
+    requested: "alias", dumps: Set("alias"), source: 1, dumpSource: 1,
+    compiler: 1, dumpCompiler: 1, timeout: false }
+  pure def passExercised(p: PassSample): bool = p.exit == 0 and not(p.warnings) and
+    p.functions > 0 and p.dumps.contains(p.requested) and p.source == p.dumpSource and
+    p.compiler == p.dumpCompiler and not(p.timeout)
+  // Unit labels are distinct: a class count is not a universe element count,
+  // and neither determines a measured compiler work/time quantity.
+  pure def classUnits(groups: Set[Set[a]]): int = groups.size()
+  pure def universeUnits(groups: Set[Set[a]]): int =
+    groups.fold(Set(), (allNodes, group) => allNodes.union(group)).size()
+  pure def projectedUnits(group: Set[a]): int = group.size()
+  pure val passControls = Set(passSample, { ...passSample, dumps: Set() },
+    { ...passSample, functions: 0 }, { ...passSample, warnings: true },
+    { ...passSample, dumpSource: 2 }, { ...passSample, dumpCompiler: 2 },
+    { ...passSample, dumps: Set("different-pass") }, { ...passSample, timeout: true },
+    { ...passSample, exit: 3 })
+  run mechanismRequestedPassTest = init.then(all {
+    assert(passExercised(passSample)),
+    assert(passControls.forall(p => passExercised(p) == (p == passSample))), s' = s })
+  run mechanismCostUnitsTest = init.then(all {
+    assert(classUnits(Set(Set(1, 2), Set(3, 4))) == 2),
+    assert(universeUnits(Set(Set(1, 2), Set(3, 4))) == 4),
+    assert(projectedUnits(Set(1, 2)) == 2),
+    assert(universeUnits(Set(Set(("value", 1), ("location", 1)))) == 2),
+    assert(universeUnits(Set(Set(1, 2), Set(2, 3))) == 3), s' = s })
+
+  // Candidate finite relation saturation. The test oracle uses independent
+  // per-start queue traversal, never this composition or class projection.
+  pure def aliasClosure(nodes: Set[a], edges: Set[(a, a)]): Set[(a, a)] =
+    nodes.fold(edges.union(nodes.map(n => (n, n))), (reach, _) =>
+      reach.union(reach.fold(Set(), (result, a) => result.union(
+        reach.filter(b => a._2 == b._1).map(b => (a._1, b._2))))))
+
 }

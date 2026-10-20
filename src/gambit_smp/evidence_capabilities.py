@@ -6,6 +6,7 @@ from contextlib import contextmanager, nullcontext
 import os
 import selectors
 import subprocess
+from gambit_smp.task_processes import spawn as _task_spawn
 import time
 import traceback
 import hashlib
@@ -84,7 +85,7 @@ class EvaluationOwner:
             if slot is not None:
                 environment.update(GAMBIT_SMP_SESSION_CONSTRUCTION_LOCK=str(slot[0]),
                                    GAMBIT_SMP_SESSION_CONSTRUCTION_DEADLINE=str(slot[1]))
-            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            self.process = _task_spawn(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=self.log, env=environment)
             self.argv = argv
         row = {"request": str(request_path), "requestSha256": request_sha,

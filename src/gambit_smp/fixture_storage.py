@@ -1,4 +1,5 @@
 """Bound disposable Gambit source trees; preserve evidence when pruning them."""
+from gambit_smp.task_processes import run as _task_run
 import argparse
 from contextlib import contextmanager
 import fcntl
@@ -89,7 +90,7 @@ def _prune(root, keep, archive, *, apply=False, targets=None, discard=None):
     if not apply:
         return record
     # lsof includes cwd and executable mappings, not just explicitly open files.
-    observed = subprocess.run(["lsof", "-n", "-P", "-F", "n"], capture_output=True, text=True, timeout=60)
+    observed = _task_run(["lsof", "-n", "-P", "-F", "n"], capture_output=True, text=True, timeout=60)
     if observed.returncode not in (0, 1) or not observed.stdout:
         raise ValueError("cannot inspect active files; refusing cleanup")
     active = [line[1:] for line in observed.stdout.splitlines() if line.startswith("n/")]
@@ -207,5 +208,9 @@ def main():
                       "gitProtected": record.get("gitProtected", [])}))
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('fixture-storage')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('fixture-storage',main))

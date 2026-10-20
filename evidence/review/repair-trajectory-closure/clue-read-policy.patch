@@ -1,0 +1,38 @@
+diff --git a/src/gambit_smp/trajectory_exploration.py b/src/gambit_smp/trajectory_exploration.py
+--- a/src/gambit_smp/trajectory_exploration.py
++++ b/src/gambit_smp/trajectory_exploration.py
+@@ -528,12 +528,14 @@ def argument_parser():
+                "No flag inventory, catalog or Context selection is required. "
+                "context reads retained scoped history only. Reads neither choose nor authorize actions.")
+     operations = parser.add_subparsers(dest="operation", required=True)
++    parser.set_defaults(execution_policy="task")
+     inventory = operations.add_parser("catalog", help="discover current DSL-projected factor names and values",
+         description="Read factor names from the current registered Evidence; --factor reads its known values. "
+                     "An optional --context restricts discovery to that caller-owned declaration. Inventories are not exhaustive "
+                     "and do not restrict new questions or factors.")
+     inventory.add_argument("--context", type=Path, help="optional caller-owned Evidence context")
+     inventory.add_argument("--factor", help="read known values of this factor, not all evidence")
++    inventory.set_defaults(execution_policy="read")
+     descriptions = {
+         "context": "read scoped retained history (--scope required with --context), not repository Evidence",
+         "clues": "query Evidence relations with Scheme/Datalog; return traceable incremental slices",
+@@ -550,6 +552,7 @@ def argument_parser():
+                 source.add_argument("--context", type=Path, help="caller-owned retained-history context")
+                 operation.add_argument("--scope", help="required with --context; caller-chosen persistent investigation name")
+         if name == "clues":
++            operation.set_defaults(execution_policy="read")
+             operation.formatter_class = argparse.RawDescriptionHelpFormatter
+             operation.epilog = """Registered Evidence is already loaded. Supply one inert Scheme association list,
+ or read it from standard input. Bindings are relational anchors, not keywords:
+@@ -598,6 +601,11 @@ not choose actions, close the hypothesis space or grant execution authority.
+     return parser
+ 
+ 
++def execution_policy(arguments):
++    """Parser-owned effects; read hints do not require an execution lease."""
++    return argument_parser().parse_args(arguments).execution_policy
++
++
+ def main():
+     from gambit_smp.framework import ROOT
+ 

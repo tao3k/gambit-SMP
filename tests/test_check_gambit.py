@@ -11,6 +11,7 @@ from gambit_smp import debug_capture
 from gambit_smp import upstream_audit
 
 from gambit_smp import check_gambit as gate
+from gambit_smp.evidence_index import export
 
 
 class GateTests(unittest.TestCase):
@@ -211,15 +212,19 @@ class GateTests(unittest.TestCase):
                 self.assertFalse(any(s["phase"] == 1 and s["error"] == 2 for s in states))
 
     def test_ffi_gc_controls_separate_roots_reload_and_return_address(self):
+        history = export()["facts"]["historical_frozen_negative"]
         predicates = {
             "rootsSafe": lambda s: s["badRoots"] or (s["phase"] == 7 and s["processorRoot"] != 7 + s["epoch"]),
             "reloadSafe": lambda s: s["phase"] == 7 and (s["processorFrame"] != s["epoch"] or s["processorRoot"] != 7 + s["epoch"]),
             "returnSafe": lambda s: s["phase"] >= 6 and s["returnedRA"] != 9,
         }
         for fault, (invariant, violates) in enumerate(predicates.items(), 1):
-            trace = json.loads((gate.MODELS / "counterexamples" /
-                ("ffi_gc_frame_protocol-" + invariant + ".json")).read_text())
-            self.assertEqual(gate.digest(gate.MODELS / "ffi_gc_frame_protocol.qnt"), trace["modelSha256"])
+            path = gate.MODELS / "counterexamples" / ("ffi_gc_frame_protocol-" + invariant + ".json")
+            trace = json.loads(path.read_text())
+            bindings = [row for row in history if tuple(row[:3]) ==
+                        ("ffi_gc_frame_protocol", invariant, gate.digest(path))]
+            self.assertEqual(len(bindings), 1)
+            self.assertEqual(gate.digest(gate.ROOT / bindings[0][3]), trace["modelSha256"])
             states = [row["s"] for row in trace["states"]]
             self.assertTrue(all(s["fault"] == fault for s in states))
             self.assertFalse(any(violates(s) for s in states[:-1]))

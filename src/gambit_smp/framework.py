@@ -142,13 +142,27 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
     if (isinstance(completion_grace, bool) or not math.isfinite(completion_grace)
             or completion_grace < 0):
         raise ValueError("nonnegative finite finalization grace required")
+    from gambit_smp.task_processes import recorder as task_recorder, check_deferred_environment
+    check_deferred_environment(env)
+    task_record=task_recorder()
+    inherited=()
+    if task_record:
+        from gambit_smp.workspace import inherited_lease
+        inherited=(inherited_lease(Path(os.environ['GAMBIT_SMP_TASK_ROOT']),os.environ['GAMBIT_SMP_TASK_ID']),)
+        if env is not None:
+            env=dict(env)
+            env.update({key:value for key,value in os.environ.items() if key.startswith('GAMBIT_SMP_TASK_')})
+        original_recorder=process_recorder
+        def process_recorder(event,token,fields):
+            task_record(event,token,fields)
+            if original_recorder:original_recorder(event,token,fields)
     start = time.monotonic()
     token = os.urandom(16).hex()
     if process_recorder is not None:
         process_recorder("planned", token, {"argv": [str(arg) for arg in argv], "cwd": str(cwd)})
     try:
         process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env)
+            stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env, pass_fds=inherited)
     except OSError:
         if process_recorder is not None:
             process_recorder("spawn-failed", token, {})
@@ -214,6 +228,8 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
             metadata["processGroupQuiescent"] = None
         else:
             metadata["processGroupQuiescent"] = False
+    if task_record:
+        task_record("finished",token,dict(exit=process.returncode,parentReaped=process.returncode is not None,timedOut=timed_out))
     return process.returncode, output, timed_out, time.monotonic() - start
 
 

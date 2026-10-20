@@ -1,14 +1,39 @@
 module predicate_lock_retry_rooting {
   // A bounded owner and waiter, not a native processor-count constraint.
   // CAS atomicity, accurate GC roots and finite contenders remain premises.
+  // Separate projection: service_sync_op can resize, throw or retire, not
+  // only collect. No claim that a new C wait adapter already exists.
+  // Registry acquisition here is non-reentrant; platform recursion differs.
+  type Effects = { policy: int, phase: int, op: int, registryHeld: bool,
+    metadataHeld: bool, temporary: bool, blocked: bool, error: int }
+  pure def effectsInitial(policy: int, op: int): Effects = {
+    policy: policy, phase: 0, op: op, registryHeld: policy == 1,
+    metadataHeld: policy == 4, temporary: true, blocked: false, error: 0,
+  }
+  // Composition missing from lock-order and relocation checks: a waiting
+  // mutator may prevent the collection needed by the lock owner. Rehash can
+  // also change a derived bucket without moving any object or exceeding bounds.
+  // Policies: 0 leaf/revalidate; 1 raw collecting owner (negative);
+  // 2 parked participant/revalidate; 3 leaf/stale bucket (negative).
+  type Wait = { policy: int, ownerHeld: bool, ownerNeedsGC: bool, work: int,
+    waiter: int, requested: bool, gcDone: bool, length: int, bucket: int,
+    wrongBucket: bool }
+  pure def waitInitial(policy: int): Wait = {
+    policy: policy, ownerHeld: true, ownerNeedsGC: policy == 1 or policy == 2,
+    work: 2, waiter: 0, requested: false, gcDone: false,
+    length: 2, bucket: 1, wrongBucket: false,
+  }
   type State = { helper: bool, spill: bool, phase: str, requested: bool,
     joined: Set[int], ownerHolds: bool, peerHolds: bool, gcDone: bool,
-    epoch: int, reference: int, stackRoot: int, invalidAccess: bool }
+    epoch: int, reference: int, stackRoot: int, invalidAccess: bool,
+    effects: Effects, wait: Wait }
   var s: State
   pure def initial(helper: bool, spill: bool): State = {
     helper: helper, spill: spill, phase: "probe", requested: false,
     joined: Set(), ownerHolds: true, peerHolds: false, gcDone: false,
     epoch: 0, reference: 0, stackRoot: 0, invalidAccess: false,
+    effects: effectsInitial(0, 0),
+    wait: waitInitial(0),
   }
   action initFixed = s' = initial(true, true)
   action initRaw = s' = initial(false, true)
@@ -67,4 +92,102 @@ module predicate_lock_retry_rooting {
     weakFair(collect, Set(s)) and weakFair(restore, Set(s)) and
     weakFair(releaseOwner, Set(s)) and weakFair(retry, Set(s)) and
     weakFair(releasePeer, Set(s))).implies(eventually(terminal))
+
+  action initEffects = {
+    nondet op = Set(0, 1, 2, 3).oneOf()
+    s' = { ...initial(true, true), effects: effectsInitial(0, op) }
+  }
+  action initRegistryService = s' = { ...initial(true, true), effects: effectsInitial(1, 1) }
+  action initResourceAcrossExit = s' = { ...initial(true, true), effects: effectsInitial(2, 3) }
+  action initErasedServiceError = s' = { ...initial(true, true), effects: effectsInitial(3, 2) }
+  action initMetadataService = s' = { ...initial(true, true), effects: effectsInitial(4, 0) }
+  // Discharge only an owned non-Scheme temporary before the generic service.
+  // Rooted Scheme activation remains a separate existing protocol premise.
+  action prepareEffects = all {
+    s.effects.phase == 0,
+    s' = { ...s, effects: { ...s.effects, phase: 1,
+      temporary: s.effects.policy == 2 } },
+  }
+  action dispatchEffects = all {
+    s.effects.phase == 1,
+    s' = { ...s, effects: { ...s.effects, phase: 2,
+      blocked: s.effects.op == 1 and s.effects.registryHeld,
+      error: if (s.effects.op == 2 and s.effects.policy != 3) 7 else 0 } },
+  }
+  // Exit may bypass C return-site cleanup; this action cannot repair leaks.
+  action finishEffects = all {
+    s.effects.phase == 2, not(s.effects.blocked),
+    s' = { ...s, effects: { ...s.effects, phase: 3 } },
+  }
+  action effectsFinished = all { s.effects.phase == 3, s' = s }
+  action effectsStep = any { prepareEffects, dispatchEffects, finishEffects, effectsFinished }
+  val effectRegistrySafe = not(s.effects.blocked)
+  val effectMetadataSafe = s.effects.phase == 0 or not(s.effects.metadataHeld)
+  val effectOrderSafe = effectRegistrySafe and effectMetadataSafe
+  val effectExitSafe = s.effects.phase != 3 or not(s.effects.temporary)
+  val effectErrorSafe = s.effects.phase != 3 or s.effects.op != 2 or s.effects.error == 7
+  val effectsSafe = effectOrderSafe and effectExitSafe and effectErrorSafe
+  temporal effectsCompletion = weakFair(effectsStep, s).implies(eventually(s.effects.phase == 3))
+
+  action initWait = {
+    nondet policy = Set(0, 2).oneOf()
+    s' = { ...initial(true, true), wait: waitInitial(policy) }
+  }
+  action initCollectingLeafOwner = s' = { ...initial(true, true), wait: waitInitial(1) }
+  action initStaleBucketAfterWait = s' = { ...initial(true, true), wait: waitInitial(3) }
+  action requestWaitCollection = all {
+    not(s.wait.requested),
+    s' = { ...s, wait: { ...s.wait, requested: true } },
+  }
+  // work is a finite noncollecting operation, under fair OS completion. It is
+  // not a time bound or a claim that actual malloc/foreign hooks are bounded.
+  action ownerWork = all {
+    s.wait.ownerHeld, s.wait.work > 0,
+    not(s.wait.ownerNeedsGC) or s.wait.gcDone,
+    s' = { ...s, wait: { ...s.wait, work: s.wait.work - 1 } },
+  }
+  action ownerRehash = all {
+    s.wait.ownerHeld, s.wait.length == 2,
+    not(s.wait.ownerNeedsGC) or s.wait.gcDone,
+    s' = { ...s, wait: { ...s.wait, length: 4 } },
+  }
+  action ownerRelease = all {
+    s.wait.ownerHeld, s.wait.work == 0,
+    s' = { ...s, wait: { ...s.wait, ownerHeld: false } },
+  }
+  // Parking has an explicit participation premise; an OS wait is not parking.
+  // Root/frame ownership and relocation/reload remain their existing models.
+  action parkWaiter = all {
+    s.wait.policy == 2, s.wait.waiter == 0, s.wait.requested,
+    s' = { ...s, wait: { ...s.wait, waiter: 1 } },
+  }
+  action collectWait = all {
+    s.wait.requested, not(s.wait.gcDone),
+    s.wait.ownerNeedsGC or not(s.wait.ownerHeld),
+    s.wait.waiter == 1 or s.wait.waiter == 3,
+    s' = { ...s, wait: { ...s.wait, gcDone: true, length: 4 } },
+  }
+  action acquireWaiter = all {
+    not(s.wait.ownerHeld),
+    s.wait.waiter == 0 or (s.wait.waiter == 1 and s.wait.gcDone),
+    s' = { ...s, wait: { ...s.wait, waiter: 2,
+      bucket: if (s.wait.policy == 3) s.wait.bucket else 3 % s.wait.length } },
+  }
+  action useAndReleaseWaiter = all {
+    s.wait.waiter == 2,
+    s' = { ...s, wait: { ...s.wait, waiter: 3,
+      wrongBucket: s.wait.bucket != 3 % s.wait.length } },
+  }
+  val waitTerminal = not(s.wait.ownerHeld) and s.wait.waiter == 3 and s.wait.gcDone
+  action waitFinished = all { waitTerminal, s' = s }
+  action waitStep = any { requestWaitCollection, ownerWork, ownerRehash,
+    ownerRelease, parkWaiter, collectWait, acquireWaiter,
+    useAndReleaseWaiter, waitFinished }
+  val waitCycleSafe = not(s.wait.requested and not(s.wait.gcDone) and
+    s.wait.ownerHeld and s.wait.ownerNeedsGC and s.wait.waiter == 0 and
+    s.wait.policy != 2)
+  val waitedBucketSafe = not(s.wait.wrongBucket)
+  val waitedBucketInBounds = s.wait.bucket >= 0 and s.wait.bucket < s.wait.length
+  val waitSafe = waitCycleSafe and waitedBucketSafe and waitedBucketInBounds
+  temporal waitCompletion = weakFair(waitStep, s).implies(eventually(waitTerminal))
 }

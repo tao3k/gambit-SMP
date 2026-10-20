@@ -32,7 +32,7 @@ conditions to the same chains. `transfer_premise_evidence` expands them with
 source identity/section provenance; missing supporting sources/sections also
 produce `transfer_unbound`. A surviving core comparison does not hide a missing
 premise, and a source finding is not a verified runtime contract. See
-[`Experimental transfer applicability`](../../../docs/experimental-transfer-applicability.md)
+[`Experimental transfer applicability`](../../../docs/experimental/transfer-applicability.md)
 for bounded adaptation versus separate Experimental milestone boundaries.
 The [stage-one review](../../../docs/stage-one-refactor-review.md) supplies
 source-bound scope, benefit, cost and acceptance decisions through those same
@@ -68,4 +68,15 @@ See `docs/parallel-gc-design-comparison.md` for source positions and performance
 tradeoffs. The models and references serve Gambit SMP, multiple-threaded VM and
 parallel GC repair, not a ranking of runtimes.
 The expanded research interpretation is in
-[`docs/experimental-smp-design-foundations.md`](../../../docs/experimental-smp-design-foundations.md).
+[`docs/experimental/smp-design-foundations.md`](../../../docs/experimental/smp-design-foundations.md).
+
+`runtime-entry-facts.json` reuses this same registered `design.ss` and Session
+for two additional Experimental research slices: runtime-shared metadata and
+host execution/lifetime authority. `runtime-entry.manifest.json` uses the
+existing verifier for their missing reservation and entry contracts. No new
+DSL, Python inference or runtime admission is added. The focused consumer is
+`test_runtime_entry_formal.py`; its withdrawn-source checks preserve explicit
+unknowns and its Lean checks use the guarded process runner. The
+[audit and model index](../../../docs/experimental/runtime-entry-contracts.md)
+distinguishes the baseline source, current overlay review, reused models and
+Stage-One versus Stage-Two scope.

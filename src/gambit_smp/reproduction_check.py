@@ -1,4 +1,5 @@
 """Check portable research inputs without installing ASCENT or using caches."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import hashlib
 import json
@@ -24,7 +25,7 @@ def portable(root, name):
 
 
 def git(root, *args):
-    return subprocess.check_output(["git", "-C", str(root), *args],
+    return _task_check_output(["git", "-C", str(root), *args],
                                    text=True, timeout=10).strip()
 
 
@@ -35,12 +36,12 @@ def verify_committed(root, inputs, submodule, revision):
     for name in sorted(inputs):
         if name.startswith(submodule + "/"):
             relative = name[len(submodule) + 1:]
-            committed = subprocess.check_output(
+            committed = _task_check_output(
                 ["git", "-C", str(root / submodule), "show", revision + ":" + relative],
                 timeout=10)
         else:
             try:
-                committed = subprocess.check_output(
+                committed = _task_check_output(
                     ["git", "-C", str(root), "show", "HEAD:" + name],
                     stderr=subprocess.PIPE, timeout=10)
             except subprocess.CalledProcessError as error:
@@ -208,6 +209,9 @@ def main():
     if args.inventory and result["blocked"]:
         parser.exit(1)
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('reproduction-inputs')(main)
 
 if __name__ == "__main__":
     main()

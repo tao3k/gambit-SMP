@@ -90,12 +90,9 @@ class ReasoningMethodTests(unittest.TestCase):
         self.assertIn(VIEW, registry(ROOT)[0])
         # This current declaration must not reactivate the historical native views.
         context = {"views": [VIEW]}
-        from gambit_smp import artifact_storage
-        original = artifact_storage.database_path
         with tempfile.TemporaryDirectory() as directory:
-            def database(root, name, previous):
-                return Path(directory) / "actions.sqlite" if name == "research-actions/requests.sqlite" else original(root, name, previous)
-            with patch.object(artifact_storage, "database_path", side_effect=database):
+            with patch.object(research_actions, "_request_database_path",
+                              return_value=Path(directory) / "actions.sqlite"):
                 snapshot = research_actions.discover(ROOT, context)
                 action = next(row for row in snapshot["actions"] if row.get("view") == VIEW and row.get("query") == "options")
                 self.assertEqual(action["risk"], "read-only")
