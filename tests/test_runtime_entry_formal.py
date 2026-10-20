@@ -119,7 +119,9 @@ class RuntimeEntryFormalTests(unittest.TestCase):
             self.assertEqual(repeated, answers)
             self.assertTrue(reused["nativeResultReused"])
             for source in ("current-repair-recipe", "current-root-retention", "current-foreign-origin-owner",
-                           "chez-foreign-frames", "gambit-foreign-marker", "ocaml-domain-retirement",
+                           "handoff-composition-model", "handoff-composition-proof", "handoff-composition-validation",
+                           "chez-foreign-frames", "gambit-foreign-marker", "current-join-composition",
+                           "current-slot-resources", "ocaml-domain-retirement",
                            "entry-audit", "entry-lean", "metadata-transaction", "entry-validation",
                            "entry-callers", "ocaml-slow-lock", "gambit-repl",
                            "entry-callers-validation", "metadata-recipe", "capture-protocol",

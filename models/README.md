@@ -18,6 +18,14 @@ The [current repair research Recipe](../docs/current-repair-research.md) binds
 reference mechanisms to the existing retention, origin-frame and work-accounting
 models. It is distinct from the proposed architecture's composition checks.
 
+[Retirement exit/handoff](gambit/retirement_exit_handoff.qnt) composes the existing
+elementary callback, saved-stack and sender/resource machines with actual
+marker-tail, root/work, join and external-release boundaries. Its
+[Lean companion](gambit/lean/RetirementExitHandoff.lean) and
+[validation](../evidence/research/retirement-exit-handoff/validation.md) include
+omission counterexamples and non-vacuous success/retention witnesses. Source
+refinement remains open and is exposed by the existing Scheme component.
+
 The current milestone count belongs to source-bound native qualification, not
 this directory index. The owner's reported 9/12 is not re-certified or changed
 by organizing research. Historical native failures and completed stages remain

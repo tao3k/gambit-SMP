@@ -45,3 +45,8 @@ contract needs a coordinated refactor milestone. The small waiter/exception
 projections are checks within that proposal, not a reason to send every current
 waiter bug into this directory. Current 9/12 repair reuses existing source-bound
 models as described in the [current Recipe](../../docs/current-repair-research.md).
+
+The current [exit/handoff composition](../gambit/retirement_exit_handoff.qnt)
+provides lower-level omission controls for later refactors. Reuse that boundary
+and its surviving-recipient assumption rather than copy its model here or infer
+that it covers independent post-VM carriers and generalized host attachment.

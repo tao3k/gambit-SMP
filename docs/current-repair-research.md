@@ -138,6 +138,48 @@ live C stack or processor merely because heap roots survive. General attachment
 or migration semantics belong in Experimental; checking the current supported
 entry and its exact acquired-effect cleanup belongs in the current repair.
 
+### Per-Consumer Release, Not Blanket Retention
+
+The references also reject retaining every input until OS join. OCaml
+`callback.c`:30-44 explicitly limits callback argument/closure root lifetimes.
+Its bytecode path (:98-141) copies arguments to the traced stack before an
+allocating stack-parent operation and no longer reads the old argument array
+afterwards. The native path (:180-211) roots closure/argument across that
+allocation, ends those roots before the assembly callback, and retains the
+stack-parent continuation separately. These are different source mechanisms;
+the inspected C wrapper does not by itself prove the native assembly convention.
+
+Chez `schlib.c`:223-244 immobilizes code needed by C return addresses, including
+the more immediate caller when `lock_ts` applies. Its cleanup and final restore
+(:257-289) concern those code objects, not indefinite retention of the original
+closure, which may already have moved or been reclaimed. Conversely, OCaml
+`domain.c`:1346-1455 retains `term_sync` through domain teardown and the final
+mutex unlock, then removes the global root. A short-lived callback argument and
+a still-locked termination carrier cannot share one generic release deadline.
+
+For current Gambit repair, the low-cost objective is to prove each existing
+consumer's last use and successor owner, not to add a permanent root for every
+pstate field or extend every C-local lifetime until join. A smaller safe root
+scope is a design opportunity, not measured speedup. Nested callers, generated
+map liveness, relocating GC and original exception/continuation behavior remain
+mandatory premises before shortening a scope.
+
+| Existing contract | Exact current correspondence to establish | What remains unproved |
+| --- | --- | --- |
+| `ffi_gc_frame_protocol.qnt`: publication, nested roots, reload | A successor traced slot owns a still-needed input before allocating or waiting; resume reads the relocated value. | Copying into an arbitrary C local is not root transfer; the reference callback convention is not Gambit's generated ABI. |
+| `callback_retirement_composition.qnt`: `convertResult`, `killMarker`, `enterCollective` | Interpret `killMarker` as completed origin-owned exit effects, not merely the literal marker invalidation call. | That action clears both `marker` and `cFrame`. Actual SFUN macros invalidate the marker before `___propagate_error`; `setup.c`:853-866 may then use the current catcher. Marker-dead alone cannot instantiate full C-tail discharge. |
+| `nested_foreign_unwind.qnt`: `cleanInner`, `routeOuter`, `cleanOuter`, `propagate` | Match each acquired origin frame and its catcher restoration, preserving the original outcome across supported routing. | Heap reachability, a processor ID and an abstract routing event do not establish a live foreign return target. |
+| `vm_retirement_join_composition.qnt` plus `sync_slot_retained_resources.qnt` | OS exit/join of a receiver and completion of all remote sender tails are different events. | `initJoinOnlyCleanup` already exposes the distinction. `recoverJoin` assumes a bounded recoverable join; it does not establish a legal POSIX error-to-success route for the candidate. |
+| `RuntimeEntryContracts.lean`: `descriptorRetirementExcludesConsumers`; `WorkAccounting.lean`: `rootsDoNotPermitConcurrentMutation`, `reuseRevokesOldIdentity` | Supply the actual live consumers, root publication/mutation boundary and same-incarnation identity. | The conditional proofs neither enumerate omitted consumers nor make an earlier census stable across a new GC, admission or slot reuse. |
+
+This source-refinement gap belongs to the current repair's use of existing
+models. It is not evidence that those abstract actions are automatically unsafe,
+nor proof of a current crash cause. If the source cannot implement a suitable
+exit linearization, its current composition must be refined before it supports
+the repair; a local model pass cannot substitute for that missing bridge.
+Generalized foreign-host attachment or a new independent carrier remains an
+Experimental architectural change instead.
+
 ### Bounded Repair Recipe
 
 The first-stage scope is the existing `setup.c` retirement/recovery caller and
@@ -177,6 +219,57 @@ Current research has not established this conjunction. BUSY or retained failure
 can be correct intermediate outcomes; neither is successful recovery. No new
 global lock, full-heap scan, TLS change or unconditional collector barrier is
 selected by this audit.
+
+### Destructive Cleanup Is Not Just Bookkeeping
+
+The pinned `mem.c`:4932-4935 cleanup calls `free_still_objs` and `cleanup_rc`.
+`free_still_objs`:4432-4453 detaches its local still list, invokes
+`___release_foreign` for foreign objects and frees their storage. The separate
+GC cleanup at :4387-4419 releases unmarked foreign objects as well. Therefore
+"joined, then cleanup" can include external C effects, not just pointer clearing.
+
+`c_intf.c`:1683-1713 clears the foreign object's release-function/pointer fields
+before invoking its C release function; a nonzero returned error does not restore
+them. The two inspected `mem.c` cleanup loops do not consume that error result.
+The manual `gambit.txi`:18999-19045 permits custom C cleanup, including reference
+count/table changes and default C++ destructors, and specifies at-most-once
+release. This is not proof that arbitrary Scheme callback/re-entry or concurrent
+release of one object is supported. No such call is introduced by this research.
+
+The current small-repair handoff must distinguish an emptied donor whose
+resources have actual surviving owners from a donor that still needs release.
+For a release-bearing tail, enumerate its supported C effects, required context,
+locks and error disposition before declaring the donor reusable. In particular,
+do not hold a new handoff lock across external code without a demonstrated legal
+effect/lock contract, or call an already invalidated release function again as
+"rollback". Conversely, do not require a callback or new general finalizer
+protocol on a legal path where the owner has proved the donor list empty.
+
+Keep OS-join success, recipient ownership and external-release side effects as
+separate facts. They are not an all-or-nothing transaction: a later cleanup
+failure does not undo a successful OS join or recreate the already cleared
+release-function fields. The existing exact-once/error and retained-resource
+models constrain those boundaries, but their successful abstract cleanup cannot
+stand in for an unenumerated C tail or a new native failure rollback witness.
+
+Chez transfers guardian entries before releasing `tc`; this is distinct from
+proving all arbitrary finalizer code safe in a teardown lock. OCaml's ordinary
+termination orphans finaliser work, whereas its last-domain path
+`domain.c`:2378-2394 explicitly adopts heaps and runs custom finalisers before
+orphaning/freeing the shared heap. These different paths are counterevidence to
+one universal cleanup deadline. The current model correspondence remains open
+for any actual external tail; a future generalized finalization/attachment
+mechanism belongs in Experimental, not an assumed event in today's join model.
+
+The cheapest applicable boundary remains processor retirement inside a surviving
+VM: a live recipient can own transferred roots/resources if VM admission and
+cleanup cannot invalidate it first. The pthread synchronization storage declared
+in `gambit.h.in`:10893-10914,11518-11527,11947-11979 belongs to C state, not to an
+OCaml-style GC wrapper. A Scheme root around a C pointer cannot prevent explicit
+VM-state destruction. Draining all actual consumers before that destruction is
+the current requirement; allowing those consumers to outlive the VM would need
+the separate Experimental carrier/lifetime architecture. Do not impose that
+larger redesign on a source path that can satisfy the surviving-VM boundary.
 
 ## Exception And OS Join Are Different Contracts
 
@@ -225,9 +318,54 @@ mirrors and source observations never add a native gate. This audit supplies
 source requirements and falsifiers; the separate implementation thread owns
 source changes and complete native/Gerbil acceptance.
 
+## Executable Current Composition And Evidence Feedback
+
+The [current exit/handoff QNT](../models/gambit/retirement_exit_handoff.qnt)
+imports the existing callback-result, saved-stack and remote sender/resource
+machines plus shared work definitions. It adds the previously missing
+composition, rather than changing historical models or creating a second GC.
+Marker invalidation and origin-tail exit, donor work and recipient-owned work,
+OS join and handoff, release invocation and release-tail completion are distinct
+events. A failed join retains the donor without manufacturing a successful retry.
+The recipient VM survives; generalized post-VM carriers remain Experimental.
+
+The [Lean companion](../models/gambit/lean/RetirementExitHandoff.lean) reuses
+`WorkAccounting`. Counterexamples, progress assumptions, non-vacuous success and
+failure witnesses, checked identities and retained failed attempts are recorded
+in the [validation](../evidence/research/retirement-exit-handoff/validation.md).
+These checks support a current small repair but do not establish C linearization,
+complete native roots/producers, weak memory or native/performance qualification.
+The final local campaign passed three tests in 75.497 s: positive safety/progress,
+seven decoded omission controls, two reachable success/retention paths and
+fourteen conditional Lean statements. These are research results, not new gates.
+
+The old ASCENT component exposed declared gap text but did not derive a new
+coverage obligation when source observations introduced an event combination.
+Its existing Scheme DSL now accepts scoped `composition_edge` facts and derives
+requirements, checked-model evidence and source-composition gaps. A model check
+matches its exact model and receipt hashes; all declared interfaces are required.
+An optional source binding must also match both observed source hashes, the
+scope/events/property and its refinement reference hash. Old local passes cannot
+silently cover a new event, model, source version or scope. Empty declarations
+are legal and do not establish completeness. Actual C bindings remain absent.
+
+The [Clue view](../evidence/scenarios/parallel-gc/retirement-exit-handoff.view.json)
+uses the existing constructor, registration and selection/Session interfaces.
+Its observation digest binds the domain declaration profile, not only an
+unchanged C file while the model/gap changes. Edge handles are configurable;
+conflicting handles expose a gap instead of merging scopes. Clues return facts,
+provenance and references, not a required investigation step. New source
+semantics still require the Agent to declare relevant edges; this is not keyword
+matching or automatic understanding of C. No Python inference or new CLI is added.
+
+Publication adds only this research view to the PR registry. The active native
+workspace's registry, historical model receipts, source locks and checkpoints
+remain untouched. A metadata-only, automatically cleaned registration fixture
+checks the real cross-process query/resume path without a runtime copy or build.
+
 ## Research Validation
 
-Published HEAD `972cbef62981100bddf7b34fa600313c5a0401b3` passed
+Earlier published HEAD `972cbef62981100bddf7b34fa600313c5a0401b3` passed
 [framework CI 39357149834](https://github.com/tao3k/gambit-SMP/actions/runs/39357149834):
 1,809 tests, zero failures/errors/skips, complete inventory and unchanged inputs,
 399.338984056 s, `frameworkValidated=true`, `runtimeAdmitted=false`.
@@ -235,6 +373,17 @@ Artifact `12236430086` has `test-result.json` SHA-256
 `6a9c570836f3971254dce4a278fa3dbf501f01cdd5e22364161ec7780d78a642`.
 This exact-head pass precedes the inventory/foreign-frame supplement; it does not
 certify unpublished changes or the implementation owner's current candidate.
+
+The inventory supplement was then published as
+`e2515de2c3a9b3186902f1e6c040c76112a2ce4c` to SMP PR #1.
+[Its framework CI 39358418639](https://github.com/tao3k/gambit-SMP/actions/runs/39358418639)
+passed 1,809 tests with zero failures/errors/skips in 350.668556295 s, complete
+inventory, unchanged inputs, `frameworkValidated=true`, `runtimeAdmitted=false`.
+Artifact `12236816509` has `test-result.json` SHA-256
+`7a8bb3d66dce541510112531bc25670906aa43d939e873de66be27dd765eebf5`.
+Only that SHA's duplicate native workflow was cancelled; another task's native
+acceptance and the shared index were not changed. This pass covers the published
+inventory supplement, not the subsequent local per-consumer/cleanup research.
 
 The existing Scheme consumer checks this supplement's source/model hashes,
 expands its source-section/premise correspondences, withdraws/restores the new
@@ -246,8 +395,16 @@ source withdrawal, with missing native requirements preserved. Final
 document/hash updates are checked again without repeating unchanged formal or
 native work; earlier architecture consumer results are not relabeled as new runs.
 
-No QNT/Lean algorithm or theorem source changed and no new formal pass is claimed
-for these reused contracts. The separate implementing workers retain ownership
-of their source/model repair packages. This research introduced no native run,
-Grok launch, bootstrap, debugger, runtime change, checkpoint reset or budget
-change; it does not increment or downgrade the owner's 9/12 count.
+The subsequent per-consumer/cleanup correspondence reuses the existing join and
+slot-resource models without changing their algorithms or theorems. Its two
+existing Scheme/link checks passed in 3.512 s, preserving partial model scopes,
+all missing native requirements and source-withdrawal failures. This local
+continuation is distinct from the published inventory supplement and its CI.
+
+The earlier inventory supplements did not change QNT/Lean algorithms. The current
+executable composition and companion above now close that research-model gap;
+their source-refinement obligations remain open. Existing model algorithms and
+historical receipts are preserved. The implementing workers retain ownership of
+their runtime repair packages. No native run, Grok launch, bootstrap, debugger,
+runtime change, checkpoint reset or budget change is introduced here; this work
+does not increment or downgrade the owner's 9/12 count.
