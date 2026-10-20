@@ -14,8 +14,23 @@ from gambit_smp.grok_session import Launch, run, terminal_deliveries
 from gambit_smp.workspace import start
 import subprocess
 import shlex
+import shutil
 from dataclasses import replace
 from gambit_smp import task_migration as migration, workspace as w
+
+
+def provider_path(root):
+    """Fake providers must not fall through to a real CLI on the host PATH."""
+    tools = root / 'host-tools'
+    tools.mkdir(exist_ok=True)
+    for name in ('git', 'lsof', 'ps'):
+        target = shutil.which(name)
+        if target is None:
+            raise FileNotFoundError(name)
+        link = tools / name
+        if not link.exists():
+            link.symlink_to(target)
+    return os.pathsep.join((str(root), str(tools)))
 
 
 class GrokSessionTests(unittest.TestCase):
@@ -209,7 +224,7 @@ class GrokSessionTests(unittest.TestCase):
                 "subprocess.run(grant[len('Bash('):-1],stdin=open(" + repr(read['request']) + "),shell=True,check=True)\n"
                 "print(json.dumps({'type':'end','stopReason':'end_turn','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a'}))\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
+            with patch.dict(os.environ, PATH=provider_path(root)):
                 result = run(launch, execute=True, wall_seconds=20)
             self.assertTrue(result["sessionCompleted"],
                             (Path(result["attempt"]) / "stderr.private.log").read_text())
@@ -241,7 +256,7 @@ class GrokSessionTests(unittest.TestCase):
                               "print(json.dumps({'type':'tool_call_update','text':'raw-scene-test-payload'}))\n" +
                               "print(json.dumps({'type':'end','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a','stopReason':'end_turn','num_turns':1}))\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
+            with patch.dict(os.environ, PATH=provider_path(root)):
                 first = run(launch, execute=True, wall_seconds=5)
                 second = run(replace(launch,resume=first["completion"]["sessionId"]), execute=True, wall_seconds=5)
             self.assertEqual(first["exit"], 0)
@@ -270,7 +285,7 @@ class GrokSessionTests(unittest.TestCase):
                 "subprocess.run(shlex.split(grant[len('Bash('):-1]),check=True)\n"
                 "print(json.dumps({'type':'end','stopReason':'end_turn','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a'}))\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH']):
+            with patch.dict(os.environ,PATH=provider_path(root)):
                 result=run(launch,execute=True,wall_seconds=10)
             self.assertTrue(result['sessionCompleted'])
             self.assertEqual(1,len(list((root/'.cache/tasks/repair/runs').glob('*/outputs/actual-tool'))))
@@ -290,7 +305,7 @@ class GrokSessionTests(unittest.TestCase):
                 'case "$*" in *--resume*) ;; *) /bin/sleep 20 ;; esac\n'
                 "printf '%s\\n' '{\"type\":\"end\",\"sessionId\":\"01a15562-916b-7da0-b55e-5d85db65485a\",\"stopReason\":\"end_turn\"}'\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH']):
+            with patch.dict(os.environ,PATH=provider_path(root)):
                 from gambit_smp.grok_session import write_record
 
                 def initialized(path, record):
@@ -320,7 +335,7 @@ class GrokSessionTests(unittest.TestCase):
             binary = root / "grok"
             binary.write_text("#!/bin/sh\n/bin/sleep 20\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
+            with patch.dict(os.environ, PATH=provider_path(root)):
                 failed = run(launch, execute=True, wall_seconds=1)
                 self.assertTrue(failed["timedOut"])
                 self.assertFalse(failed["sessionCompleted"])
@@ -352,7 +367,7 @@ class GrokSessionTests(unittest.TestCase):
             binary=root/'grok';binary.write_text('#!'+sys.executable+'\nimport json\n'
                 "print(json.dumps({'type':'end','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a','stopReason':'end_turn'}))\n")
             binary.chmod(0o700)
-            env=dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'])
+            env=dict(os.environ,PATH=provider_path(root))
             command=[sys.executable,'-m','gambit_smp','--root',str(root),'--task','repair','agent',
                      '--owner','diagnostic','--prompt-file',str(launch.prompt),'--authorization',launch.authorization,'--execute']
             result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=15)

@@ -6,10 +6,10 @@ a native repair or certify a complete C dependency extractor.
 
 ## Reuse the existing engine
 
-The locked ASCENT revision is `e119827e588ea7b6d8a3195ac8e0ee8f61de6c11`.
-Additional proof-only source-summary and carrier laws are maintained in ASCENT
-PR #1; this does not relabel the installed runtime dependency or its native
-qualification as a newer proof-source revision.
+The locked ASCENT revision is `5a5c7df98c5abb109734cb6b6905b0f6bbc7786b`.
+The revision includes native saved-query recovery plus its QNT/Lean controls.
+Library installation and carrier verification do not qualify the Gambit SMP
+runtime or promote historical native results to a newer source candidate.
 Its `packages/proofs/lean/SourceCertificates.lean` already defines the required
 conditional dependency argument: `resultObligation` requires semantic locality;
 `reuse_after_batch` preserves a certificate after disjoint updates;
@@ -261,9 +261,16 @@ not evidence, delivery confirmation or execution progress.
 The existing content-addressed hint cache binds a bounded-frame observation to
 the native hint, including the UTF-8 byte count and configured window. It does
 not grant evidence or execution authority. In a bounded carrier, an old hint
-without that observation is `delivery-unverified`: replay read confirmations
-from the existing native fallback, without deleting source evidence, history or
-execution milestones. Confirmed hints continue through the same Session path.
+without that observation is `delivery-unverified`: the host passes the carrier
+observation to the existing native exchange. It validates and retains the saved
+query while replaying read confirmations, without deleting source evidence,
+history or execution milestones. In particular, checkpoint-only continuation
+must not lose its selector, bindings or explicit questions. The carrier observation
+does not persist as a query preference. Confirmed hints continue through the same
+Session path. An older engine must reject this observation rather than silently
+reuse unconfirmed reads; the dependency is pinned to its implementation.
+If neither a retained validated query nor an explicit caller query survives,
+recovery still reports the missing input; it must not invent a scope.
 This conservative recovery is necessary when an older terminal displayed only
 the beginning and end of a larger response.
 

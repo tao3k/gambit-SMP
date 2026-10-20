@@ -152,12 +152,12 @@ class RealSourceImpactTests(unittest.TestCase):
         self.assertIsNone(load_clue_checkpoint(self.root, legacy['checkpoint'], require_framed=True))
         with engine_api() as (engine, _):
             recovered, _ = _clue_output(self.root,
-                dict(questions=SUMMARIES, checkpoint=legacy['checkpoint']), engine, wire_bytes=16384)
+                dict(checkpoint=legacy['checkpoint']), engine, wire_bytes=16384)
             self.assertEqual(recovered['brief']['checkpointStatus'], 'delivery-unverified')
             self.assertEqual({f['claim'] for f in recovered['brief']['families']}, set(SUMMARIES))
             self.assertIsNotNone(load_clue_checkpoint(self.root, recovered['checkpoint'], require_framed=True))
             continued, _ = _clue_output(self.root,
-                dict(questions=SUMMARIES, checkpoint=recovered['checkpoint']), engine, wire_bytes=16384)
+                dict(checkpoint=recovered['checkpoint']), engine, wire_bytes=16384)
             self.assertEqual(continued['brief']['families'], [])
         self.assertEqual(repository_clues(self.root, SUMMARIES)['brief']['counts'], legacy['brief']['counts'])
         invalid = cache_clue_checkpoint(self.root, {
