@@ -44,6 +44,26 @@ theorem retirementDischargesEachOwner (o : Obligations) (drained : Drained o) :
     o.borrower = false ∧ o.publisher = false := by
   exact ⟨drained.2.2.1, drained.2.2.2, drained.1, drained.2.1⟩
 
+-- The synchronization keepalive has an independent lifetime owner. This does
+-- not assert that a root inside a destroyed VM can retain its storage.
+theorem retainedSynchronizationRemainsLive (locked storage root : Bool)
+    (retained : Rooted locked storage root false) (held : locked = true) :
+    storage = true := (retained held).1
+
+theorem removingLastSyncRootLosesProtection (storage : Bool) :
+    ¬ Rooted true storage false false := by
+  simp [Rooted]
+
+def ReleasedAfterTeardown (vmLive locked : Bool) : Prop :=
+  locked = false → vmLive = false
+
+theorem notificationDoesNotReleaseJoiner :
+    ReleasedAfterTeardown true true ∧ ReleasedAfterTeardown false true := by
+  simp [ReleasedAfterTeardown]
+
+theorem earlyJoinReleaseViolatesOrdering : ¬ ReleasedAfterTeardown true false := by
+  simp [ReleasedAfterTeardown]
+
 theorem balancedExceptionalEntries
     (a1 a2 r1 r2 : Nat) (original1 original2 delivered1 delivered2 : Int)
     (first : WorkAccounting.EntryBalanced a1 r1 original1 delivered1)
@@ -58,6 +78,10 @@ theorem balancedExceptionalEntries
 #print axioms borrowerDrainIsNotPayloadDischarge
 #print axioms registryDrainIsNotHandlerQuiet
 #print axioms retirementDischargesEachOwner
+#print axioms retainedSynchronizationRemainsLive
+#print axioms removingLastSyncRootLosesProtection
+#print axioms notificationDoesNotReleaseJoiner
+#print axioms earlyJoinReleaseViolatesOrdering
 #print axioms balancedExceptionalEntries
 
 end GambitSMP.Experimental.RetirementHandoff

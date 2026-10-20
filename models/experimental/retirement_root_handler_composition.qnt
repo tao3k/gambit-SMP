@@ -5,12 +5,14 @@ module retirement_root_handler_composition {
   // invented. Additional logical owners are not a proposed runtime root ABI.
   type State = { policy: int, borrower: bool, publisher: bool,
     sourceRoot: bool, destinationRoot: bool, payloadLive: bool, exitKind: int,
-    installed: bool, handler: int, badHandler: bool }
+    installed: bool, handler: int, badHandler: bool,
+    syncRoot: bool, syncLive: bool, syncLocked: bool, badJoinRelease: bool }
   var h: State
   pure def initial(policy: int): State = {
     policy: policy, borrower: true, publisher: true,
     sourceRoot: true, destinationRoot: false, payloadLive: true, exitKind: 0,
     installed: true, handler: 0, badHandler: false,
+    syncRoot: true, syncLive: true, syncLocked: true, badJoinRelease: false,
   }
   action initFixed = all {
     P::s' = P::initial("owned", false, false, false), h' = initial(0),
@@ -26,6 +28,12 @@ module retirement_root_handler_composition {
   }
   action initBorrowerForgotten = all {
     P::s' = P::initial("owned", false, false, false), h' = initial(4),
+  }
+  action initSyncRootForgotten = all {
+    P::s' = P::initial("owned", false, false, false), h' = initial(5),
+  }
+  action initJoinReleasedEarly = all {
+    P::s' = P::initial("owned", false, false, false), h' = initial(6),
   }
   action protocolStep = all {
     any { P::readerEnter, P::readerLeave, P::readerCancel,
@@ -76,17 +84,36 @@ module retirement_root_handler_composition {
     P::release, h' = h,
   }
   action reclaim = all { P::reclaim, h' = h }
+  // Separate externally retained synchronization object, not a same-VM root.
+  // Notification/result publication does not release a joining consumer.
+  action unlockSync = all {
+    h.syncLocked, h.syncLive, not(P::s.memory) or h.policy == 6,
+    P::s' = P::s, h' = { ...h, syncLocked: false,
+      badJoinRelease: h.badJoinRelease or P::s.memory },
+  }
+  action dropSyncRoot = all {
+    not(P::s.memory), h.syncRoot, not(h.syncLocked) or h.policy == 5,
+    P::s' = P::s, h' = { ...h, syncRoot: false },
+  }
+  // Possible finalization after the last modeled root disappears. No claim
+  // that a native collector schedules finalization at this exact instant.
+  action finalizeSync = all {
+    not(h.syncRoot), h.syncLive,
+    P::s' = P::s, h' = { ...h, syncLive: false },
+  }
   val rooted = not(h.payloadLive) or
     (P::s.memory and P::s.resource and (h.sourceRoot or h.destinationRoot))
   val externalQuiet = P::s.resource or
     (not(h.installed) and h.handler == 2 and not(h.borrower) and not(h.publisher))
-  val safe = P::safe and rooted and externalQuiet and not(h.badHandler)
+  val syncSafe = (h.syncLocked.implies(h.syncLive)) and not(h.badJoinRelease)
+  val safe = P::safe and rooted and externalQuiet and not(h.badHandler) and syncSafe
   val terminal = P::terminal and not(h.payloadLive) and not(h.borrower) and
-    not(h.publisher) and not(h.installed) and h.handler == 2
+    not(h.publisher) and not(h.installed) and h.handler == 2 and
+    not(h.syncLocked) and not(h.syncRoot)
   action finished = all { terminal, P::s' = P::s, h' = h }
   action step = any { protocolStep, transferRoot, normalExit, nonlocalExit,
     finishPublisher, consumePayload, deliverHandler, uninstall, finishHandler,
-    releaseResources, reclaim, finished }
+    releaseResources, reclaim, unlockSync, dropSyncRoot, finalizeSync, finished }
   // Finite environment: an already delivered handler eventually completes.
   // Not proof of arbitrary host progress, physical GC or C memory ordering.
   temporal completion = weakFair(step, Set((P::s, h))).implies(eventually(terminal))
