@@ -443,3 +443,42 @@ inventory is also a Cache artifact, not another maintained registry.
 premises and their maintained source programs. Framework controls verify the
 truthful unresolved state without accessing private runs. This correction is
 publication/framework work, not advancement of the native 9--12 milestone.
+
+## Fixed-Tree Generation And Source Counterchecks
+
+Framework run `39429329663` for `23ae26e` passed installation and seal, then
+rejected a stale generated Zig view binding before test discovery. The exact
+Git-object audit located its output digest mismatch. The previous publication
+had reviewed the two loader references in the public view but had not regenerated
+its authored declaration and binding. This is a real publication defect, not a
+timeout or native failure; the failed CI output remains local Cache history.
+
+The correction uses an isolated fixed-commit source review and the existing
+`materialize`/`check_binding` producer, without editing the live Zig research.
+The public view bytes remain identical. Its authored declaration now carries
+the already-reviewed loader identities/citation ranges and references the
+existing committed Gerbil source snapshot instead of requiring the old private
+source checkout. Replaying that snapshot's committed `base.ss` plus
+`working.patch` reproduces exactly
+`07a175646c90b16c690cf32d670b8368d534963966bbc84d89896f9bb8e5e300`.
+The real Scheme generator evaluates the corrected declaration and reports no
+public-view byte change. No runtime log or execution receipt is published.
+
+Further source review sharpens the current handoff rather than adding another
+abstract model. At the pinned Chez revision, `c/schsig.c:688-710` explicitly
+justifies its signal queue by the same-thread handler/event population;
+`:728-745` forwards foreign-thread delivery to the main thread, while
+`:761-778` initializes queues under the TC mutex and installs the handler with
+a full signal mask. That is not a generic multi-VM lock-free queue guarantee.
+Also, `c/thread.c:319-331` frees the signal queue and TC while retaining only
+the `thread_gc` carrier. A carrier lifetime argument cannot silently cover its
+separate payload allocations or arbitrary external signal callbacks.
+
+OCaml `runtime/domain.c:1372-1389` instead retains the exact termination mutex
+through domain teardown and unlocks it afterwards. Its ordinary final consumer,
+root carrier and unlock order are explicit. The forced cancellation path still
+does not supply the same premises. Existing `completeCensusSafe` and
+`declaredAndPrivateConsumersCompose` express the necessary coverage boundary;
+they do not establish Gambit's actual signal population, payload last access or
+C visibility. Those source premises remain the implementer's obligations, not
+new model or native acceptance credit.
