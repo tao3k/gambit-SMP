@@ -15,6 +15,23 @@ from gambit_smp import workspace as w, storage_policy as policy
 class CacheBuildLayoutTests(unittest.TestCase):
     setUp=fixtures.WorkspaceTests.setUp
 
+    def test_internal_script_symlink_can_be_timestamped(self):
+        policy.install(self.root)
+        tree=self.root/'.cache/tasks/repair/runtime'
+        (tree/'gsi').mkdir(parents=True)
+        (tree/'gsi/gsi').write_text('bin')
+        (tree/'bin').mkdir()
+        link=tree/'bin/gsi-script'
+        link.symlink_to('../gsi/gsi')
+        os.utime(link,(1,1),follow_symlinks=False)
+        outside=self.root.parent/'outside-target'
+        outside.write_text('no')
+        self.addCleanup(outside.unlink, missing_ok=True)
+        escape=tree/'bin/escape'
+        escape.symlink_to(outside)
+        with self.assertRaisesRegex(policy.StoragePolicyError,'aliases'):
+            os.utime(escape,(1,1),follow_symlinks=False)
+
     def test_generated_runtime_directories_are_rejected_before_creation(self):
         policy.install(self.root)
         for source in ('src','vendor','providers','provide','VR','.venv','.data/worktrees/issue/vendor'):
@@ -27,6 +44,31 @@ class CacheBuildLayoutTests(unittest.TestCase):
         self.assertTrue(target.is_dir())
         # Ordinary editable source files are still source.
         source=self.root/'src/example.py';source.parent.mkdir(exist_ok=True);source.write_text('value = 1\n')
+
+    def test_internal_script_alias_cannot_write_another_task(self):
+        policy.install(self.root)
+        source=self.root/'.cache/tasks/repair/runtime'
+        target=self.root/'.cache/tasks/other/private/value'
+        source.mkdir(parents=True);target.parent.mkdir(parents=True)
+        target.write_text('retained')
+        link=source/'script';link.symlink_to(target)
+        with policy.enforce(self.root,'repair'):
+            with self.assertRaises(policy.StoragePolicyError):
+                link.write_text('replacement')
+        self.assertEqual('retained',target.read_text())
+
+    def test_internal_script_alias_cannot_write_another_process(self):
+        policy.install(self.root)
+        source=self.root/'.cache/tasks/repair/processes/audit/runtime'
+        target=self.root/'.cache/tasks/repair/processes/validation/value'
+        source.mkdir(parents=True);target.parent.mkdir(parents=True)
+        target.write_text('retained')
+        link=source/'script';link.symlink_to(target)
+        from unittest.mock import patch
+        with patch.dict(os.environ,{'GAMBIT_SMP_TASK_PROCESS':'audit'}),policy.enforce(self.root,'repair'):
+            with self.assertRaises(policy.StoragePolicyError):
+                link.write_text('replacement')
+        self.assertEqual('retained',target.read_text())
 
     def test_provider_cache_environment_is_shared_and_restored(self):
         w.start(self.root,'repair',adopt=True)

@@ -1036,3 +1036,78 @@ input hashes unchanged. The real owned checkpoint-replay test also passed
 separately in 9.008 s. The receipt binds the production audit process run and
 retains both rejected intermediate runs and successful controls. This is local
 framework evidence; the next GitHub head still requires its own CI result.
+
+
+## SMP-Only CI Publication Closure And Storage Audit (2026-10-20)
+
+The owner clarified that publication and repair scope is SMP PR #1 only. The
+incorrect outer-repository draft PR #57 was closed and its isolated, uncommitted
+merge attempt removed. No outer merge was published; existing commits and the
+active SMP/native checkouts were preserved.
+
+At SMP head `d35a485`, framework run `39419273023` returned producer exit 1
+before collecting a test inventory. Its retained `process.log` identifies
+`ReferenceUnavailable` for the root-signal comparison and constructor receipts.
+This is a publication-closure failure, not a failing model or a deadlock. The
+three-flag run `39419273003` was cancelled; its build/module outcomes are not
+complete native results.
+
+Checking every registered view against the prospective Git tree identified four
+Cache-only dependencies: those two receipts, the runtime-retirement receipt and
+the mechanism-granularity-03 receipt. An initial exact-byte inclusion candidate
+was examined but not pushed. The reviewed reproduction boundary instead keeps
+those runtime observations in Cache and withdraws their current qualification
+support. Historical identities and verdicts are preserved, not rehashed into
+current proof. The mechanism view is regenerated through its existing producer
+with its reproducible sources and missing qualification explicit. A regression
+checks each remaining published reference against the exact Git blob or pinned
+submodule blob. Merely finding it in a developer's ignored output directory is
+insufficient. No native campaign was started by this publication repair.
+
+The stable concurrent cohort also includes explicit task-bound CI commands, the
+editable source installation correction, retained-runtime cache-miss handling,
+stronger join-qualification controls, handler-return/consumer evidence and Zig
+research. These are audited and tested as their own layers; docs, source-shape
+controls, compiler-cache reuse and formal evidence do not admit pending-join
+recovery or increment the native milestone.
+
+The proposed native-script symlink exception exposed a real authority escape.
+Both a cross-task write and a cross-process write succeeded before the fix. The
+existing storage policy now constrains a link to its storage owner and applies
+the same task/process policy to its resolved target. Same-owner script timestamp
+updates remain permitted. The complete nine-test cache/layout group passed after
+this correction, including a real cold/no-op/edit compiler cycle and configurable
+cache invalidation. The two denied-write controls retain their original failures.
+
+The initial 81-test related batch passed 79 cases and recorded two local sandbox
+Unix-socket bind denials. Both affected broker/cache tests passed with real socket
+access on a separate two-test replay; the original batch is not relabelled as a
+blanket pass. Seven consumer-interface tests passed in 132.886 seconds, including
+the guarded Lean contracts, published model closures, source-correspondence gaps
+and actual graph/checkpoint queries. Native recovery, compiler type/header
+witnesses, alias-pass semantics and complete native/Gerbil acceptance remain
+separate requirements of the running repair.
+
+The broader workspace/custody/storage regressions passed **68/68 in 79.977 s**.
+The publication-tree check passed against the exact prospective merged Git tree,
+including the hashes of Git blobs and pinned submodule blobs. It reads the
+published registry and views from those blobs, rather than mixing an immutable
+publication with ongoing worktree edits. The earlier Zig cohort is retained as
+a checked snapshot; subsequent collector/root research edits remain pending
+until their own source and generated views settle.
+
+The independent Cache-publication/withdrawal group passed **15/15 in 110.791 s**.
+Head `23ae26e` then exposed a separate stale Zig producer binding in framework
+run `39429329663`, again before test collection. Source inspection found the
+exact `outputSha256` mismatch; the SC20 loader citation/source updates also needed
+to be represented in the authored declaration. The other author published
+`5e2a373` using the reviewed producer. The merged publication audit checks the
+declaration, generated output and generator Git blobs together, as well as every
+reference and pinned submodule blob. It does not bless working-tree hashes or
+grant native authority. Subsequent Zig research drafts remain outside this
+checked cohort. Execution logs and this audit’s detailed receipts stay in the
+existing work-item Cache; Current Work records their conclusions.
+
+Detailed execution evidence is retained under `.cache/tasks/repair-9-12/processes/audit/runs/513d452a3f44415dabc9d0d682567f48/outputs/acceptance/smp-ci-publication` (including the initial failures and explicit rejection controls).
+The final Git-blob/reference/producer closure check passed in 10.804 seconds;
+this checks publication consistency and does not certify runtime recovery.

@@ -896,3 +896,24 @@ binds seven conditional arguments, sixteen logical countermodels, three new D2
 views and the corrected earlier payload view. No engine/model/prover/native
 execution, registered claim/witness/relation, retired path or positive net bound
 is added. All five full architecture questions remain unresolved.
+
+## Target Roots, Collector Entry and Commit Publication
+
+The [adapter/entry design](target-root-adapter-design.md),
+[source/paper ledger](target-root-adapter-evidence.md),
+[matched matrix](target-root-adapter-cost-matrix.md),
+[source reference inventory](target-root-caller-inventory.json) and
+[trace map](target-root-adapter-traceability.json) deepen PA02--PA08 and
+RTO06--08/RFS02--05. TRA/TGC/TAD/TPB/TFL/TAP/TAX and TCM/TCE/TCN are
+document units. The source census retains weak-table/bignum allocation, saved C
+mirrors, sync/resize body calls, teardown and late-bound ABI routes. Target cells
+have one writer/discovery route; workers remain active through root seeds and
+published derived work. A release/acquire completion edge precedes G publication;
+already enrolled commits can finalize during ClosingTransfers.
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-23.json)
+binds seven handwritten conditional arguments, sixteen countermodels and three
+D2 views. Textual closure is not dynamic/native closure. No engine/model/prover/
+native execution, registered claim/witness/relation, worker profile, actual
+retirement or positive net-benefit bound is added; all five full questions remain
+unresolved. The next gaps are collector-context/combined-request refinement and
+bounded post-reuse support economics.

@@ -106,6 +106,18 @@ conditional arguments, sixteen logical countermodels and three new D2 views
 refine the full reconstruction. No native/checked proof or positive cost bound
 is established; the earlier payload handoff view is corrected consistently.
 
+The [target-root adapter and collector-entry design](target-root-adapter-design.md)
+now separates VM-owned RC carriers from collector work contexts, closes the
+selected GC/resize source-reference census, and specifies completion-to-registry
+publication during facility closure. Its [evidence ledger](target-root-adapter-evidence.md),
+[matched cost matrix](target-root-adapter-cost-matrix.md),
+[source inventory](target-root-caller-inventory.json) and
+[trace map](target-root-adapter-traceability.json) expose previously omitted
+weak-table/bignum allocation and indirect ABI routes. Seven conditional arguments,
+sixteen countermodels and three D2 views refine seed accounting, nested resize
+collection and actual failure custody. Whole-program/native/order/progress and
+positive economic qualification remain open; no implementation or native test.
+
 The [theoretical net-benefit argument](theoretical-net-benefit.md) separates
 source correspondence, theoretical value, scoped empirical tests and final
 qualification. It specifies six signed benefit cases, equal-capability C/Zig

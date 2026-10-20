@@ -110,21 +110,29 @@ class CheckpointObserverTests(unittest.TestCase):
             passed = kind in {"pass", "one", "fixture"}
             if kind == "pass":
                 stdout = ("LIFECYCLE-JOIN:OS-JOIN-ERROR 11\n"
-                          "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n"
-                          "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n")
+                          "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n")
                 setup = run / "run/core/source/lib/setup.c"
                 setup.parent.mkdir(parents=True, exist_ok=True)
                 setup.write_text(
                     "join_err = ___thread_join (t);\n"
                     "if (join_err != ___FIX(___NO_ERR))\n"
-                    "  ps->lifecycle_os_join_errno = ___ERRNO_FROM_ERR_CODE (join_err);\n"
-                    "join_err = ___thread_join (t);\n"
-                    "if (join_err == ___FIX(___NO_ERR))\n"
-                    "  ps->lifecycle_same_owner_joined = 1;\n")
-            elif kind == "einval":
-                stdout = ("LIFECYCLE-JOIN:OS-JOIN-ERROR 22\n"
+                    "  {\n"
+                    "    int os_err = ___ERRNO_FROM_ERR_CODE (___INT (join_err));\n"
+                    "    if (os_err > 0 && os_err != 22)\n"
+                    "      vm->lifecycle_os_join_errno = os_err;\n"
+                    "    join_err = ___thread_join (t);\n"
+                    "    if (join_err == ___FIX(___NO_ERR) &&\n"
+                    "        vm->lifecycle_os_join_errno > 0)\n"
+                    "      ___transfer_mem_pstate (ps, owner);\n"
+                    "  }\n")
+            elif kind == "banner-line":
+                stdout = ("LIFECYCLE-JOIN:OS-JOIN-ERROR 11\n"
                           "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n"
                           "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n")
+                passed = True
+            elif kind == "einval":
+                stdout = ("LIFECYCLE-JOIN:OS-JOIN-ERROR 22\n"
+                          "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n")
                 passed = True
             elif kind == "banner":
                 stdout = observer.LIFECYCLE_STDOUT
@@ -179,6 +187,10 @@ class CheckpointObserverTests(unittest.TestCase):
         banner = self._tree(count_line=current, closed_line=closed, others=others,
                             runs=tuple((name, "banner") for name in observer.LIFECYCLE_RUNS))
         self.assertFalse(observer.qualify_nine_of_twelve(banner)["admitted"])
+        pasted = self._tree(count_line=current, closed_line=closed, others=others,
+                            runs=tuple((name, "banner-line") for name in observer.LIFECYCLE_RUNS))
+        self.assertFalse(observer.qualify_nine_of_twelve(pasted)["admitted"])
+        self.assertEqual(observer.qualify_nine_of_twelve(pasted)["count"], "8/12")
         einval = self._tree(count_line=current, closed_line=closed, others=others,
                             runs=tuple((name, "einval") for name in observer.LIFECYCLE_RUNS))
         self.assertFalse(observer.qualify_nine_of_twelve(einval)["admitted"])
@@ -215,6 +227,35 @@ class CheckpointObserverTests(unittest.TestCase):
         self.assertEqual(decision["count"], "8/12")
         self.assertIsNone(decision["closed"])
         self.assertFalse(decision["runsOk"])
+        for name in observer.LIFECYCLE_RUNS:
+            text = (observer.ROOT / name / "run/join-probe/run-executable.stdout").read_text()
+            receipt = json.loads((observer.ROOT / name / "receipt.json").read_text())
+            self.assertEqual(text, observer.LIFECYCLE_STDOUT)
+            self.assertEqual(receipt["outcome"], "PASS")
+            self.assertFalse(observer.os_join_error_then_success(text))
+        os1 = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-os-1"
+        stdout = (os1 / "run/join-probe/run-executable.stdout").read_text()
+        receipt = json.loads((os1 / "receipt.json").read_text())
+        self.assertEqual(stdout, "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n")
+        self.assertEqual(receipt["outcome"], "DENY")
+        self.assertEqual(receipt["exit"], 2)
+        self.assertFalse(observer.os_join_error_then_success(stdout))
+        self.assertFalse(observer.pre_join_flag_before_join(
+            observer.ROOT, ".cache/tasks/repair-9-12/lifecycle-join-os-1"))
+        later = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-later-1"
+        later_stdout = (later / "run/join-probe/run-executable.stdout").read_text()
+        later_receipt = json.loads((later / "receipt.json").read_text())
+        self.assertEqual(later_stdout, stdout)
+        self.assertEqual(later_receipt["outcome"], "DENY")
+        self.assertFalse(observer.os_join_error_then_success(later_stdout))
+        self.assertFalse(observer.pre_join_flag_before_join(
+            observer.ROOT, ".cache/tasks/repair-9-12/lifecycle-join-later-1"))
+        waited = observer.ROOT / ".cache/tasks/repair-9-12/lifecycle-join-wait-2"
+        waited_stdout = (waited / "run/join-probe/run-executable.stdout").read_text()
+        waited_receipt = json.loads((waited / "receipt.json").read_text())
+        self.assertEqual(waited_stdout, stdout)
+        self.assertEqual(waited_receipt["outcome"], "DENY")
+        self.assertFalse(observer.os_join_error_then_success(waited_stdout))
 
 
 if __name__ == '__main__':

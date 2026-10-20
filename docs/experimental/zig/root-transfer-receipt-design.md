@@ -291,3 +291,14 @@ contributor/worker route; callback marker/all-exit proof; shutdown future-use
 closure; support cost bounds. All full runtime/provider/retirement/total/increment
 requirements remain open. The [cost matrix](root-transfer-receipt-cost-matrix.md)
 separates common modernization value from a still-unproved Zig-only increment.
+
+## Target Adapter and Entrant Refinement
+
+The [target-root adapter study](target-root-adapter-design.md) refines RTO06--08
+and RFS02--05 with an explicit same-heap carrier, strong-cell seed adapter,
+GC/resize body scopes and a one-writer completion-to-G publication edge.
+Its [source census](target-root-caller-inventory.json) additionally identifies
+_system/_num allocation and ABI import routes; the selected references above
+were not an exhaustive caller closure. ClosingTransfers permits previously
+enrolled commit publication and preserves required GC until final entry seal.
+These are further conditional contracts, not qualified implementation evidence.

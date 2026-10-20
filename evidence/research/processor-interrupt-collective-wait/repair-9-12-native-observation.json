@@ -39,7 +39,17 @@
       "id": "pre-join-flag-not-an-os-join-error",
       "closesGate": false,
       "flag": "___LW_REFUSED",
-      "note": "A flag stored before pthread_join is not a still-joinable OS join error. qualify_nine_of_twelve admits 9/12 only from the three-line transcript OS-JOIN-ERROR, SAME-OWNER-JOIN 0, STILL-JOINABLE-THEN-SUCCESS with errno other than 22. The live milestone text is 8/12. The retained lifecycle-join-recovery stdout is only the banner line."
+      "note": "A flag stored before pthread_join is not a still-joinable OS join error. The retained lifecycle-join-recovery stdout is only the banner line. Those PASS receipts stay unclosed. The live milestone text is 8/12."
+    },
+    {
+      "id": "first-join-returned-no-err",
+      "closesGate": false,
+      "run": ".cache/tasks/repair-9-12/lifecycle-join-os-1",
+      "outcome": "DENY",
+      "exit": 2,
+      "stdout": "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n",
+      "function": "___vm_resize_pstate",
+      "note": "Campaign repair-9-12 run lifecycle-join-os-1 shrunk from 11 processors to 1. ##current-vm-resize returned 0, the count became 1, reopen returned 0, and the count returned to 11. ___lifecycle_join_os_errno returned 0. The built resize path calls ___thread_join and stores ___ERRNO_FROM_ERR_CODE only in the not-NO_ERR branch, then joins once more and transfers only after that second call returns ___NO_ERR with handler_quiet and a stored errno other than 22. This run took the first-call ___NO_ERR path. No still-joinable OS join error was recorded. This witness is not the ___LW_REFUSED receipt. Milestone stays 8/12."
     },
     {
       "id": "stdlib-exacttime-unknown-class",
@@ -58,6 +68,77 @@
       "signal": "SIGSEGV",
       "pid": 80544,
       "note": "The lldb rerun did not stop in a signal. gxi exited 70 with heap overflow after writing an #f64 vector where the stock compiler writes a gensym. Refusing every non-symbol from identifier-symbol then stopped stdlib at sync/spinlock.ss:14 with detail #f, because #f is an absent identifier. #f must be returned. A vector still must not be emitted. This is not an exclusive ##wr-structure TYPEID witness and not a join recovery."
+    },
+    {
+      "id": "same-owner-edeadlk-retry-stays-11",
+      "closesGate": false,
+      "function": "pthread_join",
+      "first": 11,
+      "retry": 11,
+      "workerJoinOwner": 0,
+      "otherThreadJoin": 0,
+      "note": "On this Darwin host a two-thread join cycle returns EDEADLK (11) to owner A while worker W is still joinable. A's second pthread_join of W, still by A, returns 11 again. W's pthread_join of A returns 0 only after A exits. A different thread then joins W and gets 0. This is the platform cycle, not ___vm_resize_pstate. The resize campaign lifecycle-join-os-1 remains DENY because its first ___thread_join returned ___NO_ERR. Milestone stays 8/12."
+    },
+    {
+      "id": "later-owner-entry-not-immediate-retry",
+      "closesGate": false,
+      "function": "recover_retired_processors",
+      "patchSha256": "a37efe9f99000faa822370186a249e8716c2483e8637371af8f5865e785ad020",
+      "setupSha256": "ec1c36cf7ae9cd59022bb795c89e8aee3e1500b8504a36d70ee6bfd6f577f44a",
+      "note": "The error branch stores a non-EINVAL errno from the ___thread_join that just returned and leaves the worker pending. It does not call ___thread_join again in that branch. Campaign lifecycle-join-later-1 is DENY, exit 2. Shrink 11 to 1 returned 0, reopen returned 0, and ___lifecycle_join_os_errno returned 0. The first join was ___NO_ERR, so the pending branch did not run. Milestone stays 8/12.",
+      "run": ".cache/tasks/repair-9-12/lifecycle-join-later-1",
+      "outcome": "DENY",
+      "exit": 2,
+      "stdout": "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n"
+    },
+    {
+      "id": "first-join-waits-for-thread-exit",
+      "closesGate": false,
+      "function": "___vm_resize_pstate",
+      "note": "The resize ___thread_join runs after barrier_sync_op(OP_SET_PROCESSOR_COUNT). The retiring processor stores handler_quiet and calls ___thread_exit. pthread_join waits for that exit and returns 0, so ___thread_join returns ___NO_ERR and the pending branch does not run. This host has no pthread_tryjoin_np. EDEADLK occurs when the target is inside pthread_join of the caller, and the same owner's next pthread_join stays 11. This shrink does not create that cycle. Processor 0 now calls recover_retired_processors once when a later resize finds pending_join_count nonzero, then every processor returns. Campaign lifecycle-join-wait-2 is DENY, exit 2, stdout the no-error line and (11 0 1 0 11 0). Milestone stays 8/12.",
+      "run": ".cache/tasks/repair-9-12/lifecycle-join-wait-2",
+      "outcome": "DENY",
+      "exit": 2,
+      "stdout": "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n(11 0 1 0 11 0)\n"
+    },
+    {
+      "id": "edeadlk-same-owner-zero-only-after-worker-exits",
+      "closesGate": false,
+      "function": "pthread_join",
+      "first": 11,
+      "immediateRetry": 11,
+      "retryAfterWorkerExit": 0,
+      "note": "Owner A's pthread_join of W returns 11 while W is inside pthread_join of A. An immediate second pthread_join also returns 11. pthread_cancel of W returns 0, and after that cancellation takes effect A's pthread_join of W returns 0. pthread_join does not return EINTR here. The resize path never enters this cycle: its ___thread_join waits for ___thread_exit and returns ___NO_ERR. Milestone stays 8/12."
+    },
+    {
+      "id": "numeric-producer-workspace-absent",
+      "closesGate": false,
+      "function": "gambit.materialize",
+      "note": "original-gsi-loader-numeric-phase-control did not reach gambit.compiler-observation on 03-number/_num.scm. numeric-90s-1 DENY exit 2 because completed-gc-engine has no quint and the child looked for a repo-root quint. numeric-90s-2 DENY exit 2 on source: FileNotFoundError for .data/fixtures/darwin-dynamic-modulo-full-bootstrap-run/run/bootstrap/runtime-workspace.json. The in-place workspace .data/fixtures/foreign-origin-public-cleanup-contract-candidate is also absent. phaseBudgetSeconds stays 90. This is not a 90-second compile result and not the GC/FFI inventory. Milestone stays 8/12.",
+      "runs": [
+        ".cache/tasks/repair-9-12/numeric-90s-1",
+        ".cache/tasks/repair-9-12/numeric-90s-2"
+      ],
+      "outcome": "DENY",
+      "exit": 2
+    },
+    {
+      "id": "gc-ffi-runtime-archive-absent",
+      "closesGate": false,
+      "function": "gambit.runtime-import",
+      "note": "ci-gc-ffi on repair-9-12 materialized the darwin-stack-trip-owner-limit source, then runtime-import returned DENY: runtime artifact input unavailable or aliased. The declared archive .cache/tasks/repair-9-12/ci/gambit-runtime.tar is absent. test7, test8 and test9 stayed BLOCKED. This is not the official GC/FFI inventory and not a 90-second numeric compile. Milestone stays 8/12.",
+      "run": ".cache/tasks/repair-9-12/gc-ffi-inventory-1",
+      "outcome": "DENY",
+      "exit": 2
+    },
+    {
+      "id": "three-flag-configure-missing-producer",
+      "closesGate": false,
+      "function": "prevent_duplicate_configuration",
+      "note": "ci-three-flag-source-core materialized the stack-trip lock, then configure raised FileNotFoundError for .data/fixtures/darwin-stack-trip-owner-limit-sealed-bootstrap-run. That registered completed-bootstrap tree is absent. Seed and source-core stayed BLOCKED. This is not a runtime and not test7/test8/test9. Milestone stays 8/12.",
+      "run": ".cache/tasks/repair-9-12/fixtures/ci-source-core",
+      "outcome": "DENY",
+      "exit": 2
     }
   ]
 }

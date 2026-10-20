@@ -14,6 +14,45 @@ from tests.support import protocol_fixture
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_registered_view_references_are_in_the_published_git_tree(self):
+        import hashlib
+        from gambit_smp.task_processes import check_output
+        rows = check_output(["git", "-C", str(index.ROOT), "ls-files", "--stage"], text=True).splitlines()
+        self.assertTrue(all(row.split()[2] == "0" for row in rows), "Unresolved Git entries are not publishable")
+        entries = {row.split("\t", 1)[1]: row.split()[:2] for row in rows}
+        gitlinks = [name for name, entry in entries.items() if entry[0] == "160000"]
+        missing = []
+        checked = {}
+        def document(path):
+            return json.loads(check_output(["git", "-C", str(index.ROOT), "cat-file", "blob", entries[path][1]]))
+        for name in document("evidence/views.json")["views"]:
+            view = document(name)
+            declaration = name.replace(".view.json", ".view.source.json")
+            if declaration in entries:
+                binding = document(name.replace(".view.json", ".view.binding.json"))
+                for field, path in (("declarationSha256", declaration), ("outputSha256", name),
+                                    ("generatorSha256", binding["generator"])):
+                    content = check_output(["git", "-C", str(index.ROOT), "cat-file", "blob", entries[path][1]])
+                    self.assertEqual(binding[field], hashlib.sha256(content).hexdigest(), (name, field))
+            for reference in view["references"]:
+                path = reference["path"]
+                repository = index.ROOT
+                if path in entries:
+                    blob = entries[path][1]
+                else:
+                    owner = next((link for link in gitlinks if path.startswith(link + "/")), None)
+                    if owner is None:
+                        missing.append((name, path))
+                        continue
+                    repository = index.ROOT / owner
+                    blob = workspace.git(repository, "rev-parse", entries[owner][1] + ":" + path[len(owner) + 1:])
+                key = (str(repository), blob)
+                if key not in checked:
+                    content = check_output(["git", "-C", str(repository), "cat-file", "blob", blob])
+                    checked[key] = hashlib.sha256(content).hexdigest()
+                self.assertEqual(reference["sha256"], checked[key], (name, path))
+        self.assertEqual([], missing, "Local files do not establish a portable published view")
+
     def test_portable_validation_does_not_refresh_or_accept_a_stale_saved_index(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()

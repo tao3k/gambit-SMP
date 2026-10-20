@@ -488,17 +488,15 @@ def os_join_error_then_success(text):
     """True only when the captured transcript records an OS join errno, then 0.
 
     The errno has to be the value ___thread_join got from pthread_join while the
-    worker was still joinable. A success banner with no errno, or EINVAL, is not
-    that sequence.
+    worker was still joinable. The pre-join witness banner is not that sequence,
+    including when it is pasted under an errno line. EINVAL is not still-joinable.
     """
     import re
-    # The pre-join witness path prints only this banner. It is not an OS join error.
-    if text == LIFECYCLE_STDOUT or text.strip() == LIFECYCLE_STDOUT.strip():
+    if LIFECYCLE_STDOUT.strip() in text:
         return False
     match = re.fullmatch(
         r"LIFECYCLE-JOIN:OS-JOIN-ERROR ([1-9][0-9]*)\n"
-        r"LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n"
-        r"LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n",
+        r"LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n",
         text,
     )
     if match is None:
@@ -525,10 +523,10 @@ def pre_join_flag_before_join(root, relative):
 
 
 def os_join_errno_recorded(root, relative):
-    """True when setup.c stores errno from ___thread_join, then joins again.
+    """True when setup.c stores a non-EINVAL errno from ___thread_join, joins again, then transfers.
 
-    The banner string and a ___LW_REFUSED store before pthread_join do not
-    record that sequence.
+    Transfer has to follow the second join. A ___LW_REFUSED store before that
+    join, or an errno store with no later transfer, is not the recovery.
     """
     if pre_join_flag_before_join(root, relative):
         return False
@@ -542,8 +540,14 @@ def os_join_errno_recorded(root, relative):
     errno = text.find("___ERRNO_FROM_ERR_CODE", first)
     if errno == -1:
         return False
-    second = text.find("___thread_join", errno)
-    return first < errno < second
+    not_einval = text.find("!= 22", errno)
+    if not_einval == -1:
+        return False
+    second = text.find("___thread_join", not_einval)
+    if second == -1:
+        return False
+    transfer = text.find("___transfer_mem_pstate", second)
+    return first < errno < not_einval < second < transfer
 
 
 def _lifecycle_run_ok(root, relative):
@@ -590,7 +594,7 @@ def qualify_nine_of_twelve(root):
         stdout_path = root / relative / "run/join-probe/run-executable.stdout"
         if stdout_path.is_file():
             text = stdout_path.read_text()
-            if text == LIFECYCLE_STDOUT or not os_join_error_then_success(text):
+            if LIFECYCLE_STDOUT.strip() in text or not os_join_error_then_success(text):
                 return {"admitted": False, "count": "8/12", "closed": None, "runsOk": False}
     milestone = (root / MILESTONE_PATH).read_text()
     review = (root / REVIEW_PATH).read_text()

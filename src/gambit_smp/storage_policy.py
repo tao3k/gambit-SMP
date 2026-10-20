@@ -39,7 +39,16 @@ def validate(root, path, *, task=None, deleting=False):
         if resolved_parts and resolved_parts[0].casefold()=='campaigns' and not deleting:
             raise StoragePolicyError('campaigns/ is forbidden; use the task program/output allocator')
     if relative.parts[0] in {'.cache','.data'} and resolved!=path:
-        raise StoragePolicyError('storage aliases are forbidden')
+        parent=path.parent
+        # Native script links stay in their storage owner. Their resolved target
+        # must also pass task/process policy; an inert-looking link is not custody.
+        owner=relative.parts[:3] if relative.parts[:2] in {('.cache','tasks'),('.data','worktrees')} else relative.parts[:2]
+        internal=(path.is_symlink() and parent.resolve()==parent.absolute()
+                  and resolved.is_relative_to(root.resolve())
+                  and resolved.relative_to(root.resolve()).parts[:len(owner)]==owner)
+        if not internal:
+            raise StoragePolicyError('storage aliases are forbidden')
+        validate(root,resolved,task=task,deleting=deleting)
     first=relative.parts[0]
     if first.casefold()=='campaigns':
         if deleting:return
