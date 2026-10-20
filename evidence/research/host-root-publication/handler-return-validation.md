@@ -107,3 +107,23 @@ observation are still owed. Native correctness, full GC/FFI/Gerbil acceptance
 and release performance stay separate. A general host/root/signal architecture
 redesign remains Experimental. The Recipe supplies premises and falsifiers,
 not an Agent plan or a new runtime mechanism.
+
+## Dependent View Binding Audit
+
+The framework job for `08fc280` subsequently rejected before its test producer:
+`Evidence view reference changed: evidence/dsl/modeling-guidance.ss`.
+The only registered dependent reference was `reasoning-methods.view.json`'s
+`existing-dsl` premise. It describes an existing inference component; it is not
+a native receipt or a model/source acceptance review.
+
+The audited DSL delta adds exact model-path provenance and separates model-check
+and source-review identities in revision detection. The dependent declaration
+was rebound to the actual reviewed DSL SHA-256
+`030cfc1abf4d324d8cf7cbd6102a16f14d5182ff580c69387745b25003ae9b4c`.
+JSON comparison established that only this reference identity changes; all
+candidate, review, policy, method, question and acceptance data remain identical.
+The existing six `tests.test_reasoning_methods` tests passed in 6.447 seconds,
+including real view loading, optional/nonexclusive methods, withdrawal/restoration
+and no proof/execution-authority grant. No historical native result was rebound.
+This local check does not relabel the failed CI job as passing; latest-head CI
+must report its own result.
