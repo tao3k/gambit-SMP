@@ -127,3 +127,17 @@ including real view loading, optional/nonexclusive methods, withdrawal/restorati
 and no proof/execution-authority grant. No historical native result was rebound.
 This local check does not relabel the failed CI job as passing; latest-head CI
 must report its own result.
+
+## Publication-Tree Identity Correction
+
+The framework job for `5b7671a` failed at the same reference before tests.
+The preceding local check did not validate the isolated publication bytes:
+`030cfc1a...` includes concurrent, unpublished mechanism rules in the shared
+working tree. The reviewed, owner-scoped DSL actually published in that commit
+has SHA-256 `c8af243de911827c19050fd071d9cde79c3f7b29b48640a0d46c18214292fe45`.
+The previous binding was therefore incorrect; its local six-test result remains
+historical and is not evidence for the published reference. The correction
+changes only that dependent reference in the publication index, without changing
+the concurrently maintained working-tree view or DSL. Native and model results
+are not rebound. Registered references are checked from the publication Git
+objects and pinned vendor objects, not inferred from the dirty working tree.
