@@ -1,4 +1,4 @@
-"""Experimental contracts use the existing guarded process and Scheme engine."""
+"""Current-repair and architectural research reuse guarded checks and Scheme."""
 from dataclasses import asdict
 import json
 import os
@@ -118,7 +118,9 @@ class RuntimeEntryFormalTests(unittest.TestCase):
             repeated, reused = evaluate(engine, facts, catalog, queries)
             self.assertEqual(repeated, answers)
             self.assertTrue(reused["nativeResultReused"])
-            for source in ("entry-audit", "entry-lean", "metadata-transaction", "entry-validation",
+            for source in ("current-repair-recipe", "current-root-retention", "current-foreign-origin-owner",
+                           "chez-foreign-frames", "ocaml-domain-retirement",
+                           "entry-audit", "entry-lean", "metadata-transaction", "entry-validation",
                            "entry-callers", "ocaml-slow-lock", "gambit-repl",
                            "entry-callers-validation", "metadata-recipe", "capture-protocol",
                            "ffi-root-protocol", "retry-root-protocol", "chez-oom", "ocaml-allocation",

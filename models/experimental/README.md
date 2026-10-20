@@ -1,7 +1,9 @@
 # Experimental Models
 
-Future protocols and refactor hypotheses live here, separate from the current
-SMP repair/qualification models. These models are executable, but their passes
+Architectural refactor hypotheses live here, separate from the current
+SMP repair/qualification models. Each proposal needs a mechanism change and
+an applicability/migration argument, not merely a missing proof or a new local
+failure condition. These models are executable, but their passes
 do not close current native obligations or advance the milestone count.
 
 ## Retirement Handoff
@@ -35,3 +37,11 @@ particular, this composition neither proves failed-join recovery nor authorizes
 freeing a VM with a live same-VM root. Promotion requires source-established
 ownership, root inventory, handler quiet, configuration and native witnesses,
 not simply moving these files into `gambit/`.
+
+The architecture under investigation is explicit ownership across VM retirement,
+independently retained synchronization/root storage and pre-admission handler
+lifetime. A generalized carrier/admission protocol or changed host attachment
+contract needs a coordinated refactor milestone. The small waiter/exception
+projections are checks within that proposal, not a reason to send every current
+waiter bug into this directory. Current 9/12 repair reuses existing source-bound
+models as described in the [current Recipe](../../docs/current-repair-research.md).

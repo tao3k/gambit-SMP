@@ -2,9 +2,13 @@
 
 ## Classification And Reuse
 
-This is an **Experimental future protocol**, not a repair or qualification of
-the current native candidate. Its root handoff and pre-admission handler-quiet
-conditions are not yet established as one implemented Gambit protocol. Current
+This is an **Experimental architectural protocol**, not a qualification of
+the current native candidate. The proposal changes the ownership composition
+across VM teardown, independently retained synchronization/root storage and
+pre-admission handler lifetime. Its conditions are not yet established as one
+implemented Gambit protocol. A missing local proof or unimplemented bounded fix
+alone does not make current repair work Experimental; that lane is tracked in
+the [current repair Recipe](../current-repair-research.md). Current
 failure models and native manifests stay unchanged; the owner's reported 9/12
 is neither increased nor re-certified here. No runtime source, native producer,
 checkpoint, build profile or acceptance budget is changed.
