@@ -89,6 +89,7 @@ class GrokSessionTests(unittest.TestCase):
             self.assertEqual(interface,
                 'Available project Evidence CLI (read-only): ' + read['command']
                 + '\nCaller-authored Scheme request data: ' + read['request']
+                + '\nWritable scratch directory: ' + str(Path(read['request']).parent)
                 + '\nInterface help: ' + read['permission'] + ' --help'
                 + '\nTerminal permission covers registered read/help commands, not general shell.')
             disabled = run(replace(launch, query_request=None))

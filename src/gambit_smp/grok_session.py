@@ -143,6 +143,7 @@ class Launch:
                 argv += ["--allow", "Bash(" + permission + ")"]
             argv += ["--rules", "Available project Evidence CLI (read-only): " + read["command"]
                      + "\nCaller-authored Scheme request data: " + read["request"]
+                     + "\nWritable scratch directory: " + str(owned)
                      + "\nInterface help: " + read["permission"] + " --help"
                      + "\nTerminal permission covers registered read/help commands, not general shell."]
         if self.resume:

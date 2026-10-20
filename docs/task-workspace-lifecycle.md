@@ -31,6 +31,8 @@ does not preload evidence or investigation steps into the model prompt.
 The same literal interface descriptor is also exposed with the provider's
 existing `--rules` mechanism. It contains only the CLI, caller-authored request
 path and help command, not evidence, query factors or an investigation order.
+It also names the already-granted writable owner directory; an external scratch
+path does not gain permission merely because it is temporary.
 Receipt discovery is therefore not a prerequisite for using the granted read.
 The documented public Python help expression is a literal introspection grant;
 directory inspection uses the provider's existing read-only `list_dir` tool.
