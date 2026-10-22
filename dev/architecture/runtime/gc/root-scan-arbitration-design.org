@@ -1,0 +1,327 @@
+#+TITLE: Admitted Root Scan Arbitration and Whole-Round Reentry
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+#+OPTIONS: toc:3
+
+* Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: root-scan-arbitration-decision
+:STATUS: conditional-model-source-order-progress-open
+:MAINLINE: modern-generated-C
+:END:
+
+An admitted root task remains a round obligation after its context requests
+return. The phase service arbitrates *round admission*, and the task service
+arbitrates *worker claim*. Closing later admission cannot cancel already-owed
+work. Pending work belongs to the service; claimed work belongs to a durable
+attempt record and its worker; uncertainty retains that responsibility.
+
+RootAck is weaker than WholeRoundResumeSeal. Root enumeration can finish before
+descendants, weak processing, continuation movement, cleanup and allocation
+capacity preparation. Reentry receives active participation only after the
+applicable round has a resume seal and binding/root premises hold. Reload then
+runs under the active permit. A pending return never grants permission to skip
+an owed scan or to retire its root view.
+
+The modern C boundary is authoritative. Scheme owns semantic liveness and
+FrameSpec; generated C and runtime services expose root coverage, task roles,
+attempts, phase seals and protected reload. No incremental Zig work reduction
+is established. There is no runtime implementation, native test, performance
+measurement or path retirement in this study.
+
+[[file:models/sysml/root-scan-arbitration.sysml][GambitRootScanArbitration]] owns needs, dependencies, caller routes, costs
+and diagram topology. Native sysml projection feeds the [[file:root-scan-arbitration-matrix.org][matrix]] and
+[[file:diagrams/root-scan-arbitration.d2][D2]]. [[file:../../../modeling/ascent/root-scan-arbitration.rules.scm][ASCENT DSL]] joins exact subject digest/method/check/scope and computes
+dependency closure. [[file:../../../../models/gambit/root_scan_arbitration.qnt][QNT]] and [[file:../../../../models/gambit/lean/RootScanArbitration.lean][Lean]] have explicit conditional scope. The
+[[file:../../../../evidence/research/root-scan-arbitration/checks.json][receipt]] does not replace historical receipts or requalify the global graph.
+
+* Concrete source path: calls, claims and phase boundaries
+:PROPERTIES:
+:CUSTOM_ID: root-scan-arbitration-source
+:END:
+
+** Current roots are directly scanned, not dequeued root tasks
+
+[[file:../../../../vendor/gambit/lib/setup.c::1182][___garbage_collect]] requests OP_GARBAGE_COLLECT through on_all_processors.
+[[file:../../../../vendor/gambit/lib/setup.c::1012][execute_sync_op]] calls ___garbage_collect_pstate; execute_sync_op_loop
+arbitrates combined operations, synchronously clears the sync interrupt and
+delivers the result to the winning/combining requester before OP_NOOP. The
+tree barrier implementation is [[file:../../../../vendor/gambit/lib/setup.c::542][barrier_sync_op]]; [[file:../../../../vendor/gambit/lib/setup.h::64][BARRIER]] maps to
+barrier_sync_noop outside the single-threaded profile.
+
+[[file:../../../../vendor/gambit/lib/mem.c::3410][setup_stack_heap_vmstate]] flips spaces and resets context queues/cursors.
+It initializes both strong/weak scan_workers_count entries from processor_count
+at 3458–3459. [[file:../../../../vendor/gambit/lib/mem.c::6813][garbage_collect_mark_strong_phase]] directly calls root routines,
+including continuation, registers, saved values and type cache, then enters
+transitive scanning. Processor zero additionally handles VM/symbol/RC roots.
+An independently scheduled root-task queue is a proposed architectural change;
+the existing chunk FIFO is not already such a queue.
+
+Enlistment must precede removal of the context's active acknowledgement. A
+phase snapshot owns a closed set of context-generation/view duties, independent
+of worker-team membership. Replacing processor_count with worker_count in the
+old initialization would lose this distinction and the global-root partition.
+[[file:native-root-reentry-design.org][Native root coverage and participation]] remains an imported open contract.
+
+** Real task publication and claim windows
+
+[[file:../../../../vendor/gambit/lib/mem.c::3251][end_heap_chunk]] writes the terminator/link, publishes queue tail with two
+ordered visibility cuts and signals scan_termination_condvar. A signal does not
+transfer ownership or certify completion. A modern C adapter must preserve
+payload-before-observable-tail ordering even if it uses a mutex/atomic API.
+
+[[file:../../../../vendor/gambit/lib/mem.c::4345][scan_movable_objs_to_scan]] advances the local FIFO head under its spinlock,
+unlocks, then scans the claimed chunk. [[file:../../../../vendor/gambit/lib/mem.c::6690][mark_reachable_from_marked]] steals a
+remote chunk with the same head-advance/unlock/scan sequence. The interval after
+dequeue and before completion is real private work even when both queues are
+empty. A proposed canonical claim record must acquire custody atomically with
+queue removal; adding a record after dequeue introduces a loss window.
+
+[[file:../../../../vendor/gambit/lib/mem.c::4252][scan_complete_heap_chunk]] keeps ptr local. [[file:../../../../vendor/gambit/lib/mem.c::4235][scan_still_objs_to_scan]] pops
+still work before calling scan. [[file:../../../../vendor/gambit/lib/mem.c::4192][PAIR scan_and_advance]] calls mark_array
+before advancing ptr. [[file:../../../../vendor/gambit/lib/mem.c::3578][mark_array]] can publish forwarding through CAS before
+payload copy and Tail work are complete. Worker recovery needs the current
+object/subfield, pending cursor advance, copy initialization frame, allocation
+frontier, Tail ownership and child publication credits. A saved PC or just
+scan_ptr_ cannot reconstruct all these responsibilities. PSTATE's allocation,
+queue and scan fields at [[file:../../../../vendor/gambit/include/gambit.h.in::11350][11350–11416]] are part of that actual adapter boundary.
+
+** Termination, weak movement and actual resume
+
+[[file:../../../../vendor/gambit/lib/mem.c::6677][mark_reachable_from_marked]] drains still/movable work, attempts stealing,
+then decrements workers_count under scan_termination_mutex. Zero terminates;
+otherwise the worker condition-waits, rechecks the predicate and increments
+after wake. This relies on the current fixed-team/producer discipline. It is
+not a general termination proof after external root producers, asynchronous
+worker exit and private task migration are added.
+
+[[file:../../../../vendor/gambit/lib/mem.c::6998][___garbage_collect_pstate]] has barriers between setup, strong, weak,
+cleanup and resize. [[file:../../../../vendor/gambit/lib/mem.c::6872][The weak phase]] processes wills, traces further work and
+calls move_continuation. Cleanup processes GC hash tables and sweeps still
+objects. Processor zero resizes; each context guarantees fudge, accounts for
+space and calls [[file:../../../../vendor/gambit/lib/mem.c::4525][prepare_mem_pstate]], which restores fp/hp/limits and refreshes
+interrupt detection. The call returns at 7085; the sync-op loop still owns
+request/result delivery. RootAck earlier in strong phase cannot authorize use
+of pre-weak frame coordinates or pre-prepare allocation limits.
+
+[[file:../../../../vendor/gambit/lib/mem.c::4390][free_unmarked_still_objs]] invokes ___release_foreign and then frees the
+still allocation. [[file:../../../../vendor/gambit/lib/c_intf.c::1683][___release_foreign]] clears function/pointer fields before
+calling the foreign release function. A delayed destructor must not be replayed
+from these cleared fields or assumed to be pure/nonblocking. This path is a
+specific possible wait dependency, not proof every release function reenters.
+
+** Actual processor exit is not arbitrary scan-worker replacement
+
+[[file:../../../../vendor/gambit/lib/setup.c::774][___run_and_throw_error_on_processor_0]] keeps servicing synchronous operations
+after the Scheme thunk returns. [[file:../../../../vendor/gambit/lib/setup.c::887][___vm_resize_pstate]] changes processor membership
+synchronously; removed processors clean PSTATE and exit after the resize barrier.
+Processor zero joins them and explicitly ignores the join error. This is not
+an existing protocol for recovering a processor killed inside mark_array.
+[[file:../../../../vendor/gambit/lib/os_thread.c::546][___thread_join / ___thread_exit]] provide OS operations, not a complete scan
+checkpoint. Even an independently proved successful stop does not recover lost
+copy progress, root lifetime or descendant accounting. Failed/unknown joins
+must not permit cleanup of scan-visible PSTATE/root facilities.
+
+* Proposed contracts and atomic cuts
+:PROPERTIES:
+:CUSTOM_ID: root-scan-arbitration-contract
+:END:
+
+#+NAME: arbitration-records
+| Record | Essential contents | Responsibility |
+|--------+--------------------+----------------|
+| RoundDuty | VM/context/view generations, collection/root-cut epoch, phase/round, canonical task identity | phase service owns every admitted root duty |
+| PendingTask | payload/locator, scan class, required role, acceptance credit, lifetime pins | task service until atomic claim |
+| ScanAttempt | task/epoch/attempt generation, worker generation, cursor/copy frames, private/child credits, last-use state | owned even after queue head advances |
+| QuiescentReady | effects and child publication complete, stable result, scan writes closed, attempt identity | canonical completion query; no replay |
+| CheckpointHandoff | complete typed recovery state, stopped writer, source pins, target acceptance, committed new attempt | old owner until acceptance is known |
+| ReturnTicket | context/view generation, admitted-round cut, request identity | stops future enlistment overtaking this return |
+| WholeRoundResumeSeal | strong/weak closure, qualified cleanup/capacity outcome, context preparation/result delivery, current binding/roots | phase coordinator, separate from RootAck |
+
+QuiescentReady includes the scan writer's terminal handback. Merely storing a
+result value does not prove the writer's final root/metadata use is over.
+Attempt-record reclamation additionally requires reader/pin drain; acknowledgement
+alone is not physical free. Existing no-escape, root lifetime and binding
+contracts remain required and unresolved.
+
+** Enlist, claim and late arrival
+
+1. Under the phase gate, accept the root duty and pin its view before replacing
+   active acknowledgement with a frozen-root obligation. Queue notification
+   follows committed duty publication. A failed notification leaves pending
+   work discoverable from the authoritative ledger.
+2. A return ticket is ordered against that cut. If the round already owns the
+   view, pending or claimed work is drained. If return wins before a new round,
+   the next snapshot observes the protected active participant instead; it
+   cannot append an unbounded sequence of frozen-view rounds ahead of return.
+3. Claim checks the full task/epoch/view/attempt/worker generations under the
+   task/phase arbitration protocol. Matching already-admitted work remains
+   legal after return request. A late old-generation claim is rejected, rather
+   than converted into an unaccounted replacement task.
+4. Queue removal and canonical Pending→Owned transfer are one abstract step.
+   If they cannot share a concrete lock, a transfer record keeps the source
+   responsible until acceptance is known. Timeout is not evidence of rejection.
+5. Completion publishes all reserved descendants and private continuation
+   ownership before Ready. Root acknowledgement settles only the root task;
+   it cannot settle descendant or later-phase obligations.
+
+** Worker exit, failed transfer and unknown effects
+
+#+NAME: arbitration-custody
+| Situation | Legal action | Remaining custodian |
+|-----------+--------------+--------------------|
+| Task unclaimed, worker exits cooperatively | keep pending; preserve service capacity or reject exit | task service; not the returning context |
+| Claim committed, reply lost | query same task/attempt; no duplicate scan | canonical Owned record and worker |
+| Ready committed, notification lost | query/ack same quiescent record | result record and required lifetime pins |
+| Stopped at a complete qualified checkpoint | commit target acceptance then new attempt generation; restore exact continuation | source until commit; target after known commit |
+| Target rejects | keep source checkpoint/pins; choose another qualified worker | source/transfer record |
+| Target acceptance unknown | query canonical decision; do not release source or start another writer | prior source/transfer custodian |
+| Partial copy or last write unknown; no complete checkpoint | quarantine; retain root/private/child debt | attempt/round service; phase closure blocked |
+| OS stop proven but checkpoint incomplete | retain quarantine | no safe replay or phase seal inferred |
+
+Cooperative exit needs a non-exiting replacement when pending work remains.
+Removing the last available worker while return waits for that work would be
+another cycle. Worker reservation/admission and wakeups must preserve service
+capacity. An arbitrary crash may still make progress impossible; the safety
+response is retained custody and refusal, not fabricated completion.
+
+** Whole-round gate and lock/wait order
+
+RootAck proves neither whole-heap transitive closure nor resume safety.
+WholeRoundResumeSeal requires the admitted descendant frontier to close,
+separate weak-phase completion, qualified cleanup and capacity decisions,
+per-context recovery preparation and consistent request-result delivery.
+Only then may the phase arbiter transfer frozen-root duty to active permit.
+Root reload occurs outside the short gate while that permit excludes a new
+moving scan. Existing binding and callback marker/root prerequisites still
+apply before the first managed access.
+
+Do not hold phase/task gates while scanning, stopping/joining, waiting for
+results, invoking user destructors or waiting for the same return ticket.
+Update predicates and register the wait atomically with the condition-variable
+protocol, release locks while waiting, then recheck generation and predicate.
+Return does not wait for OS thread destruction after a valid scan handback;
+worker lifecycle destruction separately waits for last users.
+
+Use a single short arbitration lock for the initial reference design. A split
+lock design needs an explicit phase-before-task order and a source-preserving
+transfer state; it must never wait across locks. Payload initialization precedes
+release publication, claim acquire precedes scan, terminal effects/child credits
+precede Ready, and seal publication precedes permit/reload acquisition. Concrete
+C ordering and the actual condition-wait implementation remain RA-ORDER.
+
+#+BEGIN_QUOTE
+Conditional wait order: requester → round coordinator → admitted scan/cleanup
+work. There must be no reverse edge from that work to the requester's return
+permit or a gate it retains. A descending rank proves no cycle only after the
+complete real wait graph has been shown to respect that rank.
+#+END_QUOTE
+
+** Foreign cleanup is a real admission condition
+
+A destructor that requires the native owner's callback, while that callback
+requires this round's resume seal, creates:
+return → round cleanup → owner callback → return. More workers do not remove it.
+Either qualify a nonblocking/nonreentrant collector-safe destructor, or use a
+qualified deferred release handoff that detaches necessary native state,
+preserves required roots/resource backing and lets round-critical cleanup
+finish independently. Actual destructor completion remains a later obligation.
+Do not free a still shell/payload just because a task was enqueued. If effects,
+affinity, transfer or semantic delay cannot be qualified, refuse the released
+native profile. RX-S and RA-WAIT explicitly retain this source/progress gap.
+
+* Conditional models, evidence and counterexamples
+:PROPERTIES:
+:CUSTOM_ID: root-scan-arbitration-proof
+:END:
+
+QNT models one admitted root task, two workers, a two-step abstract scan, one
+derived chunk and two bounded epochs. States distinguish Pending, Owned, Ready,
+Acknowledged and Quarantined; partial checkpoints preserve prefix progress.
+Its four abstract phase states distinguish strong, weak, cleanup/capacity and
+resume seal. Twenty-seven named histories include five unsafe controls; 100
+sampled traces of at most 100 transitions use seed 17. This is non-exhaustive.
+Actual checkpoint completeness, cleanup safety, binding and physical stop are
+premises. It does not model full copying GC, OS faults or actual fair scheduling.
+
+Lean checks 22 declarations: custody total conservation through five transfers
+and Step/Trace, empty-queue/quarantine rejection, root-ack insufficiency,
+descendant/writer gates, source-pin/stop/checkpoint conditions, generation and
+prefix arithmetic, and acyclicity of an abstract strictly ranked wait graph.
+The latter does not prove the real C wait graph is complete or fair. This is
+not full induction over every QNT transition or a source/weak-memory simulation.
+
+#+NAME: arbitration-counterexamples
+| Counterexample | Why it fails | Required closure |
+|----------------+--------------+------------------|
+| Reject every post-ticket claim | admitted pending root never reaches RootAck | claim owed work despite return request |
+| Queue empty, drop dequeued task | private scan/copy work disappears from termination | atomic claim plus durable Owned record |
+| RootAck grants return | weak movement and recovery limits are still unsettled | whole-round resume seal |
+| Unknown claim reply triggers second scan | duplicate writers / Tail or copy effects | query canonical attempt identity |
+| Restart stopped partial scan at its head | known prefix/copy initialization repeated | exact qualified checkpoint or quarantine |
+| Unknown stop treated as idle decrement | live writer escapes phase accounting | writer closure and retained debt |
+| Cleanup synchronously waits for callback needing return | return/cleanup/callback cycle | qualified destructor or deferred custody |
+| Last worker exits with pending root | return has no producer able to discharge debt | service-capacity reservation |
+
+The native SysML boundary has 18 needs, 37 dependency edges, seven source routes,
+ten caller families and eight cost rows. RA-H/RA-I are the only exact local
+formal receipts. Fourteen source needs and two native-order needs remain open;
+zero components qualify. Five ASCENT cases independently compare transported
+native need/edge/subject facts and exact scope/digest checks. The all-scoped
+positive case is synthetic; it is not source or native qualification.
+
+* Learning and reflection
+
+[[https://www.cs.utexas.edu/~EWD/transcriptions/EWD06xx/EWD687a.html][Dijkstra–Scholten's termination study]] distinguishes delegated work from
+returned completion signals, and states a fairness assumption. The transferable
+lesson is to conserve obligations until their completion is accounted for.
+This design uses local task/phase ledgers; it does not claim to implement that
+distributed algorithm, inherit its theorem or obtain crash tolerance.
+
+[[https://anil.recoil.org/papers/2020-icfp-retropar.pdf][Retrofitting Parallelism onto OCaml]] studies the interaction between native
+execution, runtime participation and collection phases. Gambit's moving
+continuation frames, PSTATE-private copy state and synchronous foreign release
+require their own boundaries. RootAck versus WholeRoundResumeSeal is a Gambit
+source-derived distinction, not a transplant of OCaml's collector protocol.
+
+* Migration, retirement and net benefit
+:PROPERTIES:
+:CUSTOM_ID: root-scan-arbitration-migration
+:END:
+
+1. Scheme-generated coverage and stable context/view domains precede task
+   publication. Do not remove a context's barrier duty before its root task is
+   accepted. Preserve global-root partitioning and nonzero-processor RC gaps.
+2. Separate worker work context from PSTATE/root ownership. Migrate root tasks,
+   local/remote chunk claims, still pops and partial-copy states as one custody
+   design; retain old paths until every producer/private continuation is covered.
+3. Replace fixed active-worker-count termination only after the full frontier
+   and producer closure refine to C. Strong and weak generations remain distinct.
+4. Qualify cooperative checkpoints and stop/target acceptance. Retire unchecked
+   join-as-stop assumptions; arbitrary owner death remains denied unless exact
+   recovery is separately proved.
+5. Migrate phase/result/context preparation into the resume service, including
+   cleanup-affinity/deferred-release contracts. Retire implicit calling-processor
+   resume and raw RootAck-based gates only after all real consumers migrate.
+
+Let K be admitted released contexts, R roots, H traced heap fields, U exported
+locals and Scheckpoint complete recovery-state size. Root duties remain K;
+root/transitive scan remains O(R+H), reload O(U), checkpoint handling
+O(Scheckpoint). Stable completion queries add zero repeated scan effects.
+No duration or speedup follows from these work bounds.
+
+#+BEGIN_QUOTE
+Theoretical time benefit requires saved native-barrier waiting plus useful
+independent scheduling to exceed new task publication/claim/ack, phase/return
+arbitration, queue contention, checkpointing and qualified cleanup handoff.
+Peak = max_t(existing live backing + task/checkpoint/receipt pools + retained
+root/frame backing + deferred native backing), counting each physical backing
+once. Logical acknowledgement/unpin is not physical free.
+#+END_QUOTE
+
+The [[file:root-scan-arbitration-matrix.org][native-derived matrix]] includes new work explicitly. O(K) task records does
+not bound retained heap or deferred resources: quarantine or blocked release
+can retain them indefinitely. An application with frequent callbacks, little
+native waiting or large checkpoint/copy costs may have negative net benefit.
+Modern C has the required expressive mechanisms; Zig has not been shown to
+remove any of these necessary runtime duties.

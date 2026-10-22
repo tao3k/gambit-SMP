@@ -1,0 +1,57 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "exit-drain-lock-order-overlay",
+  "scope": "Apply the exit-drain mutex/thread lock-order candidate to the numeric-host source lock. Byte contract and transfer mode only. No bootstrap, no runtime import, and no native acceptance.",
+  "budgetSeconds": 600,
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace-numeric-host.patch",
+    "evidence/research/exit-drain-mutex-lock-order/lock-order.patch",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json"
+      }
+    },
+    {
+      "id": "overlay",
+      "capability": "source.overlay",
+      "dependsOn": ["candidate"],
+      "budgetSeconds": 180,
+      "arguments": {
+        "source": {"step": "candidate", "output": "source"},
+        "patch": "evidence/research/exit-drain-mutex-lock-order/lock-order.patch",
+        "role": "candidate",
+        "files": {
+          "lib/_thread#.scm": {
+            "before": "40b0826dafe72eaea4adfe1f841c797312f6cbcaf700fa9222f6cdfa08ed1c60",
+            "after": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "lib/_thread.scm": {
+            "before": "691c0930ea7de9e43d4ed166349511b14619879d986b9237bd00ba8abd9cb308",
+            "after": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["candidate", "overlay"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {"checked": "checked_step", "missing": "missing_step"},
+        "expected": {"missing": []},
+        "recordedQueries": ["checked"]
+      }
+    }
+  ]
+}

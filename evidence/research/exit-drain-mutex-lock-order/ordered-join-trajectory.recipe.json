@@ -1,0 +1,54 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "exit-drain-lock-order-ordered-join",
+  "scope": "Parse, typecheck, and run the lock-order trajectories, including ordered head join, a queued observer, the zero-timeout join, and the enable-smp thread-start queue. thread-start! returns with the starter still current. An idle-processor wake does not assert that the child ran. The under-quantum reschedule macro stays on the starter. A later yield runs a queued root only after an assumed exhausted quantum, which is not a delivered heartbeat. A fixnum timeout of 0 returns without the end-condvar wait once the thread lock is free, and spins while that lock is held with INTR_SYNC_OP clear. No Gambit materialization, no native gsi, and no admission. A passing test is source correspondence, not original TFIB acceptance and not a measured spin duration.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "models/gambit/exit_drain_mutex_lock_order.qnt",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "parse", "capability": "quint.parse", "dependsOn": [], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/exit_drain_mutex_lock_order.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/exit_drain_mutex_lock_order.qnt", "parsed": "parse"}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 30,
+     "arguments": {
+       "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+       "parsed": "parse",
+       "main": "exit_drain_mutex_lock_order",
+       "seed": "0x1510",
+       "maxSamples": 1,
+       "expectedTests": [
+         "assumedQuantumYieldRunsQueuedRootTest",
+         "candidateEscapeTest",
+         "delayLoopOutsideLockOrderTest",
+         "entryOnlyStillCyclesTest",
+         "fixedTfibJoinWithoutMutexTest",
+         "gcNotifyCurrentThreadSkipsMutexTest",
+         "gcNotifyNoCurrentThreadUsesResultMutexTest",
+         "heldThreadLockSpinsWithoutSyncOpTest",
+         "idleWakeLeavesStarterCurrentTest",
+         "logicalOwnershipTest",
+         "orderedJoinWaitsOnHeadTest",
+         "originalCycleTest",
+         "peerFirstTest",
+         "probeNotTfibTest",
+         "queuedObserverIsNotYetRunningTest",
+         "slowEscapeTest",
+         "startLeavesRootOnCurrentProcessorTest",
+         "targetFirstTest",
+         "tfibJoinWithoutMutexTest",
+         "timerConstantsOutsideDelayTest",
+         "underQuantumHeartbeatStaysOnStarterTest",
+         "zeroTimeoutProbeDoesNotWaitOnHeadTest"
+       ]
+     }},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["parse", "typecheck", "trajectories"], "budgetSeconds": 10,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

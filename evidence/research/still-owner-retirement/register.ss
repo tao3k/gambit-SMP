@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "still-owner-retirement:31964d9d1b352b27b3372a7fb661ea426e72215fcb38b2b12f84feaa44e1d6ca" "still-owner-retirement:31964d9d1b352b27b3372a7fb661ea426e72215fcb38b2b12f84feaa44e1d6ca" "support" "dev/architecture/runtime/gc/models/sysml/still-owner-retirement.sysml"))
+ (fact (factor "still-owner-retirement:31964d9d1b352b27b3372a7fb661ea426e72215fcb38b2b12f84feaa44e1d6ca" "target-model-bundle-sha256" "31964d9d1b352b27b3372a7fb661ea426e72215fcb38b2b12f84feaa44e1d6ca"))
+ (fact (factor "still-owner-retirement:31964d9d1b352b27b3372a7fb661ea426e72215fcb38b2b12f84feaa44e1d6ca" "native-output-sha256" "e51c24ed663e364fb58af9dd49bc0bebd0a20de11c2c10faa86c1ee9fb535144"))
+ (fact (factor "still-owner-retirement:31964d9d1b352b27b3372a7fb661ea426e72215fcb38b2b12f84feaa44e1d6ca" "planner-dsl-sha256" "cc9c8d1947556b15cb655ea9fad522fceca8463a32c506f0245126e213e6fac7"))
+)

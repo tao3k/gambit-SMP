@@ -25,7 +25,7 @@ class RecoverModelTests(unittest.TestCase):
         shutil.copyfile(ROOT / self.case["modelReceipt"], public)
         for name in ("receipt.json", "ticket_queue_handoff.qnt",
                      "ticket_queue_handoff-old.log", "ticket_queue_handoff-fixed.log"):
-            shutil.copyfile(ROOT / ".data/ticket-queue-handoff-001" / name, self.raw / name)
+            shutil.copyfile(ROOT / "tests/fixtures/recover-model" / name, self.raw / name)
 
     def test_recovery_uses_full_logs_snapshot_and_no_quint_process(self):
         snapshot, inputs, rows = validated(self.root, self.case, self.raw)

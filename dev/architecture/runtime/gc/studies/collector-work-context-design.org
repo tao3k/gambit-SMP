@@ -1,0 +1,344 @@
+#+TITLE: Collector Work Context and Request Participation
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: gc
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Collector Work Context and Request Participation :gc:
+:PROPERTIES:
+:ID: b1616a24-529f-5dd1-9611-924a7b7587f7
+:CUSTOM_ID: collector-work-context-and-request-participation
+:SOURCE_PATH: docs/experimental/zig/collector-work-context-design.md
+:SOURCE_SHA256: 70d4edbdb42e89f2120619fb5cbd0245e3dbdb4bd1ded156f828e37911627940
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Design research only. No implementation, native test,
+model/solver/engine execution, checked proof or positive economic bound.
+This refines TRA04--07 and TAD02--06 of the
+[[file:../../ffi/studies/target-root-adapter-design.org][target-root adapter]], with a
+[[file:collector-work-context-evidence.org][source/paper ledger]],
+[[file:../../../../../docs/experimental/zig/collector-work-context-fields.json][field inventory]],
+[[file:collector-work-context-cost-matrix.org][matched C/Zig matrix]] and
+[[file:../../../../../docs/experimental/zig/collector-work-context-traceability.json][document trace map]].
+SharedRuntimeContract retains Gambit's object, continuation and GC semantics.
+The design does not import OCaml's or GHC's collector algorithm or results.
+
+*** 1. Separate Identities Before Moving Fields
+:PROPERTIES:
+:ID: 5b725d0b-2f8f-51a8-a0a2-6b878a8ea892
+:CUSTOM_ID: 1-separate-identities-before-moving-fields
+:END:
+
+[[file:../diagrams/collector-domain-separation.svg][Ownership domains]]
+[[file:../diagrams/collector-domain-separation.d2][D2 source]].
+
+Current code uses processor_count to assign initial sections, partition globals,
+choose victim queues, initialize scan_workers_count, sum occupancy and operate
+sync barriers [CW-S01--05]. Replacing that count with worker_count everywhere
+would confuse several different populations.
+
+| ID | Proposed domain / identity | Responsibility and permitted relation |
+|-
+| CWI01 | MutatorContext set U | Scheme execution, saved register/stack state, interrupt and return obligations. Context lifetime is not OS thread lifetime; stopped contexts still contribute roots. |
+| CWI02 | RootDomain set K | Final physical root cells plus structured stack/continuation tasks, target carriers and actual pending arguments. K includes roots without a runnable mutator; one canonical writer per actual root cell/structured mutable domain [CW-S04/S06]. |
+| CWI03 | HeapShard/Extent set S | Persistent still/RC/storage custody, section occupancy and reclamation effects. Copied objects remain VM heap objects after a worker stops; W retirement cannot free their backing extents [CW-S02/S07]. |
+| CWI04 | CollectorWorker set W | Native collector threads/contexts admitted for one epoch and phase, each with tracing allocation cursor, work claim and queue access. W may differ from U in cardinality; no Scheme execution or unregistered managed locals on those workers. |
+| CWI05 | OperationParticipant set P | Actors that acknowledge/reconfigure contexts, service rendezvous, startup, retire, resolve or deliver results. P is role-indexed per operation; acknowledging a safe point does not make an actor a copying worker [CW-S01/S08]. |
+| CWI06 | Request set O and selected operation E | Durable request identity differs from origin ContextId, round, selected operation, child collection and participant role. Merged GC requests share E but retain separate obligations/results. One actor may participate without originating any request [CW-S01/S08]. |
+
+An epoch binds VM/heap reuse identity, U/K/S snapshots, W roster and a role map
+for P. M/K/W enrollment identities precede acknowledgements; final root locations
+follow them. No ordinary context/carrier mutation is admitted across the sealed
+moving epoch. A resize may alter U/P only at explicit nonmoving membership cuts;
+W is frozen during an active collection. No identity is inferred from an array
+index after membership changes.
+
+*** 2. PSTATE Extraction Boundary
+:PROPERTIES:
+:ID: 0689c454-9c5d-53d4-9983-a2adf496c278
+:CUSTOM_ID: 2-pstate-extraction-boundary
+:END:
+
+The field inventory classifies *all 34 textual member declarations* of
+___pstate_mem, including conditional debug/GC-frequency members. This is lexical
+coverage of that struct, not an AST/preprocessor or transitive-use proof.
+Important dependencies also live outside it: fp/hp/registers, thread state,
+GSTATE frame maps, VM section allocation and sync/interrupt machinery.
+
+| ID | Current fields / operations | Destination and mandatory reconstruction |
+|-
+| CWB01 | tospace_offset_; setup takes processor 0's offset; setup_stack_heap_vmstate flips it [CW-S02]. | VM/heap epoch view shared consistently by every participating shard, worker and resume plan. A new worker cannot inherit its own arbitrary flip or read a retired PSTATE. Preserve from/to interpretation; no relocation is implied by field copying. |
+| CWB02 | msection_free_list_, words_prev_msections_, bytes_allocated_minus_occupied_ and occupancy macros [CW-S02/S07]. | Separate persistent extent/accounting authority from worker-private allocation usage and mutator statistics. Reduce over actual distinct extents/shards, including worker-produced copies and retired-context storage still live. Do not add the same section once per U and again per W. |
+| CWB03 | stack_msection_, alloc_stack_start_/ptr_/limit_, stack_fudge_used_; move_continuation/prepare_mem_pstate [CW-S02/S06]. | ContextResumeArea keyed by owner ContextId, with exclusive relocation/writer authority. Stack bounds/return state remain context semantics. Worker copying arenas cannot become every context's stack allocation cursor. Preserve sharing/fudge constraints or replace them with a proved allocator contract. |
+| CWB04 | heap_msection_, alloc_heap_start_/ptr_/limit_, alloc_heap_chunk_start_/limit_, heap_fudge_used_ [CW-S02/S03]. | CollectorWorkContext owns phase-private CopyArena cursor/chunk state. Ordinary mutator allocation uses its own resumed buffer/lease. After collection, copied extents are handed to VM storage authority before worker resources retire; resume buffers are installed independently. |
+| CWB05 | heap_chunks_to_scan_lock_/head_/tail_/sentinel, scan_ptr_ [CW-S03/S05]. | Epoch queue ownership plus worker local scan lease/cursor. Ready chunks are claimed once; partial local chunks remain charged to their active worker. Queue metadata and payload backing can have different lifetimes. Existing direct publication/steal paths must migrate to one termination authority. |
+| CWB06 | still_objs_, words_still_objs_/deferred_, still_objs_to_scan_ [CW-S07]. | Persistent shard lists/accounting stay in S; reset externally referenced still roots once per shard at setup. Scan work belongs to W/epoch. Two workers cannot independently reset the same still mark/link or sweep the same shard. Foreign release remains effect/owner-qualified work. |
+| CWB07 | rc_head_ [CW-S04/S07]. | Root/storage carrier authority in K/S; residual processor lists can remain on the legacy profile. A migrated root is scanned by the target adapter exactly once, never also by an implicit worker PSTATE. Existing raw ref/data/free routing is still required. |
+| CWB08 | traverse_weak_refs_, nonexecutable_wills_, executable_wills_, reached_gc_hash_tables_ [CW-S04/S07]. | Phase token supplies traversal mode; logical will ownership stays with its admitted runtime owner, while discovered table work is epoch output with a canonical consumer. Do not make semantic will ownership follow a stealing worker. Drain/merge per-worker outputs before later cleanup. |
+| CWB09 | reference_location_, container_body_, mark_array_call_line_ [CW-S02]. | Worker/operation diagnostics with explicit provenance. A debug pointer into heap/stack retains its actual borrow; enabling checks must not reintroduce retired-PSTATE access. |
+| CWB10 | gc_calls_to_punt_ [CW-S02/S06]. | Mutator allocation/debug policy; leave in MutatorContext, with admitted worker-only allocation policy separate. No blanket move of the whole mem struct to a Zig allocation. |
+| CWB11 | fp, stack_break/start, hp/limits, r[], saved[], type_cache, processor object, return/frame-map machinery outside mem [CW-S04/S06/S09]. | Explicit RootDomainAdapter(owner, final-safe-state, worker) and ResumeBinding. Continuation root discovery may rewrite frame links and copy captured frames, not merely enumerate immutable pointers. Preserve the existing capture exclusion and root-publication ordering. |
+| CWB12 | VM section allocator, heap policy/statistics, custom_msection_alloc/adjust_heap hooks and scan synchronization [CW-S02/S07/S10]. | VM HeapServices, phase/termination authority and qualified hook/control islands. Recalculate capacity for resume stacks plus copy arenas and all retained extents. Existing MIN_SECTIONS_PER_PROCESSOR(target_count) alone is not an independent-worker capacity proof. |
+| CWB13 | SINGLE_THREADED_VMS gates forwarding CAS, MISC/ALLOC locks, queues and scan counters [CW-S03/S05/S09]. | CollectorConcurrencyProfile is independent of mutator count. U=1,W>1 requires multiwriter forwarding/frame/allocation/queue support. A fast path needs a sealed one-worker/no-other-writer proof; it cannot follow merely from one Scheme processor. |
+
+The semantic side stays in Scheme/Gambit: root-kind/frame interpretation,
+continuation/effect/return rules, will semantics and allocation/overflow behavior.
+The shared native plane owns explicit contexts, leases, queues, allocation and
+publication. Either modern C or Zig can implement that plane. LLVM providers
+supply admitted maps/relocation metadata; they cannot implement runtime
+participation, GC or the ownership decomposition by themselves [CW-P04].
+
+A source-to-service call boundary must pass *both* root owner and tracing
+worker. Helpers such as mark_continuation currently read ___ps->fp while
+mark_array uses that same ___ps for allocation/queues. A fake PSTATE holding a
+mixture of donor roots and worker cursors would preserve the ambiguity. Replace
+helper dependencies explicitly or keep a qualified legacy context island until
+its cohort can migrate. No copying/reinterpreting the old struct into Zig is a
+substitute for transitive call, macro/TLS, custom hook and exceptional-exit review.
+
+*** 3. Existing Selection, Execution and Result Mapping
+:PROPERTIES:
+:ID: bbfd9482-b2f4-57f0-921e-cb234f66a697
+:CUSTOM_ID: 3-existing-selection-execution-and-result-mapping
+:END:
+
+[[file:../diagrams/gc-resize-request-mapping.svg][Requests and participants]]
+[[file:../diagrams/gc-resize-request-mapping.d2][D2 source]].
+
+| ID | Source behavior | Mapping consequence |
+|-
+| CWR01 | OP_MAKE orders priorities; resize precedes GC; GC has COMBINING_ADD, resize has no combining [CW-S01]. | Preserve operation selection and checked capacity aggregation separately. Matching opcode does not mean every operation is mergeable. |
+| CWR02 | barrier_sync_op reduces child/self proposals and propagates winner/op to the tree; ties without combining retain a tree-selected origin [CW-S01]. | Do not silently replace the tie rule with smallest ContextId or newest RequestId. A retained source profile binds the frozen legacy topology/selection policy. |
+| CWR03 | execute_sync_op_loop executes the selected operation on all current participants; only matching opcode plus winner or combining consumes sop_ptr [CW-S01]. | Losing noncombined requests remain pending. A NOOP participant can execute work without owning a request/result. Each request is consumed once, not once per participant. |
+| CWR04 | service_sync_op starts with NOOP; first iteration resets sync interrupt and loop needs another round before leaving [CW-S01/S08]. | Participation completion is not request completion. Interrupt rearming and exit conditions require explicit refinement; a generic worker barrier cannot replace them. |
+| CWR05 | resize can call gc_pstate before changing processor_count; OP_SET_PROCESSOR_COUNT changes the topology inside barrier selection [CW-S08]. | Child collection uses old context membership and a frozen W; the subsequent membership cut is separately authorized. Queued GC is not consumed merely because resize performed a child collection. |
+| CWR06 | startup thread enters the sync loop before running its thunk; shrinking actors cleanup/exit and leader joins. Candidate adds result/heap-guard/startup-ready and join tracking [CW-S08/S11]. | P changes over resize; old members, dormant/new contexts and retiring actors have different duties. Candidate C work is real reuse, not full independent-worker proof. |
+| CWR07 | gc_pstate initializes local overflow=0, only processor 0 assigns resize_heap's result, then returns local overflow; dispatch copies that local result [CW-S10]. | The inspected vendor path does not establish a common published GC capacity result for all participants. Candidate selected hunks add resize-result synchronization but leave the shown GC assignment intact [CW-S11]. Global outcome equivalence remains unresolved. |
+
+CWR07 is a source-level result-delivery gap, not a reproduced failure or proof
+that a particular deployed build fails. It matters to resize too: if capacity
+branches differ across participants, their next collective actions need not
+agree. Do not claim a common Boolean result merely because all actors returned
+from a barrier. Exact configured/candidate behavior and intended semantic
+correction remain qualification obligations.
+
+**** Proposed Mapping Contract
+:PROPERTIES:
+:ID: c3cbf723-149a-504b-b064-8cf99141a6f1
+:CUSTOM_ID: proposed-mapping-contract
+:END:
+
+| ID | Record / rule | Required invariant |
+|-
+| CQM01 | RequestRecord | RequestId/reuse identity, origin ContextId, operation kind/arguments, ABI profile, rooted argument carrier, result sink and custody/cancel state. RequestId survives scheduling rounds; a context can originate later requests with the same opcode without ABA. |
+| CQM02 | SelectionRound + SelectedOperation | Freeze admitted pending proposals and role/topology snapshot for this round; bind selected operation, exact represented RequestIds, origin policy and combined argument. A retained legacy profile admits at most one active proposal per participant per round; additional requests stay queued. New arrivals cannot join a result after its capacity calculation. |
+| CQM03 | GC combine | Represent each eligible admitted GC request exactly once. Validate admitted nonnegative demand and sum requested_words_still with representability/capacity checks before execution; allocate one CapacityOutcome record. Requests excluded by a higher-priority selection stay pending. Aggregate demand is not a count of W workers. |
+| CQM04 | Resize select | Resize remains noncombined: select one request's thunk/count according to the bound policy. Other resize requests survive for subsequent rounds. Their thunks remain actual roots. Target U count and W count are separate parameters/capacity obligations. |
+| CQM05 | ParticipantRoleMap | Bind required acknowledgers, root owners, storage tasks, tracing workers, membership actors and result consumers to E/phase. One participant may have several roles; none can attest for an absent owner. Work assignments cover K/S independently of origin set O. |
+| CQM06 | Resize child epoch | Authorized child collect inherits the held parent boundary, old U/K/S snapshot and a frozen worker roster. It neither reacquires the same operation gate nor completes unrelated queued GC requests. Any future subsumption optimization needs a separate demand/result/refinement proof. |
+| CQM07 | Membership and startup | Publish prepared native context/root storage before any Scheme startup use; bind Dormant/Starting/Participating/Running states and admitted startup GC. Retain old participants needed to serve it. Shrink migrates/drains actual root/storage/return users before physical retirement. Role changes do not mutate an active W roster. |
+| CQM08 | Completion fan-out | Publish one authoritative CapacityOutcome from heap-policy authority; qualified participants acquire it before common branch decisions. Then map to each represented RequestId exactly once; Deferred/Rejected/Unknown cannot become old false-success. Preserve/explicitly requalify resize errors, participant-local diagnostics and managed reload. A normalization of CWR07 is a semantic repair requiring evidence, not proved ABI equivalence. |
+| CQM09 | Round exit / cancellation | A lost request remains pending; a request whose context retires gets an explicit lifecycle disposition with live roots/result custody, not a forged successful return. Cancellation after selection cannot undo shared GC or free its arguments. A worker fault keeps epoch custody/VM hold; no retry of partial moving collection as a fresh request. |
+
+Analytical examples, not executed tests:
+
+* Two pending GC requests a,b with demands x,y select one GC operation with
+  membership {a,b} and checked demand x+y. W=1 or W=8 does not change that sum.
+* Pending resize r and GC g select resize first. If its child collection runs,
+  g remains pending; a later GC selection consumes g. Counting the child as g's
+  result would change the source loop's consumption rule.
+* Two resize requests remain two operations, even with identical target count.
+  Their thunk, timing, failure and origin obligations can differ.
+* An idle NOOP participant scans assigned roots and helps the selected operation
+  without receiving a fictitious originating request receipt.
+
+This contract requires reconstruction of selection/result publication and
+internal scopes, not a claim that the existing synchronous loop already supplies
+RequestRecords or independent-worker roles.
+
+*** 4. Independent Worker Root and Termination Protocol
+:PROPERTIES:
+:ID: 25fc3e00-caf3-5f7f-9b1c-7aeaf800648c
+:CUSTOM_ID: 4-independent-worker-root-and-termination-protocol
+:END:
+
+[[file:../diagrams/collector-root-termination.svg][Root materialization and termination]]
+[[file:../diagrams/collector-root-termination.d2][D2 source]].
+
+Choose a *closed, stop-the-world moving epoch* with a frozen W roster and a
+serialized phase-work authority T. Mutator/root writers are held, final root
+descriptors are complete, and external work injection is sealed. This is a
+concrete synchronization design to refine, not an implementation or a promise
+of fast queue operations. It retains copying/still and later-phase semantics.
+
+Root-stage copies remain charged to their seed-task/producer leases; ready
+queue handles and heap pins survive the RootReady-to-TraceStart handoff. A root
+producer cannot report completion with unpublished output, and a failed root
+stage cannot be skipped to reach TraceStart.
+
+Ready queue links must use reserved or intrinsic chunk metadata. A separately
+bounded queue must not make root producers wait for consumers that cannot run
+until RootReady. Capacity failure retains producer/work/heap custody and aborts
+the admission or holds the failed epoch; it cannot discard copied output. Stack
+root descriptors are scoped to their epoch: the next snapshot uses updated
+owner state after continuation movement, not cached old stack addresses.
+
+T is a short native metadata gate, separate from G/C/L. It serializes ready-chunk
+queue membership, worker activation/deactivation, root-ready state and phase
+closure. Payload copying/scanning, native allocation, OS waits and callbacks
+occur outside T. Existing chunk payload/trace logic is reusable; existing
+independent queue push/pop and idle decrement paths cannot remain uncontrolled
+back doors. A faster multi-queue implementation would need its own equivalent
+publication/claim/termination proof; this study does not assume it.
+
+| ID | Phase / operation | Closed-loop obligation |
+|-
+| CWS01 | Enroll and final safe cut | Bind U/K/S/W/P, final owner acknowledgements, worker/facility/heap leases and capacity. Materialize actual root tasks after acknowledgements; seal outside producers. Unbound raw aliases, callback reentry or missing body admission block the epoch. |
+| CWS02 | RootMaterialize | Assign every K domain/physical cell to a canonical writer. Each context continuation is a structured task with owner metadata and worker tracing state; preserve shared captured-frame exclusion. Still external roots initialize once per shard. Globals partition by actual root ranges, not legacy worker-as-processor index. |
+| CWS03 | RootReady fence | Wait for all assigned root tasks, actual frame writes and seed producers to finish/publish. Root tracing can create copied chunks; cross-worker queued-chunk consumption waits for this fence so incomplete frame/root construction is not read. Existing local tail marking and forwarding/capture synchronization need qualified preservation. Fence cardinality is W acknowledgements plus completed K/S tasks, not U identical barrier calls. |
+| CWS04 | TraceStart / active permit | Under T enter the strong trace phase and initialize the fixed worker states once. Every worker capable of scanning, copying, keeping an unscanned private chunk/still chain or publishing work owns an Active permit. Zero-root workers do not count as finished before RootReady. |
+| CWS05 | Publish ready work | Active producer builds a bounded ready chunk outside T, then commits its queue handle under T with payload-before-visibility ordering and persistent wake predicate/notification debt. It retains Active through every unpublished/private unit; no host/background producer may publish without such a permit. No per-object ledger allocation is required. |
+| CWS06 | Claim / local work | Under T, an idle worker becomes Active before removing queued work; an active worker retains its permit. Pop is exclusive. Scan outside T; derived chunks and private incomplete arenas stay covered by Active. Do not decrement queue count then reactivate after releasing T. |
+| CWS07 | Quiesce and strong termination | A worker may relinquish Active under T only after all local seeds/scans/still chains/private partial chunks/forwarding or capture writes and ready publications settle. Recheck the authoritative queue predicate in the same T transition; ready work must be claimed or remain runnable rather than parked behind a false wait predicate. If RootReady, external producers sealed, no remaining seed tasks, queue empty and Active=0, T commits StrongClosed. No new worker activation/publication is legal in that phase afterward. |
+| CWS08 | Weak/will and later tasks | StrongClosed is not EpochTerminal. Coordinator opens a distinct weak/will phase with its own seed producers, Active/queue accounting and traversal mode. Complete derived marking before continuation move, table cleanup, sweep/release effects and heap policy. Owner/effect constraints remain explicit; no arbitrary foreign destructor on a GC worker. |
+| CWS09 | Resume, result and physical retirement | Publish heap outcome, canonical persistent extents, per-context ResumeBindings and complete relocated root writes; acquire those facts before each context reload/return. EpochTerminal additionally drains actual queues/scanners/cursors/waiters/signallers/resolvers. Worker scratch can retire after real borrows; copied heap extents and live root carriers remain VM-owned. |
+
+**** Termination Invariant
+:PROPERTIES:
+:ID: 13bbe6c0-bdcb-5150-a2c9-2b7a06b886d6
+:CUSTOM_ID: termination-invariant
+:END:
+
+For one sealed trace phase, let A be workers with Active permits and Q ready
+chunks in the authoritative queue. Local incomplete copied objects, still chains,
+claimed chunks and publication-in-progress are covered by their worker's A
+permit. Root seeding is separately charged until RootReady. Queue claims,
+activation, deactivation and phase closure are serialized by T.
+
+The proposed closure predicate is:
+
+    RootReady && external_producers_closed && seed_tasks_remaining == 0
+    && A == 0 && Q == 0
+
+Every unfinished trace obligation must be represented by a seed obligation, a
+queued item or a live Active owner. This representation invariant, correct
+forwarding/tracing and phase admission are *premises*, not consequences of an
+integer check. Once T closes the phase, no legal producer remains to create new
+work in it. A new weak phase is a new authorized producer domain, not a spurious
+reactivation of the closed strong phase [CW-P01/P02].
+
+Each root producer acknowledges through T only after its actual root/frame
+writes and output publication. RootReady and TraceStart use that same qualified
+synchronization authority; workers acquire it before consuming ready work.
+Likewise every worker's final writes precede its deactivation transition, and
+the coordinator/context resume acquires the resulting phase/resume publication.
+This is an explicit visibility chain to qualify in C or Zig, not a claim that
+volatile fields or an unrelated barrier already provide it [CW-P05].
+
+Notification debt and physical borrowers are deliberately outside the logical
+A/Q predicate: a thread may still need to observe closure, return from a wait or
+finish signalling. They block facility destruction, and live notification debt
+is required for progress. Waiting uses the durable predicate under T and the
+qualified condvar/event protocol; spurious wakeups recheck phase/Q before any
+activation. Do not nest T with legacy queue locks or hold it while waiting for a
+resolver that needs T/G. The proposed single metadata queue trades a simpler
+proof boundary for potential contention; no performance dominance is claimed.
+
+A lost worker with a private chunk still owns an unfinished obligation. Its A
+permit must not be decremented by a timeout. Transfer of that work needs verified
+old-worker exclusion, complete task/arena disposition and preserved heap state;
+otherwise hold/quarantine the epoch and VM. Safety retention is not a finite
+shutdown or memory bound. Shared native cancellation does not reverse relocation.
+
+*** 5. Conditional Arguments and Countermodels
+:PROPERTIES:
+:ID: e65dcc80-6b47-568e-88e1-ad379c9fc9de
+:CUSTOM_ID: 5-conditional-arguments-and-countermodels
+:END:
+
+These handwritten implications do not close PA02--PA08, whole-system questions
+or native qualification. Source, paper analogy and proposed protocol are distinct.
+
+| ID | Conditional argument | Derivation / material premise |
+|-
+| CWP01 | Extracted workers do not access a retired context implicitly. | CWB01--13 route every selected field to an explicit domain; CWI epoch leases pin actual dependencies; CWB11 passes root owner separately from tracing worker. Full transitive helper/TLS/hook/raw-caller closure remains unproved. |
+| CWP02 | Each represented GC request contributes demand and gets one outcome mapping. | CQM01--03 freeze a set of RequestIds, aggregate each once, and CQM08 serializes result publication/fan-out. This proves neither representability nor old CWR07 equivalence without their stated checks/refinement. |
+| CWP03 | Parent resize and child GC cannot confuse request completion or worker membership. | CQM04--07 retain losing requests, distinguish parent/child, freeze W while moving and change U/P at separate cuts. Complete startup/retirement/error actor closure is still required. |
+| CWP04 | All admitted roots are traced with valid writeback before resumed use. | CWS01--03 cover actual cells/structured domains; CWB03/11 preserve frame semantics; CWS04--08 complete strong and later work; CWS09 orders owner reload. Hidden aliases and forwarding/frame correctness remain premises. |
+| CWP05 | StrongClosed excludes pending or future legal strong work. | Every unfinished item has seed/Q/Active representation; CWS05--07 preserve it, claim/reactivation is atomic under T, producers are sealed. At A=Q=0 after RootReady no represented work/producer exists; phase closure forbids later production. Coverage and memory-order correctness remain native obligations. |
+| CWP06 | Weak/will work and physical facility users are not mistaken for strong completion. | CWS08 starts its own accounted phase; CWS09 and physical borrower/notification obligations precede destruction. Eventual progress requires live actors/signallers and bounded effect/work production, not merely safety [CW-P01--03]. |
+| CWP07 | Worker retirement does not reclaim live copied objects or install wrong mutator cursors. | CWB02--04/12 and CWS09 account distinct extents, hand their custody to VM storage and install per-owner ResumeBindings before scratch retirement. Exact allocator sharing/fudge/capacity policy remains unresolved. |
+| CWP08 | Equal-capability modernization and Zig-specific gain remain distinct. | Necessary request/root/queue/storage semantics apply in both languages; C/Zig support reuse and retirement must be bounded separately in the matrix. Literature speedups or LLVM metadata cannot satisfy economic gates. |
+
+| ID | Logical counterexample, not an executed witness | Failure |
+|-
+| CWX01 | Replace every processor_count by W, with U greater than W. | Some context stacks/registers or shard occupancy are omitted. |
+| CWX02 | U=1 compiles single-thread forwarding while W>1. | Copy/frame/allocation paths lack required multiwriter synchronization. |
+| CWX03 | Worker uses a fake donor PSTATE with borrowed fp and its own allocator. | A helper still reads donor/TLS/global dependencies not represented by the fake record. |
+| CWX04 | Each worker initializes the same still shard independently. | Mark/scan links can reset after another worker has enqueued the object. |
+| CWX05 | Count one captured continuation frame as an immutable flat cell list. | Link rewriting/shared capture copying can race, violating frame interpretation. |
+| CWX06 | Queue chunks become stealable before root/frame copying is ready. | A consumer reads partially constructed frame/object metadata. |
+| CWX07 | Finish an Active permit with scan_ptr short of alloc_heap_ptr. | Private incomplete copied objects vanish from termination accounting. |
+| CWX08 | Remove Q under one lock, increment A after releasing it. | Another actor can observe A=Q=0 and close prematurely. |
+| CWX09 | Background publication is allowed after all workers idle. | StrongClosed is not stable; newly reachable work arrives after completion. |
+| CWX10 | A spurious wake increments A after StrongClosed. | Closed-phase monotonicity is broken and waiter cleanup can restart scanning. |
+| CWX11 | Worker dies; timeout decrements A and frees its arena. | Unfinished trace and live copied objects disappear despite outstanding roots. |
+| CWX12 | Root partition divides U while globals/carriers are indexed by old PSTATE. | Nonmutator carriers or global ranges are missed or written twice. |
+| CWX13 | Resize child collection consumes pending GC demand without mapping. | Requested still words/results can be omitted or double charged. |
+| CWX14 | Merge two equal resize counts into one request. | Distinct thunk/error/origin obligations are lost. |
+| CWX15 | Assume participant-local GC overflow is a common published outcome. | Actors may choose incompatible capacity/result paths; source publication gap remains. |
+| CWX16 | Change U/P or W mid-moving epoch when resize publishes count. | Root/task/barrier roster no longer matches acknowledged identities. |
+| CWX17 | Treat StrongClosed as permission to destroy worker/facility state. | Weak/will work, queued effects, borrowed chunks or wait/signaller users remain. |
+| CWX18 | Collect worker scratch after GC and free all sections it allocated. | Mutators still point to copied live heap objects. |
+| CWX19 | Scalar section reservation depends only on target mutator count. | Independent copying arenas/resume stacks may exceed the reserved capacity. |
+| CWX20 | Return first locally observed false overflow to all waiters. | Deferred/unknown or leader-only outcome is converted into unproved successful allocation. |
+
+*** 6. Migration and Open Gates
+:PROPERTIES:
+:ID: 416266bf-f2ff-54a6-811c-3641d0bc5443
+:CUSTOM_ID: 6-migration-and-open-gates
+:END:
+
+1. Bind concurrency, semantic roots/frames, allocator/hooks, ABI and participant
+   profiles; the 34-field inventory is only one selected correspondence slice.
+2. Introduce durable request/selection/role/result semantics across public/private
+   GC/resize and all startup/error/retirement clients, preserving source policy or
+   explicitly qualifying semantic repairs such as common capacity outcome.
+3. Split copy arenas, context resume areas, heap shards and epoch queues. Replace
+   implicit VM/PSTATE access and occupancy/capacity reductions together.
+4. Close root materialization/capture publication and implement one qualified
+   termination authority for the complete work producer/claim domain. This is a
+   required future migration step, not authorization to implement in this study.
+5. Preserve weak/will/cleanup effects and publish resume/storage/result records;
+   drain actual worker/facility users before retiring old routes by cohort.
+6. Bound post-reuse C-full/C-ZT/Z-full support and costs at equal capability before
+   selecting Zig or authorizing any separate native qualification.
+
+Remaining gaps: transitive field/helper coverage, root/frame completeness,
+selection/result semantic refinement, exact topology/startup/error behavior,
+allocator sharing/capacity, forwarding/capture native ordering, T/queue and
+notification correctness, foreign effects, finite work/progress and economic
+bounds. No worker profile or old runtime path is qualified/retired here.
+
+*** Public Capacity and Placement Refinement
+:PROPERTIES:
+:ID: fd9ba3b9-9f47-550a-b0ec-6650a892322a
+:CUSTOM_ID: public-capacity-and-placement-refinement
+:END:
+
+The [[file:gc-capacity-result-design.org][capacity/result study]] deepens CWR07,
+CQM03/06/08/09, CWB02--04/12 and CWS09. It separates a heap-policy decision from
+a completed common outcome, binds exact batch credits to actual allocation and
+recount, and requires resize action settlement rather than observed decisions
+alone. Source two-space charge units, active-half placement, partial section
+growth and existing C headroom receive separate treatment. These are conditional
+contracts; no native result equivalence or worker placement profile is qualified.

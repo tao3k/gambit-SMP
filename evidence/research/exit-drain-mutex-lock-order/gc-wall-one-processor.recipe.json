@@ -1,0 +1,32 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "tfib-gc-wall-one-processor",
+  "scope": "Reuse generation 4463d6b5 in place and run the same eight 40-delay phases plus one tfib(10) with the fixture-managed single VM processor. Processor 0 calls SYNC_GET_MSG in barrier_sync_op only when a child id is below processor_count, so a one-processor row skips that condvar wait. This is not the original acceptance workload, not processors chosen to obtain PASS, and not native acceptance.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.patch",
+    "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "models/gambit/native/tfib_gc_wall_repeat.scm"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 180,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 180,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json"}},
+    {"id": "sample", "capability": "gambit.executable-test", "dependsOn": ["runtime"], "budgetSeconds": 240,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/tfib_gc_wall_repeat.scm", "mode": "gsi",
+                   "processorTopology": "fixture-managed", "executionBudgetSeconds": 180,
+                   "stdout": "GC-WALL-REPEAT\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["candidate", "runtime", "sample"], "budgetSeconds": 20,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

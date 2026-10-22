@@ -1,0 +1,64 @@
+#+TITLE: Promotion bounds and residual epoch matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Capacity source matrix
+:PROPERTIES:
+:CUSTOM_ID: promotion-capacity-matrix
+:END:
+#+NAME: promotion-capacity-native
+| Source | Anchors | Bound | Layout fact | Hazard | Replacement |
+|---+---+---+---+---+---|
+| heap | mem.c:3490-3665; include/gambit.h.in:3110-3135 | Sum aligned target sizes of every allocated nursery object, not predicted survivors | 64-bit no-handle unchanged target: payload plus one header; Y already includes headers | Cannot count still/permanent as age or count the same heap frame twice | Claim-before-payload target removes duplicate destination bodies; existing forwarding/readiness changes still required |
+| frame | mem.c:3667-3811; gambit.h.in:6576,9224-9226; mem.h:63-70 | Distinct stack frames: fs+2 target words; source extent roundUp(fs+3,4) | fs<=8192 implies heap frame<=8194 words: 65552 bytes at word=8 | Root chains overlap: deduplicate by stack region generation and frame base; include retained contexts | Whole closed allocated stack interval S bounds all frame targets; never add 2 per frame to S again |
+| worker | mem.c:3241-3410;3490-3610 | Unique object claim before destination allocation; descriptors for every candidate; worker private tails charged once | Current first chunk link plus two end-marker positions; MSECTION_CHUNK=255 is a trigger, not hard extent limit | 32-bit pre-CAS pad can survive loser undo; repeated claims/empty chunk endings need an explicit count bound | Selected modern-C monotone packs: per-segment tail < max target extent and fixed links; no empty publication cycle |
+| resume | mem.c:3326-3355;6316-6468;mem.h:76-79 | Disjoint resume nursery/stack/failure-delivery credit, not worker tospace tail credit | Current msection=131072 words; each copying half=65536; prepare subtracts 2 and writes first link | Global compute_msection_space is not the per-worker tospace capacity; physical native commit can fail | Interval/layout transfer receipt before worker tails become context allocation space |
+| ffi | mem.c:703-829,3969-3986;c_intf.c:6511-6562;os_dyn.c:744-795;tcltk.scm:288-342 | Native RC data is a registered relocatable root; still payload/marker stores need mature source coverage | Registration, mutation and release settle before seal; next callback gets the installed epoch permit | RC lifetime/refcount does not establish root freeze, owner thread or payload-write closure | Unknown native alias refuses cut; known next-epoch FFI old-to-young writes mark new bank, not residual from completed old epoch |
+
+* Benefit and added cost matrix
+:PROPERTIES:
+:CUSTOM_ID: promotion-benefit-matrix
+:END:
+#+NAME: promotion-benefit-native
+| Capability | Removed work | Quantified bound | Added work or space | Condition and falsifier |
+|---+---+---+---+---|
+| mature traversal | Repeated full mature scan/copy work on unchanged captured graphs | For k matched young collections and one comparable major: remove (k-1)*M work units | Charge A=barriers+dirty/frame decoding+root scans+promotion+coordination+major differences | Positive iff A<(k-1)*M under matched complete cost accounting; native time unmeasured |
+| capacity census | Repeated chain traversal or survivor speculation at collection entry | Maintain nursery high-water and closed stack extent bounds; enumerate exact layouts only if tighter credit desired | Y+S is payload bound only under unchanged layout; frame exact=sum(fs+2) deduplicated | Huge dead young allocation can force conservative reserve or preflight refusal; no unconditional memory win |
+| worker packing | No demonstrated loser-body saving: current 64-bit source already avoids it; replace implicit private-allocation custody | One destination per unique object; retry/padding reduction needs an actual schedule bound, not worker count | Bphysical=payload+packing slack+links+task storage+separate resume reserve, committed before forwarding | Claim table costs N*d bytes and coordination; native target progress/lock-free behavior unproved |
+| residual enumeration | Whole mature payload scan and normal full bitmap reset | Normal H+seedHints+S(D), overflow C+S(D); sparse reset D; residual R<=D plus admitted collector-created ranges | Two card banks + per-context logs + bounded global next seed endpoint; conservative overflow is safe | If dirty coverage spans whole mature heap S(D) approaches M; fallback metadata walk remains C |
+| peak memory | No implied improvement from work reduction | PeakCandidate=existingLiveAndRetainedSources+committedDestination+disjointResume+metadata | Extra bank C*b + seedCapacity*entryBytes + claim/descriptors + charged packing; old/new objects coexist until rewrite | DeltaPeak=PeakCandidate-PeakBaseline on same workload; may be positive, not generational GC magically saves space |
+| capability amplification | Repeated mature continuation work restricts economical reuse | Multi-shot captured graphs stay shared and nonmoving mature; generated semantics eliminate valid redundant barriers | All frame/denv/decoder/FFI writers, weak closure, identity and winding preserved; explicit portable native contract | Modern C supplies mechanism; Zig supplies no automatic capacity/epoch proof or established incremental benefit |
+
+* Model routes and conjunctive dependencies
+#+NAME: promotion-needs-native
+| Need | Method kind | Exact subject | Exact scope | Premise |
+|---+---+---+---+---|
+| PR-H | interleaving | models/gambit/promotion_residual.qnt | promotion_residual:17-named-histories;safe;seed=17;100x80 | Two unique destination costs, pending writer cut, pre-forward refund, staged residual handoff and omission controls; finite target only |
+| PR-I | induction | models/gambit/lean/PromotionResidual.lean | GambitSMP.PromotionResidual:frameFitsStack;payloadBound;fullBound;claimConserves;refundConserves;seedComplete;residualCovered;zeroResidual;disjointPeak;positiveWork | Conditional parametric arithmetic and coverage lemmas; source enumeration and whole transition induction remain open |
+| PR-BOUND | source-refinement | models/gambit/lean/PromotionResidual.lean | PR-BOUND:actual-source-refinement | Unique heap/frame extent census, layout expansion/alignment, claim-first workers, fragmentation and physical destination/resume intervals; no survivor estimate |
+| PR-RESIDUAL | source-refinement | models/gambit/lean/PromotionResidual.lean | PR-RESIDUAL:actual-source-refinement | Final strong/weak closure, collector-created ranges, staged next bitmap plus seed endpoint/fallback; zero residual only under all-promoted alias closure |
+| PR-FFI | source-refinement | models/gambit/lean/PromotionResidual.lean | PR-FFI:actual-source-refinement | RC RootWrite, still marker slot, payload writes and nested callback permits; unknown native writer blocks cut and next-epoch publication |
+| PR-MEMORY | native-memory-order | vendor/gambit/lib/mem.c | PR-MEMORY:actual-source-refinement | Acquired writer/root endpoints, unique layout claims and payload-ready publication; immutable epoch descriptor release/acquire and old-bank reader reclamation |
+
+#+NAME: promotion-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| PR-BOUND | PR-H |
+| PR-BOUND | PR-I |
+| PR-BOUND | WB-WRITERS |
+| PR-BOUND | GW-S |
+| PR-RESIDUAL | PR-H |
+| PR-RESIDUAL | PR-I |
+| PR-RESIDUAL | WB-LOG |
+| PR-RESIDUAL | WB-WRITERS |
+| PR-FFI | PR-H |
+| PR-FFI | PR-I |
+| PR-FFI | FZ-CENSUS |
+| PR-FFI | FZ-FREEZE |
+| PR-FFI | RC-DOMAIN |
+| PR-MEMORY | PR-H |
+| PR-MEMORY | PR-I |
+| PR-MEMORY | WB-MEMORY |
+| WB-PROMOTE | PR-BOUND |
+| WB-PROMOTE | PR-MEMORY |
+| WB-SNAPSHOT | PR-RESIDUAL |
+| WB-SNAPSHOT | PR-FFI |

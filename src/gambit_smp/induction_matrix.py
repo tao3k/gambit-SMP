@@ -1,4 +1,5 @@
 """Bounded symbolic obligations for the original GC step; no native admission."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import json
 from pathlib import Path
@@ -161,7 +162,7 @@ def campaign(manifest, out, selected=None, jobs=None, timeout=90):
     config = json.loads(manifest.read_text())
     if config.get("schema") != "gambit-induction-matrix.v1":
         raise ValueError("unsupported induction manifest")
-    version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
+    version = _task_check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != config["quintVersion"]:
         raise ValueError("Quint version differs from pinned matrix")
     jar = Path.home() / ".quint/apalache-dist-0.62.1/apalache/lib/apalache.jar"
@@ -326,6 +327,9 @@ def main():
         raise SystemExit(1)
     print("INDUCTION-OBLIGATIONS-PROVED-NOT-NATIVE-ADMITTED")
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('induction-matrix')(main)
 
 if __name__ == "__main__":
     main()

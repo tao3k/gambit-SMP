@@ -1,0 +1,78 @@
+#+TITLE: GC and Control Shared Contract and Closure Frontier
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: runtime
+
+* RESEARCH One contract across memory, control and foreign participants
+:PROPERTIES:
+:ID: 622e57e6-e99c-56cb-8352-0fda340d5d89
+:CUSTOM_ID: gc-control-contract
+:OWNER: architecture/runtime/interfaces
+:EVIDENCE_CLASS: source-bound-conditional-architecture
+:STATUS: composition-open
+:END:
+
+[[file:models/sysml/model-relations.sysml][Owned SysML relation metadata]] defines membership, dependency and proof-obligation disposition. [[file:models/sysml/interfaces.sysml][Interface requirements]] define necessary predicates. This Org document owns the conditional arguments, source interpretation and counterexamples. [[file:../../../modeling/proof-obligations.org][The obligation table]] and [[file:diagrams/relations.d2][D2 dependency view]] are derived from SysML; do not maintain parallel model lists here.
+
+** Identity and coverage are shared premises
+A scan or completion witness identifies VM plus VM generation, collection epoch and root-cut epoch. Root carriers and reclaim targets additionally identify resource generation; a worker-team witness identifies that team's generation. These are logical comparison scopes, not a selected C/Zig layout or newly implemented ABI.
+
+A bounded QNT execution can map its one selected VM/epoch to a fixed identity only within that slice. It cannot thereby prove generation rollover, ABA rejection, cross-worker resumption or merged-request completion. Root-cut/collection epoch correspondence and team identity must be related explicitly; matching one integer alone is insufficient.
+
+For relocation, distinguish a logical root value from its physical address. A valid abstraction preserves logical identity under relocation and preserves distinctions needed to detect stale or wrong values. Mapping every pointer to one token would hide the bug. The host-root model's valid payload 0 is not an absent-root sentinel; its -1 initial observation must not become a valid acquired value.
+
+** Ownership and phase order
+1. Control constructs and preserves the origin inventory; execution/FFI custodians publish final values and stop relevant mutation for the admitted root cut. This publication cannot wait for the GC that needs it.
+2. GC admits scanners only after the declared root contributors acknowledge and their backing remains live. Current-stack scanning and saved-continuation traversal are different work.
+3. Strong traversal resolves or forwards every required raw origin. Copying a continuation container is not completion of its saved-frame traversal.
+4. Completion requires private, queued and in-flight scanning work to drain, together with exclusion or separately accounted reopening by producers. Weak processing and cleanup still have their own phase obligations.
+5. Backing reuse additionally needs target-specific last-use closure: saved origins, scanners, native returns and deferred foreign cleanup. A Scheme join or an ended foreign frame is not a universal producer-drain witness.
+6. Resumption consumes the matching completion identity and reloads moved values under a valid execution grant. General continuation reuse does not consume the original saved origin merely because one invocation returned.
+
+The typed SysML dependency graph covers resolution/completion phases. It does not say that inventory construction depends on GC completion, and it is not a lock/wait graph. Prove publication-before-wait and liveness separately; an acyclic documentation graph cannot certify native deadlock freedom.
+
+** Source slice that is established
+[[file:../../../../vendor/gambit/include/gambit.h.in::6314][___THREAD_SAVE]] stores a frame into the current thread's continuation. [[file:../../../../vendor/gambit/include/gambit.h.in::6377][___THREAD_RESTORE]] installs the resumed frame at the break link and clears that resumed continuation slot. These literal source writes establish the selected save/restore distinction, not the lifetime of every captured continuation.
+
+[[file:../../../../vendor/gambit/lib/mem.c::3898][mark_continuation]] scans current frames and follows BREAK_FRAME_NEXT. The [[file:../../../../models/gambit/continuation_saved_stack_origin.qnt][saved-origin slice]] distinguishes that active path from another thread's retained origin. The current-source characterization is reusable; whole-origin completeness and source-to-model simulation remain open.
+
+[[file:../../../../vendor/gambit/lib/mem.c::6938][___garbage_collect_pstate]] orders setup, strong marking, weak marking, cleanup and resize with barriers. This is source-order evidence. The enabled barrier implementation, ownership transitions, independent worker redesign and all callers still need refinement.
+
+** Writer families still requiring census closure
+[[file:../../../../vendor/gambit/lib/_kernel.scm::3154][continuation-frame-set!]], [[file:../../../../vendor/gambit/lib/_kernel.scm::3161][continuation-denv-set!]] and [[file:../../../../vendor/gambit/lib/_kernel.scm::3439][frame-set!]] are real mutation entry points in addition to thread save/restore. A complete control/root contract must trace their actual callers, generated writes, reconstruction and exceptional restoration paths. Naming these entries does not establish that the writer census is complete or that all mutations participate in a proposed generational barrier. RH-CENSUS, CO-CENSUS and CO-RESUME remain open.
+
+** Conditional mathematical support and its limits
+[[file:../../../../models/gambit/lean/HostRootParticipation.lean][frozenHandoffComposesRelocation]] composes handed=source with observed=relocate(handed) for every live slot. It does not prove the inventory, handoff or scanner premises.
+
+[[file:../../../../models/gambit/lean/SavedStackRetirementWindow.lean][The saved-stack companion]] supplies no-arrival/empty-set, preserved-origin, complete-inventory and phase-transitivity statements. Historical reports are retained separately; these conditions do not arise from a source variable's name or a separately successful component model.
+
+[[file:../../../../models/gambit/lean/WorkAccounting.lean][zeroCountAndEmptyQueuesExcludeHiddenWork]] requires every private producer to remain counted and every declared queue to be empty. Worker has counted/privateWork/queued fields; it has no separate scanning field. To use it here, establish actualScanning(w) implies counted(w), complete worker enumeration and no counter overflow. Then zeroCountExcludesActive rules out scanning. Without those additional premises, the theorem cannot establish complete scanner drain.
+
+** RESEARCH Earlier terminal-reopen claim withdrawn
+:PROPERTIES:
+:CUSTOM_ID: terminal-reopen
+:OBLIGATION: WC-TERMINAL
+:EVIDENCE_CLASS: source-guard-inspection-and-correction
+:END:
+
+The prior finish/rescan claim was incorrect for its own bound source identity. Current rescan already requires not(done); after finish it cannot run. The old record is preserved and explicitly withdrawn by the [[file:../../../../evidence/research/gc-terminal-closure/counterexample-correction.json][correction receipt]]. No intervening source modification is established by that comparison.
+
+[[file:gc-completion-design.org][The completion and producer-closure design]] now distinguishes phase drain, full collection completion and target-specific reclaim permission. It retains the accounting, visibility, native-user and refinement gaps without claiming that this disabled trace is an active defect. The current source still needs totalized terminal semantics and a complete producer/phase/permission refinement before native admission.
+
+** Historical evidence is useful within its bound scope
+The [[file:../../../../evidence/research/host-root-publication/participation-validation.md][root-participation report]] and [[file:../../../../evidence/research/host-root-publication/retirement-window-validation.md][retirement-window report]] describe earlier formal/proof checks. Their two manifests currently match all 22 declared context inputs each. This is a fresh identity audit of historical reports, not fresh prover or native execution.
+
+The retirement report supports its saved-stack Lean companion and retirement QNT. It does not bind continuation_saved_stack_origin.qnt as its selected root, so it must not be reported as a check of that separate QNT model. Raw execution/proof environment closure is not re-established here. The registered Clue read returned the selected retirement model path as an unknown anchor with incomplete view coverage; that is not evidence that no historical result exists.
+
+** Closure assessment
+#+NAME: shared-contract-closure-assessment
+| Layer | Established now | Still missing |
+|---+---+---|
+| Organization | SysML-owned module paths, bindings, dependencies and derived indexes | Ongoing drift checks after changes |
+| Source slice | Selected save/restore writes and phase ordering are explicit | All root/writer/foreign/capture/restore/exception producers |
+| Conditional support | Existing theorem statements and matching historical report identities | Discharge live-slot, no-arrival, ownership and accounting premises |
+| Work completion | The prior direct trace is excluded by the existing guard | Prove complete producer closure and phase/collection/target refinement |
+| Composition | Named state/event projections and phase-scoped dependencies | Initial/step simulation, shared identity, memory order and fairness |
+| Runtime / benefit | No admission or measured benefit added | Native acceptance and total / Zig increment evidence in their own stages |
+
+** Change impact
+Edit shared predicate meaning only in its owning SysML model, binding/obligation metadata only in model-relations.sysml, detailed arguments only here or the correspondence ledger, and QNT/Lean semantics only at their unique source locations. Derived indexes and D2 must be regenerated. A changed producer set, terminal action, theorem premise or source hash makes every dependent binding stale; a rendering-only change does not erase a proof gap or create runtime evidence.

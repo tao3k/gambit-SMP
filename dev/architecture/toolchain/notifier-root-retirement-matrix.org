@@ -1,0 +1,43 @@
+#+TITLE: Callback Root Retirement and Net-Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: notifier-root-matrix
+:AUTHORITY: NotifierRootRetirement
+:END:
+
+Derived from native SysML. Proposed root-retirement protocol is not current implementation.
+
+** Root
+
+| key | anchor | actualEdge | requiredChange |
+|---+---+---+---|
+| argument-and-dispatcher | _kernel.scm:2106-2116 | testator/action locals survive slot clearing; action result is discarded before void | Return is an event; exact descriptor liveness decides remaining roots |
+| register-bank | mem.c:6511-6523; gambit.h.in:6802-6803,7060-7066 | mark_registers scans full PSTATE r bank; W_ALL/R_ALL synchronize selected cached machine state | Qualified point must exclude testator from scanned bank and any cached value that can be restored; do not erase live unrelated values |
+| saved-temporaries | gambit.h.in:8059-8084,11623; mem.c:6526-6537 | GC_RESTORE copies saved value into caller then overwrites saved slot with VOID | A cleared saved slot transfers rather than extinguishes the root; require destination liveness and all save/restore paths |
+| active-and-internal-frames | mem.c:3898-3966; _kernel.scm:1284-1344; _t-c-1.scm:1947-1963,1986-2008 | RETI/RETN descriptors choose live frame slots; internal returns save/restore GVM registers | Bind receipt to generated PointId/FrameSpec and backend/configuration; no receipt inside restorable save region |
+| captured-frames-and-denv | gambit.h.in:6314-6330,6378-6388,6589-6606,6715-6735; _kernel.scm:3613-3635; mem.c:3667-3895,4096-4145 | Capture stores frame/denv; continuation-copy shares fields; thread-save retains frame in thread continuation; return/restore installs frames again | No exported root-bearing capture in restricted profile, including interrupt/exception/thread paths; dropping one continuation is insufficient |
+| error-and-winding | runtime/error.ss:37-43,67-72; _thread.scm:4794-4812,4914-4988,5047-5076 | Gerbil raise may attach continuation; winding runs before/after across exits and reentry | Exception or capture permanently taints this dispatch attempt; preserve generic semantics and deny its receipt |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| exact-program-point | False | Actual generated notifier/dispatcher PointId, FrameSpec, configuration and all normal/exceptional edges identified |
+| register-save-closure | False | Scanned register bank, cached registers, saved destinations and internal-return restores all accounted |
+| capture-effect-closure | False | No root-bearing capture or publication through direct/indirect calls, interrupt, thread-save, denv, handlers or StackTrace |
+| retirement-cut | False | Issuer executes after verified last invocation-root use with no future restoration edge; source-to-model simulation required |
+| receipt-identity | False | Owner generation, close epoch, dispatch attempt, root-domain epoch and program digest matched; ticket private |
+| exception-custody | False | Failed/escaped/unknown attempt cannot issue receipt; error/capture/slot remains under explicit custody without waiting on itself |
+| receipt-release-join | False | Rootless receipt publication, duplicate settlement, control-storage grace and ancestor release permit join qualified |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| dead-root-retention | Eliminate notifier-attributable retention after a certified cut; no forced extra GC assumed | Compile-time root/effect proof plus point-specific retirement work | Retiring K proven-dead root locations costs O(K); no whole-heap walk per notice; K and runtime speed unmeasured |
+| repeated-control | One canonical attempt slot prevents replayed notices from repeating action or granting another receipt | O(W) live slots and constant identity checks per delivery; retry/error custody | Root-bearing multi-shot captures stay legal outside restricted profile but cannot qualify this attempt |
+| failure-isolation | No false release from after-thunk, slot clear, saved-slot clear or caught exception | Monotone capture/failure taint and separate returned/root-retired/sealed states | No bounded retention or guaranteed notification latency; failed attempts may retain resources indefinitely |
+| modern-c-and-zig | Reuse Scheme semantic completion and generated modern-C FrameSpec/PointId contract | Both languages need identical GC/control/effect, root-map and publication obligations | No additional positive Zig net benefit established; avoid a second handwritten runtime or duplicate root maps |

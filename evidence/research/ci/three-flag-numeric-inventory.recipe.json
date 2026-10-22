@@ -1,0 +1,157 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "ci-three-flag-numeric-inventory",
+  "scope": "Same O3 three-flag source-core graph, then the original 03-number/_num.scm under the unchanged 90-second phase cap and official test7/test8/test9. Progress idle window. Not a raised numeric cap and not release admission.",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "models/gambit/native/numeric-alias/outline-assertions.scm",
+    "evidence/research/ci/candidate.json",
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/research/ci/runtime-input.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/ci/upstream-tests.json",
+    "evidence/research/ci/test-scope.entry.json",
+    "evidence/dsl/upstream-test-scope.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "cOptimization": 3,
+        "rtsOptimization": 3
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "numeric",
+      "capability": "gambit.compiler-observation",
+      "dependsOn": [
+        "source-core"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "selection": "03-number/_num.scm",
+        "scheduling": "default-control",
+        "phaseBudgetSeconds": 90,
+        "loader": "original-gsi",
+        "numericGrouping": {
+          "source": "models/gambit/native/numeric-alias/outline-assertions.scm",
+          "sha256": "4bf384b92bd647fdec9641444702198b5b0f9ceaa2f40b5ae6bf43e677c46604",
+          "fixtureSha256": "b757a18805a38f48e55055907a983d53f0e50d1acb627c462fe6d34924bd0d9d"
+        }
+      },
+      "budgetSeconds": 300
+    },
+    {
+      "id": "official",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "source-core",
+        "numeric"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "targets": [
+          "test7",
+          "test8",
+          "test9"
+        ]
+      },
+      "budgetSeconds": 250
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core",
+        "numeric",
+        "official"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

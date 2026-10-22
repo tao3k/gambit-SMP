@@ -1,0 +1,69 @@
+#+TITLE: Native Custody to QNT Refinement Map
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned source projection and Lean proof targets
+:PROPERTIES:
+:CUSTOM_ID: atomic-refinement-map
+:AUTHORITY: GambitAtomicRefinement
+:EVIDENCE_CLASS: derived-refinement-plan
+:END:
+
+Current action names are checked against unchanged gc_work_closure.qnt. Planned names are design proposals, not implemented or checked QNT actions. Proof dispositions are inherited from the shared obligation ledger.
+
+#+BEGIN: sysml-view :kind atomic-source-projection :source architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml
+#+NAME: native-to-quint-projection
+| Source step | Native operation and custody | Current QNT action | Planned projection / class | Missing premise / obligation |
+|---+---+---+---+---|
+| Reserve; [[file:../../../../vendor/gambit/lib/mem.c::3537][vendor/gambit/lib/mem.c:3537-3572]] | Reserve destination capacity and speculative header; Source producer holds attempt plus required edge | claim | reserveAttempt then canonical claim; internal-or-segment | A speculative attempt is not a second canonical ticket; padding and rollback remain private; WC-CANONICAL-OWNER |
+| CasWin; [[file:../../../../vendor/gambit/lib/mem.c::3572][vendor/gambit/lib/mem.c:3572-3598]] | Forwarding CAS wins before payload copy; Winner remains initialization and scan custodian | claim | canonicalClaim; readiness remains false; conditional-match | Do not turn forwarding address into publish or acquire; WC-CANONICAL-OWNER |
+| CasLose; [[file:../../../../vendor/gambit/lib/mem.c::3582][vendor/gambit/lib/mem.c:3582-3595]] | CAS loser rolls back header and redirects root cell; Winner obligation remains live; only losing attempt disappears | none | aliasCanonical plus settleAttempt; internal-with-history | Current QNT has no speculative-attempt state or duplicate-CAS action; WC-CANONICAL-OWNER |
+| Copy; [[file:../../../../vendor/gambit/lib/mem.c::3597][vendor/gambit/lib/mem.c:3597-3626]] | Body copy then optional chunk boundary publication; Private copy or queued region plus live tail-edge producer | copyWord; publish | copyProgress then publishBatch; segmented-match | Two abstract copy words represent progress classes, not concrete byte count; WC-REGION-COVER |
+| TailEdge; [[file:../../../../vendor/gambit/lib/mem.c::3599][vendor/gambit/lib/mem.c:3599-3627]] | First field delegated to tail marking after possible chunk publish; Tail marker owns first edge while scan may own remaining fields | finishScan | discoverChild while parent remains scanning; settleParent later; current-shape-gap | PAIR fast path and default skip first field; partition edge responsibility; WC-DISCOVERY-REFINE |
+| ChunkWrite; [[file:../../../../vendor/gambit/lib/mem.c::3254][vendor/gambit/lib/mem.c:3254-3281]] | End marker and next FIFO link written under chunk lock; Publisher retains pending batch; provisional link not readiness proof | publish | prepareBatch; publication stays pending; internal-before-commit | Outside-lock empty precheck is not a completed empty proof; WC-MEMORY-ORDER |
+| ChunkCommit; [[file:../../../../vendor/gambit/lib/mem.c::3283][vendor/gambit/lib/mem.c:3283-3306]] | Ordered barriers, FIFO tail, unlock and notification; Batch custody commits to queue; signal does not create another task | publish | publishBatch at a justified in-lock commit cut; conditional-match | Choose cut only after actual profile visibility and locked consumer proof; WC-MEMORY-ORDER |
+| LocalChunk; [[file:../../../../vendor/gambit/lib/mem.c::3264][vendor/gambit/lib/mem.c:3264-3266]] | Currently scanned chunk bypasses FIFO insertion; Local cursor and counted producer keep unfinished region live | scanLocal | scanLocal with growing region coverage; region-gap | Already-scanned prefix, private suffix and tail dependencies require disjoint cover; WC-REGION-COVER |
+| OwnDequeue; [[file:../../../../vendor/gambit/lib/mem.c::4340][vendor/gambit/lib/mem.c:4340-4375]] | Local FIFO head moves, lock released, chunk scanned; Queued obligation becomes counted scanning obligation at head removal | acquire | acquireBatch then per-region scan; conditional-match | One FIFO chunk may represent many canonical object and edge obligations; WC-TRANSFER-REFINE |
+| StealDequeue; [[file:../../../../vendor/gambit/lib/mem.c::6704][vendor/gambit/lib/mem.c:6704-6727]] | Remote FIFO head moves under remote lock then scan outside lock; Stealer is counted; source queue no longer owns the removed range | acquire | acquireBatch with same-scope scanner acceptance; conditional-match | No gap between removal and logical scanner custody; interrupted handoff stays unresolved; WC-TRANSFER-REFINE |
+| Discover; [[file:../../../../vendor/gambit/lib/mem.c::3999][vendor/gambit/lib/mem.c:3999-4207]] | scan dispatch may mark/copy/publish children before parent scan returns; Parent scanning debt and accepted child debt coexist | finishScan | discoverChild before finishParent; canonical aliases reuse ticket; current-shape-gap | Current finishScan both settles parent and first creates child root; WC-DISCOVERY-REFINE |
+| ScanDone; [[file:../../../../vendor/gambit/lib/mem.c::4268][vendor/gambit/lib/mem.c:4268-4271]] | scan_and_advance completes this pending object/region; Parent settles only after required edges have custody | finishScan | finishParent with all-edge coverage guard; planned-guard | Do not require accepted children already scanned; do require no unknown handoff; WC-DISCOVERY-REFINE |
+| Idle; [[file:../../../../vendor/gambit/lib/mem.c::6736][vendor/gambit/lib/mem.c:6736-6772]] | Worker decrements phase count after local and stealing loop; No producer rights or private/scanning/transit debt may escape count | idle | idle after complete participant ledger cut; conditional-match | Native guard is procedural; QNT guard checks global queued and owner work; WC-PRODUCER-CLOSE |
+| Wake; [[file:../../../../vendor/gambit/lib/mem.c::6756][vendor/gambit/lib/mem.c:6756-6769]] | Wait returns; count increments if phase count still positive; Awake seeker is counted even when notification was spurious | wake | wakeSeeker for count-positive phase; current-guard-gap | Current QNT wake additionally requires queued work; direct counted projection fails otherwise; WC-WAKE-REFINE |
+| FailureLate; [[file:../../../../vendor/gambit/lib/c_intf.c::1683][vendor/gambit/lib/c_intf.c:1683-1713]] | Native release can fail after foreign fields were cleared; Independent failure custodian retains payload and accepted descendants | none | separate failure ledger and closed-phase admission; outside-selected-domain | Current copy/publish/dequeue are void paths, not transport APIs with rollback status; WC-FAILURE-LATE |
+#+END:
+
+** Lean proof frontier
+#+BEGIN: sysml-view :kind atomic-lean-targets :source architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml
+#+NAME: lean-refinement-targets
+| Target / obligation | Proposition | Required premises | Existing support / inherited disposition |
+|---+---+---+---|
+| Partition; WC-REGION-COVER | Every live object, range and deferred edge maps to unfinished canonical coverage | Stable region identities; exact scan layouts; disjoint cover; phase/generation equality | WorkAccounting has no object-to-region map; open |
+| Canonical; WC-CANONICAL-OWNER | CAS winner owns initialization/scan debt; losing attempts do not settle canonical work | No ABA; winner live or known settled; immutable identity across redirect | CollectionContract claim/redirect separates identity from initialization; open |
+| Discover; WC-DISCOVERY-REFINE | Child acceptance can precede parent scan completion without dropping either debt | Explicit edge coverage; canonical deduplication; same phase; no unresolved handoff | gc_work_closure finishScan currently combines discovery and settlement; open |
+| Publication; WC-MEMORY-ORDER | Acquired chunk exposes initialized scan inputs while tail-edge debt stays owned | Actual macro profile; lock/barrier semantics; byte/layout and nonoverlap proof | gc_work_closure publicationSafe assumes atomic visibility; open |
+| Acquire; WC-TRANSFER-REFINE | Head removal preserves total debt by transferring to counted scanner | Matching phase/range; exclusive dequeue; interruption policy | acquire models queue-to-scanning as one step; open |
+| Failure; WC-FAILURE-LATE | Rejected attempt, canonical winner and unknown effect retain distinct obligations | Pre-effect knowledge; durable acceptance; reconciliation; stable payload/handle | Existing WorkAccounting lifetime theorem has no effect status; open |
+| Late; WC-FAILURE-LATE | Closed same-phase work cannot be relabeled to hide old raw aliases | Admission cut; valid lease; old backing retained; new phase separately admitted | Existing CollectionContract not(done) guard is already present; open |
+| Wake; WC-WAKE-REFINE | Native count changes match active seekers even with empty queue | Positive phase count; predicate-loop progress; weak fairness | Current QNT wake requires queued work and has no seeker split; open |
+| SafetySimulation; CROSS-SIMULATION | Each admitted source step preserves relation through a model step or stutter | Initial relation; endpoint observations; coverage; actual enabled guards | No existing mechanized native-to-QNT simulation; open |
+| ProgressSimulation; CROSS-SIMULATION | Internal stuttering cannot conceal divergence or stranded required work | Well-founded internal rank; finite production; scheduling/delivery fairness | WorkAccounting proves conditional safety, not progress; open |
+#+END:
+
+** Concurrent projection fragments
+Edge IDs in D2 resolve to the complete rules below; fragments do not form a single global automaton.
+
+#+BEGIN: sysml-view :kind atomic-projection-edges :source architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml
+#+NAME: atomic-projection-fragments
+| Edge / stages | Abstract effect | Evidence boundary |
+|---+---+---|
+| phaseclose: ParentSettled -> PhaseClosed | Only when all producers and unfinished ledgers drain | global cut, not parent completion alone |
+| identity: Undiscovered -> ClaimedUnready | CAS chooses canonical identity | source-order; copy custody owed |
+| initialize: ClaimedUnready -> Initialized | copy progress, readiness still unpublished | source-order; profile visibility owed |
+| publish: Initialized -> QueuedRegion | publishBatch | conditional simulation cut |
+| local: Initialized -> ScanningParent | scanLocal | local cursor coverage owed |
+| acquire: QueuedRegion -> ScanningParent | acquireBatch | queue-to-scanner custody owed |
+| discover: ScanningParent -> ChildAccepted | discoverChild; parent remains scanning | required QNT design change |
+| settle: ChildAccepted -> ParentSettled | finishParent; accepted child may remain unfinished | required all-edge coverage guard |
+| continueChild: ChildAccepted -> ClaimedUnready | fresh child claim; existing aliases retain their own state | not a new collection or phase |
+| unknown: ScanningParent -> RetainedFailure | unknown effect keeps unfinished debt | outside current QNT domain |
+| late: PhaseClosed -> LateRetained | closed-phase admission rejection; stable custody required | same-phase reopening forbidden |
+#+END:

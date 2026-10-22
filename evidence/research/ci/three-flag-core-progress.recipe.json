@@ -1,0 +1,95 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "ci-three-flag-source-core-progress",
+  "scope": "Same GNU GCC O3 locked-source graph as ci-three-flag-source-core. The progress idle window replaces the 600s whole wall. Step budgets stay unchanged. Not a raised 90-second numeric cap, not an official GC/FFI inventory, and not runtime acceptance.",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/research/ci/candidate.json",
+    "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json",
+    "patches/fixtures/darwin-stack-trip-owner-limit.patch",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-trip-owner-limit/source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "cOptimization": 3,
+        "rtsOptimization": 3
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

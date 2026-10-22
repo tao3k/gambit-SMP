@@ -1,0 +1,1584 @@
+{
+  "kind": "modern-c-multicore-runtime-and-build-blueprint",
+  "status": "document-and-structural-checks-passed-composition-and-benefit-open",
+  "recordedAt": "2026-10-21T14:44:42.726872+00:00",
+  "repositoryHead": "1a2d8612f2065387c62858e10baf63ce369cc48c",
+  "canonicalSources": {
+    "organization": "dev/organization.sysml",
+    "runtimeComposition": "dev/architecture/runtime/models/sysml/composition.sysml",
+    "migrationAndBenefits": "dev/refactoring/models/sysml/adoption.sysml",
+    "build": "dev/architecture/toolchain/models/sysml/architecture.sysml",
+    "relations": "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml"
+  },
+  "counts": {
+    "modules": 9,
+    "interfaces": 9,
+    "runtimeSources": 11,
+    "migrationStages": 11,
+    "benefitCases": 8,
+    "buildNodes": 8,
+    "buildDeltas": 10,
+    "buildSources": 7,
+    "sourceBindings": 18
+  },
+  "runtimeBlueprint": {
+    "modules": [
+      {
+        "moduleId": "semantic",
+        "label": "Scheme semantic planner",
+        "ownerPath": "dev/architecture/compiler",
+        "owns": "Normalization, GVM semantic completion, effects, FrameSpec, PointId and primitive/FFI legality",
+        "provides": "Closed semantic plan and ordered module contract",
+        "excludes": "Does not choose execution scheduling or native resource ownership",
+        "painIds": "generation; frames",
+        "structureModel": "dev/architecture/compiler/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "native",
+        "label": "Modern generated C",
+        "ownerPath": "dev/refactoring/modern-c",
+        "owns": "Mechanical lowering and generated frame/root/layout/entry declarations from completed plan",
+        "provides": "C ABI, trampoline and exact layout adapters",
+        "excludes": "Does not invent a second Scheme semantic policy",
+        "painIds": "generation; frames; ffi",
+        "structureModel": "dev/refactoring/modern-c/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "execution",
+        "label": "VM and execution admission",
+        "ownerPath": "dev/architecture/runtime/execution",
+        "owns": "Execution grants, park/reentry, participant membership, resize and exit admission",
+        "provides": "Stable context identity with explicit join/leave and last-user closure",
+        "excludes": "A descriptor or published TLS pointer is not an execution grant",
+        "painIds": "exit; work",
+        "structureModel": "dev/architecture/runtime/execution/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "roots",
+        "label": "Root and lifetime interface",
+        "ownerPath": "dev/architecture/runtime/interfaces",
+        "owns": "Cross-owner root-cut, slot-update and last-reader agreement; execution/FFI remain value custodians, GC remains scanner",
+        "provides": "Epoch-bound root slots and scan grants with reload obligations",
+        "excludes": "Does not take semantic ownership away from producer and scanner modules",
+        "painIds": "work; ffi; frames",
+        "structureModel": "dev/architecture/runtime/interfaces/models/sysml/interfaces.sysml"
+      },
+      {
+        "moduleId": "collector",
+        "label": "Allocation and collection",
+        "ownerPath": "dev/architecture/runtime/gc",
+        "owns": "Heap layout, allocation budgets, copy/scan tasks, phases, promotion and reclaim decisions",
+        "provides": "Complete work context with parent/child/Tail custody and phase closure",
+        "excludes": "Worker identity does not imply processor or native-thread identity",
+        "painIds": "work; copy; release",
+        "structureModel": "dev/architecture/runtime/gc/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "control",
+        "label": "Continuation and dynamic control",
+        "ownerPath": "dev/architecture/runtime/control",
+        "owns": "Captured/current/saved frame interpretation, denv mutation, restore and supported nonlocal exits",
+        "provides": "Root-complete frame traversal and resumption origins",
+        "excludes": "Gambit continuations are not silently restricted to one-shot effect resumptions",
+        "painIds": "frames; copy",
+        "structureModel": "dev/architecture/runtime/control/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "foreign",
+        "label": "Foreign entry and blocking",
+        "ownerPath": "dev/architecture/runtime/ffi",
+        "owns": "Borrow scopes, root protection before marker allocation, nested callback origin and acquired-effect cleanup",
+        "provides": "Admitted host entry, block transition and explicit result/control boundary",
+        "excludes": "Raw C pointers do not survive moving GC by language interoperability alone",
+        "painIds": "ffi; frames; exit",
+        "structureModel": "dev/architecture/runtime/ffi/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "release",
+        "label": "Resource release coordination",
+        "ownerPath": "dev/architecture/runtime/ffi",
+        "owns": "Classified release effects, thread-affine jobs, WaitContext, derived-task accounting and shutdown drain",
+        "provides": "Accepted task custody and exactly owned completion/result disposition",
+        "excludes": "A drained GC phase is not proof that external resources or borrowers drained",
+        "painIds": "release; exit",
+        "structureModel": "dev/architecture/runtime/ffi/models/sysml/architecture.sysml"
+      },
+      {
+        "moduleId": "build",
+        "label": "Incremental build engine and artifact graph",
+        "ownerPath": "dev/architecture/toolchain",
+        "owns": "Rule planning, dependencies, rebuild decision, CPU/memory scheduling and transactional artifact publication",
+        "provides": "Source/plan/generated/object/link lineage and effective multicore ABI",
+        "excludes": "Does not define Scheme unit semantics or count build threads as runtime processors",
+        "painIds": "profile; generation",
+        "structureModel": "dev/architecture/toolchain/models/sysml/architecture.sysml"
+      }
+    ],
+    "interfaces": [
+      {
+        "interfaceId": "PlanAbi",
+        "producerId": "semantic",
+        "consumerId": "native",
+        "payload": "CompletedPlan, ordered modules, FrameSpec, PointId, effects and target projection",
+        "orderedContract": "Semantic completion and coverage close before emission; generated consumers match schema",
+        "failureCustody": "Reject emission or invalidate affected products; no partially guessed semantic plan",
+        "existingContracts": "GambitCompiler::TransformLaw; GambitCompiler::ProductLaw",
+        "disposition": "proposed composition; BF-SCHEMA"
+      },
+      {
+        "interfaceId": "RootCut",
+        "producerId": "roots",
+        "consumerId": "collector",
+        "payload": "VM/context incarnation, collection epoch, slot IDs, value publication and reload debt",
+        "orderedContract": "Freeze legal producers; publish slots before scan admission; moving updates before reentry acquire",
+        "failureCustody": "Producer retains roots until accepted handoff; unknown outcome retains custody",
+        "existingContracts": "ROOT-HANDOFF",
+        "disposition": "existing binding; full writer and weak-memory refinement open"
+      },
+      {
+        "interfaceId": "ControlRoots",
+        "producerId": "control",
+        "consumerId": "collector",
+        "payload": "FrameSpec identity, current/saved/captured origins, denv edges and supported mutation writers",
+        "orderedContract": "Seal origins and mutation coverage before mature-scan exclusion; preserve relocated frame interpretation",
+        "failureCustody": "Opaque mutation uses explicitly sound scan fallback; uncovered bypass blocks scan exclusion",
+        "existingContracts": "CONTROL-ORIGIN",
+        "disposition": "existing binding; BF-GENERATION adds full writer closure"
+      },
+      {
+        "interfaceId": "Participation",
+        "producerId": "foreign",
+        "consumerId": "execution",
+        "payload": "Exclusive execution grant, park acknowledgement, root-cut epoch and resumed-value reload",
+        "orderedContract": "Publish roots and end managed borrow before park; reacquire ownership and reload after GC before callback",
+        "failureCustody": "Rollback only effects actually acquired on the live origin; no unsafe forced participant removal",
+        "existingContracts": "GambitFfi::ParkLaw; GambitFfi::ReentryLaw",
+        "disposition": "proposed composition; BF-PARTICIPATION"
+      },
+      {
+        "interfaceId": "WorkClosure",
+        "producerId": "execution",
+        "consumerId": "collector",
+        "payload": "Producer census, context/grant IDs, private and queued work, parent children, Tail and phase epoch",
+        "orderedContract": "Membership transition accounts every private task and descendant; no finish based only on empty queue",
+        "failureCustody": "Reject retains original work; unknown transfer freezes source execution while custody and region pins survive",
+        "existingContracts": "GC-WORK-CLOSURE",
+        "disposition": "existing binding; native refinement and independent-worker admission open"
+      },
+      {
+        "interfaceId": "ReleaseDrain",
+        "producerId": "collector",
+        "consumerId": "release",
+        "payload": "Resource class, rooted payload, accepted task ID, WaitContext and descendant count",
+        "orderedContract": "Accept custody before source teardown; close external producers, drain accepted descendants, then reclaim",
+        "failureCustody": "Failed accept leaves source responsible; accepted failure retains result policy and exactly one final owner",
+        "existingContracts": "GambitFfi::ParkLaw",
+        "disposition": "proposed extension; BF-RELEASE; ParkLaw alone does not prove drain"
+      },
+      {
+        "interfaceId": "OutcomeLifetime",
+        "producerId": "release",
+        "consumerId": "execution",
+        "payload": "Original Scheme outcome, independent completion owner, native release result and last-user state",
+        "orderedContract": "Seal callback/error admission while receiver live; retain admitted outcomes through resource and OS-user drain",
+        "failureCustody": "Late outcome has declared recipient/disposition; never drop error or retry an invalidated release function",
+        "existingContracts": "RETIRE-WINDOW",
+        "disposition": "existing binding plus BF-EXIT extension; no whole-shutdown theorem"
+      },
+      {
+        "interfaceId": "ArtifactClosure",
+        "producerId": "build",
+        "consumerId": "native",
+        "payload": "Effective profile, schema and frame/root ABI, tool identity, ordered argv/env/cwd and output manifest",
+        "orderedContract": "Complete relevant dependency cut and successful multi-output transaction before reuse/link publication",
+        "failureCustody": "Failed/cancelled attempt cannot publish success; discard staging and preserve negative receipt",
+        "existingContracts": "GambitToolchain::NativeArtifactProfileLaw; GambitToolchain::EffectiveMulticoreProfileLaw",
+        "disposition": "proposed build composition; BF-BUILD-CUT; BF-BUILD-BUDGET"
+      },
+      {
+        "interfaceId": "GeneratedCheckpoint",
+        "producerId": "native",
+        "consumerId": "execution",
+        "payload": "FrameSpec, PointId, entry/return labels, root maps, module setup and exact frame/runtime ABI",
+        "orderedContract": "Validate module/descriptor identity before entry; generated checkpoints materialize roots and restore relocated state under an execution grant",
+        "failureCustody": "Reject mismatched ABI before invocation; preserve actual acquired roots/effects on exceptional return",
+        "existingContracts": "GambitCompiler::ProductLaw; GambitRuntime::ExecutionAdmissionLaw",
+        "disposition": "proposed native/runtime composition; BF-SCHEMA; BF-PARTICIPATION"
+      }
+    ],
+    "runtimeSources": [
+      {
+        "factId": "processor-storage",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "277-318",
+        "observation": "Collector queues, cursors, RC and weak work are selected through PSTATE aliases",
+        "limit": "Source coupling; does not alone establish a defect"
+      },
+      {
+        "factId": "copy-progress",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "3572-3625",
+        "observation": "Winner forwarding, incoming redirect, cell rebinding, payload loop and chunk publication are ordered C steps",
+        "limit": "Any resumable adapter must preserve complete pending state; no native migration hook exists here"
+      },
+      {
+        "factId": "root-scan",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "3969-3988",
+        "observation": "mark_rc scans data slots and permits collector relocation updates",
+        "limit": "Registration/scanning/transfer complete caller closure remains open"
+      },
+      {
+        "factId": "foreign-release",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "4387-4453",
+        "observation": "Still cleanup calls foreign release then frees storage",
+        "limit": "Moving it to a worker requires effect and payload lifetime qualification"
+      },
+      {
+        "factId": "marker",
+        "sourcePath": "vendor/gambit/lib/c_intf.c",
+        "sourceRanges": "6511-6547",
+        "observation": "Marker allocation precedes a TODO about protecting incoming proc_or_false",
+        "limit": "Actual legal callers and exception paths must be enumerated"
+      },
+      {
+        "factId": "checkpoint",
+        "sourcePath": "vendor/gambit/lib/_kernel.scm",
+        "sourceRanges": "4505-4524",
+        "observation": "Return address and cached roots are written before wait and reloaded afterward",
+        "limit": "Existing protocol must be reused, not reapplied as a new missing fix"
+      },
+      {
+        "factId": "semantic-entry",
+        "sourcePath": "vendor/gambit/gsc/_front.scm",
+        "sourceRanges": "225-250",
+        "observation": "Compilation context creates environment and C interface before normalization",
+        "limit": "Immutable export is a new producer contract, not a current file cache"
+      },
+      {
+        "factId": "module-link",
+        "sourcePath": "vendor/gambit/gsc/_t-c-1.scm",
+        "sourceRanges": "880-1015;1086-1105",
+        "observation": "Linker checks/merges module demand, supply, flags and metadata",
+        "limit": "C/object-only keys lose semantic-link obligations"
+      },
+      {
+        "factId": "ocaml-exit",
+        "sourcePath": "vendor/ocaml/runtime/domain.c",
+        "sourceRanges": "2262-2360",
+        "observation": "Domain exit finishes work, orphans ephemerons/finalizers, rechecks new work and locks participant removal",
+        "limit": "Learning reference at pinned source; cannot transplant its domain or continuation ABI"
+      },
+      {
+        "factId": "ocaml-remembered",
+        "sourcePath": "vendor/ocaml/runtime/minor_gc.c",
+        "sourceRanges": "533-642",
+        "observation": "Parallel promotion divides remembered-set work across participating domains",
+        "limit": "Gambit writer coverage and capacity contracts still need their own argument"
+      },
+      {
+        "factId": "ocaml-barrier",
+        "sourcePath": "vendor/ocaml/runtime/memory.c",
+        "sourceRanges": "176-222",
+        "observation": "Write barrier combines major marking concerns with major-to-minor remembered slots",
+        "limit": "Algorithm-specific memory order must not be copied as a general C rule"
+      }
+    ],
+    "migrationStages": [
+      {
+        "stageId": "sourceCut",
+        "dependsOn": "",
+        "deliverable": "Bind source, capability, writer/consumer and failure inventories",
+        "gate": "No native count reset; every legal boundary named",
+        "ownerPath": "dev/refactoring",
+        "retirement": "none: evidence is preserved, not retired"
+      },
+      {
+        "stageId": "schema",
+        "dependsOn": "sourceCut",
+        "deliverable": "Scheme semantic completion and generated frame/root/entry schema",
+        "gate": "All consumers and relevant target projection mapped",
+        "ownerPath": "dev/architecture/compiler",
+        "retirement": "Duplicated semantic decisions only after generated/native consumer parity"
+      },
+      {
+        "stageId": "buildGraph",
+        "dependsOn": "sourceCut",
+        "deliverable": "Semantic dependency graph, memoized planning, action cut and shared budget",
+        "gate": "Correct semantic units, dynamic dependencies and bootstrap compiler lineage explicit",
+        "ownerPath": "dev/architecture/toolchain",
+        "retirement": "Coarse string-only invalidation and uncoordinated nested schedulers after equivalent graph qualification"
+      },
+      {
+        "stageId": "entryPark",
+        "dependsOn": "schema",
+        "deliverable": "Root-safe host entry, callback origin, park/reload and acquired-effect plans",
+        "gate": "Marker inputs protected before allocation; every nested and exceptional exit accounted",
+        "ownerPath": "dev/architecture/runtime/ffi",
+        "retirement": "Handwritten root/entry choreography for fully covered callers"
+      },
+      {
+        "stageId": "workCore",
+        "dependsOn": "schema; entryPark",
+        "deliverable": "Collector work context, producer close and parent/Tail handoff",
+        "gate": "Complete phase/resize/root census and transfer failure custody",
+        "ownerPath": "dev/architecture/runtime/gc",
+        "retirement": "PSTATE-owned collector aliases only after all task and scan consumers migrate"
+      },
+      {
+        "stageId": "generation",
+        "dependsOn": "workCore; schema",
+        "deliverable": "Nursery/promotion, barriers and mature continuation scan policy",
+        "gate": "Every managed/FFI mutation covered or assigned a sound explicit fallback; promotion capacity reserved",
+        "ownerPath": "dev/architecture/runtime/gc",
+        "retirement": "Repeated mature scans only for admitted writer-complete classes; full scan remains an explicit capability route"
+      },
+      {
+        "stageId": "releaseDrain",
+        "dependsOn": "workCore; entryPark",
+        "deliverable": "Resource classes, release acceptance, WaitContext and descendant drain",
+        "gate": "Payload remains rooted; owner thread and failure/result policies closed",
+        "ownerPath": "dev/architecture/runtime/ffi",
+        "retirement": "Inline GC release only for eligible resource classes; arbitrary existing C callbacks retain explicit supported handling"
+      },
+      {
+        "stageId": "exitLifecycle",
+        "dependsOn": "releaseDrain; workCore; entryPark",
+        "deliverable": "Outcome owner, participant removal, OS-user drain and final reclamation",
+        "gate": "Late errors/callbacks and unknown transfers retain one legal custodian",
+        "ownerPath": "dev/architecture/runtime/execution",
+        "retirement": "Implicit catcher/context/container lifetime only after last-user and error-disposition coverage"
+      },
+      {
+        "stageId": "nativeClosure",
+        "dependsOn": "buildGraph; schema; generation; exitLifecycle",
+        "deliverable": "Build one selected modern-C runtime with exact semantic/native ABI closure",
+        "gate": "Affected source/generated/header/object/link dependency closure complete",
+        "ownerPath": "dev/architecture/toolchain",
+        "retirement": "Stale generated/archive/link routes after all actual callers use the manifest boundary"
+      },
+      {
+        "stageId": "qualification",
+        "dependsOn": "nativeClosure",
+        "deliverable": "Separate semantic, native stability, weak-memory and cost qualification",
+        "gate": "Same workload/capability/source controls; failures retained; no global-lock or single-processor substitute",
+        "ownerPath": "dev/research",
+        "retirement": "No retirement follows from documentation, structural models or finite safety alone"
+      },
+      {
+        "stageId": "retirement",
+        "dependsOn": "qualification",
+        "deliverable": "Remove each named old semantic or mechanism owner",
+        "gate": "Per-route consumer coverage plus correctness and benefit receipts; preserve C-facing capability",
+        "ownerPath": "dev/refactoring/modern-c",
+        "retirement": "Exactly the named migrated paths; no default permanent duplicate runtime"
+      }
+    ],
+    "benefitCases": [
+      {
+        "painId": "exit",
+        "stageIds": "exitLifecycle",
+        "removedWork": "Duplicated admission/result-disposition decisions across error, join and cleanup paths; runtime work savings not yet established",
+        "addedCost": "Independent result/carrier, admission and last-use synchronization",
+        "positiveCondition": "Lost admitted outcomes = 0; duplicate final release = 0; retained descriptors and exit latency bounded by declared users",
+        "refutation": "If retained users never finish or memory grows without bound, safety alone does not establish positive benefit",
+        "obligationIds": "BF-EXIT"
+      },
+      {
+        "painId": "work",
+        "stageIds": "workCore",
+        "removedWork": "Separate implicit phase/exit custody interpretations replaced by one explicit work census; wait/scan savings remain conditional",
+        "addedCost": "Context descriptors, census/epoch checks, handoff and accounting",
+        "positiveCondition": "Accounted tasks = accepted outstanding work; compare rendezvous wait plus handoff cost under equal work",
+        "refutation": "Added handoff/cache traffic may outweigh imbalance savings; forced single-processor execution is not a gain",
+        "obligationIds": "BF-WORK"
+      },
+      {
+        "painId": "copy",
+        "stageIds": "workCore",
+        "removedWork": "Lost-progress rescans and duplicated Tail/child dispatch in a proposed worker split",
+        "addedCost": "Materialized subframes at admitted cuts, task IDs and retained source/destination regions",
+        "positiveCondition": "One canonical initializer and one execution per owned Tail; measure descriptor bytes and stores per copied live word",
+        "refutation": "Do not count a hypothetical migration defect as existing baseline overhead; per-word materialization may be unjustified",
+        "obligationIds": "BF-WORK"
+      },
+      {
+        "painId": "ffi",
+        "stageIds": "entryPark",
+        "removedWork": "Duplicated callback root protection, owner restore and cleanup plans",
+        "addedCost": "Root slots, grants, publication/reload, nested-entry checks",
+        "positiveCondition": "All legal entry roots protected before allocating; enumerate publications and entry/park overhead",
+        "refutation": "Raw untracked mutation or callback escape prevents fast-path admission; slower sound handling remains necessary",
+        "obligationIds": "BF-PARTICIPATION"
+      },
+      {
+        "painId": "release",
+        "stageIds": "releaseDrain",
+        "removedWork": "Repeated inline blocking and ad hoc shutdown rescans across resource producers",
+        "addedCost": "Release queues, WaitContext synchronization, rooted payload retention and descendant counts",
+        "positiveCondition": "Accepted = queued + running + completed/disposed; compare GC pause reduction against queue/retention costs",
+        "refutation": "Moving work later does not remove total release work; external thread affinity or unbounded blocking can defeat gain",
+        "obligationIds": "BF-RELEASE"
+      },
+      {
+        "painId": "frames",
+        "stageIds": "schema",
+        "removedWork": "Duplicated frame/root/return-label decisions and unnecessary mature continuation traversal",
+        "addedCost": "Generated metadata, safepoint spill/reload and barrier/remembered scans",
+        "positiveCondition": "One semantic owner per decision; avoided mature visits exceed writes/logs/revisits/promotion costs",
+        "refutation": "Opaque mutation or incomplete origins forbids skipping graph scan; one-shot restriction is not equivalent Gambit support",
+        "obligationIds": "BF-SCHEMA; BF-GENERATION"
+      },
+      {
+        "painId": "profile",
+        "stageIds": "buildGraph",
+        "removedWork": "Repeated full planning and over-broad rebuilds; nested CPU oversubscription",
+        "addedCost": "Input hashing, memo invalidation, dependency records and shared CPU/memory tokens",
+        "positiveCondition": "No-op eligible native actions = 0; active token demand <= host grant; exact affected graph for each declared delta",
+        "refutation": "Hash/planner cost can dominate small builds; keys excluding real inputs are invalid speedups",
+        "obligationIds": "BF-BUILD-CUT; BF-BUILD-BUDGET"
+      },
+      {
+        "painId": "generation",
+        "stageIds": "schema; buildGraph",
+        "removedWork": "Redundant Scheme-to-C generation, unchanged downstream C compilation and manual linkage synchronization",
+        "addedCost": "Plan/action manifest and output digests; ABI/schema invalidation; staging publication",
+        "positiveCondition": "Identical valid output cuts off descendants; relink ordered closure only when its inputs change",
+        "refutation": "Bootstrap stages using different compilers or dynamic semantic effects cannot share merely by source filename",
+        "obligationIds": "BF-SCHEMA; BF-BUILD-CUT"
+      }
+    ],
+    "buildNodes": [
+      {
+        "nodeId": "closure",
+        "dependsOn": "",
+        "product": "Scheme/Gerbil semantic dependency closure",
+        "keyInputs": "Ordered forms, includes/imports, phase/macro/FFI context, negative lookup and directory observations; producer identity",
+        "reuseRule": "One correct module or inseparable coupled group; mutable phase state requires widening",
+        "boundary": "Semantic cycles grouped only by real elaboration dependencies; do not merge ordinary runtime call cycles"
+      },
+      {
+        "nodeId": "plan",
+        "dependsOn": "closure",
+        "product": "Completed semantic plan",
+        "keyInputs": "Closure digests, semantic compiler, options, module identity and relevant target projection",
+        "reuseRule": "Reuse only with complete semantic dependencies; fresh context instantiation remains separate",
+        "boundary": "Native compiler change need not invalidate a plan unless the plan reads its identity or relevant target decisions"
+      },
+      {
+        "nodeId": "generated",
+        "dependsOn": "plan",
+        "product": "C, frame/root/layout metadata and module records",
+        "keyInputs": "Plan, generator/schema, target layout and ordered foreign text",
+        "reuseRule": "Publish as one generated output group; compare actual bytes before propagating",
+        "boundary": "Equivalent output early cutoff is valid only for every downstream-observed output, including metadata"
+      },
+      {
+        "nodeId": "configured",
+        "dependsOn": "",
+        "product": "Configured RTS/header capability",
+        "keyInputs": "RTS source, configuration rules, target/SDK, configure inputs, requested and effective profile",
+        "reuseRule": "Requested flags and goal overlays are distinct from effective configured capability",
+        "boundary": "Profile mismatch invalidates affected declarations/objects and native acceptance"
+      },
+      {
+        "nodeId": "objects",
+        "dependsOn": "generated; configured; linkPlan",
+        "product": "Module and runtime objects",
+        "keyInputs": "C/header/depfile closure, compiler/tool bytes, argv, env, cwd, target and ABI projection",
+        "reuseRule": "Compile independent ready objects under one CPU/memory budget",
+        "boundary": "A monolithic generated module remains a serial action until a semantics-safe producer split exists"
+      },
+      {
+        "nodeId": "link",
+        "dependsOn": "objects; linkPlan",
+        "product": "Archives, shared libraries and executable",
+        "keyInputs": "Ordered module demand/supply/init data, objects, linker, flags and runtime ABI",
+        "reuseRule": "No alphabetical reordering or unordered set hashing of link inputs",
+        "boundary": "Successful interpreter behavior does not validate compiled archive identity"
+      },
+      {
+        "nodeId": "publish",
+        "dependsOn": "link",
+        "product": "Complete artifact-set manifest",
+        "keyInputs": "All expected output bytes, successful exit, sealed input generation and lineage",
+        "reuseRule": "Atomic visibility of manifest after all products verify; attempt logs remain independent",
+        "boundary": "Cancellation or partial output never supplies a cache success or current native acceptance"
+      },
+      {
+        "nodeId": "linkPlan",
+        "dependsOn": "generated",
+        "product": "Semantic module link plan and generated linkfile C",
+        "keyInputs": "Ordered module demand/supply/init/flags metadata, semantic linker identity and relevant target projection",
+        "reuseRule": "Generate linkfile before its own object; independent module objects do not depend on this plan",
+        "boundary": "This is an artifact-family projection; instantiate only real per-product edges, never all-to-all family dependencies"
+      }
+    ],
+    "buildDeltas": [
+      {
+        "caseId": "noOp",
+        "change": "All declared semantic/native inputs and expected outputs identical",
+        "expectedWork": "Validate previous dependency cut and output identity; no eligible generation/compile/link actions",
+        "limit": "Metadata/hash checking still costs work; live import/context instantiation not automatically reused"
+      },
+      {
+        "caseId": "leafScheme",
+        "change": "One independent module implementation changes",
+        "expectedWork": "Reelaborate correct semantic unit; regenerate it; compile changed output; link affected closure",
+        "limit": "If module metadata/semantic exports unchanged, avoid unrelated generation; strong dependencies still propagate"
+      },
+      {
+        "caseId": "macroOrInclude",
+        "change": "A used macro, include or compile-time dependency changes",
+        "expectedWork": "Invalidate its actual semantic consumers; regenerate their affected descendants",
+        "limit": "Unsealed dynamic context means widen unit or deny cache admission"
+      },
+      {
+        "caseId": "sameOutput",
+        "change": "A valid producer reruns and all consumed output bytes are unchanged",
+        "expectedWork": "Retain new lineage but stop downstream recomputation at output identity boundary",
+        "limit": "Compare C, side metadata and link records, not only one .c file"
+      },
+      {
+        "caseId": "compilerOnly",
+        "change": "Only native compiler identity or native flags change",
+        "expectedWork": "Recompile affected objects and relink; retain independently valid semantic plans",
+        "limit": "Target/layout effects read by plan or generator also invalidate those projections"
+      },
+      {
+        "caseId": "frameAbi",
+        "change": "Frame/root/layout schema changes",
+        "expectedWork": "Regenerate affected declarations and rebuild every ABI consumer through final link",
+        "limit": "Never mix old descriptors with new scanners or suppress this necessary rebuild"
+      },
+      {
+        "caseId": "linkOnly",
+        "change": "Only link mode or flags change",
+        "expectedWork": "Relink affected closure using ordered unchanged objects",
+        "limit": "LTO or codegen-affecting options may also invalidate object/backend stages"
+      },
+      {
+        "caseId": "bootstrapCompiler",
+        "change": "Bootstrap producer changes",
+        "expectedWork": "Distinct compiler-stage keys; rebuild their actual dependents",
+        "limit": "Two passes for qualification or self-hosting are not redundant merely because source is equal"
+      },
+      {
+        "caseId": "cancelOrFail",
+        "change": "A task fails, is cancelled, or loses input-generation validity",
+        "expectedWork": "Drain/cancel owned children, discard unpublished staging, retain failed attempt",
+        "limit": "Never mark old output current because a file happens to exist"
+      },
+      {
+        "caseId": "resourcePressure",
+        "change": "Nested generator/compiler/link work competes for CPU or memory",
+        "expectedWork": "Share one token pool; parent awaiting child returns or delegates capacity",
+        "limit": "Actual compiler-internal parallelism must be declared or conservatively bounded; no throughput claim here"
+      }
+    ],
+    "buildSources": [
+      {
+        "factId": "makePhases",
+        "sourcePath": "vendor/gambit/makefile.in",
+        "sourceRanges": "105-149",
+        "observation": "Make uses jobserver-sensitive phases and a global four-phase sequence; from-scratch explicitly cleans/builds twice",
+        "limit": "There is existing parallelism; necessity of each whole-phase edge must be audited before removing it"
+      },
+      {
+        "factId": "moduleRules",
+        "sourcePath": "vendor/gambit/lib/makefile.in",
+        "sourceRanges": "184-202",
+        "observation": "Per-module Scheme-to-C rule and archive composition already exist",
+        "limit": "Preserve correct compilation units; do not replace with an opaque full-project action"
+      },
+      {
+        "factId": "compilerRules",
+        "sourcePath": "vendor/gambit/gsc/makefile.in",
+        "sourceRanges": "268-324",
+        "observation": "Generation, semantic linkfile and object/library/executable stages have distinct dependencies",
+        "limit": "Phase flattening needs explicit producer and bootstrap ordering, not deletion of all barriers"
+      },
+      {
+        "factId": "cpuBudget",
+        "sourcePath": "src/gambit_smp/gambit_build_primitives.py",
+        "sourceRanges": "18-30;65-70",
+        "observation": "Current makeJobs and compilerProcessors share a host-derived CPU budget",
+        "limit": "Existing support should be reused; no proof of all downstream nested schedulers"
+      },
+      {
+        "factId": "profileProjection",
+        "sourcePath": "src/gambit_smp/build_profile.py",
+        "sourceRanges": "18-43",
+        "observation": "Literal source profile and required threaded-VM overlay are distinct",
+        "limit": "No active configured-header or runtime capability inferred from flags alone"
+      },
+      {
+        "factId": "streamExecutor",
+        "sourcePath": "../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch",
+        "sourceRanges": "1-20;59-79",
+        "observation": "Parent patch already streams native jobs and permits follow-up jobs while closing the producer",
+        "limit": "This is source/patch intent, not a newly qualified build speedup"
+      },
+      {
+        "factId": "sourceToolchain",
+        "sourcePath": "../../tools/ci/build_source_toolchain.sh",
+        "sourceRanges": "55-62;101-134",
+        "observation": "Compiler/patch identity and phased construction exist; script checks artifacts after an upstream wrapper can hide failure",
+        "limit": "Extend actual support; no duplicate generic executor justified by ignoring these checks"
+      }
+    ],
+    "sourceBindings": [
+      {
+        "factId": "processor-storage",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "277-318",
+        "observation": "Collector queues, cursors, RC and weak work are selected through PSTATE aliases",
+        "limit": "Source coupling; does not alone establish a defect",
+        "sha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882"
+      },
+      {
+        "factId": "copy-progress",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "3572-3625",
+        "observation": "Winner forwarding, incoming redirect, cell rebinding, payload loop and chunk publication are ordered C steps",
+        "limit": "Any resumable adapter must preserve complete pending state; no native migration hook exists here",
+        "sha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882"
+      },
+      {
+        "factId": "root-scan",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "3969-3988",
+        "observation": "mark_rc scans data slots and permits collector relocation updates",
+        "limit": "Registration/scanning/transfer complete caller closure remains open",
+        "sha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882"
+      },
+      {
+        "factId": "foreign-release",
+        "sourcePath": "vendor/gambit/lib/mem.c",
+        "sourceRanges": "4387-4453",
+        "observation": "Still cleanup calls foreign release then frees storage",
+        "limit": "Moving it to a worker requires effect and payload lifetime qualification",
+        "sha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882"
+      },
+      {
+        "factId": "marker",
+        "sourcePath": "vendor/gambit/lib/c_intf.c",
+        "sourceRanges": "6511-6547",
+        "observation": "Marker allocation precedes a TODO about protecting incoming proc_or_false",
+        "limit": "Actual legal callers and exception paths must be enumerated",
+        "sha256": "40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae"
+      },
+      {
+        "factId": "checkpoint",
+        "sourcePath": "vendor/gambit/lib/_kernel.scm",
+        "sourceRanges": "4505-4524",
+        "observation": "Return address and cached roots are written before wait and reloaded afterward",
+        "limit": "Existing protocol must be reused, not reapplied as a new missing fix",
+        "sha256": "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec"
+      },
+      {
+        "factId": "semantic-entry",
+        "sourcePath": "vendor/gambit/gsc/_front.scm",
+        "sourceRanges": "225-250",
+        "observation": "Compilation context creates environment and C interface before normalization",
+        "limit": "Immutable export is a new producer contract, not a current file cache",
+        "sha256": "e05dd9b2370da0e1a7baa3c8b7ea1d212fc3efe23e0e90e8fce3db69119c63de"
+      },
+      {
+        "factId": "module-link",
+        "sourcePath": "vendor/gambit/gsc/_t-c-1.scm",
+        "sourceRanges": "880-1015;1086-1105",
+        "observation": "Linker checks/merges module demand, supply, flags and metadata",
+        "limit": "C/object-only keys lose semantic-link obligations",
+        "sha256": "cd9030133390377167b2b29ad5f06f3854606e762a8a7cb44d932b62127d6b0a"
+      },
+      {
+        "factId": "ocaml-exit",
+        "sourcePath": "vendor/ocaml/runtime/domain.c",
+        "sourceRanges": "2262-2360",
+        "observation": "Domain exit finishes work, orphans ephemerons/finalizers, rechecks new work and locks participant removal",
+        "limit": "Learning reference at pinned source; cannot transplant its domain or continuation ABI",
+        "sha256": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c"
+      },
+      {
+        "factId": "ocaml-remembered",
+        "sourcePath": "vendor/ocaml/runtime/minor_gc.c",
+        "sourceRanges": "533-642",
+        "observation": "Parallel promotion divides remembered-set work across participating domains",
+        "limit": "Gambit writer coverage and capacity contracts still need their own argument",
+        "sha256": "063c0496293000245ec586c760dcf3f8b6bbc49daa7261417121ee4d790c726e"
+      },
+      {
+        "factId": "ocaml-barrier",
+        "sourcePath": "vendor/ocaml/runtime/memory.c",
+        "sourceRanges": "176-222",
+        "observation": "Write barrier combines major marking concerns with major-to-minor remembered slots",
+        "limit": "Algorithm-specific memory order must not be copied as a general C rule",
+        "sha256": "6253b4ad992dfcf8cbd3d22108439b1c91e4cf36e43b538c26b87749e3cded52"
+      },
+      {
+        "factId": "makePhases",
+        "sourcePath": "vendor/gambit/makefile.in",
+        "sourceRanges": "105-149",
+        "observation": "Make uses jobserver-sensitive phases and a global four-phase sequence; from-scratch explicitly cleans/builds twice",
+        "limit": "There is existing parallelism; necessity of each whole-phase edge must be audited before removing it",
+        "sha256": "f7880f0ad15deed13035ab262c80950c9a390065a72c5ef5ec0e7484511190cb"
+      },
+      {
+        "factId": "moduleRules",
+        "sourcePath": "vendor/gambit/lib/makefile.in",
+        "sourceRanges": "184-202",
+        "observation": "Per-module Scheme-to-C rule and archive composition already exist",
+        "limit": "Preserve correct compilation units; do not replace with an opaque full-project action",
+        "sha256": "d8728874f871680c8bd6b03f7641b2a2d0a357fc49e59f8e7da6f041382a5606"
+      },
+      {
+        "factId": "compilerRules",
+        "sourcePath": "vendor/gambit/gsc/makefile.in",
+        "sourceRanges": "268-324",
+        "observation": "Generation, semantic linkfile and object/library/executable stages have distinct dependencies",
+        "limit": "Phase flattening needs explicit producer and bootstrap ordering, not deletion of all barriers",
+        "sha256": "36d5b50006eb30a516cd8467238b07ef0fca018116dfd034a56e4269373cf342"
+      },
+      {
+        "factId": "cpuBudget",
+        "sourcePath": "src/gambit_smp/gambit_build_primitives.py",
+        "sourceRanges": "18-30;65-70",
+        "observation": "Current makeJobs and compilerProcessors share a host-derived CPU budget",
+        "limit": "Existing support should be reused; no proof of all downstream nested schedulers",
+        "sha256": "ba4e16880d6ab6157ce1b8e6168b4b6297afb450bd45d4d21578f072b69fb1fd"
+      },
+      {
+        "factId": "profileProjection",
+        "sourcePath": "src/gambit_smp/build_profile.py",
+        "sourceRanges": "18-43",
+        "observation": "Literal source profile and required threaded-VM overlay are distinct",
+        "limit": "No active configured-header or runtime capability inferred from flags alone",
+        "sha256": "9de5a960763549c26a82babcc073d29a9bc2a77d3b6d78680987e58240487a50"
+      },
+      {
+        "factId": "streamExecutor",
+        "sourcePath": "../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch",
+        "sourceRanges": "1-20;59-79",
+        "observation": "Parent patch already streams native jobs and permits follow-up jobs while closing the producer",
+        "limit": "This is source/patch intent, not a newly qualified build speedup",
+        "sha256": "035dc4328969a939b9758a278cc3d81dec58250518386d4678575f6fba975844"
+      },
+      {
+        "factId": "sourceToolchain",
+        "sourcePath": "../../tools/ci/build_source_toolchain.sh",
+        "sourceRanges": "55-62;101-134",
+        "observation": "Compiler/patch identity and phased construction exist; script checks artifacts after an upstream wrapper can hide failure",
+        "limit": "Extend actual support; no duplicate generic executor justified by ignoring these checks",
+        "sha256": "14f9adabe21a3eb490bdedb4418a68958df2960bf4e045f78a66babffc56a0cc"
+      }
+    ],
+    "migrationOrder": [
+      "sourceCut",
+      "buildGraph",
+      "schema",
+      "entryPark",
+      "workCore",
+      "generation",
+      "releaseDrain",
+      "exitLifecycle",
+      "nativeClosure",
+      "qualification",
+      "retirement"
+    ],
+    "buildOrder": [
+      "closure",
+      "configured",
+      "plan",
+      "generated",
+      "linkPlan",
+      "objects",
+      "link",
+      "publish"
+    ],
+    "status": "design-only; all composed/native/benefit obligations open",
+    "runtimePathsRetired": 0
+  },
+  "proofFrontier": {
+    "obligations": 73,
+    "dispositions": {
+      "open": 59,
+      "conditional-only": 4,
+      "source-slice-established": 9,
+      "source-guard-excludes-prior-trace": 1
+    },
+    "compositionallyClosedContracts": 0,
+    "addedOpenObligations": [
+      "BF-BUILD-BUDGET",
+      "BF-BUILD-CUT",
+      "BF-EXIT",
+      "BF-GENERATION",
+      "BF-PARTICIPATION",
+      "BF-RELEASE",
+      "BF-SCHEMA",
+      "BF-WORK"
+    ]
+  },
+  "sysml": {
+    "invocation": {
+      "argv": [
+        "sysml",
+        "-strict",
+        "-no-record-cache",
+        "-validate",
+        "-json",
+        "dev/architecture/compiler/models/sysml/architecture.sysml",
+        "dev/architecture/models/sysml/organization.sysml",
+        "dev/architecture/runtime/control/models/sysml/architecture.sysml",
+        "dev/architecture/runtime/execution/models/sysml/architecture.sysml",
+        "dev/architecture/runtime/ffi/models/sysml/architecture.sysml",
+        "dev/architecture/runtime/gc/models/sysml/architecture.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/child-discovery.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/collection-completion.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/copy-handoff.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/interfaces.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/producer-custody.sysml",
+        "dev/architecture/runtime/interfaces/models/sysml/shared-runtime-contract.sysml",
+        "dev/architecture/runtime/models/sysml/composition.sysml",
+        "dev/architecture/system/models/sysml/architecture.sysml",
+        "dev/architecture/system/models/sysml/modernization-architecture.sysml",
+        "dev/architecture/toolchain/models/sysml/architecture.sysml",
+        "dev/knowledge/models/sysml/learning.sysml",
+        "dev/modeling/libraries/sysml/runtime-contracts.sysml",
+        "dev/modeling/models/sysml/assurance.sysml",
+        "dev/organization.sysml",
+        "dev/refactoring/models/sysml/adoption.sysml",
+        "dev/refactoring/modern-c/models/sysml/architecture.sysml",
+        "dev/refactoring/zig/models/sysml/architecture.sysml",
+        "dev/research/models/sysml/architecture.sysml"
+      ],
+      "exitCode": 0
+    },
+    "models": 26,
+    "modelSourceBindings": {
+      "dev/architecture/compiler/models/sysml/architecture.sysml": "adc5905b8c076d533d1ea2813decdf7846e9452ba461fb6b949707907b2d3544",
+      "dev/architecture/models/sysml/organization.sysml": "64d5cfc9fc999500dae258557df7b3a249838b8cce71bda0a6840b042b59c528",
+      "dev/architecture/runtime/control/models/sysml/architecture.sysml": "39a865736ab39aa2f27b7bb1a466931bc8944a027003ce964f2ba467dadb6d7a",
+      "dev/architecture/runtime/execution/models/sysml/architecture.sysml": "61ef15dd7b6cce6c903607a11ce379948ce508bed49f6b63edef84e44d0997f2",
+      "dev/architecture/runtime/ffi/models/sysml/architecture.sysml": "2ab682003be0b16b9cfa133530974f57c0d309243870016505a85a6bbbcde6a4",
+      "dev/architecture/runtime/gc/models/sysml/architecture.sysml": "27f9042b67e1efa7d2220424fb5f9b5050f6d82435b5b57570508249fe9709f2",
+      "dev/architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml": "0cfa589854bcc747367a3c1bd3897e52fdfc387473a5292c2533566ad46a67cd",
+      "dev/architecture/runtime/interfaces/models/sysml/child-discovery.sysml": "419f270f5263a83464492dfa43a28a47965939f1e06b11af942aac1f2cdd4369",
+      "dev/architecture/runtime/interfaces/models/sysml/collection-completion.sysml": "b49701251dbe39933dbdbf6d43471a88b1e3a657ebd1dfd67fe42fa343b7ff10",
+      "dev/architecture/runtime/interfaces/models/sysml/copy-handoff.sysml": "56f1a42fa5ab6514aae5f8e29aa7d72c80491ec57d91121c85e6aecf90ebb1f8",
+      "dev/architecture/runtime/interfaces/models/sysml/interfaces.sysml": "8a71797343d1e39216fa0ed3a3d05ee3c1a9c910a373d3c3ffc519ddab194c3f",
+      "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml": "6041d5de1dde65e5388f1b7f824bbcb75e2b3d76fc4b018c25e08021f37882ee",
+      "dev/architecture/runtime/interfaces/models/sysml/producer-custody.sysml": "d45ba9e07ef3d420a7412a8f933ab4a0bd1f3a0eb052f11067585744c2fd366b",
+      "dev/architecture/runtime/interfaces/models/sysml/shared-runtime-contract.sysml": "03b0475242ece2a32c4abaf7104d1ec1567e67758de1ebf6a583321578146cc4",
+      "dev/architecture/runtime/models/sysml/composition.sysml": "5346eb8ebe0d5ec9afb7ce8afe02a01e2c2866d0b0cabf1beee9b56383c768eb",
+      "dev/architecture/system/models/sysml/architecture.sysml": "a348a7a57e47358a79884998df4f8c38cc56805195e96a057fc07a3d50103e1b",
+      "dev/architecture/system/models/sysml/modernization-architecture.sysml": "d603f4dc09c1e00b668b45e90ecf00a218d63600949b38ebcab7b572a9e1129c",
+      "dev/architecture/toolchain/models/sysml/architecture.sysml": "15c89c49c03efdaec8bbd72d18f94336ea0d89baa67c1e3caad272a51d587ff6",
+      "dev/knowledge/models/sysml/learning.sysml": "74be124743bf96b791b94c30011c75c5004064b582b05ef60520d27b43e2889d",
+      "dev/modeling/libraries/sysml/runtime-contracts.sysml": "24d1723f5be2b59336240e515f401a985051a359d6dbd2618d0bbcb5c57d3eab",
+      "dev/modeling/models/sysml/assurance.sysml": "1bebba7b0348fc970bef0dc8016459f6bd6985d69fa5f78662d8f67f807b6610",
+      "dev/organization.sysml": "7bfe55985b0bf563cfb030d5af7081e82a89919968e6eb058838517dee1b745e",
+      "dev/refactoring/models/sysml/adoption.sysml": "88d7ae0ca8f21b9305febac0411c01497ec0795969004c0861ab4043b60e07b8",
+      "dev/refactoring/modern-c/models/sysml/architecture.sysml": "39e8cc88195e3a00d19b687862852e4483fd420f205f6c01369d5e3e5e01ccd3",
+      "dev/refactoring/zig/models/sysml/architecture.sysml": "21233a6d21989497ba57cb8c97d6905b879e5ad83b4c8edced544aff6bd634c0",
+      "dev/research/models/sysml/architecture.sysml": "33a68c856bc25ffb5d26914ea5e017925dc09188649e1db07b02755facc1e109"
+    },
+    "diagnostics": null,
+    "satisfactionAsserted": false
+  },
+  "derivation": {
+    "diagnosticArgv": [
+      "sysml",
+      "-strict",
+      "-no-record-cache",
+      "-validate",
+      "-json",
+      "dev/architecture/compiler/models/sysml/architecture.sysml",
+      "dev/architecture/models/sysml/organization.sysml",
+      "dev/architecture/runtime/control/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/execution/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/ffi/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/gc/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/child-discovery.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/collection-completion.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/copy-handoff.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/interfaces.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/producer-custody.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/shared-runtime-contract.sysml",
+      "dev/architecture/runtime/models/sysml/composition.sysml",
+      "dev/architecture/system/models/sysml/architecture.sysml",
+      "dev/architecture/system/models/sysml/modernization-architecture.sysml",
+      "dev/architecture/toolchain/models/sysml/architecture.sysml",
+      "dev/knowledge/models/sysml/learning.sysml",
+      "dev/modeling/libraries/sysml/runtime-contracts.sysml",
+      "dev/modeling/models/sysml/assurance.sysml",
+      "dev/organization.sysml",
+      "dev/refactoring/models/sysml/adoption.sysml",
+      "dev/refactoring/modern-c/models/sysml/architecture.sysml",
+      "dev/refactoring/zig/models/sysml/architecture.sysml",
+      "dev/research/models/sysml/architecture.sysml"
+    ],
+    "diagnosticSha256": "cc13fc46517fa1bbb39c53d0cbb9f7a6e2140dfe62b7412344e35bf4f8b4f568",
+    "exportArgv": [
+      "sysml",
+      "-strict",
+      "-no-record-cache",
+      "-convert",
+      "api-json",
+      "-o",
+      "/Users/guangtao/ghq/github.com/tao3k/gerbil-bazel/.data/gambit-SMP/.cache/tasks/modern-c-runtime-blueprint/views.api.json",
+      "dev/architecture/compiler/models/sysml/architecture.sysml",
+      "dev/architecture/models/sysml/organization.sysml",
+      "dev/architecture/runtime/control/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/execution/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/ffi/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/gc/models/sysml/architecture.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/child-discovery.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/collection-completion.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/copy-handoff.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/interfaces.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/producer-custody.sysml",
+      "dev/architecture/runtime/interfaces/models/sysml/shared-runtime-contract.sysml",
+      "dev/architecture/runtime/models/sysml/composition.sysml",
+      "dev/architecture/system/models/sysml/architecture.sysml",
+      "dev/architecture/system/models/sysml/modernization-architecture.sysml",
+      "dev/architecture/toolchain/models/sysml/architecture.sysml",
+      "dev/knowledge/models/sysml/learning.sysml",
+      "dev/modeling/libraries/sysml/runtime-contracts.sysml",
+      "dev/modeling/models/sysml/assurance.sysml",
+      "dev/organization.sysml",
+      "dev/refactoring/models/sysml/adoption.sysml",
+      "dev/refactoring/modern-c/models/sysml/architecture.sysml",
+      "dev/refactoring/zig/models/sysml/architecture.sysml",
+      "dev/research/models/sysml/architecture.sysml"
+    ],
+    "apiExportSha256": "2b7e3ce890eb5900f8e137e619e784889be5aafa1d5e555d39b2c99fc53f0f39",
+    "areas": 23,
+    "contracts": 4,
+    "dependencies": 5,
+    "obligations": 73,
+    "formalSources": 15,
+    "producerFamilies": 18,
+    "custodyEdges": 8,
+    "lexicalOccurrences": 145,
+    "refinementSteps": 15,
+    "refinementProofTargets": 10,
+    "projectionEdges": 11,
+    "topologicalOrder": [
+      "ROOT-HANDOFF",
+      "CONTROL-ORIGIN",
+      "GC-WORK-CLOSURE",
+      "RETIRE-WINDOW"
+    ],
+    "canonicalInputs": {
+      "dev/organization.sysml": "7bfe55985b0bf563cfb030d5af7081e82a89919968e6eb058838517dee1b745e",
+      "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml": "6041d5de1dde65e5388f1b7f824bbcb75e2b3d76fc4b018c25e08021f37882ee"
+    },
+    "mode": "check",
+    "drift": [],
+    "outputBindings": {
+      "dev/architecture/runtime/blueprint-map.org": "489309fa83a76b674bbc871a5dff4aaae9a9b136b7080969bb1e23ba765bd05b",
+      "dev/architecture/runtime/diagrams/blueprint.d2": "b3a4aaf1b55dcb5a6f84a528d10ae754ccc84c9317fb818e28703deced08d688",
+      "dev/refactoring/modern-c/blueprint-matrix.org": "3d8fda41b67acdc35648540b13200d1a6af02d14abac2f89c333f232be6b8c27",
+      "dev/refactoring/modern-c/diagrams/migration.d2": "fa839c4c0705c101327fda897a5a60f69a3af1d1e80cc7e7d9fc692d91cd97d7",
+      "dev/architecture/toolchain/build-map.org": "16e7fc1e9794a1b6d1843412d83039780d2e17ea6bde3de6147e0b8e335358f4",
+      "dev/architecture/toolchain/diagrams/incremental-build.d2": "09fca0242856928e8a1f2038877c4149dd3428d675197055efd8290965ba6b91",
+      "dev/research-lanes.org": "57ea0823c7b815fe96dc71ab6725276358a99a2ecf92fc1178b976155b7ec513",
+      "dev/refactoring/pressure-map.org": "73f5e6b603339f0ca8f88a9ebd187a6c946366dc5c85e1ef09163812e6f4b058",
+      "dev/refactoring/diagrams/pressure.d2": "53e6dbe7cd118508f7ae18ee49661191726b23b7473b9b6206d4e4d07bdede61",
+      "dev/research/index.org": "0980e87d0a584931c8ccb89422e0d582a6fc0cbf6431cb2f7fa36727c0fe7e8d",
+      "dev/index.org": "625feeff95f02f738b6ae2254346532510f42bc2ca6dcfe516feb7356b035eef",
+      "dev/modeling/organization-map.org": "c3a5b90df347e710957bdc3cecfafffb11cb25d1b202e6722d25ef26f376ba3e",
+      "dev/modeling/correspondence.org": "6c6fd22c41aecba36dfbe12b049771cbf250bc477fa618d146943f3e1b40fd5a",
+      "dev/architecture/runtime/interfaces/index.org": "8c240f50c16f05ab1837efae7dfbcdb15a9b26d8a8b3dd51e53a5f3868bee3c1",
+      "dev/modeling/proof-obligations.org": "ae802d307728af5abb9ad8adff91bb5e9f0610ccdd17e400010fa23e83c9b685",
+      "dev/architecture/runtime/execution/models/quint/index.org": "250236167faf8e07c7a90f3b63b6e7691fb30966851773af9d8960cb27489789",
+      "dev/architecture/runtime/execution/models/lean/index.org": "d7db7883fef2f6fdbc4ea427745cae5b251e448762e50a36c0417176da475348",
+      "dev/architecture/runtime/gc/models/quint/index.org": "a4bdcd58a7f6e7691dca9ad1108a8eb9de736b42ac677cb19d507dcc0e3b0c0c",
+      "dev/architecture/runtime/gc/models/lean/index.org": "753477f0285c069077b6ac631bc61967466dec05a6846121f4d18f2f3f13cd95",
+      "dev/architecture/runtime/control/models/quint/index.org": "e439f8b8e3db9a06c1dc5a9202dd2b38853c3d7abf76fffdf6f899d21d28340f",
+      "dev/architecture/runtime/control/models/lean/index.org": "2dfe8c824b86da56ea3d5d705b3e23fc90ace0ab65abc9bbeec48a91b39372f2",
+      "dev/architecture/runtime/ffi/models/quint/index.org": "ffe30fb319dbfb47112ef90d132503c5eb2a6d3a328d41129b7acc217429b357",
+      "dev/architecture/runtime/ffi/models/lean/index.org": "162203c5873043b320d1d81fd5aedfb34f4d26b85a8e98dd52a11fedc84dd968",
+      "dev/organization.d2": "2f4757b563900b4226187f1c4946145472d320997506094d2e50e1ff8ca691dc",
+      "dev/architecture/runtime/interfaces/diagrams/relations.d2": "c8b03369e80d74a1456fb82fdef0b029fb1ae7fdecf23a763269dd325fca13c2",
+      "dev/architecture/runtime/interfaces/completion-model-map.org": "76c9119e39782397647d40f35fb092ce5de41fd459b28c01f653371d993ba0c4",
+      "dev/architecture/runtime/interfaces/diagrams/completion-custody.d2": "3dbee94c5c94911a27491df22e7e00f7be1beabaf9d2c25e1dc40f8cea8d0e92",
+      "dev/architecture/runtime/interfaces/producer-custody-map.org": "35ca7cd6ae967998af4bf0ea5b49bbdcbf1b5290244e14115f2b563af7aaceb8",
+      "dev/architecture/runtime/interfaces/diagrams/producer-custody.d2": "dab4b341343fd32d3178471631d82711a65f7112ad4ba1a3b06077ba96ccccf4",
+      "dev/architecture/runtime/interfaces/atomic-refinement-map.org": "3511313cf579677c303596bba27fd95ab1eec513d0b41feb954206b983d7ccd3",
+      "dev/architecture/runtime/interfaces/diagrams/atomic-refinement.d2": "211f2c9c0823108dd70cc91a8789f85496b9aabd65c4062617aff78d566729df",
+      "dev/architecture/runtime/interfaces/child-discovery-map.org": "b42f5b771168e0fbf76b6ff64a0d4395cc5f235ae63cfaf0793f5dd7268c05d7",
+      "dev/architecture/runtime/interfaces/diagrams/child-discovery.d2": "cf78e0104802e1c4eb940fb3b68a70e684877b100a6dd0eb4fd4ec99ebb73de2",
+      "dev/architecture/runtime/interfaces/diagrams/child-batch-coverage.d2": "31d51e1ede42580157406aa3790a3ef2694b43032cf5b8aa6418862f9c96d73f",
+      "dev/architecture/runtime/interfaces/copy-handoff-map.org": "e352fa9989cbc020de3e98ed8de9690ddf1469a489cb64d7bd17a35c05282da9",
+      "dev/architecture/runtime/interfaces/custody-lifetime-map.org": "8f2fc2a35c6db70be3d97487a88a49a4917de5d6b37b81fb59ba61c81ec0ee3e",
+      "dev/architecture/runtime/interfaces/migration-cut-map.org": "3e4798e4d33e54c40bdf7e5df36839fa0626bb0f97cc0ce45c59964efac03a34",
+      "dev/architecture/runtime/interfaces/pair-resume-map.org": "bebfbfaa214499051911c2a0885b7026c6d53894487b98b54346e201062016cf",
+      "dev/architecture/runtime/interfaces/diagrams/copy-handoff.d2": "54ab6a315b53993a3fe7eb448aec11b1433730c62f4e9c2b528b12bdf77009ed",
+      "dev/architecture/runtime/interfaces/diagrams/custody-lifetime.d2": "462460418a89da9af31b2e0fee9be27f837a28e37547796f37ca0d1fdfa235e7",
+      "dev/architecture/runtime/interfaces/diagrams/migration-commit.d2": "1e631d77a1a1fcbb7a3115dc8194978a873d269d4fe6e6a3c87f99fc9fef0460",
+      "dev/architecture/runtime/interfaces/diagrams/pair-resume.d2": "27096ae13814a5260644c1871a34a36c92d361c1b3f6d6379b4b52a211789202",
+      "dev/modeling/formal-bindings.json": "4036357d46c0fb5f832af1c52864bd93ae6beb5cd4337da973643da2df64b20e"
+    },
+    "behaviorOrProverExecuted": false
+  },
+  "org": {
+    "files": 310,
+    "headings": 1920,
+    "sourceBlocks": 165,
+    "links": 6924,
+    "stableIds": 1605,
+    "duplicateIds": [],
+    "babelExecuted": false,
+    "exportExecuted": false
+  },
+  "references": {
+    "orgFiles": 310,
+    "fileLinks": 6001,
+    "duplicateIds": [],
+    "missingFiles": [],
+    "missingCustomIds": [],
+    "missingIncludesOrSetup": [],
+    "frozenSources": 740,
+    "frozenSourceChanges": [],
+    "migrationTargets": 630,
+    "missingMigrationTargets": [],
+    "organizationDirectoryCount": 23,
+    "missingOrganizationDirectories": [],
+    "formalSources": 15,
+    "staleFormalBindings": [],
+    "layoutJsonExists": false,
+    "nativeExecuted": false
+  },
+  "documentationDriftControls": {
+    "negative": {
+      "exitCode": 1,
+      "stdout": "{\"mode\": \"check\", \"areas\": 23, \"contracts\": 4, \"dependencies\": 5, \"obligations\": 73, \"formalSources\": 15, \"drift\": [\"dev/architecture/toolchain/diagrams/incremental-build.d2\"]}\n",
+      "stderr": "",
+      "toolSha256": "44e6eab5e06dee306253c33b83f72a14d31e5040fd4609e7deb789b3cdd4d7c5",
+      "originalD2Sha256": "09fca0242856928e8a1f2038877c4149dd3428d675197055efd8290965ba6b91"
+    },
+    "restored": {
+      "exitCode": 0,
+      "stdout": "{\"mode\": \"check\", \"areas\": 23, \"contracts\": 4, \"dependencies\": 5, \"obligations\": 73, \"formalSources\": 15, \"drift\": []}\n",
+      "stderr": "",
+      "toolSha256": "44e6eab5e06dee306253c33b83f72a14d31e5040fd4609e7deb789b3cdd4d7c5",
+      "restoredD2Sha256": "09fca0242856928e8a1f2038877c4149dd3428d675197055efd8290965ba6b91"
+    }
+  },
+  "sourcePreservation": {
+    "entryFormalSourceCount": 15,
+    "entryAnchorCount": 12,
+    "changed": [],
+    "inspectedSourceBindings": {
+      "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+      "vendor/gambit/lib/c_intf.c": "40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae",
+      "vendor/gambit/lib/os_io.c": "c0e7dc077c7dd6b6a2ee39028506c8a6d5313d29f881bda22d056cd6fce7d93f",
+      "vendor/gambit/gsc/_ptree2.scm": "8dbf9c446430752ce106bc1c650e2eaab5d2f399170ba81677fda76f568b7905"
+    },
+    "existingQntLeanModified": false
+  },
+  "formalSourceBindings": {
+    "models/gambit/gc_work_closure.qnt": {
+      "sha256": "a96878c6f1ddc3db75943289241624cf7c379e1e4a480a1917a3d79bb0367668",
+      "localImports": [
+        "models/library/gc/WorkObligations.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/library/gc/WorkObligations.qnt": {
+      "sha256": "db071876688cb73bca81be61c71fae4f70847358ec54a374d88bd5e3754e71cd",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/lean/WorkAccounting.lean": {
+      "sha256": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/library/gc/CollectionContract.qnt": {
+      "sha256": "c11981c73e967b50fc11b355c5783f100a9ef77c20ce23540fea5c622edaade6",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/lean/SavedStackRetirementWindow.lean": {
+      "sha256": "5afc049d860549e74b5c10d4ed08ff7c9dc8f22b13e457c327d45ed1e9596e8a",
+      "localImports": [
+        "models/gambit/lean/WorkAccounting.lean"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/saved_stack_retirement_window.qnt": {
+      "sha256": "ada6f75c7b9107103de713892d11953c2fe0a1c03a22b77989cb8d6474ce03c0",
+      "localImports": [
+        "models/gambit/saved_stack_root_closure.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/saved_stack_root_closure.qnt": {
+      "sha256": "4c77c864581ae5e5f1317e3a3d210c5fd074db722e217c6462588a213197f5d4",
+      "localImports": [
+        "models/gambit/saved_stack_arena_ownership.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/saved_stack_arena_ownership.qnt": {
+      "sha256": "f460922d3e41fd850c39bcbc9f4ee994b69851edb866ca98500e5588c3b8fb74",
+      "localImports": [
+        "models/gambit/resize_saved_stack_retirement_isolated.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/resize_saved_stack_retirement_isolated.qnt": {
+      "sha256": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/continuation_saved_stack_origin.qnt": {
+      "sha256": "f1d745c10a46492117c2cfbbacbc4eaefa754c4b4d2148ab283f6b19f07d2830",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/lean/HostRootParticipation.lean": {
+      "sha256": "e5ce61239be5d9012b899f22b1f4e744886a78e08c63035bf60451ab564f1193",
+      "localImports": [
+        "models/gambit/lean/WorkAccounting.lean"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/host_root_participation.qnt": {
+      "sha256": "e24c2ce90f6264d5bcba6d4c72da46ccc56c11405d6b1b7725fa6bd6b6b2730e",
+      "localImports": [
+        "models/gambit/host_root_publication_lifetime.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/host_root_publication_lifetime.qnt": {
+      "sha256": "e85a3ca15b6928ce4724110ccf6132b117c267ed195410fa4df57935895ffe92",
+      "localImports": [
+        "models/gambit/vm_list_c_memory_order.qnt",
+        "models/gambit/vm_list_reader_retirement.qnt"
+      ],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/vm_list_reader_retirement.qnt": {
+      "sha256": "7bb56b5964657b7b7f7f41096c629a0882e00a89f6dbf9fffde5407cf27f5952",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    },
+    "models/gambit/vm_list_c_memory_order.qnt": {
+      "sha256": "e90a4ed7d68935a37ec0bf8a45412f19b6fa3f6261f4d84a96cad6a9007d1075",
+      "localImports": [],
+      "evidenceClass": "source-identity-only"
+    }
+  },
+  "existingQntLeanModified": false,
+  "earlierObligationsUnchanged": 65,
+  "existingBindingsUnchanged": true,
+  "historicalReportAudits": [
+    {
+      "manifest": "evidence/research/host-root-publication/participation.manifest.json",
+      "manifestSha256": "9ef169f5e75ac42387e407a1cfef2a59c9b5f733fda925bddbc4c3d306f93230",
+      "reportSources": [
+        {
+          "path": "evidence/research/host-root-publication/participation-validation.md",
+          "factsPath": "evidence/research/host-root-publication/participation-facts.json",
+          "factsSha256": "c540ede31f0a8aea104330d58c1ce41ee25971b174b6412c2c65b9770c0f05bd",
+          "expectedSha256": "95c0b7d88321e368431849f3eee9e05d5763f7c9d76565f06cfadd3eec391662",
+          "currentSha256": "95c0b7d88321e368431849f3eee9e05d5763f7c9d76565f06cfadd3eec391662",
+          "matches": true
+        }
+      ],
+      "contextInputs": [
+        {
+          "path": "docs/host-root-participation-source-map.md",
+          "expectedSha256": "04f7efb720048fade5e3f5be9f1a35b2f78cb6307ea7e718abf75959428a4b93",
+          "currentSha256": "04f7efb720048fade5e3f5be9f1a35b2f78cb6307ea7e718abf75959428a4b93"
+        },
+        {
+          "path": "models/gambit/host_root_participation.qnt",
+          "expectedSha256": "e24c2ce90f6264d5bcba6d4c72da46ccc56c11405d6b1b7725fa6bd6b6b2730e",
+          "currentSha256": "e24c2ce90f6264d5bcba6d4c72da46ccc56c11405d6b1b7725fa6bd6b6b2730e"
+        },
+        {
+          "path": "models/gambit/host_root_publication_lifetime.qnt",
+          "expectedSha256": "e85a3ca15b6928ce4724110ccf6132b117c267ed195410fa4df57935895ffe92",
+          "currentSha256": "e85a3ca15b6928ce4724110ccf6132b117c267ed195410fa4df57935895ffe92"
+        },
+        {
+          "path": "models/gambit/vm_list_c_memory_order.qnt",
+          "expectedSha256": "e90a4ed7d68935a37ec0bf8a45412f19b6fa3f6261f4d84a96cad6a9007d1075",
+          "currentSha256": "e90a4ed7d68935a37ec0bf8a45412f19b6fa3f6261f4d84a96cad6a9007d1075"
+        },
+        {
+          "path": "models/gambit/vm_list_reader_retirement.qnt",
+          "expectedSha256": "7bb56b5964657b7b7f7f41096c629a0882e00a89f6dbf9fffde5407cf27f5952",
+          "currentSha256": "7bb56b5964657b7b7f7f41096c629a0882e00a89f6dbf9fffde5407cf27f5952"
+        },
+        {
+          "path": "models/gambit/lean/HostRootParticipation.lean",
+          "expectedSha256": "e5ce61239be5d9012b899f22b1f4e744886a78e08c63035bf60451ab564f1193",
+          "currentSha256": "e5ce61239be5d9012b899f22b1f4e744886a78e08c63035bf60451ab564f1193"
+        },
+        {
+          "path": "models/gambit/lean/WorkAccounting.lean",
+          "expectedSha256": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+          "currentSha256": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e"
+        },
+        {
+          "path": "vendor/ocaml/otherlibs/systhreads/st_stubs.c",
+          "expectedSha256": "fc7040e061f0509316e9f3d79e452d58d3b42fadf623dca034d130088d500898",
+          "currentSha256": "fc7040e061f0509316e9f3d79e452d58d3b42fadf623dca034d130088d500898"
+        },
+        {
+          "path": "vendor/ocaml/otherlibs/systhreads/st_pthreads.h",
+          "expectedSha256": "a9c0db477881c88bf0c25addee0d99de7b3e2e02b0045bb27f884127930a224f",
+          "currentSha256": "a9c0db477881c88bf0c25addee0d99de7b3e2e02b0045bb27f884127930a224f"
+        },
+        {
+          "path": "vendor/ocaml/runtime/domain.c",
+          "expectedSha256": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c",
+          "currentSha256": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c"
+        },
+        {
+          "path": "vendor/ocaml/runtime/roots.c",
+          "expectedSha256": "10863d5089c1234baa5e2e557b44e7011ed09dc0e819dedfd7026b5d2c9643c9",
+          "currentSha256": "10863d5089c1234baa5e2e557b44e7011ed09dc0e819dedfd7026b5d2c9643c9"
+        },
+        {
+          "path": "vendor/chez/s/7.ss",
+          "expectedSha256": "e9df035ed487e1aa5d852e33d27685d888b6c682f6583d518ef3f0a08dbeb770",
+          "currentSha256": "e9df035ed487e1aa5d852e33d27685d888b6c682f6583d518ef3f0a08dbeb770"
+        },
+        {
+          "path": "vendor/chez/s/cmacros.ss",
+          "expectedSha256": "7d191a1c4d98a9909a388b91baa257d787677a09b050d90077b15c9ea94edfaa",
+          "currentSha256": "7d191a1c4d98a9909a388b91baa257d787677a09b050d90077b15c9ea94edfaa"
+        },
+        {
+          "path": "vendor/chez/c/gcwrapper.c",
+          "expectedSha256": "4f9423a5b8f41c9fa5b14584e9fc2e9cd1290c280f2735b0396591c0f7e5c418",
+          "currentSha256": "4f9423a5b8f41c9fa5b14584e9fc2e9cd1290c280f2735b0396591c0f7e5c418"
+        },
+        {
+          "path": "vendor/chez/c/types.h",
+          "expectedSha256": "5870d3cd0a6ffd670c4b0c406ec17719480bfac49380bb0e5da996860b1ab407",
+          "currentSha256": "5870d3cd0a6ffd670c4b0c406ec17719480bfac49380bb0e5da996860b1ab407"
+        },
+        {
+          "path": "vendor/chez/c/thread.c",
+          "expectedSha256": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72",
+          "currentSha256": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72"
+        },
+        {
+          "path": "vendor/chez/c/gc.c",
+          "expectedSha256": "6d937386a3aa466cf908fb2990047aba006c01662f28866e328b5a9f15e15fc9",
+          "currentSha256": "6d937386a3aa466cf908fb2990047aba006c01662f28866e328b5a9f15e15fc9"
+        },
+        {
+          "path": "vendor/chez/s/mkgc.ss",
+          "expectedSha256": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406",
+          "currentSha256": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406"
+        },
+        {
+          "path": "vendor/gambit/include/gambit.h.in",
+          "expectedSha256": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2",
+          "currentSha256": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2"
+        },
+        {
+          "path": "vendor/gambit/lib/mem.c",
+          "expectedSha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+          "currentSha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882"
+        },
+        {
+          "path": "vendor/gambit/lib/c_intf.c",
+          "expectedSha256": "40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae",
+          "currentSha256": "40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae"
+        },
+        {
+          "path": "vendor/gambit/lib/setup.c",
+          "expectedSha256": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46",
+          "currentSha256": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46"
+        }
+      ],
+      "selectedCoverage": [
+        {
+          "contractId": "ROOT-HANDOFF",
+          "quintRootBound": true,
+          "leanRootBound": true,
+          "reportScope": "Historical report covers selected QNT and Lean input identities; no native refinement"
+        }
+      ],
+      "allContextInputsMatch": true,
+      "admission": "historical-report-source-identity-only-not-composition"
+    },
+    {
+      "manifest": "evidence/research/host-root-publication/retirement-window.manifest.json",
+      "manifestSha256": "17c6b68c1b9b466eccef2c1ee63fb39c458ae4c67f7a0aacffbfce6f416d11dc",
+      "reportSources": [
+        {
+          "path": "evidence/research/host-root-publication/retirement-window-validation.md",
+          "factsPath": "evidence/research/host-root-publication/retirement-window-facts.json",
+          "factsSha256": "5489a56ccf9e9bc6397e1e6b1791b4820567d3dfee83dbd8ac8131b2c5cb6751",
+          "expectedSha256": "1e9232ecfad683b78d8e3faf6a9d83bf96cdd5145476d1ad0447ad8fed503d2c",
+          "currentSha256": "1e9232ecfad683b78d8e3faf6a9d83bf96cdd5145476d1ad0447ad8fed503d2c",
+          "matches": true
+        }
+      ],
+      "contextInputs": [
+        {
+          "path": "docs/saved-stack-retirement-window-recipe.md",
+          "expectedSha256": "d94543006d57aad3392c53d05498d4acca550f3b4937ab78a747f424c1cada80",
+          "currentSha256": "d94543006d57aad3392c53d05498d4acca550f3b4937ab78a747f424c1cada80"
+        },
+        {
+          "path": "models/gambit/saved_stack_retirement_window.qnt",
+          "expectedSha256": "ada6f75c7b9107103de713892d11953c2fe0a1c03a22b77989cb8d6474ce03c0",
+          "currentSha256": "ada6f75c7b9107103de713892d11953c2fe0a1c03a22b77989cb8d6474ce03c0"
+        },
+        {
+          "path": "models/gambit/saved_stack_root_closure.qnt",
+          "expectedSha256": "4c77c864581ae5e5f1317e3a3d210c5fd074db722e217c6462588a213197f5d4",
+          "currentSha256": "4c77c864581ae5e5f1317e3a3d210c5fd074db722e217c6462588a213197f5d4"
+        },
+        {
+          "path": "models/gambit/saved_stack_arena_ownership.qnt",
+          "expectedSha256": "f460922d3e41fd850c39bcbc9f4ee994b69851edb866ca98500e5588c3b8fb74",
+          "currentSha256": "f460922d3e41fd850c39bcbc9f4ee994b69851edb866ca98500e5588c3b8fb74"
+        },
+        {
+          "path": "models/gambit/resize_saved_stack_retirement_isolated.qnt",
+          "expectedSha256": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c",
+          "currentSha256": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c"
+        },
+        {
+          "path": "models/gambit/lean/SavedStackRetirementWindow.lean",
+          "expectedSha256": "5afc049d860549e74b5c10d4ed08ff7c9dc8f22b13e457c327d45ed1e9596e8a",
+          "currentSha256": "5afc049d860549e74b5c10d4ed08ff7c9dc8f22b13e457c327d45ed1e9596e8a"
+        },
+        {
+          "path": "models/gambit/lean/WorkAccounting.lean",
+          "expectedSha256": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+          "currentSha256": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e"
+        },
+        {
+          "path": "evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json",
+          "expectedSha256": "df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466",
+          "currentSha256": "df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466"
+        },
+        {
+          "path": "patches/fixtures/runtime-mutex-return-cumulative.patch",
+          "expectedSha256": "49514f1819da3ca6008b07690e732a13625a54811a3e44a7da3615e25fdf0d55",
+          "currentSha256": "49514f1819da3ca6008b07690e732a13625a54811a3e44a7da3615e25fdf0d55"
+        },
+        {
+          "path": "vendor/gambit/include/gambit.h.in",
+          "expectedSha256": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2",
+          "currentSha256": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2"
+        },
+        {
+          "path": "vendor/gambit/lib/setup.c",
+          "expectedSha256": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46",
+          "currentSha256": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46"
+        },
+        {
+          "path": "vendor/gambit/lib/mem.c",
+          "expectedSha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+          "currentSha256": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882"
+        },
+        {
+          "path": "vendor/gambit/lib/_kernel.scm",
+          "expectedSha256": "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec",
+          "currentSha256": "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec"
+        },
+        {
+          "path": "vendor/gambit/lib/_thread.scm",
+          "expectedSha256": "810f58f679d745826dd18f81f39c84dc3c6e4bb3dd7c6f505a453ca5331e4515",
+          "currentSha256": "810f58f679d745826dd18f81f39c84dc3c6e4bb3dd7c6f505a453ca5331e4515"
+        },
+        {
+          "path": "vendor/gambit/lib/_thread#.scm",
+          "expectedSha256": "e7113bd34c26296b5ef6890737ed47ac263bb8c072bc72c664cd76b5dfc2db14",
+          "currentSha256": "e7113bd34c26296b5ef6890737ed47ac263bb8c072bc72c664cd76b5dfc2db14"
+        },
+        {
+          "path": "vendor/chez/c/thread.c",
+          "expectedSha256": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72",
+          "currentSha256": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72"
+        },
+        {
+          "path": "vendor/chez/c/schsig.c",
+          "expectedSha256": "04b0e50c739e45d6702bdffeb29de7a2739e4530220cb676187527c015e7e508",
+          "currentSha256": "04b0e50c739e45d6702bdffeb29de7a2739e4530220cb676187527c015e7e508"
+        },
+        {
+          "path": "vendor/chez/s/mkgc.ss",
+          "expectedSha256": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406",
+          "currentSha256": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406"
+        },
+        {
+          "path": "vendor/ocaml/runtime/domain.c",
+          "expectedSha256": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c",
+          "currentSha256": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c"
+        },
+        {
+          "path": "vendor/ocaml/runtime/fiber.c",
+          "expectedSha256": "ac03f7af8976a64b8e78cb16f6b5123751d2008d0ef17595950b7a1ffb62c670",
+          "currentSha256": "ac03f7af8976a64b8e78cb16f6b5123751d2008d0ef17595950b7a1ffb62c670"
+        },
+        {
+          "path": "models/gambit/native/resize_gc_lifecycle.scm",
+          "expectedSha256": "e374881eaee90477e0398c79cdb2b5d0dc6986ace46d1e05ac15cc9ccf874fe3",
+          "currentSha256": "e374881eaee90477e0398c79cdb2b5d0dc6986ace46d1e05ac15cc9ccf874fe3"
+        },
+        {
+          "path": "models/gambit/native/continuation_rollover_public.scm",
+          "expectedSha256": "45d872155c605dc76ed9560f8b40b225478b60daa183f9c87d08d040f60bbfb3",
+          "currentSha256": "45d872155c605dc76ed9560f8b40b225478b60daa183f9c87d08d040f60bbfb3"
+        }
+      ],
+      "selectedCoverage": [
+        {
+          "contractId": "CONTROL-ORIGIN",
+          "quintRootBound": false,
+          "leanRootBound": true,
+          "reportScope": "Historical report covers Lean companion only; selected saved-stack-origin QNT is not a bound input of that report"
+        },
+        {
+          "contractId": "RETIRE-WINDOW",
+          "quintRootBound": true,
+          "leanRootBound": true,
+          "reportScope": "Historical report covers selected QNT and Lean input identities; no native refinement"
+        }
+      ],
+      "allContextInputsMatch": true,
+      "admission": "historical-report-source-identity-only-not-composition"
+    }
+  ],
+  "externalLeanEnvironment": {
+    "file": "models/gambit/lean/lakefile.toml",
+    "sha256": "cc92e61d7efa662f5c5b4609774fe63ac815bd7d8bd7910b074d4fc5f7fa13b8",
+    "package": "LeanPoo",
+    "declaredRevision": "d8adf138948c854e7564234bc046387b4a5ee63b",
+    "externalSourceInspected": false,
+    "environmentClosure": "unresolved"
+  },
+  "toolIdentities": {
+    "sysml": {
+      "path": "/opt/homebrew/bin/sysml",
+      "exitCode": 0,
+      "identity": "sysml v0.10.1\n  Commit:     1c45b6e1749fc8adc9b82d4af22fbe180b56a0e2\n  Build time: 2026-10-16_02:34:21\n  Go version: go1.25.14",
+      "stderr": ""
+    },
+    "openssl": {
+      "path": "/run/current-system/sw/bin/openssl",
+      "exitCode": 0,
+      "identity": "OpenSSL 3.6.1 27 Jan 2026 (Library: OpenSSL 3.6.1 27 Jan 2026)",
+      "stderr": ""
+    }
+  },
+  "views": [
+    {
+      "source": "dev/architecture/runtime/diagrams/blueprint.d2",
+      "svg": "dev/architecture/runtime/diagrams/blueprint.svg",
+      "exit": 0,
+      "previewExit": 0,
+      "preview": ".cache/tasks/modern-c-runtime-blueprint/blueprint.png",
+      "sourceSha256": "b3a4aaf1b55dcb5a6f84a528d10ae754ccc84c9317fb818e28703deced08d688",
+      "svgSha256": "f85cd78e2214c990068962bfb09bb5a65df6c83166fa1d8a51f09f5482fc5219",
+      "visuallyReviewed": true
+    },
+    {
+      "source": "dev/refactoring/modern-c/diagrams/migration.d2",
+      "svg": "dev/refactoring/modern-c/diagrams/migration.svg",
+      "exit": 0,
+      "previewExit": 0,
+      "preview": ".cache/tasks/modern-c-runtime-blueprint/migration.png",
+      "sourceSha256": "fa839c4c0705c101327fda897a5a60f69a3af1d1e80cc7e7d9fc692d91cd97d7",
+      "svgSha256": "6b0f7561adeb609a04cb8b5f0acfe099f71b3f0b3b6db844f82913d42749e39f",
+      "visuallyReviewed": true
+    },
+    {
+      "source": "dev/architecture/toolchain/diagrams/incremental-build.d2",
+      "svg": "dev/architecture/toolchain/diagrams/incremental-build.svg",
+      "exit": 0,
+      "previewExit": 0,
+      "preview": ".cache/tasks/modern-c-runtime-blueprint/incremental-build.png",
+      "sourceSha256": "09fca0242856928e8a1f2038877c4149dd3428d675197055efd8290965ba6b91",
+      "svgSha256": "adf19060327890c4e5d94e76ed33b9433fac7d8ad69456bbe132a9833100fa35",
+      "visuallyReviewed": true
+    }
+  ],
+  "primaryReferences": [
+    {
+      "url": "https://ocaml.org/manual/5.3/parallelism.html",
+      "use": "Public generational/parallel GC description; no transferred performance result"
+    },
+    {
+      "url": "https://arxiv.org/abs/2104.00250",
+      "use": "Control and stack compatibility design; Gambit supported continuations preserved"
+    },
+    {
+      "url": "https://dune.readthedocs.io/en/stable/explanation/tour/engine.html",
+      "use": "Rule/engine separation; no adoption of OCaml as Gambit build language"
+    },
+    {
+      "url": "https://dune.readthedocs.io/en/stable/explanation/tour/rule-generation.html",
+      "use": "Memoized planning versus action dependency/target tracking"
+    },
+    {
+      "url": "https://www.microsoft.com/en-us/research/publication/build-systems-a-la-carte/",
+      "use": "Separate scheduler and rebuilding choices; Gambit-specific application remains open"
+    },
+    {
+      "url": "https://arxiv.org/abs/2007.12737",
+      "use": "Missing/excess dependencies and tracing/speculation tradeoff; tracing is not selected as complete Darwin semantic evidence"
+    }
+  ],
+  "ocamlReference": {
+    "path": "vendor/ocaml",
+    "head": "46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91",
+    "scope": "Pinned local sources inspected and hashed; failed GitHub release-branch fetches were not used as source evidence"
+  },
+  "retainedFailure": {
+    "path": "evidence/research/modern-c-runtime-blueprint/derivation-attempt-1.json",
+    "meaning": "Out-of-file source range rejected; corrected to actual bounds without weakening validation"
+  },
+  "registeredCluesRead": {
+    "path": "evidence/research/modern-c-runtime-blueprint/registered-clues.scm",
+    "sha256": "08db058d6331a9d98ab393e7a250aa4490ec8e45199db03595dfc9e2b834434f",
+    "scope": "unknown binding and incomplete registered-view coverage; not evidence of absence or execution authority"
+  },
+  "execution": {
+    "orgParsing": true,
+    "sysmlStructuralDiagnostics": true,
+    "sysmlStructuralApiExport": true,
+    "documentationDerivation": true,
+    "documentationDriftControl": true,
+    "d2Rendering": true,
+    "independentDigestCheck": true,
+    "quintExploration": false,
+    "leanProver": false,
+    "modelBehavior": false,
+    "modelSolver": false,
+    "runtimeImplementation": false,
+    "gambitCompilation": false,
+    "nativeTesting": false,
+    "performanceValidation": false
+  },
+  "nativeProfilesAccepted": 0,
+  "runtimePathsRetired": 0,
+  "registeredClaimsPromoted": 0,
+  "incrementalBuildCasesExecuted": 0,
+  "newCounterexamplesExecuted": false,
+  "leanStepPreservationProved": false,
+  "zigIncrementEstablished": false
+}

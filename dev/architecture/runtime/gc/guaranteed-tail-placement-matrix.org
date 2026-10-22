@@ -1,0 +1,68 @@
+#+TITLE: Guaranteed-tail placement and peak matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: guaranteed-caller-matrix
+:END:
+#+NAME: guaranteed-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| compiler | gsc/_t-c-1.scm:108-119;_t-c-2.scm:345-413,1120-1141 | heap reserve/debt plus fp-cache estimate -> check -> return label | Compiler fudge4096 is not current runtime fudge8194 or an actual target span certificate | Scheme emits ordered span/code/layout/PointId proof; runtime issues interval assurance |
+| boxing | gsc/_t-c-2.scm:2480-2486,2607-2635,2820-2866;gambit.h.in:3137-3162 | allocation reserve -> operand materialization -> BEGIN/ADD/END; dirty floats may box | Reserve/reset counters do not bound every actual post-check write/address event | Include actual boxing versions and constructor/completion grammar; unknown indirect helper refuses finite B |
+| check | gambit.h.in:8544-8560;lib/_kernel.scm:303-334,1964-1990 | CHECK_HEAP tests hp>limit -> internal frame/register save -> check-heap -> heap_limit and optional GC | Runtime check ignores parameter m here; equality hp==limit is a successful guard | Generate L+max(Bwrite,Baddress)<=end and matching lower/alignment bounds; reissue after rebase |
+| restore | lib/mem.c:4525-4562,4717,7080,7215,7358,7402,7500 | six prepare_mem_pstate calls derive hp/fp/limits from private cursors and approximate free space | Old same-PSTATE tail reuse is real; independent worker/context cannot restore stale limits | Use exact committed role grants and first-resume assurance; preserve separate stack/failure roles |
+| completion | lib/_kernel.scm:506-596,900-971,1992-2022;mem.h:76-78 | rest/keyword handler finishes list and argument vector before GC, then reloads/resumes or raises | Pending GC completion may allocate before roots are in fully scannable form | Reserve bounded completion demand separately or move only under a proved equivalent root/continuation protocol |
+| copy | lib/mem.c:3241-3410,3490-3811,7038-7049 | payload/chunk links/frame copies -> resize -> guarantee heap fudge -> restore | Actual alloc cursor is not the maximum copy/link/address frontier; prepare may obtain another section | Seal write/address fence before Qg suffix; precommit all destination/resume/metadata roles before forwarding |
+| failure | lib/mem.c:891-1057,6316-6468;lib/setup.c:884-950;lib/_kernel.scm:1964-2022 | partial expansion/reserve adjustment -> overflow exception/retry or context resize | Failure delivery or successful retry may create a new phase peak and require a different binding | Actual successful extents remain operation-owned; no forwarding rollback, role substitution or unknown-commit refund |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: guaranteed-benefit-matrix
+:END:
+#+NAME: guaranteed-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| guaranteed credit | Avoid one matched fresh resume backing allocation before collection starts | Qg counts only exact preaccepted role-compatible suffixes outside all copy/check/completion footprints | Placement/guard/index metadata and potentially larger copy arenas | Credit is zero unless it substitutes an actual separate allocation; current same-PSTATE restoration already reuses tails |
+| span guard | Use smaller actual per-span guard only after complete generated bounds | Context extent requires allowance+B, with L+B<=end; guard bytes are not reusable allowance | Ordered lowering analysis, slow-edge root/reload and schedule/layout identity checks | Current4096/8194 constants are different contracts; no universal finite B established |
+| whole-round peak | Strict reduction only if every phase is below matched baseline peak | PeakCandidate=max(all acquisition,copy,commit,restore,failure occupancies); phase net Qg must beat added backing/metadata/retention | Include context set, stack/emergency roles, old readers, partial acquisitions and later metadata overlap | Positive pre-copy credit does not imply lower round peak; unchanged dominant phase or larger arenas can cancel all gain |
+| late refund | Lower post-GC occupancy by actual released backing | Qo=opportunistic suffix recognized after copy; earlier observed peak remains recorded | Read-back, pin drain, alignment/role match and deallocation closure | Cannot retrospectively relabel Qo as Qg or erase earlier peak |
+| failure custody | Avoid double spending and unsafe resume after refused/unknown transfer | Known pre-forward private claims refundable; published plan and unknown commit stay ledger-owned | Bounded held-partial/operation slots and protected completion/failure capacity | Retention/quarantine may block progress; no RSS/OOM or recovery-time guarantee |
+
+* Exact model scopes and dependencies
+#+NAME: guaranteed-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| GT-H | interleaving | models/gambit/guaranteed_tail_placement.qnt | guaranteed_tail_placement:17-named-histories;safe;seed=17;100x80 | One region/context model with copy fence, guarded resume, unknown commit and accumulated peak; abstract words, not native memory measurements |
+| GT-I | induction | models/gambit/lean/GuaranteedTailPlacement.lean | GambitSMP.GuaranteedTailPlacement:spanContained;copyAndFutureDisjoint;restoreAllowance;sequentialBound;vectorBoxBoundMonotone;noDoubleReserve;guardCannotBeCountedAsAllowance;lateRefundKeepsRecordedPeak;threePhasePeakBelow;dominantUnchangedNoStrictGain;creditNeedsNetGain;largerDestinationCancelsCredit | Parametric containment, ordered bounds and peak inequalities; whole QNT/source and baseline phase coverage open |
+| GT-PLAN | source-refinement | models/gambit/lean/GuaranteedTailPlacement.lean | GT-PLAN:actual-source-refinement | Before forwarding, backed disjoint copy-write/address fence and accepted future context interval; immutable participant/role/layout identity and exact physical counterfactual |
+| GT-CHECK | source-refinement | models/gambit/lean/GuaranteedTailPlacement.lean | GT-CHECK:actual-source-refinement | Actual ordered allocation span W/P/minima, flonum materialization, runtime/custom helpers and first resume PointId; L+B<=end and reload or reject unknown bounds |
+| GT-RESTORE | source-refinement | models/gambit/lean/GuaranteedTailPlacement.lean | GT-RESTORE:actual-source-refinement | All six prepare_mem_pstate endpoints and kernel heap/rest/exception exits use current role-specific grant; keep distinct stack, GC-completion and failure reserves |
+| GT-PEAK | source-refinement | models/gambit/lean/GuaranteedTailPlacement.lean | GT-PEAK:actual-source-refinement | Matched separated/current baselines, every acquisition/copy/restore/failure phase and held-partial bytes; Qg net credit vs late Qo; no bank/root/allocator double accounting |
+
+#+NAME: guaranteed-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| GT-PLAN | GT-H |
+| GT-PLAN | GT-I |
+| GT-PLAN | IH-I |
+| GT-PLAN | GW-S |
+| GT-CHECK | GT-H |
+| GT-CHECK | GT-I |
+| GT-CHECK | GT-PLAN |
+| GT-CHECK | WB-WRITERS |
+| GT-CHECK | CO-S |
+| GT-RESTORE | GT-H |
+| GT-RESTORE | GT-I |
+| GT-RESTORE | GT-PLAN |
+| GT-RESTORE | IH-MEMORY |
+| GT-RESTORE | HR-BIND |
+| GT-PEAK | GT-H |
+| GT-PEAK | GT-I |
+| GT-PEAK | GT-PLAN |
+| GT-PEAK | GT-RESTORE |
+| GT-PEAK | IH-READERS |
+| IH-EXTENTS | GT-PLAN |
+| IH-TAIL | GT-CHECK |
+| IH-TAIL | GT-RESTORE |
+| PR-BOUND | GT-PEAK |

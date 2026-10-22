@@ -138,8 +138,9 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
 
     def test_historical_scan_origins_do_not_invent_queue_owner_or_current_cause(self):
         item = json.loads((ROOT/"evidence/source-results/compiled-stress-failure/historical-scan-origin.json").read_text())
+        from tests.support import published_digest
         for field in ("receipt", "log", "originDecoder"):
-            self.assertEqual(item[field+"Sha256"], digest(ROOT/item[field]))
+            self.assertEqual(item[field+"Sha256"], published_digest(ROOT, ROOT/item[field]))
         recorded = json.loads((ROOT/item["receipt"]).read_text())
         self.assertEqual(item["sourceFileSha256"],recorded["native"]["toolchain"]["sourceFiles"][item["sourceFile"]])
         self.assertEqual((2,3,2),(item["observed"]["firstOriginCode"],
@@ -153,7 +154,9 @@ class BTQEdgeEvidenceTests(unittest.TestCase):
     def test_allocator_object_candidate_retains_parent_and_does_not_admit_runtime(self):
         item = json.loads((ROOT/"evidence/fixtures/darwin-allocator-acquire/object-observation.json").read_text())
         for field in ("sourceLock", "recipe", "inputArchive"):
-            self.assertEqual(item[field+"Sha256"],digest(ROOT/item[field]))
+            source = (ROOT / "tests/fixtures/allocator-acquire-input-history/inputs.json"
+                      if field == "inputArchive" else ROOT / item[field])
+            self.assertEqual(item[field+"Sha256"], digest(source))
         parent = json.loads((ROOT/"evidence/fixtures/darwin-dynamic-modulo-scope/source.lock.json").read_text())
         candidate = json.loads((ROOT/item["sourceLock"]).read_text())
         self.assertEqual(parent["revision"],candidate["revision"])

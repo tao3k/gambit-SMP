@@ -3,6 +3,7 @@ import unittest
 from gambit_smp import evidence_index as index
 from gambit_smp import protocol_evidence as evidence
 from gambit_smp import verify_protocols as verify
+from tests.protocol_current import assert_current_status
 
 
 class ResizeResultDistributionTests(unittest.TestCase):
@@ -28,8 +29,7 @@ class ResizeResultDistributionTests(unittest.TestCase):
         parent = verify.load_manifest(index.ROOT / "evidence/pstate-retirement-generation.json")
         self.assertIn("resize_result_distribution", parent["cases"][0]["openObligations"])
         facts, _ = evidence.facts(index.ROOT)
-        self.assertEqual(1, len([row for row in facts["protocol_checked"]
-                                 if row[0] == self.case["id"]]))
+        assert_current_status(self, index.ROOT, "evidence/resize-result-distribution.json", facts)
         self.assertIn((self.case["id"], "resize_result_source_refinement"),
                       facts["protocol_obligation"])
         self.assertIn((self.case["id"], "lib/setup.c:execute_sync_op_loop"),

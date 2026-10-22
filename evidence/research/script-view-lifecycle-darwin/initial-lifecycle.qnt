@@ -1,0 +1,368 @@
+module incremental_build {
+  // Mathematical protocol, not a build implementation. Two selected units stand
+  // for a frozen gsc cohort; untouched module/wrapper objects are fixed inputs.
+  // Real compiler processes, dynamic dependency discovery, hashes, filesystem
+  // atomicity and source-to-model refinement are NOT modeled by these integers.
+  val Nodes = 0.to(9)
+  type Output = { bytes: int, meta: int }
+  type State = { leaf: int, macroInput: int, fault: int,
+    out: int -> Output, saved: int -> List[int], phase: int -> int,
+    staged: int -> Output, snapshot: int -> List[int],
+    used: int, executed: Set[int], cancelled: bool, stable: bool,
+    badReuse: bool, badOrder: bool, stalePublish: bool }
+  var s: State
+  pure def deps(n: int): Set[int] =
+    if (n <= 1) Set() else if (n == 2) Set(0) else if (n == 3) Set(1)
+    else if (n == 4) Set(0, 1) else if (n == 5) Set(4)
+    else if (n == 6) Set(2, 3, 5) else if (n == 7) Set(4)
+    else if (n == 8) Set(7) else Set(6, 8)
+  pure def signature(n: int, leaf: int, macroInput: int, out: int -> Output): List[int] =
+    if (n == 0) List(n, leaf, macroInput)
+    else if (n == 1) List(n, macroInput)
+    else if (n == 2) List(n, out.get(0).bytes)
+    else if (n == 3) List(n, out.get(1).bytes)
+    else if (n == 4) List(n, out.get(0).meta, out.get(1).meta)
+    else if (n == 5) List(n, out.get(4).bytes)
+    else if (n == 6) List(n, out.get(2).bytes, out.get(3).bytes, out.get(5).bytes)
+    else if (n == 7) List(n, out.get(4).meta)
+    else if (n == 8) List(n, out.get(7).bytes)
+    else List(n, out.get(6).bytes, out.get(8).bytes)
+  pure def calculate(n: int, leaf: int, macroInput: int, out: int -> Output): Output =
+    if (n == 0) { bytes: leaf + macroInput, meta: macroInput }
+    else if (n == 1) { bytes: macroInput, meta: macroInput }
+    else if (n == 2) { bytes: out.get(0).bytes, meta: 0 }
+    else if (n == 3) { bytes: out.get(1).bytes, meta: 0 }
+    else if (n == 4) { bytes: out.get(0).meta + out.get(1).meta, meta: out.get(0).meta + out.get(1).meta }
+    else if (n == 5) { bytes: out.get(4).bytes, meta: 0 }
+    else if (n == 6) { bytes: out.get(2).bytes + out.get(3).bytes + out.get(5).bytes, meta: 0 }
+    else if (n == 7) { bytes: out.get(4).meta, meta: 0 }
+    else if (n == 8) { bytes: out.get(7).bytes, meta: 0 }
+    else { bytes: out.get(6).bytes + out.get(8).bytes, meta: 0 }
+  pure def initial(leaf: int, macroInput: int, fault: int): State = {
+    leaf: leaf, macroInput: macroInput, fault: fault,
+    out: Nodes.mapBy(_ => { bytes: 0, meta: 0 }),
+    saved: Nodes.mapBy(n => signature(n, 0, 0, Nodes.mapBy(_ => { bytes: 0, meta: 0 }))),
+    phase: Nodes.mapBy(_ => 0), staged: Nodes.mapBy(_ => { bytes: 0, meta: 0 }),
+    snapshot: Nodes.mapBy(_ => List()), used: 0, executed: Set(),
+    cancelled: false, stable: true, badReuse: false, badOrder: false, stalePublish: false,
+  }
+  action initNoChange = s' = initial(0, 0, 0)
+  action initLeaf = s' = initial(1, 0, 0)
+  action initMacro = s' = initial(0, 1, 0)
+  action initBadReuse = s' = initial(1, 0, 1)
+  action initStalePublish = s' = initial(1, 0, 2)
+  action initOverBudget = s' = initial(0, 1, 3)
+  action initMissingDependency = s' = initial(1, 0, 4)
+  action initRedundant = s' = initial(0, 0, 5)
+  def ready(n: int): bool = deps(n).forall(d => s.phase.get(d) == 2)
+  action reuse(n: int): bool = all {
+    s.stable, not(s.cancelled), s.phase.get(n) == 0, ready(n),
+    s.fault == 1 or s.saved.get(n) == signature(n, s.leaf, s.macroInput, s.out),
+    s' = { ...s, phase: s.phase.set(n, 2),
+      badReuse: s.badReuse or s.out.get(n) != calculate(n, s.leaf, s.macroInput, s.out) },
+  }
+  action start(n: int): bool = all {
+    s.stable, not(s.cancelled), s.phase.get(n) == 0,
+    ready(n) or s.fault == 4, s.used < 2 or s.fault == 3,
+    s.saved.get(n) != signature(n, s.leaf, s.macroInput, s.out) or s.fault == 5,
+    s' = { ...s, phase: s.phase.set(n, 1), used: s.used + 1,
+      executed: s.executed.union(Set(n)),
+      staged: s.staged.set(n, calculate(n, s.leaf, s.macroInput, s.out)),
+      snapshot: s.snapshot.set(n, signature(n, s.leaf, s.macroInput, s.out)),
+      badOrder: s.badOrder or not(ready(n)) },
+  }
+  action finish(n: int): bool = all {
+    s.phase.get(n) == 1,
+    s' = { ...s, used: s.used - 1, phase: s.phase.set(n, 3) },
+  }
+  action publish(n: int): bool = all {
+    s.phase.get(n) == 3,
+    (s.stable and not(s.cancelled)) or s.fault == 2,
+    s.snapshot.get(n) == signature(n, s.leaf, s.macroInput, s.out),
+    s' = { ...s, phase: s.phase.set(n, 2), out: s.out.set(n, s.staged.get(n)),
+      saved: s.saved.set(n, s.snapshot.get(n)),
+      stalePublish: s.stalePublish or not(s.stable) or s.cancelled },
+  }
+  action invalidate = all { s.stable, s' = { ...s, stable: false } }
+  action cancel = all { not(s.cancelled), s' = { ...s, cancelled: true } }
+  action discard(n: int): bool = all {
+    (not(s.stable) or s.cancelled), s.phase.get(n) == 3,
+    s' = { ...s, phase: s.phase.set(n, 4) },
+  }
+  action stutter = s' = s
+  action step = any {
+    nondet n = Nodes.oneOf()
+    any { reuse(n), start(n), finish(n), publish(n), discard(n) },
+    invalidate, cancel, stutter,
+  }
+  val reuseSafe = not(s.badReuse)
+  val dependencySafe = not(s.badOrder)
+  val publicationSafe = not(s.stalePublish)
+  val budgetSafe = s.used >= 0 and s.used <= 2
+  val accountingSafe = s.used == Nodes.filter(n => s.phase.get(n) == 1).size()
+  val safe = reuseSafe and dependencySafe and publicationSafe and budgetSafe and accountingSafe
+  val complete = s.stable and not(s.cancelled) and Nodes.forall(n => s.phase.get(n) == 2)
+  val noChangeWork = (s.leaf == 0 and s.macroInput == 0) implies s.executed.size() == 0
+}
+
+// Static population inventory, NOT a scheduler/refinement theorem. The 34
+// Scheme-to-C targets are separate from their 34 C-to-object actions. Runtime
+// library, configured headers, boot producer and normal objects are external.
+module gsc_population {
+  val GenerationTargets = 0.to(33)
+  val LibraryTargets = 0.to(32)
+  val PopulationNodes = 0.to(73)
+  pure def populationDeps(n: int): Set[int] =
+    if (n < 34) Set()
+    else if (n < 68) Set(n - 34)
+    else if (n == 68) LibraryTargets
+    else if (n == 69) Set(68)
+    else if (n == 70) 34.to(66).union(Set(69))
+    else if (n == 71) Set(33, 68)
+    else if (n == 72) Set(71)
+    else Set(67, 70, 72)
+  // Make LIBRARY_MODULES order: _utils=1, _t-c-3=31. Values are
+  // injection into this inventory, NOT a many-to-one simulation of execution.
+  val selectedInjection = Map(0 -> 31, 1 -> 1, 2 -> 65, 3 -> 35,
+    4 -> 68, 5 -> 69, 6 -> 70, 7 -> 71, 8 -> 72, 9 -> 73)
+  val missingBoundaryEdges = Set((33, 71), (67, 73))
+  val omittedLibraryTargets = LibraryTargets.exclude(Set(1, 31))
+  val inventoryAcyclic = PopulationNodes.forall(n =>
+    populationDeps(n).forall(d => d < n))
+  // Necessary correspondence predicates; no real compiler simulation is claimed.
+  val SmallNodes = 0.to(9)
+  val SelectedFullNodes = SmallNodes.map(k => selectedInjection.get(k))
+  val LibraryOrder = List(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32)
+  pure def smallDeps(k: int): Set[int] =
+    if (k <= 1) Set() else if (k == 2) Set(0) else if (k == 3) Set(1)
+    else if (k == 4) Set(0,1) else if (k == 5) Set(4)
+    else if (k == 6) Set(2,3,5) else if (k == 7) Set(4)
+    else if (k == 8) Set(7) else Set(6,8)
+  pure def boundaryDeps(k: int): Set[int] =
+    populationDeps(selectedInjection.get(k)).exclude(SelectedFullNodes)
+  val selectedGraphExact = SmallNodes.forall(k =>
+    populationDeps(selectedInjection.get(k)).intersect(SelectedFullNodes) ==
+      smallDeps(k).map(d => selectedInjection.get(d)))
+  pure def phasesRelated(full: int -> int, small: int -> int): bool =
+    SmallNodes.forall(k => small.get(k) == full.get(selectedInjection.get(k)))
+  pure def boundaryReady(k: int, full: int -> int): bool =
+    boundaryDeps(k).forall(d => full.get(d) == 2)
+  // Per-consumer external observations, in native LIBRARY_MODULES order.
+  // Payload tokens are abstract; extraction/schema adequacy is still open.
+  pure def boundarySignature(k: int, view: int -> List[int]): List[List[int]] =
+    if (k == 4) LibraryOrder.select(d => not(SelectedFullNodes.contains(d))).foldl(List(), (acc,d) => acc.append(view.get(d)))
+    else if (k == 6) LibraryOrder.select(d => not(SelectedFullNodes.contains(d+34))).foldl(List(), (acc,d) => acc.append(view.get(d+34)))
+    else if (k == 7) List(view.get(33)) else if (k == 9) List(view.get(67)) else List()
+  pure def frozenBoundary(old: int -> List[int], fresh: int -> List[int]): bool =
+    SmallNodes.forall(k => boundarySignature(k,old) == boundarySignature(k,fresh))
+}
+
+// Chosen immutable-view protocol; tracking ALL invalidating writes and compiler
+// effects is an explicit environmental premise, not proved by epoch equality.
+// Input 0 is a selector; its value selects input 1 or 2. Old traces cannot
+// certify the new branch. Generated prerequisites are separately ready.
+module dependency_cut {
+  val Inputs = 0.to(2)
+  type CutState = { epoch: int, attemptEpoch: int, live: int -> int,
+    image: int -> int, cut: Set[int], observed: int -> int, ready: Set[int],
+    stage: int, groupComplete: bool, revoked: bool, admitted: bool }
+  var c: CutState
+  pure def needed(image: int -> int): Set[int] =
+    Set(0, if (image.get(0) == 0) 1 else 2)
+  pure def cutInitial: CutState = { epoch: 0, attemptEpoch: 0,
+    live: Inputs.mapBy(_ => 0), image: Inputs.mapBy(_ => 0),
+    cut: Set(), observed: Inputs.mapBy(_ => -1), ready: Set(0),
+    stage: 0, groupComplete: false, revoked: false, admitted: false }
+  action initCut = c' = cutInitial
+  action beginCut = all { c.stage == 0,
+    c' = { ...c, attemptEpoch: c.epoch, image: c.live, stage: 1 } }
+  action validateInput(i: int): bool = all { c.stage == 1, Inputs.contains(i),
+    c' = { ...c, ready: c.ready.union(Set(i)) } }
+  action observeInput(i: int): bool = all { c.stage == 1, c.ready.contains(i),
+    (i == 0 or (c.cut.contains(0) and needed(c.image).contains(i))),
+    c' = { ...c, cut: c.cut.union(Set(i)),
+      observed: c.observed.set(i, c.image.get(i)) } }
+  action sealCut = all { c.stage == 1, needed(c.image).subseteq(c.cut),
+    c.attemptEpoch == c.epoch, not(c.revoked),
+    c' = { ...c, stage: 2 } }
+  action stageGroup = all { c.stage == 2,
+    c' = { ...c, groupComplete: true, stage: 3 } }
+  action publishCut = all { c.stage == 3, c.groupComplete,
+    c.attemptEpoch == c.epoch, not(c.revoked),
+    c' = { ...c, stage: 4, admitted: true } }
+  action worldWrite(i: int): bool = all { Inputs.contains(i),
+    c' = { ...c, epoch: c.epoch + 1,
+      live: c.live.set(i, 1 - c.live.get(i)), revoked: true } }
+  action restartCut = all { c.revoked, c.stage != 4,
+    c' = { ...cutInitial, epoch: c.epoch, live: c.live } }
+  action cutStep = {
+    nondet i = Inputs.oneOf()
+    any { beginCut, validateInput(i), observeInput(i), sealCut, stageGroup,
+      publishCut, worldWrite(i), restartCut, c' = c }
+  }
+  val observationAgreement = c.cut.forall(i => c.observed.get(i) == c.image.get(i))
+  // Historical admission remains true after revocation; never CURRENT then.
+  val currentCut = c.admitted and not(c.revoked)
+  val cutPublicationSafe = currentCut implies all {
+    c.groupComplete, c.attemptEpoch == c.epoch,
+    needed(c.image).subseteq(c.cut), observationAgreement }
+}
+
+// Observation/qualification contracts, not an implementation of a GSC parser,
+// hash, executor or native output oracle. Original integer scenario is retained.
+module gsc_observation_contract {
+  type Receipt = { successful: bool, complete: bool, effectsClosed: bool,
+    settled: bool, current: bool, context: List[int], required: Set[int], covered: Set[int] }
+  type Artifact = { rawC: List[int], linkDatum: List[int], linkAccepted: bool,
+    schema: int, role: int, receipt: Receipt }
+  pure def reusableReceipt(r: Receipt): bool = all { r.successful, r.complete,
+    r.effectsClosed, r.settled, r.current, r.required.subseteq(r.covered) }
+  pure def commonIdentity(a: Artifact, b: Artifact): bool = all {
+    a.schema == b.schema, a.role == b.role, a.receipt.context == b.receipt.context,
+    reusableReceipt(a.receipt), reusableReceipt(b.receipt) }
+  pure def cConsumerEquivalent(a: Artifact, b: Artifact): bool =
+    commonIdentity(a,b) and a.rawC == b.rawC
+  pure def linkerConsumerEquivalent(a: Artifact, b: Artifact): bool = all {
+    commonIdentity(a,b), a.linkAccepted, b.linkAccepted, a.linkDatum == b.linkDatum }
+  val sameLengthIsInsufficient = all {
+    List(1,2).length() == List(2,1).length(), List(1,2) != List(2,1) }
+}
+
+// Refined linker-observation admission specification only. Integers are tags,
+// not an implemented Scheme parser, producer oracle or native failure adapter.
+module gsc_link_fidelity {
+  val Success = 0
+  val Missing = 1
+  val Rejected = 2
+  val Malformed = 3
+  val IoFailure = 4
+  val ProducerFailure = 5
+  val Cancelled = 6
+  val Unknown = 7
+  type Evidence = { outcome: int, shallowHeader: bool, fullRecord: bool,
+    codecFaithful: bool, groupComplete: bool, settled: bool, current: bool,
+    effectsClosed: bool, originQualified: bool, context: List[int],
+    datum: List[int], rawC: List[int] }
+  pure def bytesWellFormed(xs: List[int]): bool =
+    xs.indices().forall(i => xs.nth(i) >= 0 and xs.nth(i) < 256)
+  pure def linkEligible(e: Evidence): bool = all { e.outcome == Success,
+    e.shallowHeader, e.fullRecord, e.codecFaithful, e.groupComplete,
+    e.settled, e.current, e.effectsClosed, e.originQualified }
+  pure def linkCutoff(a: Evidence, b: Evidence): bool = all {
+    linkEligible(a), linkEligible(b), a.context == b.context, a.datum == b.datum }
+  pure def cCutoff(a: Evidence, b: Evidence): bool = all {
+    linkEligible(a), linkEligible(b), a.context == b.context,
+    bytesWellFormed(a.rawC), bytesWellFormed(b.rawC), a.rawC == b.rawC }
+  pure def failureBlocks(e: Evidence): bool =
+    (e.outcome != Success) implies not(linkEligible(e))
+  pure def malformedBlocks(e: Evidence): bool =
+    (not(e.fullRecord)) implies not(linkEligible(e))
+}
+
+// Structural framing specification; actual Scheme parser/domain bridge is open.
+module gsc_datum_projection {
+  pure def frameDatum(tag: int, payload: List[int]): List[int] =
+    List(tag, payload.length()).concat(payload)
+  pure def frameShape(xs: List[int]): bool = if (xs.length() < 2) false else
+    all { xs.nth(0) >= 0, xs.nth(0) <= 8, xs.nth(1) >= 0,
+      xs.nth(1) == xs.length() - 2 }
+  pure def scalarPayloadShape(tag: int, body: List[int]): bool =
+    if (tag == 0) body.length() == 0 else
+    if (tag == 1) (if (body.length() != 1) false else (body.nth(0) == 0 or body.nth(0) == 1)) else
+    if (tag == 2 or tag == 3) body.length() == 1 else
+    tag >= 4 and tag <= 6
+  val shallowPairCounterexample = frameShape(List(7, 0))
+}
+
+// Qualification/relocation abstraction only; no Scheme adapter or RC registry.
+module gsc_value_admission {
+  type View = { contentEpoch: int, observedEpoch: int, owner: int,
+    registeredOwner: int, scannedOwner: int, rootCovered: bool, active: bool,
+    rootAddress: int, rawAddress: int, scalarDomain: bool, symbolIdentity: bool,
+    finiteRank: bool, sharingErasure: bool, readback: bool, consumer: bool }
+  pure def valueStable(v: View): bool = v.contentEpoch == v.observedEpoch
+  pure def rootEligible(v: View): bool = all { v.active, v.rootCovered,
+    v.owner == v.registeredOwner, v.owner == v.scannedOwner }
+  pure def valueEligible(v: View): bool = all { valueStable(v), rootEligible(v),
+    v.scalarDomain, v.symbolIdentity, v.finiteRank, v.sharingErasure, v.readback, v.consumer }
+  pure def mutate(v: View): View = { ...v, contentEpoch: v.contentEpoch + 1 }
+  pure def relocate(v: View, address: int): View = { ...v, rootAddress: address }
+  pure def rawReloadNeeded(v: View): bool = v.rawAddress != v.rootAddress
+  pure def missingRootBlocks(v: View): bool = (not(v.rootCovered)) implies not(valueEligible(v))
+  pure def mutationBlocks(v: View): bool = valueStable(v) implies not(valueEligible(mutate(v)))
+}
+
+// Script-line source rules and trace-aware qualification, not a concrete adapter.
+module gsc_script_line {
+  type Script = { truthy: bool, text: bool, units: List[int] }
+  type Entry = { matches: bool, value: Script }
+  pure val noScript: Script = { truthy: false, text: false, units: List() }
+  pure def scriptText(units: List[int]): Script = { truthy: true, text: true, units: units }
+  pure def chooseScript(previous: Script, submitted: Script): Script = if (submitted.truthy) submitted else previous
+  pure def scriptSelection(values: List[Script]): Script = values.foldl(noScript, (a,b) => chooseScript(a,b))
+  pure def firstScript(entries: List[Entry]): Script = entries.foldr(noScript, (e,a) => if (e.matches) e.value else a)
+  pure val emptyTextWins = chooseScript(scriptText(List(1)), scriptText(List())) == scriptText(List())
+  pure val falseDoesNotClear = chooseScript(scriptText(List(1)), noScript) == scriptText(List(1))
+  type Lease = { contentEpoch: int, capturedEpoch: int, allWriters: bool,
+    externalQuiescent: bool, rootCovered: bool, noReentrantWrite: bool }
+  pure def sourceBorrowEligible(v: Lease): bool = all { v.contentEpoch == v.capturedEpoch,
+    v.allWriters, v.externalQuiescent, v.rootCovered, v.noReentrantWrite }
+  pure def payloadWrite(v: Lease): Lease = { ...v, contentEpoch: v.contentEpoch + 1 }
+  pure def payloadWriteBlocks(v: Lease): bool = sourceBorrowEligible(v) implies not(sourceBorrowEligible(payloadWrite(v)))
+  type LinkTrace = { result: int, disposition: int, emitted: List[int], diagnostics: List[int],
+    effects: List[int], settled: bool, context: int }
+  pure def fullLinkEquivalent(a: LinkTrace, b: LinkTrace): bool = a == b
+  pure val sameResultIsInsufficient = {
+    val a: LinkTrace = { result: 1, disposition: 0, emitted: List(2), diagnostics: List(), effects: List(3), settled: true, context: 4 }
+    val b = { ...a, diagnostics: List(5) }
+    a.result == b.result and not(fullLinkEquivalent(a,b))
+  }
+}
+
+// Protocol projection only. Actual writer/GC/winding/I/O refinement is not established.
+module script_view_lifecycle {
+  type State = { phase: int, generation: int, entry: int, acquisition: int,
+    writerEpoch: int, contentEpoch: int, tokenGeneration: int, tokenEntry: int, tokenAcquisition: int,
+    tokenWriter: int, tokenContent: int, pins: int, debt: bool,
+    roots: bool, allWriters: bool, gateClosed: bool }
+  var s: State
+  pure def readable(v: State): bool = all { v.phase == 1, v.pins > 0,
+    v.generation == v.tokenGeneration, v.entry == v.tokenEntry, v.acquisition == v.tokenAcquisition,
+    v.writerEpoch == v.tokenWriter, v.contentEpoch == v.tokenContent,
+    v.roots, v.allWriters, v.gateClosed, not(v.debt) }
+  action init = s' = { phase: 0, generation: 0, entry: 0, acquisition: 0,
+    writerEpoch: 0, contentEpoch: 0, tokenGeneration: -1, tokenEntry: -1, tokenAcquisition: -1,
+    tokenWriter: -1, tokenContent: -1, pins: 0, debt: false,
+    roots: true, allWriters: true, gateClosed: true }
+  action issue = all { s.phase == 0, s.roots, s.allWriters, s.gateClosed, not(s.debt), s.pins == 0,
+    s' = { ...s, phase: 1, pins: 1, tokenGeneration: s.generation, tokenEntry: s.entry, tokenAcquisition: s.acquisition,
+      tokenWriter: s.writerEpoch, tokenContent: s.contentEpoch } }
+  action revoke = all { s.phase == 1,
+    s' = { ...s, generation: s.generation + 1, phase: 2, debt: true } }
+  action returnPin = all { s.phase == 2, s.pins > 0, s' = { ...s, pins: s.pins - 1 } }
+  action cleanupAck(owner: int): bool = all { owner == s.acquisition, s.phase == 2, s.pins == 0, s.debt,
+    s' = { ...s, debt: false, roots: false, phase: 3 } }
+  action resume = all { s.phase == 3, s.pins == 0, not(s.debt),
+    s' = { ...s, phase: 0, generation: s.generation + 1, entry: s.entry + 1,
+      acquisition: s.acquisition + 1 } }
+  action rootGrant = all { s.phase == 0, not(s.roots), s' = { ...s, roots: true } }
+  action unknownWriter = all { s.phase != 2,
+    s' = { ...s, generation: s.generation + 1, writerEpoch: s.writerEpoch + 1,
+      phase: 2, debt: true, allWriters: false } }
+  action payloadWrite = all { s.phase != 1, s.pins == 0,
+    s' = { ...s, contentEpoch: s.contentEpoch + 1 } }
+  action stutter = s' = s
+  action step = any { issue, revoke, returnPin, cleanupAck(s.acquisition), resume, rootGrant, unknownWriter, payloadWrite, stutter }
+  val liveBorrowSafe = (s.phase == 1) implies readable(s)
+  val noReleasedRootWithPins = (s.pins > 0) implies s.roots
+}
+
+module darwin_development_work {
+  type Budget = { required: int, duplicated: int, validation: int, added: int, serialPrefix: int }
+  pure def wellFormed(b: Budget): bool = all { b.required >= 0, b.duplicated >= 0,
+    b.validation >= 0, b.added >= 0, b.serialPrefix >= 0 }
+  pure def oldWork(b: Budget): int = b.required + b.duplicated
+  pure def newWork(b: Budget): int = b.required + b.validation + b.added
+  pure def positiveWork(b: Budget): bool = wellFormed(b) and b.validation + b.added < b.duplicated
+  pure def parallelLatencyLowerBound(b: Budget): int = b.serialPrefix
+}

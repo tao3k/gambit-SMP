@@ -1,0 +1,19 @@
+direction: down
+classes: {
+  scheme: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  runtime: {style.fill: "#E7F4E8"; style.stroke: "#397344"}
+  gate: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+}
+compiler: "G: compiler check policy\n4096 words in inspected target\nCommitted debt + pending allocation + boxing costs" {class: scheme}
+local: "F: local physical msection fudge\n8192 + 1 + SUBTYPED_BODY words\nSoft limits set before physical slack\nHeap and stack bounds are separate" {class: runtime}
+global: "R: VM overflow reserve\n8 * (parameter vector + maximum argument list cost)\nSubtracted from approximate free heap\nConsumed/replenished during overflow recovery" {class: runtime}
+certificate: "G3 AllocationCertificate\nEvery realized no-collection path must fit actual headroom\nFast/slow check branches need postconditions\nDo not equate G, F and R" {class: gate}
+compiler -> certificate
+local -> certificate
+global -> certificate: "global reserve is not local-space proof"
+partial: "Rest/key partial arguments\nFinish bound: n_left * pair_words + np + vector_header\nConditional loose maximum 25601 words exceeds F=8194\nNot a demonstrated overflow; actual branch correlation is open" {class: gate}
+certificate -> partial
+complete: "Complete parameter vector / full frame roots\nOnly then admitted collecting service\nQ-reserve remains open until concrete bound is established" {class: scheme}
+partial -> complete
+alternative: "Deferred alternative: Gambit-owned argument-root window\nNoncollecting bootstrap + scanner/publication/lifetime changes\nA Zig slice alone cannot provide moving Scheme roots" {class: gate}
+partial -> alternative: "separate future protocol, no fallback"

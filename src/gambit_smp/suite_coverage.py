@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
+from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.recipes import read_json
@@ -75,7 +75,7 @@ def checked_suite_coverage(run):
     from gambit_smp.research_kernel import inspect
     run = Path(run).resolve(strict=True)
     root = ROOT.resolve()
-    fixture_root(root, run)
+    observation_root(root, run)
     before = digest(run / "receipt.json")
     outer, child = read_json(run / "receipt.json"), read_json(run / "run/receipt.json")
     if (outer.get("outcome") != "PASS" or outer.get("exit") != 0
@@ -150,3 +150,11 @@ def main():
     print(json.dumps({"outcome": record["outcome"], "answers": answers,
                       "runtimeAdmitted": False, "performanceAdmitted": False}))
     return 0 if accepted else 2
+
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('suite-coverage')(main)
+
+if __name__ == "__main__":
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('suite-coverage', main))

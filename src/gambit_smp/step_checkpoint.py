@@ -5,13 +5,491 @@ runtime. Native adapters and Evidence rules must authorize any consumption.
 """
 import hashlib
 import json
+import math
+import time
 from pathlib import Path
-from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
+from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
 
 from gambit_smp.framework import digest, relative
 
 
 SCHEMA = "successful-step-checkpoint.v1"
+
+
+def _observe_bindings(root, inventories):
+    """Observe bytes only; matching and dependency propagation belong to Scheme."""
+    expected, observed = [], []
+    for inventory in inventories:
+        for name, sha in inventory.items():
+            path = Path(name) if Path(name).is_absolute() else root / name
+            key = str(path.resolve())
+            expected.append((key, sha))
+            try:
+                if path.is_file():
+                    observed.append((key, digest(path)))
+            except OSError:
+                pass
+    return expected, observed
+
+
+def support_inventory(root, header, row, tools, observation_inputs=None):
+    """Seal the enumerator's declared scope separately from receipt custody."""
+    declaration = header.get("declaration")
+    if not isinstance(declaration, dict) or not header.get("engineId"):
+        return None
+    steps = [step for step in declaration.get("steps", []) if step.get("id") == row["id"]]
+    if len(steps) != 1 or not declaration.get("scope"):
+        return None
+    declared = steps[0]
+    if any(name not in header.get("inputs", {}) for name in declaration.get("inputs", [])):
+        return None
+    keys = ("id", "capability", "arguments", "dependsOn", "budgetSeconds")
+    declared_inputs, _ = _observe_bindings(root, [header.get("inputs", {})])
+    observed_inputs, _ = _observe_bindings(root, [observation_inputs or {}])
+    recorder_inputs = {key: value for key, value in observed_inputs if key not in dict(declared_inputs)}
+    expected, _ = _observe_bindings(root, [header.get("inputs", {}), recorder_inputs, tools, row.get("observedInputs", {})])
+    return {"scope": declaration["scope"], "declaration": content_id(declaration),
+            "receipt": content_id({key: value for key, value in row.items() if key != "journal"}),
+            "checker": header["engineId"], "contract": content_id({key: declared.get(key) for key in keys}),
+            "bindings": dict(expected), "recorderBindings": recorder_inputs,
+            "toolBindings": dict(tools), "dependencies": declared.get("dependsOn", []),
+            "commands": [[str(i), command.get("expectedExit", 0)] for i, command in enumerate(row.get("commands", []))]}
+
+
+def _support_inventories(root, records):
+    """Read immutable enumeration witnesses, never infer closure from a PASS."""
+    if not records:
+        return {}
+    header = records[0]["payload"]
+    inventories = {}
+    for entry in records[1:]:
+        record = entry["payload"]
+        if record.get("schema") != "research-step-observation.v1":
+            continue
+        inventory = record.get("supportInventory")
+        if inventory is not None and inventory == support_inventory(root, header, record["step"], record["toolInputs"], entry["inputs"]):
+            inventories[record["step"]["id"]] = inventory
+    return inventories
+
+
+def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, quiescent, support, inventories, declaration=None,
+                          execution=None):
+    """Transport verified observations to the registered Scheme policy."""
+    from gambit_smp.ascent_program import load_component_catalog, query
+    from gambit_smp.framework import ROOT
+    facts = {key: [] for key in (
+        "requirement", "dependency", "contract", "receipt", "verified",
+        "support_declaration", "support_witness", "required_command",
+        "binding", "required_binding", "current_binding", "command", "command_observation",
+        "prerequisite", "quiescent", "material", "available", "withdrawn",
+        "required_step", "recorded_failure", "receipt_checked", "campaign_pass",
+        "output_retained", "execution_quiescent", "campaign_required", "campaign_enumerated",
+        "execution_location", "execution_process", "execution_end", "execution_sample", "execution_custody")}
+    for name, values in (execution or {}).items():
+        facts[name].extend(values)
+    facts["required_step"] = [(name,) for name in names]
+    facts["requirement"] = [(name,) for name in names]
+    if declaration is not None:
+        declared_names = {step["id"] for step in declaration["steps"]}
+        facts["requirement"] = [(name,) for name in sorted(set(names) | declared_names)]
+        facts["campaign_required"] = [(name,) for name in sorted(declared_names)]
+        facts["campaign_enumerated"] = [()]
+    if checked:
+        facts["receipt_checked"] = [()]
+    if campaign_pass:
+        facts["campaign_pass"] = [()]
+    if quiescent:
+        facts["execution_quiescent"] = [()]
+    availability = {}
+    for row in inspection.get("artifactAvailability", {}).get("outputs", []):
+        availability[(row["step"], row["output"])] = row["status"]
+    identities = {row["id"]: content_id(row) for row in rows}
+    for row in rows:
+        name = row["id"]
+        identity = identities[name]
+        contract = content_id({key: row.get(key) for key in ("id", "capability", "arguments", "dependsOn", "budgetSeconds")})
+        facts["contract"].append((name, contract))
+        facts["receipt"].append((identity, name, contract, row.get("outcome", "UNKNOWN")))
+        facts["prerequisite"].extend((identity, parent, identities.get(parent, "missing:" + parent))
+                                     for parent in row.get("dependsOn", []))
+        expected, observed = support[name]
+        inventory = inventories.get(name)
+        if inventory is not None:
+            declared_contract = inventory["contract"]
+            scope, declaration, checker = inventory["scope"], content_id(inventory), inventory["checker"]
+            facts["support_declaration"].append((name, declared_contract, scope, declaration, checker,
+                len(inventory["bindings"]), len(inventory["commands"]), len(set(inventory["dependencies"]))))
+            facts["required_binding"].extend((name, declared_contract, key) for key in inventory["bindings"])
+            facts["required_command"].extend((name, declared_contract, *command) for command in inventory["commands"])
+            facts["dependency"].extend((name, parent) for parent in inventory["dependencies"])
+            if checked and dict(expected) == inventory["bindings"]:
+                facts["support_witness"].append((identity, scope, declaration, checker))
+        facts["binding"].extend((identity, key, sha) for key, sha in expected)
+        facts["current_binding"].extend(observed)
+        # An independent producer admission failure must remain visible even
+        # when every observable file still matches (for example an invalid seal).
+        if "evidenceBindingStatus" in inspection and inspection["evidenceBindingStatus"] != "CURRENT":
+            facts["withdrawn"].append((identity, "producer-inspection"))
+        if checked and inventory is not None and inventory["receipt"] == content_id(
+                {key: value for key, value in row.items() if key != "journal"}):
+            facts["verified"].append((identity,))
+        for index, command in enumerate(row.get("commands", [])):
+            key = str(index)
+            facts["command"].append((identity, key, command.get("expectedExit", 0)))
+            fields = ("exit", "timeout", "parentReaped", "processGroupQuiescent")
+            if (type(command.get("exit")) is int and
+                    all(type(command.get(field)) is bool for field in fields[1:])):
+                facts["command_observation"].append((identity, key, *(command[field] for field in fields)))
+        if quiescent:
+            facts["quiescent"].append((identity,))
+        if row.get("outcome") != "PASS":
+            facts["recorded_failure"].append((name, row.get("outcome", "UNKNOWN")))
+        states = []
+        for output in row.get("outputs", {}):
+            facts["material"].append((identity, output))
+            state = availability.get((name, output), "UNKNOWN")
+            states.append(state)
+            if state == "AVAILABLE":
+                facts["available"].append((identity, output))
+        if states and all(state in {"AVAILABLE", "RETAINED"} for state in states):
+            facts["output_retained"].append((name,))
+    catalog = load_component_catalog(ROOT / "evidence/dsl/components.json",
+                                     entry="checkpoint-state", constructor="make-checkpoint-state",
+                                     trusted=True)
+    queries = {key: key for key in ("historical_complete", "reusable", "satisfied",
+        "artifact_unavailable", "historical_only", "unresolved", "invalidated", "failed", "campaign_reusable",
+        "consumable", "binding_gap", "invalidated_by", "enumeration_gap",
+        "support_declaration", "support_witness", "closed_support",
+        "execution_pending", "execution_frontier", "execution_unattributed", "execution_detached",
+        "failed_attempt_history")}
+    answers = query(facts, catalog, queries)
+    if any(digest(Path(path)) != sha for path, sha in catalog["sourceInputs"].items()):
+        raise ValueError("checkpoint rules changed during resumption inspection")
+    from gambit_smp.ascent_program import _api_inventory
+    resources = {str(path): name for name, path in _api_inventory()[0].items() if name.startswith("package:")}
+    return answers, {resources.get(path, str(Path(path).relative_to(ROOT)) if Path(path).is_relative_to(ROOT) else path): sha
+                     for path, sha in catalog["sourceInputs"].items()}
+
+
+def resumption(root, run, inspection, *, required=None):
+    """Observe immutable receipts/availability; Scheme owns reuse and gap rules."""
+    root, run = Path(root).resolve(), Path(run).resolve()
+    outer_path, child_path = run / "receipt.json", run / "run/receipt.json"
+    outer_bytes = outer_path.read_bytes()
+    outer = json.loads(outer_bytes)
+    child_bytes = child_path.read_bytes() if child_path.is_file() else None
+    checked = (outer.get("schema") == "sealed-research-run.v1"
+               and Path(outer.get("root", "")).resolve() == root
+               and child_bytes is not None
+               and hashlib.sha256(child_bytes).hexdigest() == outer.get("childReceiptSha256"))
+    child = json.loads(child_bytes) if checked else {}
+    checked = (checked and child.get("recipe") == outer.get("recipe")
+               and child.get("inputsStable") is True
+               and (outer.get("outcome") != "PASS" or child.get("outcome") == "PASS"))
+    rows = child.get("steps", []) if checked else []
+    names = list(required if required is not None else outer.get("stepBudgets", {}))
+    quiescent = (checked and outer.get("parentReaped") is True
+                 and outer.get("processGroupQuiescent") is True)
+    support = {row["id"]: _observe_bindings(root, [outer.get("inputs", {}), row.get("observedInputs", {})])
+               for row in rows}
+    from gambit_smp.reasoning_history import read_execution_checkpoint
+    records = read_execution_checkpoint(root, run)["records"]
+    inventories = _support_inventories(root, records)
+    # A completed child names all tool inputs independently of its input list.
+    for row in rows:
+        if row["id"] in inventories:
+            support[row["id"]] = _observe_bindings(root, [outer.get("inputs", {}),
+                inventories[row["id"]]["recorderBindings"], inventories[row["id"]]["toolBindings"], row.get("observedInputs", {})])
+    answers, rules = _resumption_relations(rows, names, inspection, checked=checked,
+                                          campaign_pass=outer.get("outcome") == "PASS", quiescent=quiescent,
+                                          support=support, inventories=inventories,
+                                          declaration=records[0]["payload"].get("declaration") if records else None)
+    if (outer_path.read_bytes() != outer_bytes or
+            (child_bytes is not None and child_path.read_bytes() != child_bytes)):
+        raise ValueError("checkpoint changed during resumption inspection")
+    return {"schema": "research-resumption-state.v1",
+            "scope": "recipe-stages-not-cumulative-milestone-count",
+            "recordedRecipe": outer["recipe"], "recordedEngineId": outer["engineId"],
+            "recordedInputIdentity": content_id(outer.get("inputs", {})),
+            "receiptSha256": hashlib.sha256(outer_bytes).hexdigest(),
+            "historyStatus": "VERIFIED" if checked else "UNVERIFIED",
+            "parentCompletionObserved": quiescent,
+            "rules": rules,
+            "requiredSteps": names, "relations": answers,
+            "executionAuthorized": False, "runtimeAdmitted": False}
+
+
+def interrupted_resumption(root, run):
+    """Recover committed journal facts without inventing a terminal receipt."""
+    from gambit_smp.reasoning_history import normalized, read_journal, read_execution_checkpoint
+    from gambit_smp.recipes import inspect_outputs
+    root, run = Path(root).resolve(), Path(run).resolve()
+    path = run / "run-header.json"
+    raw = path.read_bytes()
+    header = json.loads(raw)
+    if header.get("schema") != "research-run-header.v1" or not header.get("runId"):
+        raise ValueError("bound run header required for interrupted state")
+    records = {}
+    for record_path in (run / "run").glob("*.observation.json"):
+        if record_path.is_symlink():
+            raise ValueError("journal record alias is not admissible")
+        record = json.loads(record_path.read_bytes())
+        step = record.get("step", {})
+        if (record.get("schema") != "research-step-observation.v1"
+                or record.get("runId") != header["runId"]
+                or record_path.name != step.get("id", "") + ".observation.json"):
+            raise ValueError("journal stage belongs to another producer")
+        records[step["id"]] = (record_path, record)
+    reference = next((record["header"] for _, record in records.values()), None)
+    scope = reference["scope"] if reference else "research:" + header["recipe"]
+    observations = read_journal(root, scope)["observations"]
+    headers = [identity for identity, body in observations.items()
+               if body.get("queries") == normalized({"run_record": [header]})]
+    if len(headers) != 1:
+        raise ValueError("run header lacks its immutable observation")
+    expected = {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest(),
+                "observation": headers[0], "scope": scope}
+    references, rows, support = {}, [], {}
+    for name, (record_path, record) in records.items():
+        identities = [identity for identity, body in observations.items()
+                      if body.get("queries") == normalized({"run_record": [record]})]
+        if record.get("header") != expected or len(identities) != 1:
+            raise ValueError("journal stage lacks its immutable observation")
+        references[name] = {"path": str(record_path), "sha256": digest(record_path),
+                            "observation": identities[0], "scope": scope}
+        rows.append(record["step"])
+        body = observations[identities[0]]
+        tools = record.get("toolInputs")
+        if not isinstance(tools, dict) or not tools or any(not Path(source).is_absolute() for source in tools):
+            raise ValueError("journal stage lacks immutable tool bindings")
+        bound_sources = {str((Path(source) if Path(source).is_absolute() else root / source).resolve()): sha
+                         for source, sha in body.get("inputs", {}).items()}
+        if any(bound_sources.get(str((root / source).resolve())) != sha
+               for source, sha in header["inputs"].items()):
+            raise ValueError("journal stage omits original producer inputs")
+        support[name] = _observe_bindings(root, [body.get("inputs", {}), record.get("toolInputs", {}),
+                                               record["step"].get("observedInputs", {})])
+    for _, record in records.values():
+        dependencies = record.get("dependencies")
+        parents = record["step"]["dependsOn"]
+        if any(name not in references for name in parents) or dependencies != {name: references[name] for name in parents}:
+            raise ValueError("journal prerequisite identity changed")
+    try:
+        availability = inspect_outputs(run / "run", rows, root=root)
+    except (OSError, ValueError, KeyError):
+        availability = {"status": "UNKNOWN", "outputs": []}
+    names = list(header.get("stepBudgets", {})) or list(records)
+    inspection = {"artifactAvailability": availability}
+    answers, rules = _resumption_relations(rows, names, inspection, checked=True,
+                                          campaign_pass=False, quiescent=False, support=support,
+                                          inventories=_support_inventories(root, read_execution_checkpoint(root, run)["records"]),
+                                          declaration=header.get("declaration"))
+    inspection["evidenceBindingStatus"] = "STALE" if answers["binding_gap"] else "CURRENT"
+    if path.read_bytes() != raw or any(digest(Path(ref["path"])) != ref["sha256"]
+                                       for ref in references.values()):
+        raise ValueError("journal changed during resumption inspection")
+    state = {"schema": "research-resumption-state.v1", "scope": "recipe-stages-not-cumulative-milestone-count",
+             "run": run.relative_to(root).as_posix(),
+             "recordedRecipe": header["recipe"], "recordedEngineId": header["engineId"],
+             "recordedInputIdentity": content_id(header["inputs"]),
+             "headerSha256": expected["sha256"], "historyStatus": "COMMITTED_PREFIX",
+             "requiredSteps": names, "relations": answers, "rules": rules,
+             "stageReferences": {name: {**ref, "path": Path(ref["path"]).relative_to(root).as_posix()}
+                                 for name, ref in references.items()},
+             "parentCompletionObserved": False, "executionAuthorized": False, "runtimeAdmitted": False}
+    return {"recipe": header["recipe"], "engineId": header["engineId"], "outcome": "INCOMPLETE",
+            "recordedOutcome": None, "identityStatus": "INCOMPLETE", **inspection,
+            "resumption": state, "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
+
+
+def execution_observations(run, records, names):
+    """Observe committed process records and the kernel; Scheme projects state."""
+    from gambit_smp.research_kernel import clock_epoch
+    from gambit_smp.process_identity import process, same_birth
+    from gambit_smp.process_observation import probe_group
+    import time
+    facts = {name: [] for name in ('execution_location', 'execution_process', 'execution_end', 'execution_sample',
+                                   'execution_custody')}
+    observations, by_token = [], {}
+    epoch = clock_epoch()
+    for entry in records:
+        value = entry['payload']
+        if value.get('schema') != 'research-process-observation.v1':
+            continue
+        by_token.setdefault(value['token'], []).append((value, entry))
+    for token, entries in by_token.items():
+        events = {value['event']: value for value, _ in entries}
+        planned, started = events.get('planned', {}), events.get('started', {})
+        cwd = Path(planned.get('cwd', ''))
+        if cwd.is_absolute() and cwd.is_relative_to(run / 'run'):
+            parts = cwd.relative_to(run / 'run').parts
+            if parts and parts[0] in names:
+                facts['execution_location'].append((token, parts[0]))
+        if 'finished' in events or 'spawn-failed' in events:
+            facts['execution_end'].append((token,))
+        pid = started.get('pid')
+        if type(pid) is int and pid > 1:
+            state = 'unknown'
+            if epoch is not None and started.get('clockEpoch') == epoch:
+                try:
+                    quiet, _ = probe_group(pid, time.monotonic() + .05)
+                    state = 'absent' if quiet is True else 'present-unattributed' if quiet is False else 'unknown'
+                    birth = started.get('birth', {}).get('process')
+                    if not quiet and birth and same_birth(birth, process(pid)):
+                        state = 'present'
+                except OSError:
+                    state = 'unknown'
+            facts['execution_process'].append((token, pid, state))
+        for value, entry in entries:
+            if value['event'] != 'progress':
+                continue
+            count, at = value.get('count'), value.get('observedMonotonic')
+            if type(count) is not int or count <= 0 or type(at) not in (int, float) or not math.isfinite(at):
+                raise ValueError('invalid committed completed-work observation')
+            reference = entry['observation']
+            # Clue catalog scalars use integral time units, not floating tags.
+            facts['execution_sample'].append((token, count, round(at * 1_000_000_000), reference))
+            observations.append(dict(reference=reference, token=token, count=count, monotonic=at,
+                clockEpoch=value.get('clockEpoch'), clockContinuous=epoch is not None and value.get('clockEpoch') == epoch,
+                witness=value.get('witness'), path=entry['path']))
+    return facts, observations
+
+
+def execution_owner(root, run):
+    """Read the existing task-run custody record; return status is not AI success."""
+    from gambit_smp.workspace import bounded
+    try:
+        parts = run.relative_to(root / '.cache/tasks').parts
+    except ValueError:
+        return None
+    if len(parts) < 3:
+        return None
+    task = parts[0]
+    if parts[1] == 'runs':
+        owner = bounded(root, f'.state/task-runs/{task}/{parts[2]}.json')
+        output = root / '.cache/tasks' / task / 'runs' / parts[2]
+    elif len(parts) >= 5 and parts[1] == 'processes' and parts[3] == 'runs':
+        owner = bounded(root, f'.state/work-process-runs/{task}/{parts[2]}/{parts[4]}.json')
+        output = root / '.cache/tasks' / task / 'processes' / parts[2] / 'runs' / parts[4]
+    else:
+        return None
+    if not owner.is_file():
+        return None
+    raw = owner.read_bytes()
+    value = json.loads(raw)
+    if value.get('task') != task or Path(value.get('output', '')) != output:
+        return dict(provider='unknown', recordedTaskState='unknown', bindingStatus='MISMATCH',
+                    reference=hashlib.sha256(raw).hexdigest(), path=str(owner), sessionCompletionObserved=False)
+    return dict(provider=value['provider'], recordedTaskState=value['state'],
+                reference=hashlib.sha256(raw).hexdigest(), path=str(owner), bindingStatus='CURRENT',
+                sessionCompletionObserved=False)
+
+
+def recovered_resumption(root, run, *, require_current_prefix=True):
+    """Recover attested record bytes, never reconstruct a missing aggregate PASS."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint, execution_checkpoint_head
+    from gambit_smp.recipes import inspect_outputs
+    root, run = Path(root).resolve(), Path(run).resolve()
+    prefix = read_execution_checkpoint(root, run)
+    records = prefix["records"]
+    if not records or records[0]["payload"].get("schema") != "research-run-header.v1":
+        raise ValueError("committed execution header required")
+    header = records[0]["payload"]
+    rows, references, terminal, processes, support = [], {}, None, {}, {}
+    header_ref = {"path": records[0]["path"], "sha256": hashlib.sha256(
+        (json.dumps(header, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()).hexdigest(),
+        "observation": records[0]["observation"], "scope": records[0]["scope"]}
+    for entry in records[1:]:
+        payload = entry["payload"]
+        if payload.get("schema") == "research-process-observation.v1":
+            if payload.get("header") != header_ref or payload.get("runId") != header["runId"]:
+                raise ValueError("process observation belongs to another execution")
+            processes.setdefault(payload["token"], {})[payload["event"]] = payload
+            continue
+        if payload.get("schema") == "research-terminal-observation.v1":
+            if entry != records[-1] or terminal is not None:
+                raise ValueError("terminal checkpoint is not the committed tail")
+            terminal = payload["outer"]
+            continue
+        if payload.get("schema") != "research-step-observation.v1" or payload.get("header") != header_ref:
+            raise ValueError("committed stage belongs to another header")
+        row = payload["step"]
+        if row["id"] in references or payload.get("dependencies") != {
+                name: references.get(name) for name in row["dependsOn"]}:
+            raise ValueError("committed prerequisite identity mismatch")
+        tools = payload.get("toolInputs", {})
+        if not tools or any(not Path(path).is_absolute() for path in tools):
+            raise ValueError("committed stage lacks tool bindings")
+        recorded_inputs = {str((Path(path) if Path(path).is_absolute() else root / path).resolve()): sha
+                           for path, sha in entry["inputs"].items()}
+        if any(recorded_inputs.get(str((root / path).resolve())) != sha for path, sha in header["inputs"].items()):
+            raise ValueError("committed stage omits producer inputs")
+        support[row["id"]] = _observe_bindings(root, [entry["inputs"], tools, row.get("observedInputs", {})])
+        rows.append(row)
+        references[row["id"]] = {"path": entry["path"], "sha256": hashlib.sha256(
+            (json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n").encode()).hexdigest(),
+            "observation": entry["observation"], "scope": entry["scope"]}
+    availability = inspect_outputs(run / "run", rows, root=root)
+    inspection = {"artifactAvailability": availability}
+    parent_complete = (terminal is not None and terminal.get("parentReaped") is True
+                       and terminal.get("processGroupQuiescent") is True)
+    quiescence = {"observed": parent_complete, "basis": "recorded-terminal" if parent_complete else "unknown"}
+    if not parent_complete and processes:
+        from gambit_smp.research_kernel import clock_epoch
+        from gambit_smp.process_observation import probe_group
+        epoch = clock_epoch()
+        absent = True
+        for events in processes.values():
+            planned = events.get("planned")
+            if planned is None or not planned.get("clockEpoch") or epoch is None:
+                absent = False
+                break
+            if planned["clockEpoch"] != epoch or "spawn-failed" in events:
+                continue
+            started = events.get("started")
+            if started is None or type(started.get("pid")) is not int or started["pid"] <= 1:
+                absent = False
+                break
+            observed, _ = probe_group(started["pid"], time.monotonic() + .05)
+            if observed is not True:
+                absent = False
+                break
+        quiescence = {"observed": absent, "basis": "recorded-births-reobserved"}
+    names = list(header.get("stepBudgets", {})) or [row["id"] for row in rows]
+    execution, progress_observations = execution_observations(run, records, names)
+    owner = execution_owner(root, run)
+    if owner is not None and owner.get('bindingStatus', 'CURRENT') == 'CURRENT':
+        execution['execution_custody'] = [(owner['provider'], owner['recordedTaskState'], owner['reference'])]
+    relations, rules = _resumption_relations(rows, names, inspection, checked=True,
+        campaign_pass=terminal is not None and terminal.get("outcome") == "PASS", quiescent=quiescence["observed"],
+        support=support, inventories=_support_inventories(root, records), declaration=header.get("declaration"),
+        execution=execution)
+    current = not relations["binding_gap"]
+    inspection["evidenceBindingStatus"] = "CURRENT" if current else "STALE"
+    observed_head = execution_checkpoint_head(root, run)
+    prefix_is_head = observed_head == prefix["prefixIdentity"]
+    if require_current_prefix and not prefix_is_head:
+        raise ValueError("checkpoint prefix changed during recovery")
+    state = {"schema": "research-resumption-state.v1", "scope": "recipe-stages-not-cumulative-milestone-count",
+             "recordedRecipe": header["recipe"], "recordedEngineId": header["engineId"],
+             "recordedInputIdentity": content_id(header["inputs"]), "historyStatus": "COMMITTED_PREFIX",
+             "recordedInputs": dict(header["inputs"]),
+             "prefixIdentity": prefix["prefixIdentity"], "requiredSteps": names, "relations": relations,
+             "run": run.relative_to(root).as_posix(),
+             "observedHeadIdentity": observed_head, "prefixStillHead": prefix_is_head,
+             "rules": rules, "parentCompletionObserved": parent_complete, "executionQuiescence": quiescence,
+             "executionAuthorized": False, "runtimeAdmitted": False,
+             "executionObservation": {"processes": execution['execution_process'],
+                 "owner": owner,
+                 "progress": [row for row in progress_observations if row['reference'] in
+                              {entry[4] for entry in relations['execution_frontier']}],
+                 "completionCountsArePasses": False, "deadlockEstablished": False,
+                 "observedMonotonic": time.monotonic()}}
+    return {"recipe": header["recipe"], "engineId": header["engineId"],
+            "outcome": terminal["outcome"] if terminal else "INCOMPLETE",
+            "recordedOutcome": terminal["outcome"] if terminal else None,
+            "identityStatus": "CURRENT" if current and availability["status"] in {"AVAILABLE", "RETAINED"} else "STALE",
+            **inspection, "resumption": state, "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
 
 
 def ancestry(rows, target):
@@ -88,9 +566,10 @@ def journal_closure(root, run, outer, header, observations, target):
                 or record.get("runId") != header["runId"] or record.get("header") != reference
                 or record.get("step", {}).get("id") != name):
             raise ValueError("journal stage belongs to another producer")
+        expected_queries = normalized({"run_record": [record]})
         candidates = [identity for identity, body in observations.items()
                       if body.get("scope") == reference["scope"] and
-                      body.get("queries") == normalized({"run_record": [record]})]
+                      body.get("queries") == expected_queries]
         if len(candidates) != 1:
             raise ValueError("journal stage lacks one immutable observation binding")
         actual = {"path": str(path), "sha256": sha, "observation": candidates[0],
@@ -142,13 +621,63 @@ def journal_closure(root, run, outer, header, observations, target):
     return ancestry(list(rows.values()), target), references
 
 
+def observe_stage_record(root, path, engine):
+    """Consume a committed phase, not an absent or failed aggregate receipt."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint, read_journal, execution_checkpoint_head
+    from gambit_smp.recipes import read_json
+    root, path = Path(root).resolve(strict=True), Path(path)
+    if path.is_symlink() or path.parent.name != "run" or not path.name.endswith(".observation.json"):
+        raise ValueError("bounded stage observation path required")
+    run = path.parent.parent.resolve(strict=True)
+    observation_root(root, run)
+    prefix = read_execution_checkpoint(root, run)
+    records = prefix["records"]
+    if not records or records[0]["payload"].get("schema") != "research-run-header.v1":
+        raise ValueError("committed producer header required")
+    header = records[0]["payload"]
+    selected = [entry for entry in records if entry["path"] == str(path)]
+    if len(selected) != 1 or selected[0]["payload"] != read_json(path):
+        raise ValueError("stage differs from its committed observation")
+    record = selected[0]["payload"]
+    if record.get("schema") != "research-step-observation.v1" or header["engineId"] != engine["engineId"]:
+        raise ValueError("stage producer generation differs from pinned seal")
+    reference = record["header"]
+    header_path = run / "run-header.json"
+    if (reference["path"] != str(header_path) or header_path.is_symlink()
+            or digest(header_path) != reference["sha256"] or read_json(header_path) != header):
+        raise ValueError("stage header identity changed")
+    history = read_journal(root, reference["scope"])["observations"]
+    context = {"journal": reference, "inputs": header["inputs"]}
+    target = record["step"]["id"]
+    closure, references = journal_closure(root, run, context, header, history, target)
+    if not set(row["id"] for row in closure) <= set(_support_inventories(root, records)):
+        raise ValueError("stage support enumeration witness incomplete")
+    state = recovered_resumption(root, run)["resumption"]
+    if (state["prefixIdentity"] != prefix["prefixIdentity"]
+            or not any(row[0] == target for row in state["relations"]["consumable"])):
+        raise ValueError("Scheme checkpoint does not admit this phase for consumption")
+    if execution_checkpoint_head(root, run) != prefix["prefixIdentity"]:
+        raise ValueError("stage producer changed during consumption")
+    terminal = [entry['payload']['outer'] for entry in records
+                if entry['payload'].get('schema') == 'research-terminal-observation.v1']
+    proof = {"schema": "committed-stage-checkpoint.v1", "run": fixture_name(root, run),
+             "step": target, "engineId": engine["engineId"], "prefixIdentity": prefix["prefixIdentity"],
+             "stageReferences": {name: {**ref, "path": Path(ref["path"]).relative_to(root).as_posix()}
+                                 for name, ref in references.items()},
+             "parentCompletionObserved": state["parentCompletionObserved"],
+             "campaignOutcome": terminal[-1]['outcome'] if terminal else "INCOMPLETE",
+             "runtimeAdmitted": False, "resumptionAuthorized": False,
+             "missingChildReceiptReconstructed": False}
+    return proof, header, closure, run
+
+
 def observe_journal(root, run, target, *, historical=False):
     """Bind a successful stage of a terminal failed run; admission stays false."""
     from gambit_smp.reasoning_history import normalized, read_journal
     from gambit_smp.research_kernel import manifest_paths
     from gambit_smp.recipes import read_json, inspect_outputs
     root, run = root.resolve(strict=True), run.resolve(strict=True)
-    fixture_root(root, run)
+    observation_root(root, run)
     outer_path = run / "receipt.json"
     raw = outer_path.read_bytes()
     outer = json.loads(raw)
@@ -209,7 +738,7 @@ def observe(root, run, target):
     """Bind the original generator, all inputs/artifacts and successful closure."""
     from gambit_smp.research_kernel import inspect, manifest_paths
     root, run = root.resolve(strict=True), run.resolve(strict=True)
-    fixture_root(root, run)
+    observation_root(root, run)
     outer_path, child_path = run / "receipt.json", run / "run/receipt.json"
     outer_raw, child_raw = outer_path.read_bytes(), child_path.read_bytes()
     outer, child = json.loads(outer_raw), json.loads(child_raw)

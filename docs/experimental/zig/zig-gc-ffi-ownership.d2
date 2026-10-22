@@ -1,0 +1,26 @@
+direction: down
+classes: {
+  managed: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  native: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  gate: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  gap: {style.fill: "#FBE9E7"; style.stroke: "#A54A3B"}
+}
+runtime: "Gambit managed authority" {
+  heap: "Scheme object graph\nMoving / still / permanent objects\nCollector profile bound to exact source" {class: managed}
+  roots: "Runtime-owned roots and frames\nSaved RA / relocation / reload\nVM and processor generation\nInactive does not mean unrooted" {class: managed}
+  heap -> roots: "known references"
+}
+bridge: "Generated Gambit bridge: F0-F5 effects\nConvert and publish state before native work\nProve borrow OR copy / transfer ownership\nCorrect blocking and GC participation" {class: gate}
+runtime.roots -> bridge
+native: "No managed Scheme heap in service workers" {
+  zig: "Zig-owned native buffers and jobs\nExplicit allocator + release + epoch\nNo retained raw movable addresses\nNo hidden Scheme reentry" {class: native}
+  compiler: "MLIR / LLVM service resources\nPrivate IR, passes and contexts\nResult artifacts and explicit diagnostics" {class: native}
+  zig -> compiler: "native-owned inputs"
+}
+bridge -> native.zig: "values or owned bytes"
+delivery: "Ordinary-return delivery\nClose native ownership on every outcome\nValid runtime reacquisition\nReload roots, then deliver Scheme result" {class: gate}
+native.zig -> delivery
+native.compiler -> delivery
+delivery -> runtime.roots: "runtime-owned conversion"
+limits: "Not admitted by default\nRooting is not pinning\nStable parent does not stabilize moving children\nZig defer is not Scheme unwind\nNo automatic collection of cross-heap cycles" {class: gap}
+delivery -> limits

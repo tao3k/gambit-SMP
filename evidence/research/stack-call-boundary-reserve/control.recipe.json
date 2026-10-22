@@ -1,0 +1,100 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-call-boundary-reserve-controls",
+  "scope": "Finite checks for the unqualified call-boundary candidate. Positive initFixed/safe must hold, including progress to a terminal state. initOmitted/safe and initServicesInterrupts/interruptsOff are negative controls. The parent prepare-origin stress record is an input, not a result for this image. Materialization is the recipe's required locked-source producer and is not launched by model validation. This file does not authorize bootstrap, stress, or runtime admission.",
+  "budgetSeconds": 555,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "models/gambit/stack_call_boundary_reserve.qnt",
+    "evidence/fixtures/darwin-stack-call-boundary-reserve/source.lock.json",
+    "patches/fixtures/darwin-stack-call-boundary-reserve-source.patch",
+    "patches/fixtures/darwin-stack-call-boundary-reserve.patch",
+    "evidence/fixtures/darwin-stack-prepare-origin/source.lock.json",
+    "evidence/fixtures/darwin-stack-prepare-origin/native-observation-20261018.json",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-call-boundary-reserve/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": ["source"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_call_boundary_reserve.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_call_boundary_reserve.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "positive",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": "models/gambit/stack_call_boundary_reserve.qnt",
+        "parsed": "parse",
+        "initializer": "initFixed",
+        "step": "step",
+        "invariant": "safe",
+        "temporal": "progress",
+        "negative": false
+      }
+    },
+    {
+      "id": "omitted",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": "models/gambit/stack_call_boundary_reserve.qnt",
+        "parsed": "parse",
+        "initializer": "initOmitted",
+        "step": "step",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "interrupts",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 90,
+      "arguments": {
+        "source": "models/gambit/stack_call_boundary_reserve.qnt",
+        "parsed": "parse",
+        "initializer": "initServicesInterrupts",
+        "step": "step",
+        "invariant": "interruptsOff",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "type", "positive", "omitted", "interrupts"],
+      "budgetSeconds": 45,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"},
+        "expected": {"missing": []}
+      }
+    }
+  ]
+}

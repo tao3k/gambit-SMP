@@ -1,0 +1,89 @@
+(include "../#.scm")
+
+;; Diagnostic sidecar only; these observations never renew the suite watchdog.
+(define pipe-index 0)
+(define completed-round-trips 0)
+(define (observe-pipe phase)
+  (with-output-to-file
+      (list path: "observations/pipe-progress.json" truncate: #t)
+    (lambda ()
+      (display "{\"schema\":\"pipe-checked-progress.v1\",\"phase\":")
+      (write phase)
+      (display ",\"pipeIndex\":") (write pipe-index)
+      (display ",\"completedRoundTrips\":") (write completed-round-trips)
+      (display ",\"processors\":") (write (##current-vm-processor-count))
+      (display "}\n"))))
+
+(if (not (= (##current-vm-processor-count)
+            (string->number (getenv "GAMBIT_SMP_EXPECTED_PROCESSORS"))))
+    (error "fixture processor population mismatch"))
+
+;; Each endpoint must protect the same shared buffers and wait predicates.
+;; Pin the server to another processor to exercise simultaneous endpoint
+;; access; otherwise wakeups can migrate both conversations to one processor.
+;; Pinning is only a scheduling aid.  The I/O operations are public APIs.
+(define (check-pipe open-pipe read-one write-one)
+  (set! pipe-index (+ pipe-index 1))
+  (observe-pipe "entered")
+  (receive (client server) (open-pipe)
+    (define (read-with-timeout port)
+      ;; A relative timeout is converted once to an absolute deadline.
+      (input-port-timeout-set! port 10)
+      (read-one port))
+    (define worker
+      (make-thread
+        (lambda ()
+          (let loop ((i 0))
+            (if (= i 10000)
+                #t
+                (let ((expected (modulo i 251))
+                      (value (read-with-timeout server)))
+                  (if (equal? value expected)
+                      (begin
+                        (write-one value server)
+                        (force-output server)
+                        (loop (+ i 1)))
+                      (list 'server i value))))))))
+
+    ;; Bound a lost-wakeup regression instead of waiting forever for a read.
+    (if (> (##current-vm-processor-count) 1)
+        (begin
+          (##thread-pin! (current-thread) (##processor 0))
+          (##thread-pin! worker (##processor 1))))
+    (thread-start! worker)
+
+    (observe-pipe "worker-started")
+    (let ((result
+           (let loop ((i 0))
+             (if (= i 10000)
+                 #t
+                 (let ((expected (modulo i 251)))
+                   (write-one expected client)
+                   (force-output client)
+                   (let ((value (read-with-timeout client)))
+                     (if (equal? value expected)
+                         (begin
+                           (set! completed-round-trips
+                                 (+ (* (- pipe-index 1) 10000) i 1))
+                           (if (= (modulo (+ i 1) 1000) 0)
+                               (observe-pipe "checked-chunk"))
+                           (loop (+ i 1)))
+                         (list 'client i value))))))))
+      (close-output-port client)
+      (test-equal #t result)
+      (test-equal #t (thread-join! worker 12 'worker-timeout)))
+
+    (close-port client)
+    (close-port server)
+    (if (> (##current-vm-processor-count) 1)
+        (##thread-pin! (current-thread) #f))))
+
+(check-pipe open-vector-pipe read write)
+(check-pipe open-string-pipe
+            read
+            (lambda (value port) (write value port) (newline port)))
+(check-pipe open-u8vector-pipe read-u8 write-u8)
+
+(if (not (= completed-round-trips 30000))
+    (error "incomplete diagnostic pipe inventory"))
+(observe-pipe "complete")

@@ -24,6 +24,7 @@ _retained_engine = None
 _retained_owner = None
 _query_owners = {}
 _verified_api = ContextVar("verified_sealed_api", default=None)
+_active_api = ContextVar("active_api_observation", default=None)
 _construction_slot = ContextVar("source_session_construction_slot", default=None)
 _construction_owner = ContextVar("source_session_construction_owner", default=None)
 
@@ -47,12 +48,15 @@ def construction_slot():
 
 
 @contextmanager
-def construction_admission():
+def construction_admission(*, deadline=None):
     slot = construction_slot()
     if slot is None:
         yield
         return
-    path, deadline = slot
+    path, original_deadline = slot
+    deadline = original_deadline if deadline is None else deadline
+    if type(deadline) not in (int, float) or not 0 < deadline < float("inf"):
+        raise ValueError("finite construction deadline required")
     identity = (os.getpid(), threading.get_ident(), path, deadline)
     if _construction_owner.get() == identity:
         if time.monotonic() >= deadline:
@@ -107,13 +111,12 @@ def _api_inventory():
         root, manifest = boundary
         # Cache only a projection of bytes checked by this request's full seal
         # boundary, never a filesystem-validation verdict or query result.
-        files, build, identity = _bound_api_inventory(
-            root, manifest["engineId"], digest(ROOT / "pyproject.toml"))
+        files, build, identity = _bound_api_inventory(root, manifest["engineId"])
         return dict(files), copy.deepcopy(build), identity
     import importlib
     import importlib.metadata
     from ascent.build import runtime_identity
-    from gambit_smp.ascent_runtime import LIBRARY_LOCK, inventory
+    from gambit_smp.ascent_runtime import inventory
     distribution = importlib.metadata.distribution("gerbil-ascent")
     entries = tuple(str(entry) for entry in distribution.files or ())
     metadata = tuple((name, str(distribution.locate_file(name)),
@@ -122,24 +125,41 @@ def _api_inventory():
     origins = tuple(str(Path(importlib.import_module(name).__file__).resolve(strict=True))
                     for name in ("ascent", "ascent._core"))
     files, build, identity = _installed_api_inventory(
-        inventory, runtime_identity, origins, entries, metadata, digest(ROOT / "pyproject.toml"),
-        digest(ROOT / LIBRARY_LOCK))
-    for path in set(files.values()):
-        if path.resolve(strict=True) != path:
-            raise ValueError("installed ASCENT inventory path became an alias")
+        inventory, runtime_identity, origins, entries, metadata)
+    _check_inventory_paths(files.values())
     return dict(files), copy.deepcopy(build), identity
 
 
+def _check_inventory_paths(paths, *, checked=None):
+    """Check every path component once per boundary, without following aliases."""
+    if checked is None:checked = set()
+    for path in set(paths):
+        if not path.is_absolute() or '..' in path.parts:
+            raise ValueError("installed ASCENT inventory path became an alias")
+        pending = []
+        component = path
+        while component not in checked:
+            pending.append(component)
+            parent = component.parent
+            if parent == component:
+                break
+            component = parent
+        for component in reversed(pending):
+            if stat.S_ISLNK(component.lstat().st_mode):
+                raise ValueError("installed ASCENT inventory path became an alias")
+            checked.add(component)
+
+
 @lru_cache(maxsize=2)
-def _installed_api_inventory(inventory, runtime_identity, origins, entries, metadata, declaration_sha, publication_sha):
-    # RECORD/metadata and declaration bytes select a projection. The caller
+def _installed_api_inventory(inventory, runtime_identity, origins, entries, metadata):
+    # RECORD/metadata bytes select a projection. The caller
     # still hashes every projected source/resource at entry and exit.
     files, build = inventory(sealed_root=None, verify=False)
     return files, build, hashlib.sha256(json.dumps(build, sort_keys=True).encode()).hexdigest()
 
 
 @lru_cache(maxsize=2)
-def _bound_api_inventory(root, engine_id, declaration_sha):
+def _bound_api_inventory(root, engine_id):
     from gambit_smp.ascent_runtime import inventory
     files, build = inventory(sealed_root=root, verify=False)
     boundary = _verified_api.get()
@@ -180,8 +200,20 @@ def _sealed_api_identities(files, root, manifest):
 
 @contextmanager
 def engine_api(*, engine=None, retain=False):
-    """Require the receipt-bound C ABI and bind its implementation before/after."""
+    """Context manager yielding (engine, backend_identity), not a direct tuple.
+
+    The engine is valid inside the with block. The receipt-bound C ABI and its
+    implementation identities are checked before/after; owned handles close on
+    exit unless retain=True. This does not admit a native runtime result.
+    """
     engine, identities, files, owned, boundary = _api_entry(engine, retain)
+    parent = _active_api.get()
+    owner = (os.getpid(), threading.get_ident())
+    nested = (parent is not None and parent["owner"] == owner
+              and parent["boundary"] is boundary and parent["files"] == files
+              and parent["identities"] == identities)
+    token = _active_api.set(dict(owner=owner, boundary=boundary,
+                                files=dict(files), identities=dict(identities)))
     try:
         yield engine, identities
     except BaseException:
@@ -189,17 +221,20 @@ def engine_api(*, engine=None, retain=False):
             close_queries(engine)
         raise
     finally:
-        if owned and not retain:
-            try:
-                close_queries(engine)
-            finally:
-                engine.close()
-        if boundary is None:
-            current_files = artifact_paths()
-            if current_files != files or _file_identities(files) != identities:
-                if owned:
+        try:
+            if owned and not retain:
+                try:
                     close_queries(engine)
-                raise ValueError("ASCENT implementation changed during audit")
+                finally:
+                    engine.close()
+            if boundary is None and not nested:
+                current_files = artifact_paths()
+                if current_files != files or _file_identities(files) != identities:
+                    if owned:
+                        close_queries(engine)
+                    raise ValueError("ASCENT implementation changed during audit")
+        finally:
+            _active_api.reset(token)
 
 
 def _api_entry(engine, retain):
@@ -211,7 +246,14 @@ def _api_entry(engine, retain):
     files, build, receipt_sha = _api_inventory()
     boundary = _verified_api.get()
     if boundary is None:
-        identities = _file_identities(files)
+        active = _active_api.get()
+        # This call's outer boundary rehashes at exit, including exceptional
+        # exits. No verdict survives that request, thread or process lifetime.
+        if (active is not None and active["owner"] == (os.getpid(), threading.get_ident())
+                and active["boundary"] is None and active["files"] == files):
+            identities = dict(active["identities"])
+        else:
+            identities = _file_identities(files)
     else:
         root, manifest = boundary
         identities = _sealed_api_identities(files, root, manifest)
@@ -227,7 +269,9 @@ def _api_entry(engine, retain):
     if _loaded_identity is not None and identities != _loaded_identity:
         if retain and _retained_owner == (os.getpid(), threading.get_ident()):
             close_retained_queries()
-        raise ValueError("ASCENT implementation changed in the loaded process")
+        changed = sorted(name for name in identities.keys() | _loaded_identity.keys()
+                         if identities.get(name) != _loaded_identity.get(name))
+        raise ValueError("ASCENT implementation changed in the loaded process: " + ", ".join(changed))
     owned = engine is None
     # Never hold a permit across the caller's body: it can wait on a sealed
     # child that needs its own initialization or source-construction permit.
@@ -316,6 +360,22 @@ def _verify_definition_sources(catalog):
         raise ValueError("definition bytes differ from their bound sources")
 
 
+def component_asset(manifest_path, name):
+    """Resolve a registered asset; selection and Scheme parsing stay native."""
+    if name.startswith("package:"):
+        files, _, _ = _api_inventory()
+        if name not in files:
+            raise ValueError("Evidence component is absent from the installed Library inventory: " + name)
+        return files[name]
+    relative = Path(name)
+    if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ss":
+        raise ValueError("invalid Evidence component asset path")
+    parent = Path(manifest_path).resolve().parent
+    path = (parent / relative).resolve()
+    path.relative_to(parent)
+    return path
+
+
 def load_component_catalog(manifest_path, *, entry, constructor=None, arguments=(),
                            trusted=False, limits=None):
     """Bind separate assets; dependency selection and linking remain in Rust."""
@@ -324,18 +384,27 @@ def load_component_catalog(manifest_path, *, entry, constructor=None, arguments=
     manifest_path = Path(manifest_path).resolve()
     inputs = {str(manifest_path): digest(manifest_path)}
     manifest = json.loads(manifest_path.read_text())
-    sources = {}
+    sources, paths = {}, {}
     for component in manifest["components"]:
         name = component["source"]
-        relative = Path(name)
-        if relative.is_absolute() or ".." in relative.parts or relative.suffix != ".ss":
-            raise ValueError("invalid Evidence component asset path")
-        path = (manifest_path.parent / relative).resolve()
-        path.relative_to(manifest_path.parent)
+        path = component_asset(manifest_path, name)
         inputs[str(path)] = digest(path)
         sources[name] = path.read_text()
+        paths[name] = str(path)
     if any(digest(Path(path)) != sha for path, sha in inputs.items()):
         raise ValueError("Evidence component assets changed during loading")
+    # The existing native Module selects and validates its dependency closure.
+    # Python only transports that selection; it must not implement a second linker.
+    with engine_api(retain=True) as (engine, _):
+        with engine.components(manifest, sources, entry, trusted=True) as module:
+            selected = set(module.components)
+    components = [component for component in manifest["components"] if component["id"] in selected]
+    # Declaration order is part of the native read contract across processes.
+    names = list(dict.fromkeys(component["source"] for component in components))
+    manifest = {**manifest, "components": components}
+    sources = {name: sources[name] for name in names}
+    inputs = {str(manifest_path): inputs[str(manifest_path)],
+              **{paths[name]: inputs[paths[name]] for name in names}}
     return {"nativeComponents": {"manifest": manifest, "sources": sources,
             "entry": entry, "constructor": constructor, "arguments": copy.deepcopy(list(arguments)),
             "trusted": True, "factLimits": {} if limits is None else limits.wire()},

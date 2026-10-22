@@ -55,7 +55,9 @@ class BazelProfileGridTests(unittest.TestCase):
             change = entry["changes"][0]
             self.assertEqual(lock["files"][change["path"]]["candidateSha256"],
                              change["after"])
-            baseline = ROOT / entry["baselineIdentity"]["path"]
+            archived = entry["baselineIdentity"]["path"].split(
+                "/thread-completion-contract/", 1)[1]
+            baseline = ROOT / "tests/fixtures/historical-bootstrap" / archived
             self.assertEqual(hashlib.sha256(baseline.read_bytes()).hexdigest(),
                              entry["baselineIdentity"]["sha256"])
             for claim in entry["claims"]:

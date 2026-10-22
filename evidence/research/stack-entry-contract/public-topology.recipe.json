@@ -1,0 +1,86 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-entry-contract-public-vm-topology",
+  "scope": "Reuse the exact completed stack-entry producer for the existing official-public-API VM topology fixture. No private cleanup export, interposition, fault injection or changed assertions. Does not alone close registry lifetime, lifecycle faults or full GC/FFI acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/darwin-stack-entry-contract/source.lock.json",
+    "patches/fixtures/darwin-stack-entry-contract.patch",
+    "evidence/research/stack-entry-contract/completed-producer.json",
+    "models/gambit/native/public_vm_topology_grid.scm",
+    "models/gambit/execution_finalization_custody.qnt",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-entry-contract/source.lock.json",
+        "workspace": ".cache/fixtures/current-smp-candidate/source"
+      }
+    },
+    {
+      "id": "producer",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "producer": "evidence/research/stack-entry-contract/completed-producer.json"
+      }
+    },
+    {
+      "id": "public-topology",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 120,
+      "arguments": {
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/public_vm_topology_grid.scm",
+        "stdout": "PUBLIC-VM-TOPOLOGY-GRID:PASS\n"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "producer",
+        "public-topology"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ]
+}

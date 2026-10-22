@@ -1,0 +1,90 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "ci-tfib-delay-sample",
+  "scope": "Diagnostic interpreted delay sample on the current numeric-host producer. The qualified runtime descriptor pins producer engine-incremental 367c4438ed70bd74fba1f82c951c6eee98d0a0f534136b4d5e559321de57ecb5. Consumer is engine-storage. Host-managed GSI topology. One short-delay, 200 short-delay calls, then one tfib(10). Not (go 15 5000), not a test-tree copy, and not native qualification.",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace-numeric-host.patch",
+    "evidence/research/incremental-builds/qualified-runtime-input.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "models/gambit/native/tfib_delay_sample.scm"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json"
+      }
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/incremental-builds/qualified-runtime-input.json"
+      }
+    },
+    {
+      "id": "sample",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "runtime"
+      ],
+      "budgetSeconds": 240,
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/tfib_delay_sample.scm",
+        "mode": "gsi",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 180,
+        "stdout": "TFIB-DELAY-SAMPLE\n"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "sample"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

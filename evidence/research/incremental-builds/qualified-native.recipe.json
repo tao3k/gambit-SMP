@@ -1,0 +1,354 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "audit-checkpoint-native-full",
+  "scope": "Complete official check, unit and stress targets on the explicitly pinned retained Bazel source-core. No native rebuild, interrupted-process recovery or repair 9-12 claim. Exact numeric-host checkpoint; its gsi bytes equal the ready managed c86dff86 workspace. Existing per-target watchdogs are unchanged.",
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace-numeric-host.patch",
+    "evidence/research/incremental-builds/qualified-runtime-input.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/ci/upstream-tests.json",
+    "evidence/research/ci/test-scope.entry.json",
+    "evidence/dsl/upstream-test-scope.ss",
+    "evidence/research/smp-threaded-vm-native-grid/bazel-profile-gsi-intent.json",
+    "evidence/research/current-source-full-bootstrap/interpreted-causal-review.json",
+    "evidence/research/smp-threaded-vm-native-grid/environment-causal-evidence.json",
+    "evidence/research/smp-threaded-vm-native-grid/global-cleanup-interpreted-causal-evidence.json",
+    "models/gambit/native/host_environment_probe.scm",
+    "models/gambit/native/process_spawn.scm",
+    "evidence/research/incremental-builds/qualified-suite-review-rules.ss",
+    "evidence/research/incremental-builds/qualified-upstream-tests.json",
+    "evidence/research/incremental-builds/qualified-unit-intent.json"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/incremental-builds/qualified-runtime-input.json"
+      },
+      "budgetSeconds": 60
+    },
+    {
+      "id": "environment-probe",
+      "capability": "gambit.probe",
+      "dependsOn": [
+        "runtime"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/host_environment_probe.scm",
+        "operations": [
+          "udp-open",
+          "process-pipe-sort",
+          "user-info"
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "review-gsi",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "runtime",
+        "environment-probe"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "intent": "evidence/research/smp-threaded-vm-native-grid/bazel-profile-gsi-intent.json",
+        "target": "official",
+        "mode": "gsi",
+        "failureIds": [
+          "018-thread-interrupt",
+          "018-write-shared",
+          "018-table-search",
+          "018-suite-budget",
+          "018-udp-permission",
+          "019-prim-port-budget",
+          "current-host-identity-environment"
+        ],
+        "environmentProbe": {
+          "step": "environment-probe",
+          "output": "observation"
+        }
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "official",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "runtime",
+        "environment-probe",
+        "review-gsi"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {
+          "12-os/process_spawn.scm": {
+            "source": "models/gambit/native/process_spawn.scm",
+            "sha256": "eba139d1aa995cc78e53891d5bcf93fd7ce33eff08f6080f52efb78a8f5c98c7"
+          }
+        },
+        "environmentProbe": {
+          "step": "environment-probe",
+          "output": "observation"
+        },
+        "reviews": {
+          "gsi": {
+            "step": "review-gsi",
+            "output": "review"
+          }
+        },
+        "targets": [
+          "check"
+        ],
+        "scopeContract": "evidence/research/incremental-builds/qualified-upstream-tests.json",
+        "fileBudgetSeconds": {
+          "13-modules/prim_port.scm": 20
+        },
+        "reviewRulesExtension": "evidence/research/incremental-builds/qualified-suite-review-rules.ss",
+        "targetProcessors": {
+          "test2": 1
+        }
+      },
+      "budgetSeconds": 250
+    },
+    {
+      "id": "environment-unit",
+      "capability": "gambit.probe",
+      "dependsOn": [
+        "official"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "official",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "official",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/host_environment_probe.scm",
+        "operations": [
+          "udp-open",
+          "process-pipe-sort",
+          "user-info"
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "review-unit",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "official",
+        "environment-unit"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "official",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "official",
+          "output": "identity"
+        },
+        "intent": "evidence/research/incremental-builds/qualified-unit-intent.json",
+        "target": "unit",
+        "mode": "gsi",
+        "failureIds": [
+          "018-thread-interrupt",
+          "018-write-shared",
+          "018-table-search",
+          "018-suite-budget",
+          "018-udp-permission",
+          "019-prim-port-budget",
+          "current-host-identity-environment"
+        ],
+        "environmentProbe": {
+          "step": "environment-unit",
+          "output": "observation"
+        }
+      },
+      "budgetSeconds": 15
+    },
+    {
+      "id": "unit",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "official",
+        "environment-unit",
+        "review-unit"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "official",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "official",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "additionalFixtures": {
+          "12-os/process_spawn.scm": {
+            "source": "models/gambit/native/process_spawn.scm",
+            "sha256": "eba139d1aa995cc78e53891d5bcf93fd7ce33eff08f6080f52efb78a8f5c98c7"
+          }
+        },
+        "environmentProbe": {
+          "step": "environment-unit",
+          "output": "observation"
+        },
+        "targets": [
+          "ut"
+        ],
+        "scopeContract": "evidence/research/incremental-builds/qualified-upstream-tests.json",
+        "fileBudgetSeconds": {
+          "13-modules/prim_port.scm": 20
+        },
+        "reviews": {
+          "gsi": {
+            "step": "review-unit",
+            "output": "review"
+          }
+        },
+        "reviewRulesExtension": "evidence/research/incremental-builds/qualified-suite-review-rules.ss"
+      },
+      "budgetSeconds": 250
+    },
+    {
+      "id": "environment-stress",
+      "capability": "gambit.probe",
+      "dependsOn": [
+        "unit"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "unit",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "unit",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/host_environment_probe.scm",
+        "operations": [
+          "udp-open",
+          "process-pipe-sort",
+          "user-info"
+        ]
+      },
+      "budgetSeconds": 10
+    },
+    {
+      "id": "stress",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "unit",
+        "environment-stress"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "unit",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "unit",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "environmentProbe": {
+          "step": "environment-stress",
+          "output": "observation"
+        },
+        "targets": [
+          "st"
+        ],
+        "scopeContract": "evidence/research/incremental-builds/qualified-upstream-tests.json",
+        "reviewRulesExtension": "evidence/research/incremental-builds/qualified-suite-review-rules.ss"
+      },
+      "budgetSeconds": 250
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "environment-probe",
+        "review-gsi",
+        "official",
+        "environment-unit",
+        "unit",
+        "environment-stress",
+        "stress",
+        "review-unit"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ],
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "workspacePolicy": "in-place"
+}

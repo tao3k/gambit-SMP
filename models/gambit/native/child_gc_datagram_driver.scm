@@ -1,0 +1,11 @@
+;;; Register the actual process port; do not read/rewrite the child's output.
+(define (smp-read-child port args)
+  (if (member (car (reverse args)) __SMP_OBSERVED_FILES__)
+      (let ((sink (current-error-port)))
+        (display "SMP-CHILD __SMP_NONCE__ " sink)
+        (display (process-pid port) sink)
+        (display " " sink)
+        (display (car (reverse args)) sink)
+        (newline sink)
+        (force-output sink)))
+  (read-line port #f))

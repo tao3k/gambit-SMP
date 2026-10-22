@@ -1,0 +1,128 @@
+# Gambit Runtime Modernization: Benefits, Costs and Migration
+
+Reviewed: 2026-10-20. [Runtime contract](runtime-root-participation-contract.md),
+[evidence](runtime-root-participation-evidence.md). Source/design report only;
+no implementation, native test, measurements or research-engine evaluation.
+
+## 1. Equal-Capability Controls and Benefit Matrix
+
+B0 = inspected current Scheme/generated-C/runtime path. C-G = the same proposed
+runtime contract reconstructed in modern C with existing/generated/opaque support
+and qualified compiler primitives credited. C-ZT keeps that C runtime core plus
+the independently selected common downstream Zig tool. Z = Zig native adapters
+over the same Gambit runtime/control boundary. Tool choice grants no runtime
+language benefit; changing the collector/capability set breaks the comparison.
+
+S = shared reconstruction; L = conditional local language mechanism; U = open
+capability/magnitude; A = added/substituted cost; Z0 = no attributable language
+credit, not measured zero seconds. A correctness gap cannot be averaged away.
+
+| ID / dimension | Modern C-G / C-ZT | Zig increment and retained duties | Benefit/cost boundary |
+| --- | --- | --- | --- |
+| RB01 explicit root/effect semantics | Scheme declares one effect/root plan; C adapters consume it | Typed private products can express cases; same semantic issuer needed | S/L/U: remove hidden policy only when old owner retires; RG01/RG10 |
+| RB02 discoverable/updateable roots | Reuse frame/register/RC/still mechanisms under scan profile | Same runtime scanning; native allocation is not registration | S/Z0/U: no automatic root safety or collector replacement; RG02-RG04 |
+| RB03 relocation-safe access | Opaque root slots plus explicit reload/borrow rules | Private handle types may improve API expression, not affine/moving-GC proof | S/L/U: retained reload costs and root lifetime; RG02/RG03 |
+| RB04 callback setup | Root/effect-aware marker construction under existing control shell | Local result types possible; marker/return protocol stays | S/L/A/U: TODO requires audit, not an asserted repaired bug; RG09 |
+| RB05 supported blocking | Reuse BW1 wakeup/service/writeback/reload; classify every effect | Same progress/control protocol | S/Z0/U: no instant GC progress from Zig or an OS mutex; RG05/RG06 |
+| RB06 detached native work | BW2 requires new membership/root-carrier/reentry design in C | Identical runtime algorithm obligations | S/A/U: possible future progress benefit, increased state/qualification cost; not adopted by wrapper |
+| RB07 VM execution ownership | Configured selector, exclusive processor owner and previous-binding restoration | Typed wrappers possible; TLS address does not grant rights | S/L/U: independent V/E/R/S/P; RG07/RG08 |
+| RB08 host attachment | Separate thread-known/execution/VM/root contracts | No automatic foreign attachment from C ABI support | S/A/U: new capability, not required to preserve owned callers; OC01/OC03 |
+| RB09 VM drain/reclamation | Close publication/readers/owners/requests then retire storage | Same late-use and slot-lifetime law | S/Z0/U: defer/refcount/join is not full quiescence; RG12 |
+| RB10 FFI maintenance | One declarative effect/operation protocol with reusable C adapters | Potential reduction in private variant/propagation glue | S/L/U: generated-C alternative credited; complete site/effect denominator unknown |
+| RB11 parallel GC / VM throughput | Algorithm/membership/root correctness must be designed and qualified | No-GC Zig supplies no Scheme collector/scheduler speedup | Z0/U: configured Gambit parallel scanning already exists; RG04/RG06 |
+| RB12 LLVM/MLIR integration | Shared root/control/frame contract constrains emitted safepoints and host edges | Same provider APIs/cohorts; frontend meaning remains Scheme | S/U: enables another backend; does not prove pass/root/capture correctness |
+| RB13 memory / boundary cost | Root carriers, copy/registration/reload/check and retention work paid | Same mechanism costs; allocator helpers may differ | A/L/U: no zero-copy, lower RSS, root-count or latency result established |
+| RB14 lifecycle / tool maintenance | Runtime ABI, source/OS/collector profiles, C-generated adapters remain owned | Marginal language/stdlib/import/build and retained C control-shell cost | A/U: same C-ZT tool cost cancels only if genuinely common; no positive aggregate bound |
+
+## 2. Cost Accounts and Structural Measures
+
+| ID / account | Common required work | Candidate Zig-local saving | Increment / countercondition |
+| --- | --- | --- | --- |
+| KC01 effect/root-plan issuer | Semantic extraction, complete conversions/callback closure and producer validation | Private product construction only | Moving semantics into Zig creates duplicate authority; no savings if C generator already supplies it |
+| KC02 root adapters/storage | Real slot strategies, update/read rules, scanner/lifetime/retirement | Some helper/cleanup expression | Existing C frame/RC support retained; new root registry is new work in either language |
+| KC03 blocking/member protocol | BW1 closure, optional BW2 request exclusion/root enumeration and reentry | Native service helper reuse where demanded | Additional states, native copies, fallback/progress and shutdown; no free deactivation |
+| KC04 VM/host entry | Exclusive execution, selector/profile, nested binding and close admission | Private tagged state/error representation | Unsupported attachment/cross-VM switching adds semantic/runtime obligations, not amortization names |
+| KC05 control containment | Marker/exception/continuation edge and result/error custody | Ordinary-return local propagation | Retained C shell may dominate; nonlocal skip over Zig resources defeats admission |
+| KC06 migration/retirement | Per-cohort callers, old/new adapters, source compatibility and actual deletion closure | Disjoint removed private support only | Legacy/generated/mixed routes may keep old support maintained |
+| KC07 qualification/diagnosis | Separate source/model/native/safety/progress/cost evidence; negative cases | Possible API readability/review reduction, not established | Extra language/tool cohort and debugging/training; row/source counts are not saved hours |
+| KC08 recurring support/exit | ABI/profiles, helper changes and affected clients | Actual shared private native helper work | Marginal Zig compiler/stdlib/import/version and replacement/exit work; avoid double charging KC01-KC07 |
+
+For actual site set F and root set L_s at boundary s, materialization/update work
+depends on `sum_s |L_s|`, actual copies/registration and selected representation.
+Current `W_ALL` work is already in B0; count only an established difference.
+Fewer stores require a liveness/ABI proof; more handle validation can add cost.
+Native input copying scales with actual copied bytes; root-carrier memory scales
+with simultaneously live scopes/slots and their retention. No selected counts,
+RSS/latency bound or allocator-call observation is supplied here.
+
+Membership transitions and collector waits require fairness/request/OS closure;
+no finite pause bound follows from a finite state table. Single-thread overhead,
+GC latency, parallel throughput and maintenance effort are separate acceptance
+axes, informed by RP01/OC01 rather than borrowed numerical results.
+
+Positive language increment requires a defensible lower bound on disjoint
+private C helper/construction/review work actually avoided **after C reuse**, above
+all incremental migration/coexistence/control/tool/qualification/exit costs.
+Shared runtime correctness, a new collector algorithm and LLVM reuse are separate
+benefit accounts. Private variants, root wrappers and error propagation cannot
+each claim the same generated support body as a separate saving.
+
+Countermodels: an opaque/generated C adapter already meets the contract; a Zig
+adapter retains the same C shell and adds marshalling; BW2/registry work is
+unnecessary for the demanded BW1 scope; or new lifecycle/ABI obligations consume
+the local expression saving. These are conditional contrary designs, not measured
+project costs. Current TG4/TG5 remain open.
+
+## 3. What Must Be Reconstructed and What Can Retire
+
+| ID / seam | Required architectural reconstruction | Conditional retired responsibility / retained support |
+| --- | --- | --- |
+| RR01 hidden root/effect choices in C emission | Scheme-owned complete obligations before native generation | Retire selected duplicate root/effect decisions only; frame maps/runtime scanner remain |
+| RR02 raw native retention and root updates | One admitted slot/store/load/discovery/lifetime protocol | Selected ad hoc retention/update paths can leave; RC/still/current C APIs remain for residual users |
+| RR03 blocking classification | One declared BW mode and effect closure per admitted call | Retire duplicate wait-policy decisions; existing correct W_ALL/R_ALL/RA and abort/service support retained |
+| RR04 implicit owner/VM selection at new facade | Explicit profile-bound runtime owner and binding-restoration operations | Selected native clients stop guessing PSTATE/TLS; legacy ABI/header branches do not disappear globally |
+| RR05 callback/control setup | Complete target-root/marker/conversion/unwind plan | Selected SFUN policy emission can migrate after control qualification; current portable C shell remains where needed |
+| RR06 lifecycle/participant removal | One composed admission/request/root-reader/return-owner contract | Retire selected duplicated close/withdraw decisions after all readers migrate; no automatic whole cleanup deletion |
+| RR07 mixed backend/runtime interface | One shared runtime operation definition with target realization adapters | Retire independent policy copies, not C object model/GC implementation or module-loading checks |
+
+“Must reconstruct” means required to deliver the selected explicit modernization
+contract. It does not assert each existing path is defective or needs a new
+collector. No row is implemented or actually retired; whole-helper deletion
+requires complete residual caller/reader evidence, not one facade bypass.
+
+## 4. Migration Order and Retirement
+
+| Stage | Selected scope / dependency | Independent design and later acceptance evidence | Retirement / stopping condition |
+| --- | --- | --- | --- |
+| RM00 cohort/authority census | Bind actual configured header, runtime/collector, supported VM modes and FFI/control site domain | Distinguish baseline/candidate/installed profile; RT scan owner and VE capability cells | No path retired; reject guessed TLS/RC/VM coverage |
+| RM01 semantic obligation extraction | RM00; Scheme G3/ForeignPlan complete root/effect/origin/return requirements | Every converter/marker/helper/exception path included; no raw GVM-only proof | RR01 candidate; old emitter remains until all selected consumers migrate |
+| RM02 root adapter / storage law | RM01; RT01-RT07 for initial already-owned profile | Scanner discovery/update, actual RC owner/P0 applicability, slot lifetime, release and relocation reload | RR02; preserve current maps/RC/still API where still used |
+| RM03 supported BW1 and owned callback | RM02; retain VM/member/return owner | Wait wakeup/service/reload under source/OS profile; marker allocation effects, nested callback and error/control custody | RR03/RR05 selected edges; no general attachment or detached membership yet |
+| RM04 explicit VM/processor facade | RM00-RM03; initial VE01/VE02, then separately demanded VE05/VE06 | Configured selector and ABI, exclusivity, VM cell/root identity and previous-binding restoration | RR04; unsupported VE03/VE07 remain separate, not silently redirected to VM0 |
+| RM05 drain/readers/returns composition | RM02-RM04 | Close new admission, outstanding requests/returns/roots, last scan/use and post-membership cleanup exclusion | RR06; no reuse/free while any authority or slot reader remains |
+| RM06 C and Zig adapter comparison | Same RM03-RM05 capability and reusable core; may elaborate paired design earlier | Disjoint KC costs; common control shell and backend qualification included | RR07 where every selected old owner leaves; no Zig adoption from correctness alone |
+| RM07 optional BW2 / external attachment | New demand after owned BW1 economics; extension to RM02-RM05 | Serialized membership transitions, detached-root enumeration, native-only restriction, failed reentry and lifecycle closure | Stop if no necessary benefit or missing root/member mechanism; no simple decrement/unlock shortcut |
+| RM08 future collector/LLVM evolution | Earlier shared contracts; actual separate algorithm/backend proposal | Root/barrier/frame/control/source correspondence plus sequential/latency/parallel/native evidence | New capability admitted independently; existing collector not replaced by this research |
+
+This is a dependency order, not permission to implement or a requirement to
+finish every optional stage before using current valid callers. Drafting C/Zig
+comparisons can proceed earlier; runtime adoption cannot bypass prior obligations.
+Theoretical contract/cost closure precedes implementation. Native evidence is a
+separate later acceptance phase, not a prerequisite for stating or researching
+the theoretical cost bounds. No native run is used to fill a theory gap here.
+Reuse existing conditional root/entry/participant models and historical cases as
+design constraints, without rerunning or relabelling them as current acceptance.
+
+Source/architecture gates remain: actual configured cohort; complete root/effect
+domain; GC-compatible wait and lock order; marker/control closure; root-carrier
+and membership refinement; VM entry/teardown; independent native safety/progress;
+and justified incremental costs. Model PASS, process workers, documentation or
+source TODOs do not close these. No implementation or native tests were run.
+
+![Migration dependencies and retained runtime](gambit-runtime-migration.svg)
+
+[D2 source](gambit-runtime-migration.d2).
+
+## 5. Selected Owned-Entry Cost Refinement
+
+[OM01-OM12, OR01-OR05 and OS00-OS06](owned-callback-wait-matrix.md) expand the owned-callback/BW1 slice of these accounts. RC scan closure, root bootstrap, marker/control/binding and wait progress are shared runtime work. Only disjoint private native support avoided after generated/opaque C reuse can enter the Zig increment, with C shell, bridge, qualification, language and exit costs retained. These are subsets of RB/KC/RR/RM, not additional savings. No selected old code has retired and no positive bound has been established.

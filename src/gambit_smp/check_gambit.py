@@ -1,3 +1,4 @@
+from gambit_smp.task_processes import check_output as _task_check_output
 #!/usr/bin/env python3
 """Check finite SMP models; run native regressions only on explicit admission."""
 import argparse
@@ -128,7 +129,7 @@ def main():
         parser.error("native tests require an explicit --case; no blanket rerun")
     args.out.mkdir(parents=True, exist_ok=False)
     manifest = json.loads((MODELS / "cases.json").read_text())
-    version = subprocess.check_output([args.quint, "--version"], text=True).strip()
+    version = _task_check_output([args.quint, "--version"], text=True).strip()
     if version != manifest["quintVersion"]:
         parser.error(f"expected Quint {manifest['quintVersion']}, got {version}")
     receipt = {"schema": "gambit-smp-model-receipt.v1", "quintVersion": version,
@@ -303,5 +304,9 @@ def main():
     return 0 if ok else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('check')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('check', main))

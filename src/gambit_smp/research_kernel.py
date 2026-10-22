@@ -23,13 +23,20 @@ from gambit_smp.framework import ROOT, digest, execute, relative
 
 SCHEMA = "evidence-recipe.v2"
 ENGINE_SCHEMA = "research-engine-seal.v2"
+PROCESS_PROTOCOL = 'child-birth-exec-and-audited-python.v2'
+PROCESS_IMPLEMENTATION = ('__init__','spawn_protocol','task_processes','storage_policy','workspace','framework','process_observation','grok_session')
+
+
+def process_transport_identity():
+    package=Path(__file__).resolve().parent
+    return {'python/gambit_smp/'+name+'.py':digest(package/(name+'.py')) for name in PROCESS_IMPLEMENTATION}
 GENERATION = re.compile(r"\.o[1-9][0-9]*")
 ALLOWED = frozenset({"gambit.materialize", "source.overlay", "source.project", "source.bind",
                      "native.workspace-build", "native.test", "quint.parse", "quint.typecheck", "quint.test", "quint.verify",
                      "evidence.evaluate", "gambit.configure", "gambit.object", "gambit.seed-core", "gambit.seed-checkpoint",
                      "gambit.regenerate-module", "gambit.source-core", "gambit.bootstrap", "gambit.suite", "gambit.review",
                      "gambit.completed-runtime", "gambit.probe", "gambit.executable-test", "gambit.compiler-observation",
-                     "gambit.runtime-import", "gambit.upstream-tests"})
+                     "gambit.runtime-import", "gambit.upstream-tests", 'gerbil.build', 'gerbil.test'})
 FORBIDDEN_IMPORTS = frozenset({"source_unit", "ffi_source_unit", "allocator_acquire", "allocator_object",
                                "sync_retirement_source", "gc_wait_source", "gc_queue_binding"})
 
@@ -68,21 +75,129 @@ def clock_epoch():
 
 def retain_run_record(root, path, scope, payload, inputs):
     """Commit immutable transport evidence, not a published analysis or PASS."""
-    from gambit_smp.reasoning_history import append_observation
-    with path.open("x") as stream:
-        json.dump(payload, stream, sort_keys=True, indent=2, allow_nan=False)
-        stream.write("\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    directory = os.open(path.parent, os.O_RDONLY)
+    pending = path.with_name(path.name + ".pending-" + uuid.uuid4().hex)
     try:
-        os.fsync(directory)
+        if path.exists() or path.is_symlink():
+            raise FileExistsError(path)
+        with pending.open("x") as stream:
+            json.dump(payload, stream, sort_keys=True, indent=2, allow_nan=False)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        reference = retain_record_observation(root, path, scope, payload, inputs, record_sha=digest(pending))
+        os.link(pending, path)
+        directory = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return reference
     finally:
-        os.close(directory)
-    identity = append_observation(root, scope, inputs, {"run_record": [payload]},
-                                  {"name": "reported-process", "inputs": {},
-                                   "recordSha256": digest(path)})
-    return {"path": str(path), "sha256": digest(path), "observation": identity, "scope": scope}
+        pending.unlink(missing_ok=True)
+
+
+def retain_record_observation(root, path, scope, payload, inputs, *, record_sha=None):
+    from gambit_smp.reasoning_history import append_observation, CheckpointConflict
+    header = payload.get("header")
+    run = Path(header["path"]).parent if header else path.parent
+    checkpoint = ({"run": str(run.resolve()), "runId": payload["runId"], "path": str(path.resolve()),
+                   "scope": scope}
+                  if payload.get("runId") else None)
+    record_sha = digest(path) if record_sha is None else record_sha
+    backend = {"name": "reported-process", "inputs": {}, "recordSha256": record_sha}
+    try:
+        identity = append_observation(root, scope, inputs, {"run_record": [payload]}, backend, checkpoint=checkpoint)
+    except CheckpointConflict:
+        append_observation(root, scope, inputs, {"run_record": [payload]},
+                           dict(backend, publicationRejected=True))
+        raise
+    return {"path": str(path), "sha256": record_sha, "observation": identity, "scope": scope}
+
+
+def process_recorder(root, run, journal, *, owner_path=None, deadline=None):
+    """Record process births, including incomplete births, before exposing results."""
+    from gambit_smp.reasoning_history import CheckpointConflict, CheckpointClosed
+    def record(event, token, fields):
+        header = json.loads(Path(journal["path"]).read_text())
+        payload = {"schema": "research-process-observation.v1", "runId": header["runId"],
+                   "header": journal, "event": event, "token": token,
+                   "clockEpoch": clock_epoch(), **fields}
+        suffix = event
+        if event == "progress":
+            if type(fields.get("count")) is not int or fields["count"] <= 0:
+                raise ValueError("positive progress observation sequence required")
+            suffix += "-" + str(fields["count"])
+        target = (owner_path if event == "started" and owner_path is not None else
+                  run / ("process-" + token + "-" + suffix + ".json"))
+        while True:
+            try:
+                return retain_run_record(root, target, journal["scope"], payload, header["inputs"])
+            except CheckpointClosed:
+                raise
+            except CheckpointConflict:
+                if deadline is None or time.monotonic() >= deadline:
+                    raise
+    record.root=Path(root).resolve()
+    record.spawn_root=Path(run).resolve()/'process-starts'
+    return record
+
+
+def retain_terminal_run(root, out, receipt):
+    """Bind completed parent/child receipts into the same durable observation store."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint
+    state = read_execution_checkpoint(root, out)
+    if not state["records"]:
+        return
+    if state["records"][-1]["payload"].get("schema") == "research-terminal-observation.v1":
+        return
+    header = state["records"][0]["payload"]
+    child_path = out / "run/receipt.json"
+    child = json.loads(child_path.read_text()) if child_path.is_file() else None
+    if receipt.get("childReceiptSha256") is not None and (
+            child is None or digest(child_path) != receipt["childReceiptSha256"]):
+        raise ValueError("terminal checkpoint child receipt changed")
+    payload = {"schema": "research-terminal-observation.v1", "runId": header["runId"],
+               "header": {"path": str(out / "run-header.json")}, "outer": receipt, "child": child}
+    retain_record_observation(root, out / "receipt.json", state["records"][0]["scope"], payload, header["inputs"])
+
+
+def retain_existing_run(root, out):
+    """Index only records already authenticated by the existing immutable journal."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint, read_journal, normalized
+    if not (out / "run-header.json").is_file():
+        return
+    header = json.loads((out / "run-header.json").read_text())
+    paths = [out / "run-header.json", *sorted((out / "run").glob("*.observation.json"))]
+    scope = next((json.loads(path.read_text())["header"]["scope"] for path in paths[1:]),
+                 "research:" + header["recipe"])
+    observations = read_journal(root, scope)["observations"]
+    known = {row["path"]: row for row in read_execution_checkpoint(root, out)["records"]}
+    records = []
+    for path in paths:
+        payload = json.loads(path.read_text())
+        matches = [(identity, body) for identity, body in observations.items()
+                   if body.get("queries") == normalized({"run_record": [payload]})]
+        if len(matches) != 1:
+            raise ValueError("existing checkpoint record lacks immutable custody")
+        records.append((path, payload, matches[0][1]["inputs"]))
+    pending, published = records[1:], set()
+    ordered = [records[0]]
+    while pending:
+        ready = [row for row in pending if set(row[1]["step"]["dependsOn"]) <= published]
+        if not ready:
+            raise ValueError("existing checkpoint dependency closure is incomplete")
+        for row in ready:
+            ordered.append(row)
+            published.add(row[1]["step"]["id"])
+            pending.remove(row)
+    for path, payload, inputs in ordered:
+        if str(path) in known:
+            if known[str(path)]["payload"] != payload:
+                raise ValueError("existing checkpoint differs from the committed prefix")
+        else:
+            retain_record_observation(root, path, scope, payload, inputs)
+    if (out / "receipt.json").is_file():
+        retain_terminal_run(root, out, json.loads((out / "receipt.json").read_text()))
 
 
 @lru_cache(maxsize=256)
@@ -123,7 +238,49 @@ def implementation_paths(package):
             if child not in used and child not in pending:
                 parents[child] = name
                 pending.append(child)
+    # Seal command transport bytes without treating its lazy operator registry as
+    # kernel imports. A direct core import of cli still fails above.
+    if 'task_entry' in used:
+        transport=package/'cli.py'
+        if not transport.is_file() or transport.is_symlink():
+            raise ValueError('unavailable task command transport')
+        used.add('cli')
+    # Provider entrypoints have a lazy dispatcher registry, not kernel imports.
+    # Every byte required by transport admission must nevertheless be sealed.
+    for name in PROCESS_IMPLEMENTATION:
+        path = package / (name + '.py')
+        if not path.is_file() or path.is_symlink():
+            raise ValueError('unavailable process transport implementation: ' + name)
+        used.add(name)
     return [package / (name + ".py") for name in sorted(used)]
+
+
+def failed_prefix_retry(state, prefix, recipe, steps, inputs, engine_id):
+    """A quiescent, fully recorded failed execution is history, not a live resume."""
+    records = prefix['records']
+    header = records[0]['payload']
+    if not state['resumption']['relations'].get('failed_attempt_history'):
+        return None
+    if not state['resumption']['executionQuiescence']['observed']:
+        raise ValueError('failed prefix retry requires observed process quiescence')
+    if header['recipe'] != recipe['id']:
+        raise ValueError('failed prefix retry requires the same recipe identity')
+    old = header['declaration']
+    graph = lambda rows: [(r['id'], r['capability'], r['dependsOn']) for r in rows]
+    if graph(old['steps']) != graph(steps):
+        raise ValueError('failed prefix retry requires the same capability graph')
+    if (any(s['budgetSeconds'] > header['stepBudgets'][s['id']] for s in steps)
+            or recipe.get('timeoutPolicy') != old.get('timeoutPolicy')
+            or recipe['budgetSeconds'] > header['budgetSeconds']):
+        raise ValueError('failed prefix retry cannot expand watchdog or phase budgets')
+    changed = {name: sha for name, sha in inputs.items() if header['inputs'].get(name) != sha}
+    if not changed:
+        raise ValueError('unchanged failed prefix is not a fresh repair attempt')
+    return dict(committedPrefix=prefix['prefixIdentity'], engineId=header['engineId'],
+                engineChanged=header['engineId'] != engine_id, changedInputs=changed,
+                failedPrefixExpenditure=dict(accountingOnly=True, freshAttempt=True,
+                    parentCompletionObserved=False, oldAggregateOutcome=None),
+                runtimeAdmitted=False)
 
 
 def validate_graph(recipe, steps):
@@ -138,7 +295,10 @@ def validate_graph(recipe, steps):
     if len(evaluations) != 1 or steps[-1] != evaluations[0]:
         raise ValueError("one terminal native evidence evaluation required")
     dsl_only = len(steps) == 1 and "dsl" in evaluations[0]["arguments"]
-    if not dsl_only and not any(step["capability"] == "gambit.materialize" for step in steps):
+    model_only = (any(step['capability'].startswith('quint.') for step in steps)
+                  and all(step['capability'].startswith('quint.') or step['capability'] == 'evidence.evaluate'
+                          for step in steps))
+    if not (dsl_only or model_only) and not any(step["capability"] == "gambit.materialize" for step in steps):
         raise ValueError("a new research run must start from a locked source producer")
     for step in steps:
         if step["capability"] in {"gambit.suite", "gambit.bootstrap", "gambit.upstream-tests"}:
@@ -281,7 +441,7 @@ def manifest_paths(engine):
     return manifest
 
 
-def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
+def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, portable=False):
     from gambit_smp.artifact_storage import transfer_generation, clone_file
     from gambit_smp.recipes import tool_files
     from gambit_smp.native_review import POLICY
@@ -293,6 +453,11 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     package = Path(__file__).resolve().parent
     if out.is_relative_to(package):
         raise ValueError("engine seal cannot overwrite its implementation")
+    # Imported API callers obey the same output placement as the CLI.
+    from gambit_smp.artifact_storage import runtime_output
+    if out.is_relative_to(ROOT.resolve()):
+        out = runtime_output(ROOT, out)
+    # Explicit external export/test directories retain their existing contract.
     # The installed extension is authoritative; no alternate ABI directory.
     api = ascent_api.resolve(strict=True)
     if provider_sources is not None:
@@ -309,7 +474,6 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     originals[ROOT / POLICY] = "policy/suite-review-rules.ss"
     from gambit_smp.upstream_tests import POLICIES
     originals.update({ROOT / name: sealed for name, sealed in POLICIES.items()})
-    originals[files["publication:library"]] = "ascent-publication.json"
     packaged = build.get("packageInputs", {})
     package_sources = {}
     for name, sha in packaged.items():
@@ -338,7 +502,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
             runtime[original] = target
     before = {path: digest(path) for path in originals}
     provider_contract = inspect_provider(api, binding)
-    host = {"python": Path(sys.executable).absolute(), "gcc": gcc.absolute()}
+    host = {"python": Path(sys.executable).resolve(strict=True), "gcc": gcc.absolute()}
     if sys.platform == "darwin" and Path("/usr/bin/sample").is_file():
         host["darwinSample"] = Path("/usr/bin/sample")
     if (quint is None) != (node is None):
@@ -358,7 +522,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
                 raise ValueError("sealed resource role collision")
             continue
         if name.startswith(("runtime/", "python/ascent/")) and GENERATION.fullmatch(path.suffix):
-            mode = transfer_generation(path, target)
+            mode = transfer_generation(path, target, portable=portable)
             if digest(target) != before[path]:
                 raise ValueError("runtime generation changed during transfer")
             info = target.stat(follow_symlinks=False)
@@ -390,6 +554,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None):
     sealed_files = {path.relative_to(out).as_posix(): digest(path)
                     for path in out.rglob("*") if path.is_file()}
     identity = {"schema": ENGINE_SCHEMA, "files": sealed_files, "hostTools": tools,
+                "processProtocol": PROCESS_PROTOCOL,
                 "privateFileTransfers": {**private_transfers, "hardlinks": False},
                 "resourceOwnership": {"contract": "checked-generation-sharing.v1", "generations": generations,
                                       "boundary": "byte-bound resources; shared generations are not write-isolated"},
@@ -441,7 +606,35 @@ def evaluation_teardown_deadline(recipe, requested_deadline, owner):
     return requested_deadline
 
 
+def begin_evaluation_teardown(recipe, requested_deadline, owner):
+    """Recipe completion starts its declared close phase, not another review."""
+    policy = recipe.get('timeoutPolicy', {})
+    completed = owner.process is None or (bool(owner.records) and all(
+        row.get('requestCompleted') is True and row.get('timeout') is False for row in owner.records))
+    mode = 'original-deadline'
+    if policy.get('mode') == 'progress' and completed:
+        from gambit_smp.recipes import budget
+        budget(policy['overheadSeconds'])
+        owner.deadline = time.monotonic() + policy['overheadSeconds']
+        mode = 'fresh-configured-phase'
+    elif policy.get('mode') == 'progress':
+        mode = 'unfinished-request'
+    return dict(scope='owner-close-only', mode=mode,
+        deadline=evaluation_teardown_deadline(recipe, requested_deadline, owner),
+        budgetSeconds=policy.get('overheadSeconds') if mode == 'fresh-configured-phase' else None,
+        nativeStageBudgetsChanged=False)
+
+
 def worker(engine):
+    task=os.environ.get('GAMBIT_SMP_TASK_ID')
+    if task:
+        from gambit_smp.workspace import execution_scope
+        with execution_scope(Path(os.environ['GAMBIT_SMP_TASK_ROOT']),task):
+            return _worker(engine)
+    return _worker(engine)
+
+
+def _worker(engine):
     from gambit_smp.recipes import load, read_json, run
     if sys.argv[1] == "runtime-export":
         from gambit_smp.runtime_artifact import export
@@ -473,6 +666,16 @@ def worker(engine):
     header = read_json(header_path)
     if header["request"] != {key: value for key, value in request.items() if key != "journal"}:
         raise ValueError("launch request differs from committed run header")
+    if "launchOwner" in request:
+        owner_path = Path(request["launchOwner"])
+        while not owner_path.is_file():
+            if time.monotonic() >= request["deadline"]:
+                raise TimeoutError("launch owner observation was not committed")
+            time.sleep(.01)
+        owner = read_json(owner_path)
+        if (owner.get("pid") != os.getpid() or owner.get("runId") != header["runId"]
+                or owner.get("clockEpoch") != clock_epoch() or owner.get("event") != "started"):
+            raise ValueError("launch owner identity mismatch")
     if header["inputs"] != {name: digest(Path(request["root"]) / name) for name in header["inputs"]}:
         raise ValueError("launch input differs from committed run header")
     def guard(event, args):
@@ -492,14 +695,16 @@ def worker(engine):
                       Path(request["prior"]) if request["prior"] else None,
                       gcc=Path(tools["gcc"]["path"]), allow_native=request["allowNative"],
                       engine=engine, deadline=request["deadline"], journal=request["journal"],
-                      budget_reservation=request.get("budgetReservation"))
+                      budget_reservation=request.get("budgetReservation"), resume_prefix=request.get("resumePrefix"))
         owner_finalization_started = time.monotonic()
+        teardown = begin_evaluation_teardown(recipe, request['deadline'], owner)
+        teardown_deadline = teardown['deadline']
     owner_result = owner.receipt
-    teardown_deadline = evaluation_teardown_deadline(recipe, request["deadline"], owner)
     if owner_result is not None:
         owner_path = Path(request["out"]) / "evaluation-owner/receipt.json"
         receipt["evaluationOwner"] = {"path": "evaluation-owner/receipt.json", "sha256": digest(owner_path)}
         receipt["evaluationOwnerFinalizationSeconds"] = time.monotonic() - owner_finalization_started
+        receipt['evaluationOwnerTeardownPolicy'] = teardown
         receipt["wholeSeconds"] += receipt["evaluationOwnerFinalizationSeconds"]
         if (owner_result["exit"] != 0 or owner_result["forcedTermination"]
                 or any(not row["requestCompleted"] or row["timeout"] for row in owner_result["requests"])
@@ -552,10 +757,24 @@ def completed_stage_frontier(out, steps, journal):
         return False
 
 
-def completed_work(out, steps):
-    """Observe completed stages/processes/files, never timestamps or log volume."""
+def completed_work(out, steps, *, journal=None, required_inputs=None):
+    """Observe completed checks/stages/processes/files, never timestamps or log volume."""
     count = 0
     run = out / "run"
+    validation = run / 'input-validation.json'
+    if journal is not None and required_inputs is not None and not validation.is_symlink():
+        try:
+            row = json.loads(validation.read_text())
+            if (row.get('schema') == 'recipe-input-validation.v1'
+                    and row.get('header') == journal
+                    and row.get('scope') == 'declared-inputs-not-native-work'
+                    and row.get('completed') is True
+                    and row.get('requiredInputs') == required_inputs
+                    and isinstance(row.get('observedInputs'), dict)
+                    and all(row['observedInputs'].get(name) == sha for name, sha in required_inputs.items())):
+                count += 1
+        except (OSError, ValueError, TypeError):
+            pass
     for step in steps:
         try:
             stage = json.loads((run / (step["id"] + ".observation.json")).read_text())
@@ -571,7 +790,8 @@ def completed_work(out, steps):
                 row = json.loads(path.read_text())
                 count += int(row.get("schema") == "recipe-process-observation.v1"
                              and row.get("state") == "OBSERVED" and type(row.get("exit")) is int
-                             and row.get("completionObserved") is True and row.get("parentReaped") is True)
+                             and row.get("completionObserved") is True and row.get("parentReaped") is True
+                             and row.get('processGroupQuiescent') is True)
             except (OSError, ValueError, TypeError):
                 pass
         for path in directory.glob("*.progress.json"):
@@ -585,12 +805,33 @@ def completed_work(out, steps):
     return count
 
 
+def require_incremental_builds(recipe, steps):
+    """All future provider/native build launches use the maintained workspaces.
+
+    Retained observations and running older sealed programs remain readable.
+    Historical declarations are not silently translated into another program.
+    """
+    by_id = {step['id']: step for step in steps}
+    for step in steps:
+        if (step['capability'] in {'gambit.runtime-import', 'gambit.completed-runtime'}
+                and recipe.get('workspacePolicy') != 'in-place'):
+            raise ValueError('runtime reuse requires in-place maintained workspace policy')
+        if step['capability'] in {'gerbil.build','gerbil.test'} and recipe.get('workspacePolicy') != 'in-place':
+            raise ValueError('Gerbil build execution requires in-place incremental workspace')
+        if step['capability'] != 'gambit.configure':
+            continue
+        source = by_id[step['arguments']['source']['step']]
+        if (recipe.get('workspacePolicy') != 'in-place' or source['capability'] != 'gambit.materialize'
+                or source['arguments'].get('buildWorkspace') != 'gambit-core'):
+            raise ValueError('native build execution requires its maintained incremental workspace Recipe')
+
+
 def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     from gambit_smp.recipes import load, read_json, authorization_repair
     from gambit_smp import host_environment
     started = time.monotonic()
     if prior is not None:
-        prior = prior.resolve(strict=True)
+        prior = prior.resolve()
     recipe, steps = load(root, path)
     progress_mode = recipe.get("timeoutPolicy", {}).get("mode") == "progress"
     if recipe["schema"] != SCHEMA:
@@ -600,6 +841,52 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     out = out.resolve()
     if out.is_relative_to(root / "evidence") or any((root / name).resolve().is_relative_to(out) for name in inputs):
         raise ValueError("execution cannot overwrite its Evidence inputs")
+    from gambit_smp.reasoning_history import read_execution_checkpoint
+    if (out / "run-header.json").is_file():
+        retain_existing_run(root, out)
+    prefix = read_execution_checkpoint(root, out)
+    if (out / "receipt.json").is_file() or (out / "run-header.json").is_file() or prefix["records"]:
+        if (out / "receipt.json").is_file():
+            terminal = True
+            original = read_json(out / "receipt.json")
+        elif prefix["records"]:
+            tail = prefix["records"][-1]["payload"]
+            terminal = tail.get("schema") == "research-terminal-observation.v1"
+            original = tail["outer"] if terminal else prefix["records"][0]["payload"]
+        else:
+            terminal = False
+            original = read_json(out / "run-header.json")
+        state = inspect(out, include_resumption=True)
+        origin_root = original.get("root", original.get("request", {}).get("root"))
+        matching = (origin_root == str(root.resolve()) and original.get("recipe") == recipe["id"]
+                    and original.get("inputs") == inputs and original.get("engineId") == manifest["engineId"]
+                    and original.get("stepBudgets") == {s["id"]: s["budgetSeconds"] for s in steps})
+        reusable = False
+        if terminal and original.get("outcome") == "PASS" and matching and state["resumption"]["relations"]["campaign_reusable"]:
+            final_state = inspect(out)
+            reusable = (final_state["identityStatus"] == "CURRENT"
+                        and final_state["evidenceBindingStatus"] == "CURRENT"
+                        and (digest(out / "receipt.json") == state["resumption"]["receiptSha256"]
+                             if (out / "receipt.json").is_file() else
+                             read_execution_checkpoint(root, out)["prefixIdentity"] == state["resumption"]["prefixIdentity"])
+                        and inputs == {name: digest(root / name) for name in inputs})
+        # A restart consumes the original receipt; it never rewrites history or
+        # reports a repeated native launch. Partial/changed runs expose gaps.
+        return {"schema": "research-resume-observation.v1", "recipe": recipe["id"],
+                "engineId": manifest["engineId"],
+                "outcome": "PASS" if reusable else "DENY", "recordedOutcome": original.get("outcome"),
+                "resumeStatus": "REUSED" if reusable else "UNRESOLVED" if terminal else "INCOMPLETE",
+                "requestedIdentityMatches": matching, "resumption": state["resumption"],
+                "executionLaunched": False, "wholeSeconds": time.monotonic() - started,
+                "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
+    # Historical inspection above launches nothing; only a new execution needs
+    # the current birth/exec transport. Do not invalidate retained history.
+    transport = transport_compatibility(manifest)
+    if not transport['current']:
+        reason = ('sealed engine predates birth/exec admission' if manifest.get('processProtocol') != PROCESS_PROTOCOL
+                  else 'sealed engine birth/exec implementation differs')
+        raise ValueError(reason + '; transport evidence: ' + json.dumps(transport, sort_keys=True))
+    require_incremental_builds(recipe, steps)
     out.mkdir(parents=True, exist_ok=False)
     deadline = started + recipe["budgetSeconds"]
     request = {"engineId": manifest["engineId"], "root": str(root), "recipe": path.relative_to(root).as_posix(),
@@ -628,6 +915,7 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                                wholeSeconds=time.monotonic() - started)
         target = out / "receipt.json"
         target.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
+        retain_terminal_run(root, out, receipt)
         if reservation is not None:
             from gambit_smp.recipe_continuation import settle_budget
             settlement = settle_budget(root, reservation, target, digest(target))
@@ -637,7 +925,41 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                 stream.write("\n")
         return receipt
     host = host_environment.observe(steps)
-    if prior is not None:
+    partial_prior = prior is not None and not (prior / "receipt.json").is_file()
+    if partial_prior:
+        try:
+            from gambit_smp.step_checkpoint import recovered_resumption
+            state = recovered_resumption(root, prior)
+            old = read_execution_checkpoint(root, prior)
+            header = old["records"][0]["payload"]
+            prior_identity = dict(committedPrefix=old['prefixIdentity'], engineId=header['engineId'],
+                                  oldAggregateOutcome=None, runtimeAdmitted=False)
+            retry = failed_prefix_retry(state, old, recipe, steps, inputs, manifest['engineId'])
+            if retry is not None:
+                prior_identity = retry
+                request['prior'] = None
+            elif (state["outcome"] != "INCOMPLETE" or state["engineId"] != manifest["engineId"]
+                    or state["recipe"] != recipe["id"]):
+                raise ValueError("interrupted continuation requires the same engine and recipe contract")
+            if not state["resumption"]["executionQuiescence"]["observed"]:
+                raise ValueError("interrupted process births are not observed quiescent")
+            if any(step["budgetSeconds"] > header["stepBudgets"].get(step["id"], step["budgetSeconds"]) for step in steps):
+                raise ValueError("interrupted continuation cannot expand a phase budget")
+            if header["inputs"] == inputs and state["resumption"]["relations"]["failed"]:
+                raise ValueError("unchanged failed stage is not an interrupted-only continuation")
+            if retry is None:
+                request["resumePrefix"] = state["resumption"]["prefixIdentity"]
+                prior_identity = {"committedPrefix": request["resumePrefix"], "engineId": header["engineId"],
+                                  "interruptedContinuation": True, "oldAggregateOutcome": None,
+                                  "changedInputs": {name: sha for name, sha in inputs.items() if header["inputs"].get(name) != sha}}
+        except (OSError, KeyError, ValueError, TypeError) as error:
+            return retain_receipt({"schema": "sealed-research-run.v1", "recipe": recipe["id"],
+                "engine": str(engine), "engineId": manifest["engineId"], "inputs": inputs, "root": str(root),
+                "stepBudgets": {s["id"]: s["budgetSeconds"] for s in steps}, "budgetSeconds": recipe["budgetSeconds"],
+                "outcome": "DENY", "denial": str(error), "executionLaunched": False,
+                "prior": prior_identity, "hostEnvironment": host, "artifacts": {}, "childReceiptSha256": None,
+                "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False})
+    if prior is not None and not partial_prior:
         try:
             previous = read_json(prior / "receipt.json")
             prior_identity = {"receiptSha256": digest(prior / "receipt.json"), "engineId": previous["engineId"],
@@ -645,7 +967,11 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                               "engineChanged": previous["engineId"] != manifest["engineId"]}
             if previous.get("schema") != "sealed-research-run.v1":
                 raise ValueError("matching sealed prior observation required")
-            if previous["recipe"] != recipe["id"]:
+            from gambit_smp.recipes import checked_build_migration
+            migration = checked_build_migration(root, path, recipe, previous) if previous['recipe'] != recipe['id'] else None
+            if migration is not None:
+                prior_identity['buildMigration'] = migration
+            if previous["recipe"] != recipe["id"] and migration is None:
                 if "timeoutPolicy" not in recipe:
                     raise ValueError("matching sealed prior observation required")
                 old_request = prior / "request.json"
@@ -721,12 +1047,15 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                    "executionLaunched": False, "prior": prior_identity, "artifacts": {}, "childReceiptSha256": None,
                    "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
         return retain_receipt(receipt)
+    request["launchOwner"] = str(out / "launch-owner.json")
     header = {"schema": "research-run-header.v1", "runId": uuid.uuid4().hex,
+              "declaration": dict(recipe, steps=steps),
               "recipe": recipe["id"], "inputs": inputs, "engineId": manifest["engineId"],
               "clockEpoch": clock_epoch(), "startedMonotonic": started, "deadlineMonotonic": deadline,
               "budgetSeconds": recipe["budgetSeconds"],
               "stepBudgets": {step["id"]: step["budgetSeconds"] for step in steps},
               "request": dict(request), "executionCompleted": False,
+              "requestedPrior": str(prior) if prior is not None else None,
               "prior": prior_identity,
               "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
     if "timeoutPolicy" in recipe:
@@ -739,9 +1068,12 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     command = [manifest["hostTools"]["python"]["path"], "-I", "-B", str(engine / "runner.py"), str(out / "request.json")]
     code, log, timeout, seconds = execute(command, root, max(0.001, deadline - time.monotonic()),
                                         env=environment, metadata=metadata,
+                                        process_recorder=process_recorder(root, out, journal,
+                                            owner_path=Path(request["launchOwner"]), deadline=deadline),
                                         completion_check=lambda: completed_stage_frontier(out, steps, journal),
                                         completion_grace=30,
-                                        **({"progress_check": lambda stdout, stderr: completed_work(out, steps)}
+                                        **({"progress_check": lambda stdout, stderr: completed_work(
+                                            out, steps, journal=journal, required_inputs=inputs)}
                                            if progress_mode else {}))
     (out / "launch.log").write_text(log)
     child = out / "run/receipt.json"
@@ -767,8 +1099,53 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     return retain_receipt(receipt)
 
 
-def inspect(out, *, input_archive=None):
+def transport_compatibility(manifest):
+    """Expose launch premises separately from seal-byte identity and producer reuse."""
+    from gambit_smp.ascent_program import load_component_catalog, query
+    required = dict(process_transport_identity(), protocol=PROCESS_PROTOCOL)
+    recorded = dict(manifest.get('files', {}))
+    if manifest.get('processProtocol') is not None:
+        recorded['protocol'] = manifest['processProtocol']
+    catalog = load_component_catalog(ROOT/'evidence/dsl/components.json', entry='checkpoint-state',
+        constructor='make-execution-transport', trusted=True)
+    result = query(dict(transport_required=list(required.items()),
+        transport_recorded=[(key, recorded[key]) for key in required if key in recorded],
+        transport_enumerated=[()]), catalog, dict(gaps='transport_gap', current='transport_current'))
+    return dict(current=bool(result['current']), gaps=result['gaps'],
+                expectedProtocol=PROCESS_PROTOCOL, recordedProtocol=manifest.get('processProtocol'),
+                scope='new-execution-transport-not-native-producer-identity', runtimeAdmitted=False)
+
+
+def inspect(out, *, input_archive=None, include_resumption=False):
     from gambit_smp.recipes import inspect_run, read_json
+    if (out / "engine.json").is_file():
+        if input_archive is not None or (out / "receipt.json").exists():
+            raise ValueError("engine inspection requires an unambiguous seal, not a run or input archive")
+        manifest = manifest_paths(out)
+        dependencies = {name for name in manifest["hostTools"] if name.startswith("quint-file:")}
+        return {"artifactKind": "sealed-engine", "engineId": manifest["engineId"],
+                "transportCompatibility": transport_compatibility(manifest),
+                "hostTools": {name: row for name, row in manifest["hostTools"].items()
+                              if name not in dependencies},
+                "hostToolDependencyCount": len(dependencies),
+                "capabilities": manifest["capabilities"],
+                "identityStatus": "CURRENT", "executionLaunched": False,
+                "runtimeAdmitted": False, "releaseAdmitted": False,
+                "sourceRefinementAdmitted": False}
+    if not (out / "receipt.json").exists():
+        from gambit_smp.artifact_storage import repository_root
+        from gambit_smp.step_checkpoint import recovered_resumption, interrupted_resumption
+        from gambit_smp.reasoning_history import read_execution_checkpoint
+        ancestor = out
+        while not ancestor.exists():
+            ancestor = ancestor.parent
+        root = repository_root(ancestor)
+        if read_execution_checkpoint(root, out)["records"]:
+            # Inspection returns an authenticated immutable prefix, not execution
+            # authority. Concurrent appends must not starve this read-only view.
+            return recovered_resumption(root, out, require_current_prefix=False)
+        if (out / "run-header.json").is_file():
+            return interrupted_resumption(root, out)
     receipt = read_json(out / "receipt.json")
     if receipt.get("schema") != "sealed-research-run.v1":
         raise ValueError("sealed research receipt required")
@@ -791,7 +1168,7 @@ def inspect(out, *, input_archive=None):
             binding_stable = stable
     except (OSError, KeyError, ValueError, TypeError):
         stable = False
-    return {"recipe": receipt["recipe"], "engineId": receipt["engineId"], "outcome": receipt["outcome"],
+    result = {"recipe": receipt["recipe"], "engineId": receipt["engineId"], "outcome": receipt["outcome"],
             "identityStatus": ("HISTORICAL_BOUND" if input_archive else "CURRENT") if stable else "STALE",
             "evidenceBindingStatus": (("HISTORICAL_BOUND" if input_archive else "CURRENT")
                                       if binding_stable else "STALE"),
@@ -799,15 +1176,20 @@ def inspect(out, *, input_archive=None):
                                     {"status": "UNKNOWN", "outputs": []},
             "recordedOutcome": receipt["outcome"],
             "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
+    if include_resumption and input_archive is None:
+        from gambit_smp.step_checkpoint import resumption
+        result["resumption"] = resumption(Path(receipt["root"]), out, result)
+    return result
 
 
-def main():
-    from gambit_smp.recipes import discover, load, source_path
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--seal", type=Path)
+    selection.add_argument("--seal", type=Path,
+        help="freeze framework/ASCENT code and host-tool identities; does not build Gambit, change a native producer or reset native budgets")
     selection.add_argument("--run")
-    selection.add_argument("--read", type=Path)
+    selection.add_argument("--read", type=Path,
+                           help="read a run directory or sealed engine, not a prefixIdentity hash; includes live progress/checkpoint and detached execution; never execute")
     selection.add_argument("--export-producer", type=Path)
     selection.add_argument("--export-runtime", type=Path)
     parser.add_argument("--step")
@@ -821,7 +1203,41 @@ def main():
     parser.add_argument("--ascent-api", type=Path)
     parser.add_argument("--provider-sources", type=Path,
                         help="validated engine archive for exact provider build inputs")
+    parser.add_argument("--portable-seal", action="store_true",
+                        help="copy sealed generations for transport to another host job")
+    return parser
+
+
+def execution_policy(arguments):
+    args = argument_parser().parse_args(arguments)
+    return "read" if args.read and args.out is None and not args.portable_seal else "task"
+
+
+def launch_summary(receipt, out):
+    """Expose the actual allocated observation, not a workflow recommendation."""
+    keys = (("recipe", "engineId", "outcome", "resumeStatus", "executionLaunched", "wholeSeconds",
+             "requestedIdentityMatches", "resumption") if "resumption" in receipt else
+            ("recipe", "engineId", "outcome", "exit", "timeout", "denial"))
+    result = {key: receipt.get(key) for key in keys}
+    result.update(out=str(out), receipt=str(out / 'receipt.json'))
+    child = out / 'run/receipt.json'
+    if receipt.get('childReceiptSha256') and child.is_file():
+        raw = child.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != receipt['childReceiptSha256']:
+            raise ValueError('launch summary child receipt identity changed')
+        result['stepFailures'] = [{key: row.get(key) for key in ('id', 'capability', 'outcome', 'reason')}
+                                  for row in json.loads(raw).get('steps', [])
+                                  if row.get('outcome') not in {'PASS', 'BLOCKED'}]
+    return result
+
+
+def main():
+    from gambit_smp.task_entry import present_observation
+    from gambit_smp.recipes import discover, load, source_path
+    parser = argument_parser()
     args = parser.parse_args()
+    if args.portable_seal and not args.seal:
+        parser.error("--portable-seal requires --seal")
     from gambit_smp.artifact_storage import runtime_output
     if args.seal:
         args.seal = runtime_output(ROOT, args.seal)
@@ -832,7 +1248,8 @@ def main():
             if args.gcc is None or args.ascent_api is None:
                 parser.error("--seal requires host-selected --gcc and --ascent-api")
             manifest = seal(args.seal, gcc=args.gcc, quint=args.quint, node=args.node,
-                            ascent_api=args.ascent_api, provider_sources=args.provider_sources)
+                            ascent_api=args.ascent_api, provider_sources=args.provider_sources,
+                            portable=args.portable_seal)
             print(json.dumps({"engineId": manifest["engineId"], "files": len(manifest["files"])}))
             return 0
         if args.read:
@@ -841,7 +1258,9 @@ def main():
                 proof, _, _, _ = observe_journal(ROOT, args.read, args.step)
                 print(json.dumps(proof, indent=2))
             else:
-                print(json.dumps(inspect(args.read.resolve(), input_archive=args.input_archive), indent=2))
+                result = inspect(args.read.resolve(), input_archive=args.input_archive,
+                                 include_resumption=True)
+                print(json.dumps(present_observation(result), indent=2))
             return 0
         if args.export_producer:
             from gambit_smp.completed_producer import export_reference
@@ -863,10 +1282,18 @@ def main():
         else:
             selected = discover(root).get(args.run)
         if selected is None or args.engine is None or args.out is None:
-            parser.error("--run requires a declared recipe, --engine seal, and fresh --out")
+            parser.error("--run requires a declared recipe, --engine seal, and --out run directory")
         receipt = run_sealed(root, selected, args.out, args.engine.resolve(), prior=args.prior, allow_native=True)
-        print(json.dumps({key: receipt.get(key) for key in ("recipe", "engineId", "outcome", "exit", "timeout", "denial")}))
+        print(json.dumps(present_observation(launch_summary(receipt, args.out))))
         return 0 if receipt["outcome"] == "PASS" else 2
     except (OSError, ValueError, KeyError, TypeError) as error:
         print("RESEARCH-DENY " + str(error), file=sys.stderr)
         return 2
+
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('research')(main)
+
+if __name__ == "__main__":
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('research', main))

@@ -2,7 +2,7 @@
 import json
 import math
 from pathlib import Path
-from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
+from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
 import shutil
 import sys
 
@@ -75,7 +75,36 @@ def recover_retained_owner_teardown(root, run, outer, child, step_id):
             "failedStagesRecovered": False, "budgetExtended": False}
 
 
-def recover_retained_evaluation(root, run, outer, child, step_id):
+def checked_owner_shutdown_failure(run, outer, child):
+    """Recognize completed work followed only by the old owner shutdown failure."""
+    from gambit_smp.recipes import read_json
+    if (outer.get("timeout") is not False or outer.get("parentReaped") is not True
+            or outer.get("processGroupQuiescent") is not True
+            or child.get("inputsStable") is not True or child.get("error")
+            or child.get("wholeBudgetExhausted") is not False
+            or not child.get("steps")
+            or any(row.get("outcome") != "PASS" for row in child["steps"])):
+        raise ValueError("only completed stable native stages can revalidate owner shutdown")
+    launch = run / "launch.log"
+    if (outer.get("artifacts", {}).get("launch.log") != digest(launch)
+            or not launch.read_text().rstrip().endswith(
+                'ValueError: evaluation owner did not complete and tear down normally')):
+        raise ValueError("exact retained owner shutdown failure required")
+    ref = child.get("evaluationOwner", {})
+    path = run / "run" / ref.get("path", "missing-owner")
+    if ref.get("sha256") != digest(path):
+        raise ValueError("retained owner receipt changed")
+    owner = read_json(path)
+    if (owner.get("forcedTermination") is not True or owner.get("exit") != -9
+            or owner.get("parentReaped") is not True or owner.get("terminalIdentityError") is not None
+            or owner.get("engineId") != outer["engineId"] or not owner.get("requests")
+            or any(row.get("requestCompleted") is not True or row.get("timeout") is not False
+                   or row.get("response", {}).get("outcome") != "PASS" for row in owner["requests"])):
+        raise ValueError("completed owner requests and checked quiescence required")
+    return {"priorOwnerReceiptSha256": ref["sha256"], "priorOwnerForcedTermination": True}
+
+
+def recover_retained_evaluation(root, run, outer, child, step_id, *, owner_shutdown=False):
     """Re-evaluate only an expired final review; never recover native failure."""
     from gambit_smp.recipes import read_json
     from gambit_smp.evidence_capabilities import facts
@@ -87,7 +116,11 @@ def recover_retained_evaluation(root, run, outer, child, step_id):
             or not rows or any(row.get("outcome") != "PASS" for row in rows[:-1])):
         raise ValueError("only completed quiescent progress-mode execution can revalidate final review")
     last = rows[-1]
-    if (last.get("capability") != "evidence.evaluate" or last.get("outcome") != "TIMEOUT"
+    owner_proof = checked_owner_shutdown_failure(run, outer, child) if owner_shutdown else {}
+    if (last.get("capability") != "evidence.evaluate"
+            or step_id not in last.get("dependsOn", [])):
+        raise ValueError("final evaluation must bind completed bootstrap")
+    if not owner_shutdown and (last.get("outcome") != "TIMEOUT"
             or last.get("reason") != "evaluation deadline exhausted" or last.get("commands")
             or step_id not in last.get("dependsOn", [])):
         raise ValueError("only an undispatched expired final evaluation can revalidate")
@@ -140,9 +173,12 @@ def recover_retained_evaluation(root, run, outer, child, step_id):
                  "originalRequestSha256": digest(path), "recordedOutcome": outer["outcome"],
                  "failedStagesRecovered": False, "budgetExtended": False,
                  "reviewWindowSeconds": window, "engineId": outer["engineId"],
+                 **owner_proof,
                  "artifacts": {name: digest(directory / name) for name in
                                ("evaluation.json", "review/answers.json", "evaluation.process.json")}}
         record_path.write_text(json.dumps(proof, sort_keys=True, indent=2) + "\n")
+    if any(proof.get(key) != value for key, value in owner_proof.items()):
+        raise ValueError("retained owner failure binding changed")
     if any(digest(directory / name) != sha for name, sha in proof["artifacts"].items()):
         raise ValueError("revalidation artifact changed")
     observed = read_json(directory / "evaluation.process.json")
@@ -212,7 +248,7 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     from gambit_smp.recipes import read_json
     from gambit_smp.research_kernel import inspect, manifest_paths
     root, run = root.resolve(), run.resolve(strict=True)
-    fixture_root(root, run)
+    observation_root(root, run)
     outer = read_json(run / "receipt.json")
     child = read_json(run / "run/receipt.json")
     if (outer.get("timeout") is not False or outer.get("parentReaped") is not True
@@ -237,7 +273,17 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
         if outer.get("childOutcome") == "STALE":
             recovery = recover_retained_completion(root, run, outer, child, step_id)
         elif all(row.get("outcome") == "PASS" for row in child.get("steps", [])):
-            recovery = recover_retained_owner_teardown(root, run, outer, child, step_id)
+            if outer.get("outcome") != "DENY" or outer.get("exit") != 1:
+                raise ValueError("exact completed quiescent owner finalization required")
+            owner_ref = child.get("evaluationOwner", {})
+            owner_path = run / "run" / owner_ref.get("path", "missing-owner")
+            if not owner_path.is_file() or owner_ref.get("sha256") != digest(owner_path):
+                raise ValueError("retained owner receipt required")
+            owner = read_json(owner_path)
+            if owner.get("forcedTermination") is True:
+                recovery = recover_retained_evaluation(root, run, outer, child, step_id, owner_shutdown=True)
+            else:
+                recovery = recover_retained_owner_teardown(root, run, outer, child, step_id)
         else:
             recovery = recover_retained_evaluation(root, run, outer, child, step_id)
     rows = {row["id"]: row for row in child["steps"]}
@@ -334,6 +380,10 @@ def reuse_materialized_source(lock_path, ctx):
                 raise ValueError("explicit completed producer does not match the source lock")
             continue
         run = fixture_path(ctx.root, proof["run"])
+        if not run.exists():
+            if explicit:
+                raise ValueError("explicit completed producer runtime is unavailable")
+            continue
         archive = proof.get("inputArchive", {}).get("path")
         actual, _, bootstrap, materialized = completed(ctx.root, run, proof["step"], input_archive=archive,
                                                       workspace_context=ctx if ctx.receipt.get("workspacePolicy") == "in-place" else None)
@@ -389,6 +439,10 @@ def prevent_duplicate_configuration(args, ctx, *, stage="configure"):
         if proof.get("sourceLockSha256") != lock_sha or proof.get("gccSha256") != gcc_sha:
             continue
         run = fixture_path(ctx.root, proof["run"])
+        # A registered reference whose tree is gone is not a completed runtime.
+        # Fresh configure stays allowed, matching missing-cache materialization.
+        if not run.exists():
+            continue
         actual, _, step, _ = completed(ctx.root, run, proof["step"],
                                       input_archive=proof.get("inputArchive", {}).get("path"))
         if actual != proof:

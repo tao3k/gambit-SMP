@@ -1,0 +1,12 @@
+import IncrementalBuild
+#check GambitBuild.reuseMatchesClean
+#check GambitBuild.receiptBackedAdaptiveReuse
+#check GambitBuild.allConsumerCutoff
+#check GambitBuild.budgetStepPreserves
+#check GambitBuild.budgetTracePreserves
+#check GambitBuild.returnedCreditCannotIncrease
+#check GambitBuild.fullBudgetBoundsSelected
+#check GambitBuild.receiptReuseMatchesClean
+#check GambitBuild.nonSuccessCannotIssue
+#check GambitBuild.scriptFullObservationCongruence
+#check GambitBuild.cleanupDebtBlocksDelivery

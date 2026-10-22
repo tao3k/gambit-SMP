@@ -1,4 +1,5 @@
 """Cache paginated public GitHub SMP evidence; never apply patches or run tests."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -25,7 +26,7 @@ def api(endpoint, cache, name):
     target = cache / (name + ".json")
     if target.exists():
         return json.loads(target.read_text())
-    output = subprocess.check_output(["gh", "api", endpoint], timeout=45)
+    output = _task_check_output(["gh", "api", endpoint], timeout=45)
     result = json.loads(output)
     temporary = target.with_suffix(".partial")
     temporary.write_bytes(output)
@@ -86,7 +87,7 @@ def snapshot(number, cache):
     comments = pages(f"repos/{REPO}/issues/{number}/comments", cache, f"pr-{number}-comments")
     reviews = pages(f"repos/{REPO}/pulls/{number}/reviews", cache, f"pr-{number}-reviews")
     inline = pages(f"repos/{REPO}/pulls/{number}/comments", cache, f"pr-{number}-inline")
-    final = subprocess.check_output(["gh", "api", f"repos/{REPO}/pulls/{number}"], timeout=45)
+    final = _task_check_output(["gh", "api", f"repos/{REPO}/pulls/{number}"], timeout=45)
     current = json.loads(final)
     if (metadata["head"]["sha"], metadata["base"]["sha"], metadata["updated_at"]) != (
             current["head"]["sha"], current["base"]["sha"], current["updated_at"]):
@@ -116,7 +117,7 @@ def issue_snapshot(number, cache):
     if "pull_request" in metadata:
         raise ValueError("issue snapshot requires an issue, not a PR")
     comments = pages(f"repos/{REPO}/issues/{number}/comments", cache, f"issue-{number}-comments")
-    current = json.loads(subprocess.check_output(["gh", "api", f"repos/{REPO}/issues/{number}"], timeout=45))
+    current = json.loads(_task_check_output(["gh", "api", f"repos/{REPO}/issues/{number}"], timeout=45))
     if metadata["updated_at"] != current["updated_at"]:
         raise ValueError("issue changed during snapshot; use a fresh cache")
     row = {"number": number, "url": metadata["html_url"], "title": metadata["title"],
@@ -234,6 +235,9 @@ def main():
         row = issue_snapshot(number, args.cache)
         print(f"ISSUE-SNAPSHOT-OK: {number}, {len(row['comments'])} comments")
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('upstream-snapshot')(main)
 
 if __name__ == "__main__":
     main()

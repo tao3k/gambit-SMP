@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "rc-freeze-publication:0576120a766f1e4ada074c927df32c48cea69280ad42c7ccf0410c5b4a47fd20" "rc-freeze-publication:0576120a766f1e4ada074c927df32c48cea69280ad42c7ccf0410c5b4a47fd20" "support" "dev/architecture/runtime/ffi/models/sysml/rc-freeze-publication.sysml"))
+ (fact (factor "rc-freeze-publication:0576120a766f1e4ada074c927df32c48cea69280ad42c7ccf0410c5b4a47fd20" "target-model-bundle-sha256" "0576120a766f1e4ada074c927df32c48cea69280ad42c7ccf0410c5b4a47fd20"))
+ (fact (factor "rc-freeze-publication:0576120a766f1e4ada074c927df32c48cea69280ad42c7ccf0410c5b4a47fd20" "native-output-sha256" "3255b30558ed6b3f9572b05db996ec97d0ad68a97ef6b561d3c33be5fdbf129e"))
+ (fact (factor "rc-freeze-publication:0576120a766f1e4ada074c927df32c48cea69280ad42c7ccf0410c5b4a47fd20" "planner-dsl-sha256" "10209dc050b91d22dba511697d78bf4d04da80384a6e981efadf6e39f6072af4"))
+)

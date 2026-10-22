@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from gambit_smp import source_capabilities as source
 from gambit_smp.framework import digest
@@ -99,6 +100,31 @@ class ProjectedSourceOverlayTests(unittest.TestCase):
                     "files":{"a.c":{"before":"0"*64,"after":"1"*64}},"role":"candidate"}
             with self.assertRaisesRegex(ValueError,"baseline differs"):
                 source.overlay(args,Context(root,"overlay",artifacts))
+
+    def test_bound_c_projection_is_not_misclassified_as_a_complete_task_runtime_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            original = root/'original'; original.mkdir()
+            (original/'a.c').write_text('int value = 1;\n')
+            artifacts = {('source','source'):('source-tree',original)}
+            source.project({'source':{'step':'source','output':'source'},'files':[
+                {'target':'a.c','origin':{'kind':'source-artifact','path':'a.c'},'sha256':digest(original/'a.c')}]},
+                Context(root,'project',artifacts))
+            source.bind({'workspace':{'step':'project','output':'workspace'}}, Context(root,'bind',artifacts))
+            step = '.cache/tasks/repair/runs/one/compile'
+            (root/step).parent.mkdir(parents=True)
+            ctx = Context(root, step, artifacts)
+            args = {'workspace':{'step':'project','output':'workspace'},
+                    'binding':{'step':'bind','output':'binding'},'translationUnit':'a.c'}
+            with patch('gambit_smp.fixture_storage.source_capacity', side_effect=AssertionError('runtime-only guard')), \
+                 patch('gambit_smp.native_capabilities.compile_workspace', return_value={'compiled': True}):
+                self.assertEqual({'compiled': True}, source.workspace_build(args,ctx))
+            self.assertEqual((original/'a.c').read_bytes(), (ctx.directory/'inputs/a.c').read_bytes())
+            (root/'project/workspace/unbound.c').write_text('unexpected source')
+            denied = Context(root, step+'-unbound', artifacts)
+            with self.assertRaisesRegex(ValueError, 'inventory differs from binding'):
+                source.workspace_build(args, denied)
+            self.assertFalse((denied.directory/'inputs').exists())
 
 
 if __name__ == "__main__":

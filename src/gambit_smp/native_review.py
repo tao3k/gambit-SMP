@@ -179,6 +179,22 @@ def selected_scope(name, selected, fixtures):
             not path.suffix and any(path in Path(file).parents for file in selected))
 
 
+def make_operation_scope(args):
+    if "operations" not in args:
+        return {"Makefile:" + args["operation"]} if args.get("operation") is not None else set()
+    operations = args["operations"]
+    if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
+            or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)
+                   for name in operations)
+            or not isinstance(args.get("requestedOperations"), list)
+            or not set(args["requestedOperations"]) <= set(operations)):
+        raise ValueError("exact inferred and requested operation inventories required")
+    makefile_scope = args.get("makefileScope")
+    if args.get("regime") != "upstream-make" or makefile_scope != "tests/makefile":
+        raise ValueError("source-bound official Makefile operation scope required")
+    return {makefile_scope + ":" + name for name in operations}
+
+
 def failure_campaign_files(receipt):
     """Project closed recorded inventories; unknown or malformed scope stays open."""
     if (receipt.get("schema") not in {"gambit-upstream-suite.v1", "gambit-upstream-atomic-coverage.v1"}
@@ -221,6 +237,20 @@ def milliseconds(seconds):
     return int(value)
 
 
+def campaign_tree_identity(runtime, tested_unit):
+    """Bind actual native bytes plus the complete prospective unit-test overlay."""
+    from gambit_smp.recipes import tree_identity
+    inventory = tree_identity(runtime)
+    if tested_unit.resolve() != (runtime / "tests/unit-tests").resolve():
+        prefix = "tests/unit-tests"
+        inventory = {name: row for name, row in inventory.items()
+                     if name != prefix and not name.startswith(prefix + "/")}
+        inventory[prefix] = {"directory": True}
+        inventory.update({prefix + "/" + name: row
+                          for name, row in tree_identity(tested_unit).items()})
+    return inventory
+
+
 def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite_budget=None):
     from gambit_smp.recipes import tree_identity
     from gambit_smp.research_kernel import content_id
@@ -232,10 +262,12 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
                         capacity(cpu, len(files), args["regime"] != "whole-sequential",
                                  args.get("processors"), args.get("jobs")))
     result = {"candidateReceiptSha256": digest(candidate_receipt), "mode": args["mode"],
-            "runtimeTreeId": content_id(tree_identity(runtime)),
+            "runtimeTreeId": content_id(campaign_tree_identity(runtime, tested_unit)),
             "failureInventorySha256": digest(ctx.root / "evidence/native-failures.json"),
             "reviewRulesSha256": digest(ctx.root / args["reviewRules"]),
-            "regime": args["regime"], "selectedFiles": {str(file): digest(tested_unit / file) for file in files},
+            "regime": args["regime"],
+            "watchdogMode": "no-progress" if ctx.receipt.get("timeoutPolicy", {}).get("mode") == "progress" else "wall-clock",
+            "selectedFiles": {str(file): digest(tested_unit / file) for file in files},
             "operation": args.get("operation"),
             "suiteBudgetSeconds": step["budgetSeconds"] if suite_budget is None else suite_budget,
             "recipeBudgetSeconds": ctx.receipt["budgetSeconds"],
@@ -244,11 +276,25 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
             "groupBudgetSeconds": args.get("groupBudgetSeconds", {}),
             "processors": args.get("processors"), "jobs": args.get("jobs"),
             "hostCpuCapacity": cpu, "effectiveProcessors": population, "effectiveJobs": jobs}
+    if 'numericGrouping' in args:
+        from gambit_smp.compiler_phase_primitives import bind_numeric_grouping
+        # The original Scheme bytes alone do not identify a transformed
+        # compiler input. Review and execution bind the same real producer.
+        bind_numeric_grouping(ctx, tested_unit.parent, args['numericGrouping'])
+        result['numericGrouping'] = dict(args['numericGrouping'])
+    if 'targetProcessors' in args:
+        result['targetProcessors'] = args['targetProcessors']
+    if 'reviewRulesExtension' in args:
+        result['reviewRulesExtensionSha256'] = digest(ctx.root / args['reviewRulesExtension'])
     if "environmentProbe" in args:
         observation = ctx.artifact(args["environmentProbe"], "current-producer-observation")
         result.update(environmentProbe=args["environmentProbe"], environmentObservationSha256=digest(observation))
+        if args['regime'] == 'upstream-make':
+            from gambit_smp.recipes import read_json
+            result['makeProcessors'] = read_json(observation)['processors']
     if "operations" in args:
-        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"])
+        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"],
+                      unitModes=args["unitModes"], makefileScope=args["makefileScope"])
     return result
 
 
@@ -430,7 +476,8 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
         original_files = previous.get("selectedFiles")
         exact_whole = regime in whole_regimes and current["regime"] in whole_regimes
         exact_atomic = regime == current["regime"] == "atomic-coverage"
-        if (current["regime"] in whole_regimes and not current.get("operation")
+        if ((current["regime"] in whole_regimes and not current.get("operation")
+             or current["regime"] == "upstream-make" and current["mode"] in current.get("unitModes", []))
                 and isinstance(original_files, list) and original_files
                 and all(isinstance(name, str) for name in original_files)
                 and len(set(original_files)) == len(original_files)):
@@ -645,29 +692,29 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     engine = review_policy_identity(Path(ctx.receipt["engine"]["path"]))
     if digest(rules) != engine["files"].get("policy/suite-review-rules.ss"):
         raise ValueError("retry safety policy must match the sealed engine")
+    rule_paths = [args['reviewRules']]
+    extension = args.get('reviewRulesExtension')
+    if extension:
+        from gambit_smp.upstream_tests import POLICIES
+        path = source_path(ctx.root, extension)
+        if (current_regime := args.get('regime')) != 'upstream-make' or digest(path) != engine['files'].get(POLICIES.get(extension)):
+            raise ValueError('unsealed or non-Make retry policy extension')
+        rule_paths.append(extension)
+        ctx.bind([path])
     names = ("retry_marker", "known_failure", "selected_failure", "failure_category", "failure_scope", "review_present", "campaign_bound", "budget_regime",
              "required_budget", "original_budget", "requested_budget", "scoped_single_file", "scoped_file_group", "exact_whole_inventory", "exact_atomic_inventory", "changed_input",
              "claim_evidence", "claim_dependency", "claim_change", "observation_bridge", "observation_equal_pointer",
              "environment_observation", "environment_control", "resource_plan_observation", "whole_budget_interval",
              "review_original_file", "review_current_file", "compiler_probe_failure", "compiler_options_observation",
              "compiler_configuration_observation", "failure_campaign_file", "failure_campaign_closed",
-             "current_campaign_file")
+             "current_campaign_file", "budget_toolchain_distinct", "budget_watchdog_distinct")
     facts = {name: [] for name in names}
     facts["retry_marker"] = [[True]]
-    inputs = {args["failures"]: digest(manifest), args["reviewRules"]: digest(rules)}
+    inputs = {args["failures"]: digest(manifest), **{name: digest(ctx.root/name) for name in rule_paths}}
     selected = {str(path) for path in files}
     facts["current_campaign_file"] = [[name] for name in sorted(selected)]
-    if args.get("operation") is not None:
-        selected.add("Makefile:" + args["operation"])
-    if "operations" in args:
-        operations = args["operations"]
-        if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
-                or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) for name in operations)
-                or not isinstance(args.get("requestedOperations"), list)
-                or not set(args["requestedOperations"]) <= set(operations)):
-            raise ValueError("exact inferred and requested operation inventories required")
-        selected.update("Makefile:" + name for name in operations)
-    overlaps, failures = [], {}
+    selected.update(make_operation_scope(args))
+    overlaps, failures, budget_compilers = [], {}, []
     seen = set()
     for failure in declared["failures"]:
         if failure["id"] in seen:
@@ -687,12 +734,32 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         facts["selected_failure"].append([route])
         facts["failure_category"].append([route, failure.get("category", "unknown")])
         facts["failure_scope"].append([route, failure["file"]])
+        original_compiler = prior.get("compiler", prior.get("compilerVersion"))
+        if (failure.get("category") == "budget" and isinstance(original_compiler, str)
+                and original_compiler.strip()):
+            budget_compilers.append((route, original_compiler.splitlines()[0]))
+        if (failure.get("category") == "budget"
+                and ctx.receipt.get("timeoutPolicy", {}).get("mode") == "progress"
+                and prior.get("timeoutPolicy", {}).get("mode") != "progress"):
+            facts["budget_watchdog_distinct"].append([route])
         recorded_files = failure_campaign_files(prior)
         if recorded_files is not None:
             facts["failure_campaign_closed"].append([route])
             facts["failure_campaign_file"].extend([route, name] for name in recorded_files)
         failures[route] = (failure, prior)
         overlaps.append(route)
+    comparisons = []
+    if budget_compilers:
+        output = ctx.require("budget-compiler-version", [ctx.tools["gcc"], "--version"], ctx.root, 10)
+        version = output.splitlines()[0] if output.splitlines() else ""
+        if "gcc" not in version.lower() or "clang" in version.lower():
+            raise ValueError("GNU GCC budget comparison requires current compiler identity")
+        for route, original in budget_compilers:
+            distinct = original != version
+            comparisons.append({"route": route, "original": original, "current": version,
+                                "comparable": not distinct})
+            if distinct:
+                facts["budget_toolchain_distinct"].append([route])
     current = campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget)
     if document is None and "retryReview" in args:
         if isinstance(args["retryReview"], dict):
@@ -707,18 +774,31 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
                 raise ValueError("bound review intent changed")
             inputs[intent["path"]] = intent["sha256"]
             ctx.bind([review_path])
+            successor = bound_document.get("sourceSuccessor")
+            if successor is not None:
+                from gambit_smp.recipes import fields, source_path
+                fields(successor, ("path", "sha256"))
+                source = source_path(ctx.root, successor["path"])
+                if digest(source) != successor["sha256"]:
+                    raise ValueError("bound source successor changed")
+                inputs[successor["path"]] = successor["sha256"]
+                ctx.bind([source])
             document, producer_binding = bound_document["document"], True
         else:
             review_path = source_path(ctx.root, args["retryReview"])
             inputs[args["retryReview"]] = digest(review_path)
             document = read_json(review_path)
     if document is not None:
-        project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs,
+        distinct = {route for relation in ("budget_toolchain_distinct", "budget_watchdog_distinct")
+                    for route, in facts[relation]}
+        reviewable = {**document, "failures": [entry for entry in document["failures"]
+                                              if entry["id"] not in distinct]}
+        project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
     ctx.bind(ctx.root / name for name in inputs)
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):
         raise ValueError("bounded retry observation label required")
-    answers = evaluate_observations(ctx, [args["reviewRules"]], facts,
+    answers = evaluate_observations(ctx, rule_paths, facts,
         {"selected": "selected_known_failure", "disjoint": "failure_campaign_disjoint",
          "eligible": "retry_eligible", "denied": "retry_denied",
          "missing": "missing_claim", "review": "review_required", "need": "needed_claim",
@@ -743,6 +823,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
             "knownSelectedFailures": [row[0] for row in answers["selected"]],
             "knownScopeCandidates": overlaps, "disjointCampaignFailures": [row[0] for row in disjoint],
             "answers": answers, "inputs": inputs,
-            "facts": facts, "runtimeAdmitted": False, "executionAuthorized": False,
+            "facts": facts, "budgetCompilerComparisons": comparisons,
+            "runtimeAdmitted": False, "executionAuthorized": False,
             "policyProgram": "research-suite-review.v1",
             "scope": "Conditional investigation eligibility only. Host authorization and full native results remain independent."}

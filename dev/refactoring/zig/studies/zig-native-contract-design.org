@@ -1,0 +1,923 @@
+#+TITLE: Gambit Native Contract and Zig Engineering Boundary
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: zig
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Gambit Native Contract and Zig Engineering Boundary :zig:
+:PROPERTIES:
+:ID: a37294ad-9ba3-51fe-893e-8c78d821e948
+:CUSTOM_ID: gambit-native-contract-and-zig-engineering-boundary
+:SOURCE_PATH: docs/experimental/zig/zig-native-contract-design.md
+:SOURCE_SHA256: d5a8af69775241cfbd2869876924b2dc6b84ea289462048d5b8c2c19299c68d0
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Date: 2026-10-19. Status: concrete architecture proposal, not implementation.
+
+This design refines the [[file:zig-system-engineering-architecture.org][system engineering study]]
+and its [[file:zig-system-engineering-sources.org][literature review]]. It selects owners,
+interfaces, lifecycle rules and required source changes. No Zig/C/Scheme code,
+runtime patch, executable schema, tool installation, model run or native
+experiment is introduced here.
+
+*** 1. Selected Architecture
+:PROPERTIES:
+:ID: 48d3b035-26c9-55be-8881-82ac2aa1e87d
+:CUSTOM_ID: 1-selected-architecture
+:END:
+
+The later [[file:zig-adoption-decision.org][Zig adoption decision]] makes the managed-Zig
+profile below conditional on its incremental engineering case. The contracts
+remain language-independent; neither AOT interface construction nor MLIR service
+isolation requires Zig. This document specifies the candidate profile if adopted,
+not a mandatory dependency for the semantic refactor.
+
+Select a managed native-construction profile with these properties:
+
+1. Gambit owns Scheme semantics, target descriptions, code generation, module
+   composition and runtime execution authority.
+2. Zig owns native construction and external compiler-service execution from
+   an explicit request. It operates on native-owned data and artifacts.
+3. The native contract has three separate parts: construction data, the private
+   generated-code/runtime protocol, and a narrow host-service C interface.
+4. MLIR is an optional, separate AOT compiler service. Its handles, dialect
+   implementation and pass manager remain private to that service.
+5. Loading and initialization remain Gambit operations. An emitted object is
+   not a Gambit module merely because its platform ABI matches.
+
+The managed profile replaces its native command construction directly. It does
+not perpetually translate a new request back into the old shell/environment
+protocol. This is a product-profile design, not a decision to require Zig for
+every upstream portable-C distribution. It also does not retain defective SMP
+protocols or mixed runtime generations as fallback implementations.
+
+**** 1.1 Decisions Now Closed at the Architecture Level
+:PROPERTIES:
+:ID: 6780cf1e-1929-5b5a-9b10-981eca5f8b20
+:CUSTOM_ID: 11-decisions-now-closed-at-the-architecture-level
+:END:
+
+| Decision | Selection |
+|-
+| Primary Gambit execution model | Existing C target and matched runtime remain first-class |
+| Scheme module composition | Stays in Gambit; distinct from native platform linking |
+| Default engineering deployment | Standalone Zig executable/tooling on the build host |
+| Default MLIR deployment | Independent host AOT service, no Scheme callbacks |
+| Runtime layout seen by ordinary Zig code | None; no imported GSTATE/VMSTATE/PSTATE or generated macros |
+| Host interface payload | Native scalars, explicit buffers and opaque native service identifiers |
+| Generic root/foreign-thread API | No new public root lease, attach/detach or VM switching API |
+| Compiler result admission | Distinct construction, compatibility and runtime checks |
+| Managed dynamic loading | Preflight before platform loading; mapping/fixup/init owned by Gambit |
+| JIT and arbitrary Scheme reentry from services | Outside the selected deployment; require a separate lifecycle design |
+
+These selections apply to the proposed architecture. Existing binaries and
+interfaces have not acquired these properties.
+
+*** 2. Source Authority and Observed Seams
+:PROPERTIES:
+:ID: aada772b-e67d-5985-b283-7809a9f7159e
+:CUSTOM_ID: 2-source-authority-and-observed-seams
+:END:
+
+Research repository HEAD: ~b67da6262a973a0ae898002d5c7f5be2d8b5a90d~, branch
+~codex/framework-dependency-dedup~ at inspection, with concurrent local changes.
+Vendor Gambit is ~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~; its tracked
+working tree was unchanged. Baseline references below use that vendor source.
+
+The current research candidate is described separately by
+[[file:../../../../evidence/research/processor-interrupt-collective-wait/source.lock.json][the source lock]]
+and [[file:../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch][the cumulative patch]].
+The lock SHA-256 is
+~7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b~;
+the patch SHA-256 is
+~8e6d68b028264cc9ae8225008af1ad3f09a6dfebe6d35268296c85e53fd0d23d~.
+Relevant patch hunks were read directly. They were not applied or compiled in
+this study. Candidate behavior is not inferred from an unchanged vendor file.
+
+| Source anchor | Observation | Design consequence |
+|-
+| Baseline ~gsc/_gsclib.scm:308-390~ | Selects target input/generation, then calls ~##gambuild~ | Preserve a Gambit-owned generation boundary before native execution |
+| Baseline ~_gsclib.scm:498-593~ | Packs input/output, compiler, flags, package configuration and metadata into environment bindings; invokes =~~bin/gambuild-TARGET= | Replace environment-shaped native requests in the managed profile with explicit data |
+| Baseline ~bin/gambuild-C.unix.in:238-283,331-410~ | Resolves metadata and package flags; explicit CC overrides clear mode defaults; shell templates are evaluated | A Zig integration needs one effective recipe, not just a different CC string |
+| Baseline ~lib/gambit/process/process.scm:76-150~ | Opens a subprocess, handles ports/status and appends inherited environment | Keep Scheme process waiting on the Gambit side; explicitly construct the child environment |
+| Baseline ~_gsclib.scm:661-667~; ~_t-c-1.scm:880-930,1208-1268~ | Gambit link processing combines module/symbol resources and emits C link metadata/code | Zig's linker does not replace Gambit's linker |
+| Baseline ~gsc/_back.scm:17-149~ | Target describes representation, primitives, frames, arguments and results | A future IR export must receive an agreed target profile before lowering |
+| Baseline ~_t-c-2.scm:425-449,870-912,4180-4225~ | Liveness drives flush/maps; inline C is emitted without tracing arbitrary C locals | Gambit retains root-map generation and embedded-C effects |
+| Candidate patch, ~_front.scm~ and ~_gvm.scm~ hunks | Polls distinguish ordinary interrupt polling and stack-only checks; optimization combines that distinction | Exported IR must retain the distinction and complete-frame requirements |
+| Candidate patch, ~_t-c-2.scm~ hunk at old line 62 | Ordinary return labels keep an ordinal prefix; private polling returns are partitioned; debug mapping follows assigned IDs | Label IDs, descriptor identity and debug correspondence are private runtime protocol |
+| Candidate patch, header SFUN and ~c_intf.c~ hunks | Admission, allocation rooting, unwind and frame release are coordinated | Do not implement an independent Zig callback/root protocol |
+| Baseline ~lib/setup.c:1592-1609,2068-2098~ | Runtime checks version/sizes and performs dynamic load followed by module setup | Add managed preflight before loading; keep fixup and execution admission in Gambit |
+| Baseline ~_module.scm:563-591~; ~_eval.scm:5569-5605~ | Scheme module/evaluator paths consume loaded descriptors | Cover both paths, not only a new convenience loader |
+| Baseline ~lib/os_dyn.c:48-105,255-260,408-450~ | Platform mapping and cleanup use native loader handles | Compiler workers must not load or retire Scheme modules themselves |
+
+The source lock marks an audited source slice and records no runtime/release
+admission. It is not a complete configured construction manifest. Existing
+registry/root-signal observations were read incrementally through the registered
+evidence interface; they remain the scoped results described in the literature
+review, not acceptance of this architecture.
+
+*** 3. The Three Parts of the Native Contract
+:PROPERTIES:
+:ID: 7bd1fbbe-b4ff-56dc-bbb6-d5431587f73c
+:CUSTOM_ID: 3-the-three-parts-of-the-native-contract
+:END:
+
+"Native contract" does not mean freezing all of ~gambit.h~ as a public ABI.
+
+| Part | Owner | Consumer | Stability policy |
+|-
+| Construction request/result | Project engineering contract; semantic inputs supplied by Gambit | Zig executor and outer build system | Versioned data schema; no runtime pointers |
+| Generated-code/runtime protocol | Gambit compiler and runtime jointly | Generated C, matched libraries and any general backend | Private protocol generation plus exact configuration; coordinated rebuild on incompatible change |
+| Host-service C interface | Gambit-facing integration contract, with the native service implementation owner | Gambit adapter and optional native clients | Narrow versioned C surface; explicit effects and ownership |
+
+A runtime protocol change may force regeneration and rebuilding while leaving
+the construction schema untouched. A compiler-service upgrade can invalidate
+optimized artifacts while ordinary C objects remain reusable. A host service's
+API version does not authorize it to operate on Scheme heap objects.
+
+**** 3.1 Exact Ownership Allocation
+:PROPERTIES:
+:ID: 497f029f-c175-54b0-a350-577d939e07d6
+:CUSTOM_ID: 31-exact-ownership-allocation
+:END:
+
+| Responsibility | Stays in Gambit | Assigned to Zig | Required boundary change |
+|-
+| Language and primitive semantics | Expansion, numeric tower, arity, exceptions, continuation and effect meaning | Carry declared selections | Export explicit requirements, never infer semantics from native widths |
+| Target representation | Registers, call/result convention, frames, closures and runtime globals | Resolve matching native platform tools | Separate semantic profile from toolchain resolution |
+| C generation and embedded C | Generation, declarations/initializers, macro protocols and liveness | Compile supplied C | Structured sidecar for native requirements; preserve embedded code as C |
+| Gambit module linking | Imports/exports, symbols, keywords, globals, base linkfile and module initialization graph | None of this semantic merge | Supply generated link unit and its identity to native plan |
+| Native compile/archive/link | Required artifact roles and intended ordering | Tool invocation, dependency resolution, process budgets and packaging | Replace shell template expansion in the managed profile |
+| Configuration | Meaning of Gambit features and emitted runtime definitions | Select toolchain and execute configuration producer | One generated effective profile; no independent Zig copy of the feature logic |
+| Scheme objects and roots | Allocation, root visibility, relocation, reload, saved RA and maps | Native-owned memory only | Marshal or copy across the host boundary |
+| VM/processor execution | Admission, exclusive execution owner, scheduler and GC participation | No attachment or execution authority | Opaque service IDs must not stand in for pstate ownership |
+| Module load and initialization | Native mapping, runtime fixup, registration and Scheme initialization | Publish loadable candidate artifact only | Managed preflight plus role-aware result handoff |
+| Native service lifecycle | Own Scheme-visible resource object and delivery policy | Native buffers, workers and service teardown | Ordinary-return C operations or subprocess protocol |
+| Diagnostics | Scheme source positions, module context, language errors | Tool/service diagnostics and native artifacts | Correlate stages without substituting native messages for Scheme semantics |
+
+The Zig engineering layer is allowed to be substantial: it can construct all
+native products, package dependencies and host multiple compiler services. Its
+scope is limited by responsibility, not by reducing it to a minimal kernel.
+The [[file:zig-system-layer-value.org][full system comparison]] extends this allocation
+to native-owned algorithms/providers, diagnostics, process ownership and costs.
+In particular its AOT process topology leaves Gambit reaping the executor while
+the executor reaps its own tool/service children, rather than introducing an
+in-process reaper that competes with the original SIGCHLD handler.
+
+*** 4. Construction Contract: Concrete Data Model
+:PROPERTIES:
+:ID: b844ebbe-bf2b-52e3-b7c7-52449779854b
+:CUSTOM_ID: 4-construction-contract-concrete-data-model
+:END:
+
+The names in this section are design records, not implemented functions or files.
+Select JSON for the bounded control metadata, using ordered arrays where order
+matters and explicit schema/encoding rules. Large source, IR, object and debug
+data remain separately identified blobs. Identifiers are opaque strings; lengths
+and offsets require a specified integer encoding/range rather than JSON-number
+rounding assumptions. The protocol never evaluates Scheme or shell expressions.
+
+**** 4.1 Request and Resolution Records
+:PROPERTIES:
+:ID: bcdfab26-0f37-5578-9d6c-bb5fa45dd27d
+:CUSTOM_ID: 41-request-and-resolution-records
+:END:
+
+The [[file:../../../architecture/toolchain/studies/native-request-configuration-migration.org][request/configuration migration refinement]]
+defines exact source-derived precedence, override distinctions, mode segments,
+one-resolver ownership and M1-M12 retirement targets. It also states the
+LLVM engineering-reuse boundary and upgrade propagation. Its rules refine
+these conceptual records; no wire schema or implementation is added.
+
+The [[file:../../../architecture/toolchain/studies/compilation-unit-artifact-contract.org][compilation-unit and artifact contract]]
+refines the producer unit, product envelopes and invalidation semantics. It
+distinguishes request identity, content identity, runtime compatibility and
+admission, and separates semantic compilation from shared-snapshot grouping and
+Bazel action granularity.
+
+| Record | Required information | Authority |
+|-
+| Construction request | Request ID, schema, operation, source artifact references, intended output role, Gambit requirements, output destination policy and limits | Gambit/outer caller |
+| Native profile | Target triple/ABI, word size/endianness, CPU features, deployment target, libc/SDK, Gambit feature configuration, generated-header and protocol identities | Configuration producer plus selected tools |
+| Resolved plan | Executable identities, argv arrays, explicit environment, working roots, ordered inputs, package resolution, compile/link modes and derived dependency closure | Zig executor, constrained by the request |
+| Artifact description | Role, content digest, producer plan identity, target/profile, required runtime protocol, entry symbols, module/link metadata reference and debug/source-map references | Producer reports; consumer checks |
+| Construction result | Terminal process outcome, stage-specific error, output descriptions, diagnostics and actual recipe/dependency identities | Executor; not runtime admission |
+
+Operations are native ~compile-object~, ~archive~, ~link-shared~, ~link-executable~
+and ~run-compiler-service~. A Gambit module-link operation is deliberately not
+listed: it happens in Gambit and produces another native construction input.
+
+Artifact roles distinguish C source, ordinary native object, Gambit code object,
+Gambit generated link unit, shared Scheme module, embedding library, executable
+and device image. File suffix alone cannot select a role. An MLIR object with a
+C entry point is an ordinary native object until Gambit supplies module glue.
+
+**** 4.2 Configuration and Flag Resolution
+:PROPERTIES:
+:ID: 9eb02c19-cc59-5778-a3d1-9f5263015952
+:CUSTOM_ID: 42-configuration-and-flag-resolution
+:END:
+
+The [[file:../../../architecture/toolchain/studies/effective-configuration-darwin-gcc.org][effective configuration refinement]]
+owns the source-derived field model, distinct mode algebra and initial
+Darwin/GCC support matrix. Selected mappings are not qualified commands;
+concrete generated tool/SDK/runtime values remain required.
+
+Keep Gambit's configuration producer authoritative for the meaning and effective
+definitions of ~SINGLE_VM~, multiple-threaded VMs, SMP, register/frame settings
+and other generated runtime features. Zig selects a toolchain and executes that
+producer for the requested target. It consumes the result rather than cloning
+the configure decision tree into ~build.zig~.
+
+For the managed profile, extend the configuration output to describe compiler,
+header, library and mode defaults as data. Configuration must use the same
+selected toolchain/profile as later compilation. Host tools and target runtime
+configuration have distinct records. Cached configured output for another
+compiler is not reusable because a command name was overridden.
+
+Resolve the existing sources of flags once: configured defaults, mode-specific
+definitions, generated-C metadata, requested compile options, package settings,
+link-prelude options, ordered link inputs/libraries and link-tail options.
+Preserve observable option ordering from the selected current operation before
+changing its policy. In particular, native library link order is not a set.
+
+The source's CC override clears ~FLAGS_OBJ~, ~FLAGS_DYN~ or ~FLAGS_EXE~ for those
+modes. Therefore an arbitrary user CC override must be represented as an
+explicit compiler-override request with its full effective options, or rejected by
+the selected managed profile. Replacing it with a toolchain selection must
+instead re-resolve configuration. Do not silently retain or discard flags under
+the assumption that the two operations mean the same thing. This is a policy
+decision to expose, not a claim that current callers are broken.
+
+Zig records package configuration results and their target/tool dependencies.
+It does not ask the host's ambient ~pkg-config~ to resolve target libraries
+without a specified search environment. Per-request state is passed to child
+processes, not installed in mutable process-global environment for concurrent
+requests. Existing string/list options need a defined argv conversion; do not
+split an arbitrary shell command at whitespace.
+
+**** 4.3 Construction and Publication State
+:PROPERTIES:
+:ID: 572e3b53-dcb8-5449-af05-265d2365a4d1
+:CUSTOM_ID: 43-construction-and-publication-state
+:END:
+
+#+BEGIN_SRC text :eval never
+received -> resolved -> running -> produced -> checked -> published
+                      |             |
+                      +-> failed     +-> rejected
+                      +-> cancelling -> cancelled (only after owned work ends)
+#+END_SRC
+
+~produced~ means bytes were emitted. ~checked~ means role, content, dependencies
+and requested profile match the construction contract. It does not mean Scheme
+correctness or runtime entry is admitted. A check failure cannot publish the
+artifact as the requested product.
+
+Use private output staging, finalize all declared outputs, then publish the
+artifact and description together. Publication must establish a stable selected
+artifact instance for later consumption; a digest beside a mutable pathname
+does not do so. Failed/partial outputs and original diagnostics remain retained
+as appropriate to the existing evidence framework, outside successful output
+publication.
+
+Cancellation is a request, not a terminal success. The executor owns native
+children and temporary data until they have actually stopped or completed. Lost
+contact or failed termination remains an unresolved retained job; the caller
+must not claim cancellation, erase evidence or reuse live output locations.
+Completion-versus-cancellation is resolved before publication, with one terminal
+result for the request. CPU/memory/process limits include nested service work.
+
+After publication, a late cancellation returns the already-completed result;
+it does not revoke the published artifact or relabel completed work as cancelled.
+
+The current Scheme subprocess implementation supplies ports and process status,
+but this read does not establish cancellation/drain guarantees for the new
+request lifecycle. Managed request ownership and cleanup must be designed around
+that distinction rather than inferred from a returned exit code.
+
+*** 5. Private Generated-Code/Runtime Protocol
+:PROPERTIES:
+:ID: 9a9dc84b-e620-5482-961a-9d9b7c1fbc35
+:CUSTOM_ID: 5-private-generated-coderuntime-protocol
+:END:
+
+**** 5.1 What the Contract Contains
+:PROPERTIES:
+:ID: f5bd3a38-943c-55fa-a535-b3353737a348
+:CUSTOM_ID: 51-what-the-contract-contains
+:END:
+
+The runtime-required part of an artifact must identify at least:
+
+- Object/tag representation and numeric/boxing rules.
+- Closure/environment, globals and module descriptor representation.
+- Scheme call, tail-call, argument/result and multiple-value conventions.
+- Physical frame layout, continuation/return descriptor identities and label
+  conventions, including runtime-addressed ordinal prefixes.
+- Roots at valid collection points, frame maps, saved registers, RA publication
+  and post-relocation reload.
+- Distinct stack-growth checks, interrupt polls and their permitted placement.
+- Foreign-call effects, nested entry and nonlocal error/continuation exits.
+- VM/processor configuration and generated inline synchronization protocols.
+- Module fixup, initialization and relevant runtime generation requirements.
+
+Gambit owns both the requirements and their compiler/runtime implementation.
+Zig can compare identities and select inputs; it cannot establish that an
+arbitrary producer implements this protocol just by matching a string.
+
+Separate a *protocol generation* (a deliberately maintained semantic/layout
+contract) from *input identity* (the exact producer/runtime/header/configuration
+closure). For managed generated modules, select exact profile/generation and
+matched producer lineage. Do not infer compatibility from equal structure sizes,
+one Gambit release number, a successful platform link or the presence of an
+entry symbol. The existing loader's checks remain useful additional checks.
+
+This does not require making every internal layout public. It makes changes
+explicit enough that affected generated C, runtime libraries, wrappers and
+extensions are rebuilt together. Matching identity remains a necessary condition,
+not a source-refinement proof.
+
+**** 5.2 Concrete Source Obligations Already Visible
+:PROPERTIES:
+:ID: f57cd89a-054c-5ec7-89c3-57485f9d6afb
+:CUSTOM_ID: 52-concrete-source-obligations-already-visible
+:END:
+
+The candidate adds ~stack~ alongside boolean poll information. A stack-only
+check must not become ordinary interrupt dispatch in an interrupt-disabled
+region, and optimizations must not erase the required check. It still enters a
+stack-limit handler; absence of interrupt dispatch is not proof of no allocation,
+no GC or ordinary-return-only behavior. Complete frame/root state is required.
+
+The candidate also keeps ordinary return labels before compiler-private polling
+returns, with corresponding debug-ID mapping. A general MLIR backend must
+preserve the required labels/descriptors or replace their consumers in one
+coordinated protocol change. LLVM's block labels and debug locations do not by
+themselves implement that contract.
+
+The baseline inline ~##c-code~ emitter exposes resources but cannot discover
+arbitrary C-local roots. The generated liveness and root-map machinery therefore
+remains in the Gambit-owned semantic producer. Existing
+[[file:../../../../docs/experimental/stage-one-closure-audit.md::#generated-root-liveness-what-was-actually-established][root-liveness analysis]]
+does not authorize moving a live Scheme object into an untraced Zig variable.
+
+Compiler-specific branches are also real inputs: the candidate has GNU-GCC-only
+Darwin branches that exclude Clang. Selecting Zig's C toolchain can therefore
+change the preprocessed runtime path. Record those effective inputs; neither
+copy GCC flags blindly nor claim equivalent candidate behavior from matching
+source files alone.
+
+*** 6. Host-Service Boundary: Ordinary Native Work
+:PROPERTIES:
+:ID: b87df22b-935d-5065-b8b5-44a7b900c16d
+:CUSTOM_ID: 6-host-service-boundary-ordinary-native-work
+:END:
+
+**** 6.1 A Narrow C Surface
+:PROPERTIES:
+:ID: 519b3453-33d3-59f2-972e-e1ea472adb41
+:CUSTOM_ID: 61-a-narrow-c-surface
+:END:
+
+The chosen standalone engineering executable needs no direct Scheme/Zig FFI for
+ordinary compilation: Gambit serializes a request, starts a process, waits through
+its process facilities and consumes a result. Process framing, declared files
+and status replace shared runtime pointers.
+
+For services intentionally embedded later, select a C-facing interface with
+opaque native service/job identifiers, fixed-width scalar metadata, pointer-plus-
+length buffers, explicit caller/owner release functions and ordinary status
+returns. A borrowed input buffer is valid only for the declared call interval;
+retention requires native ownership transfer or a copy. Native handles carry no
+Scheme VM/processor authority. Exact C typedefs and symbol spellings are not
+introduced by this document.
+
+| Operation class | Native side may do | Gambit adapter must supply | Excluded implicit behavior |
+|-
+| Bounded leaf | Inspect/copy explicitly borrowed native data within documented limits | Valid buffer/lifetime and ordinary return | Scheme allocation, collection service, callbacks and nonlocal exits |
+| Native work submission | Accept or copy native-owned inputs and create an owned job | A Scheme-owned reference to the resource, with failure cleanup policy | Retain a movable Scheme address or steal pstate |
+| Native completion read | Return status and native-owned output reference/data | Reconstruct Scheme values under valid execution/root ownership | Worker directly installs Scheme values or invokes a closure |
+| Native cancel/drain/release | Act on native jobs/resources, report real completion/failure | Keep resource reachable until owned work is discharged | Call runtime cleanup, detach a Scheme processor or pretend cancellation completed |
+| Scheme callback/runtime operation | Not part of the generic service interface | Separate existing supported Gambit entry and full effect contract | Upgrade a service handle into Scheme execution permission |
+
+Native allocation or native locking is not automatically bounded, lock-free or
+nonfailing. Leaf classification is an obligation on the actual operation,
+not an inferred property of being written in Zig.
+
+**** 6.2 Root, Wait and Unwind Discipline
+:PROPERTIES:
+:ID: 26f8cb12-ada1-5bc3-ab85-6273f110e455
+:CUSTOM_ID: 62-root-wait-and-unwind-discipline
+:END:
+
+Use a Gambit-owned prepare/submit/wait/deliver shape:
+
+1. Prepare Scheme inputs on the valid execution owner; serialize or copy while
+   generated roots/maps remain correct.
+2. Hand native-owned data to a process/service and finish native call-local
+   temporary ownership through an ordinary return.
+3. Wait using a Gambit-owned path with its actual service/root/exit contract.
+   Hold no borrowed movable address or service lock across that wait.
+4. On completion, reacquire/reload the applicable Scheme state, construct the
+   result and perform Scheme-level error delivery after native cleanup.
+
+The [[file:../../../../docs/experimental/metadata-wait-roots-exits.md][wait/root audit]] shows that synchronous service
+can execute more than GC, resize a cohort, throw or retire a processor. Do not
+call it as a generic cleanup-safe wait from a Zig-owned stack frame. A resource
+that outlives the call needs a durable owner before such a wait, including the
+case where Scheme control never returns to that activation.
+
+The candidate's SFUN frame gate and marker handling already implement specific
+entry/exit obligations. They are not generic service job leases. Fixed
+~GC_SAVE1/2/3~ slots are not a nestable root stack. Keep those protocols in
+Gambit-owned generated/C adapters instead of recreating them in Zig.
+
+Zig cleanup syntax is not the foreign control-flow contract. Scheme longjmp,
+C++ exception and continuation escape must be caught/handled by the appropriate
+Gambit boundary before crossing a resource-owning native service call. A service
+reports a typed native error; the Gambit adapter then maps it to the existing
+public Scheme result/error convention. Preserve supported nested FFI elsewhere;
+the restrictions here apply to this newly designed service interface.
+
+**** 6.3 Shutdown and Runtime Identity
+:PROPERTIES:
+:ID: 6696c537-bbce-576f-8d44-846f935657ae
+:CUSTOM_ID: 63-shutdown-and-runtime-identity
+:END:
+
+Native jobs may finish independently of whether their original Scheme caller
+is still eligible for delivery. Record the owning runtime instance/generation
+in the Gambit-side resource association. A completion for a closed or different
+instance is retained/released through its owner; it must not be delivered to a
+reused VM address or another current processor.
+
+Shutdown ordering is: stop new service requests; settle outstanding delivery
+ownership; cancel/drain/join native work; release native service resources; then
+continue the runtime's already-defined teardown. If drain/join fails, preserve
+the unresolved ownership and error. Do not free runtime state reachable by an
+outstanding adapter. Existing global setup/cleanup exclusivity is unchanged.
+
+An embedding that intentionally allows jobs to outlive a VM needs an explicitly
+independent host owner. That is a declared service lifetime, not accidental
+dependence on a global singleton or a universal TLS cache. No arbitrary
+foreign-thread attachment, cross-VM callback or restart protocol is added.
+
+*** 7. Loading Is a Gambit Operation
+:PROPERTIES:
+:ID: f3e337e1-c43f-5553-ac71-9071523380b4
+:CUSTOM_ID: 7-loading-is-a-gambit-operation
+:END:
+
+Select these phases for managed artifacts:
+
+#+BEGIN_SRC text :eval never
+Zig publishes bytes + description
+  -> Gambit selects a stable artifact instance
+  -> preflight role / target / protocol / configuration / dependency identity
+  -> existing platform load
+  -> existing Gambit descriptor/fixup checks
+  -> existing Scheme module registration and initialization
+  -> callable through existing supported Gambit entry
+#+END_SRC
+
+The native loader must not be called merely to inspect whether a candidate is
+compatible: mapping a native library can already execute initialization. The
+metadata preflight therefore runs before ~___dynamic_load~. It has to cover
+~##get-module~ and evaluator loading paths, as well as direct native loader
+entry where that entry is supported. Put enforcement in a shared Gambit-owned
+path, not only in the Zig producer or a new Scheme convenience function.
+
+Select a compact load descriptor for this C-side preflight, separate from the
+JSON construction envelope. The runtime does not need a general JSON, Zig or
+MLIR parser. The Gambit-owned artifact metadata producer derives both the load
+descriptor and its construction reference from one requirements record.
+
+| Load descriptor field | Selected meaning |
+|-
+| Magic, schema version and encoded length | Bounded parsing, explicit byte order and rejection of unknown required fields |
+| Artifact role | A managed shared Scheme module; not an ordinary native object or device image |
+| Content identity | SHA-256 of the selected native image |
+| Required runtime protocol/profile identities | Compare with the running Gambit instance's generated requirements record |
+| Module metadata and producer references | Bind semantic module/link-unit metadata and construction provenance |
+| Entry name and declared dependency references | Names/identities required by Gambit and the selected native load profile |
+
+This field inventory is selected; exact wire offsets, integer limits and encoding
+rules belong to the wire specification. A managed loader rejects a missing or
+inconsistent descriptor. Unknown optional data may be skipped only according to
+that schema; required runtime semantics cannot be skipped. There is no implicit
+unmanaged retry after rejection.
+
+Place descriptor consumption in the common Gambit native-load path before
+~___dynamic_load~; keep the runtime's own version/size/fixup checks afterwards.
+Descriptor I/O/parsing has the actual caller's allocation, wait and error
+effects; native file access must not simply be labeled a GC-safe leaf.
+Preflight does not add parallel module initialization or new loader reentrancy.
+
+Artifact content must stay bound to what the platform loader maps. A digest
+check followed by reopening a mutable pathname is insufficient. The selected
+publication/loader protocol must retain a stable instance through mapping; a
+managed path that cannot provide this property cannot claim managed admission.
+This is an engineering ownership requirement, not a claim that all platforms
+offer a common load-by-file-descriptor API.
+
+The current module path performs fixups after platform load and marks linkfile
+state. A later initialization failure is not generally a rollback of native
+constructors, descriptor mutation or user initialization. Retain the exact
+failure stage and follow Gambit's existing ownership/cleanup behavior; Zig
+must not automatically unload/retry it as a fresh compilation request.
+
+This design does not introduce module hot-unload. Native service libraries use
+their own drain/destroy contract; Scheme modules follow Gambit's loader/runtime
+lifetime. JIT code retirement would require additional closure, return-address,
+root-map, debugger and unwind ownership and is not implied by either mechanism.
+
+*** 8. MLIR as a Decoupled Compiler Service
+:PROPERTIES:
+:ID: 7f915033-2a95-5a86-b371-06caee268652
+:CUSTOM_ID: 8-mlir-as-a-decoupled-compiler-service
+:END:
+
+**** 8.1 Chosen Deployment and Authority
+:PROPERTIES:
+:ID: 02957533-be3c-5b84-af84-f5b083efa723
+:CUSTOM_ID: 81-chosen-deployment-and-authority
+:END:
+
+Select a separate host process for AOT compilation. Zig launches, budgets and
+supervises it; the backend implementation owns MLIR contexts, operations,
+pipelines, dialect implementations and LLVM object emission. The Gambit backend
+owner defines the Scheme/runtime meaning of the export and approves the
+corresponding lowering contract. These are two implementation responsibilities,
+not competing authorities over language semantics.
+
+MLIR libraries, C++ ABI dependencies and dialect plugins belong to the service
+bundle, not the base Gambit runtime or the generic Zig interface. The
+[[https://mlir.llvm.org/docs/CAPI/][MLIR C API]] remains a possible implementation
+detail inside that bundle; it has no stability guarantee. Keeping its handles
+out of the project boundary limits the scope of that API churn.
+
+No ordinary compile request carries ~MlirContext~, raw Scheme objects, process
+addresses, C++ types or Zig allocator objects. A future in-process service can
+implement the same request/result contract only after its additional lifecycle
+and fault-domain obligations are explicitly designed. It is not selected here.
+
+**** 8.2 Compiler-Service Records
+:PROPERTIES:
+:ID: 3533346f-dde6-5284-97f0-7e4ae8ffe6df
+:CUSTOM_ID: 82-compiler-service-records
+:END:
+
+| Record | Required fields/meaning |
+|-
+| Service description | Implementation/revision identity; request/export versions; supported operation semantics; target and artifact roles; runtime protocol profiles; approved lowering policies |
+| Compile request | Request ID; immutable export/artifact references; semantic version; declared target and runtime requirements; chosen policy identity; resource/output limits |
+| Semantic export | Logical module/procedure/block/value/constant IDs; operation semantics; data representation requirements; control/effect/frame information; embedded-C and module composition references; source map |
+| Service result | Exact request/export/policy/producer identities; emitted artifact descriptions and dependencies; stage diagnostics; unsupported/error/cancel outcome |
+
+Capability matching is finite and explicit: unsupported export version, effect,
+target or runtime profile produces ~unsupported~ before transformation. A
+service's self-reported support is not correctness evidence; it must correspond
+to a maintained backend contract. The engineering layer must not turn unknown
+semantics into default ~arith~, omit an operation or relax effects to make a
+request succeed.
+
+A policy names a versioned semantic lowering/optimization configuration, not
+an arbitrary unchecked list of test passes. The service validates its own
+pipeline and reports its exact identity. Zig need not understand the internal
+pass graph to construct or package the resulting object.
+
+Use a project-owned export envelope; an MLIR text/bytecode blob can be one
+payload encoding for a declared dialect bundle. The
+[[https://mlir.llvm.org/docs/BytecodeFormat/][bytecode format's stability]] does
+not freeze dialect semantics. Export version, dialect semantics, pipeline and
+runtime protocol therefore have distinct identities.
+
+**** 8.3 Two Distinct Output Contracts
+:PROPERTIES:
+:ID: a84fc2de-4bfc-5294-ae20-16932dcb7b5c
+:CUSTOM_ID: 83-two-distinct-output-contracts
+:END:
+
+| Output contract | Interface to the program | Responsibility |
+|-
+| Native C-ABI companion | Explicit C entry points, native buffers/scalars, ordinary returns; linked through Gambit-owned C glue | Service owns internal lowering; Gambit owns boxing, roots, supported Scheme errors/entries and module registration |
+| General Gambit code object | Implements the full selected generated-code/runtime protocol, including maps, frames, checks, labels and module metadata | Gambit backend/runtime owner jointly specifies and maintains the lowering contract |
+
+These contracts are different artifact roles, not silently interchangeable
+optimization levels. Both fit the long-term architecture. The second cannot be
+advertised as supported until its whole private protocol is specified by the
+backend owner; this document does not claim that an existing MLIR pipeline
+implements it. The first does not restrict all future work to numerical kernels:
+it admits any service whose explicitly defined C/native semantics fit the
+interface, while ordinary Scheme execution stays with Gambit.
+
+For a native companion, all Scheme-module declarations and initialization stay
+in Gambit-generated glue. A raw optimized object is not passed directly to the
+Scheme module loader. A general code object must supply Gambit-understood module
+composition data; metadata parsing and semantic link composition remain Gambit
+responsibilities even when its machine code came from MLIR.
+
+**** 8.4 Concrete Requirements for a General Export
+:PROPERTIES:
+:ID: 8b0e19b9-7f1b-5b04-8679-00feda70a86c
+:CUSTOM_ID: 84-concrete-requirements-for-a-general-export
+:END:
+
+The current ~_back.scm~ interface makes target agreement precede export. The
+export carries target/primitive conventions, not just a late ~dump~ product.
+Logical references replace serialized Scheme heap pointers. Constants and
+closures have explicit descriptions rather than native addresses.
+
+| Semantic area | Information that must survive export | Invalid simplification |
+|-
+| Numeric operations | Exact/inexact type, width/range, overflow/promotion and selected safe/unsafe primitive meaning | Map generic Scheme addition to fixed-width integer addition |
+| Control | Ordinary/tail calls, multiple values, exception and continuation edges | Treat every procedure as an ordinary C function |
+| Runtime effects | Allocation, movement, mutation/barriers, Scheme reentry, blocking and service effects | Mark foreign/inline code pure because the signature has no visible output |
+| Frames and roots | Complete-frame boundaries, liveness, relocation/reload and return descriptors | Replace a Scheme root with an untracked native local |
+| Polling | No check, stack-growth check, ordinary interrupt poll, plus legality constraints | Collapse the candidate's tri-state meaning to a boolean |
+| Labels and debug data | Logical identity mapped to required runtime descriptors/ordinals and source positions | Reuse MLIR block-printing order as runtime ABI |
+| Modules/globals | Imports/exports, initialization, symbols/global resources and matched runtime profile | Let the platform linker invent Scheme initialization order |
+| Embedded C | Opaque C artifact/effect requirements or a specifically supported conversion | Assume the C API or a C importer recovers Scheme root obligations |
+
+For opaque embedded C outside a service's supported conversion, the Gambit
+compiler must select an explicitly supported code-generation route before
+submitting that unit. Unsupported MLIR input is not a reason to retry with
+different semantics after failure. The existing C target remains a deliberate
+target choice rather than an implicit error fallback.
+
+The exact full operation inventory and binary/text encoding of a general export
+remain backend specification work. They are isolated behind this interface;
+their absence does not make generic Zig engineering tools language-semantic
+owners or require prematurely freezing GVM as a public IR.
+
+**** 8.5 Required High-Level Path for Functional and Dynamic-Language Research
+:PROPERTIES:
+:ID: 991bf2ca-2c90-538b-aa57-37aa53f9c022
+:CUSTOM_ID: 85-required-high-level-path-for-functional-and-dynamic-language-research
+:END:
+
+The [[file:../../../architecture/compiler/studies/zig-high-level-semantics-design.org][high-level semantics design]] now selects
+the primary export immediately before ~normalize-program~, before primitive
+expansion as well as assignment conversion and lambda lifting. It specifies
+functional/control/runtime IR levels, continuation-aware effects and a conservative
+allocation policy. Its [[file:../../../architecture/compiler/studies/zig-high-level-semantics-evidence.org][evidence and quantitative ledger]]
+binds source observations, paper coverage, retained controls and unmeasured benefits.
+The D2 sources and renders are indexed in the [[file:../../../research/studies/experimental-catalog.org][Zig research collection]].
+
+The [[file:../../../architecture/compiler/studies/primitive-ffi-coverage.org][coverage refinement]] adds a separate parse-time
+FFI side record: the pre-normalization tree hook cannot reconstruct signatures
+already converted into C-oriented records. The
+[[file:../../../architecture/compiler/studies/evaluation-effects-contract.org][order/effect contract]] and
+[[file:../../../architecture/compiler/studies/mlir-pass-admission.org][pass matrix]] now select the conservative semantic policy;
+metadata census and designed legality are distinct from implemented support.
+
+The engineering boundary permits semantic compiler research, but its existence
+does not establish that the chosen export contains enough information. For
+higher-order optimization and memory-region inference, make an earlier semantic
+export a required architectural path alongside the GVM/runtime export.
+
+Direct source reading identifies a concrete reason: baseline
+~gsc/_front.scm:247-250~ calls ~normalize-program~ before the later procedure/GVM
+generation in ~compile-program~. In ~gsc/_ptree2.scm:28-35~, normalization already
+performs assignment conversion, beta reduction and lambda lifting. Its
+~lambda-lift~ commentary at ~1518-1527~ discusses weakening captured environments
+and selected higher-order primitive arguments. A new hook only at ~target.dump~
+or even after all current normalization would therefore miss some of the
+original lexical/capture structure. A read-only export must be positioned before
+the transformations whose information the selected research needs; retaining
+a pointer to a subsequently mutated parse tree is not an immutable export.
+
+The resulting semantic progression is:
+
+#+BEGIN_SRC text :eval never
+expanded, lexically resolved Scheme
+  -> high-level functional/dynamic semantics in MLIR
+  -> explicit closure, effect, escape and allocation decisions
+  -> Gambit runtime representation and root/control protocol
+  -> LLVM/native object, or a Gambit-protocol-aware C emission path
+#+END_SRC
+
+Gambit owns the meaning of these stages. The compiler-service implementation
+can perform analysis and transformations inside MLIR; ownership does not require
+every optimization algorithm to remain implemented in Scheme. Zig continues to
+own transport, native construction and service lifetime. A separate process
+can receive whole modules and cross-module summaries without sharing pointers.
+
+| Research objective | Information required before lowering | Transformations to investigate | Correctness boundary |
+|-
+| Higher-order optimization | Lexical functions, bindings, captured mutable cells, call-target sets, function identity/generativity and effects | Specialization, direct-call conversion, inlining, closure/environment elimination and scalar replacement | Preserve observable identity, mutation, evaluation/error behavior and continuation effects |
+| Dynamic-language specialization | Flow facts, primitive meaning, open/closed-world assumptions, rebinding/loading effects and guarded versions | Unboxing, target specialization and elimination of redundant dynamic checks | Assumptions must hold at each use; retained code needs explicit invalidation or maintained guards |
+| Memory-region inference | Allocation sites, object reachability, aliases, escape, captures, exceptions, continuation capture/reentry and foreign retention | Proven-lifetime region allocation/deallocation or allocation elimination, combined with GC where needed | No object is reclaimed while reachable through any permitted control/reference path |
+
+MLIR's structural region is a container for blocks whose enclosing operation
+defines its meaning. It can model a closure body, but does not itself infer
+allocation lifetimes. The language reference explicitly leaves closure semantics
+to the operation. [[https://mlir.llvm.org/docs/LangRef/#regions][MLIR regions and closures]].
+The project needs explicit allocation/lifetime semantics and analysis rather
+than treating an IR scope as a memory arena.
+
+The Aiken/Fahndrich/Levien work on
+[[https://www.microsoft.com/en-us/research/wp-content/uploads/1995/06/afl-pldi95.pdf][region analysis of higher-order languages]]
+uses constraints to place memory operations and relaxes lexical lifetimes.
+Its abstract/introduction were read for this distinction. Its results do not
+establish applicability to unrestricted Scheme continuations, foreign pointers
+or the current Gambit collector.
+
+For Gambit, lexical return alone cannot justify region destruction if a captured
+continuation or escaping closure can still reach the storage. Unknown foreign
+retention also prevents a non-escape conclusion. Select conservative GC-managed
+allocation when lifetime cannot be established; this is an allocation policy
+under the same language semantics, not an error fallback to different behavior.
+More ambitious retained/shared-region designs require their own ownership and
+collection contracts. No global replacement of Gambit's GC follows here.
+
+The native contract constrains the final interoperable representation, not every
+internal optimization choice. A service may remove an unobservable allocation
+or specialize a closure while preserving Scheme behavior and emitting correct
+remaining runtime metadata. If a transformation needs a different runtime
+representation, it selects a new coordinated protocol generation and rebuild.
+Exact artifact/profile matching is not a reason to freeze all internal layouts.
+
+This adds a semantic middle-end responsibility to the design. The C-ABI companion
+route remains useful but cannot by itself support general higher-order/continuation
+optimization of Scheme code outside its interface. Neither a high-level dialect
+nor these analyses has been implemented or qualified by this document.
+
+*** 9. Concrete End-to-End Sequences
+:PROPERTIES:
+:ID: a05c6ff6-deea-5636-b715-f161e8ed7f98
+:CUSTOM_ID: 9-concrete-end-to-end-sequences
+:END:
+
+**** 9.1 Ordinary C-Target Product
+:PROPERTIES:
+:ID: b95d721f-d2cf-566f-9bdb-c66dca78885c
+:CUSTOM_ID: 91-ordinary-c-target-product
+:END:
+
+1. Gambit selects target/runtime configuration, compiles Scheme to C and emits
+   module metadata plus native requirements.
+2. When required by the product, Gambit performs incremental/flat module
+   composition and emits the necessary link
+   units, keeping base-library and initialization semantics.
+3. Zig resolves the requested native plan using the matching configured profile,
+   compiles code/link units, performs platform linking and publishes descriptions.
+4. For AOT executables, distribution consumes those products. For dynamic load,
+   Gambit performs managed preflight, platform mapping, fixup and initialization.
+
+No runtime semantic ownership moves to Zig in this sequence.
+
+**** 9.2 MLIR Native Companion
+:PROPERTIES:
+:ID: 99533ec3-19cd-517f-9d58-fb6eb4fcb1cd
+:CUSTOM_ID: 92-mlir-native-companion
+:END:
+
+1. Gambit produces a semantic export and C-facing glue under one declared
+   boundary/effect contract; no live Scheme address enters the request.
+2. Zig invokes the selected independent service. The service either accepts the
+   exact contract or returns a precise unsupported/failure result.
+3. The service emits a C-ABI native object and its requirements. Zig combines it
+   with Gambit-generated glue and link units under the native plan.
+4. Gambit owns module initialization and any Scheme/native call conversion.
+   Runtime calls use the host-service effect discipline, not worker callbacks.
+
+**** 9.3 General MLIR Backend, If Specified
+:PROPERTIES:
+:ID: f5e4f1f9-ec2b-50e5-8519-e6b2d4e2b8f1
+:CUSTOM_ID: 93-general-mlir-backend-if-specified
+:END:
+
+Gambit first selects a backend whose target/profile and export semantics include
+the private runtime protocol. The service emits code and metadata implementing
+that contract, Zig performs native construction, and Gambit consumes the module
+composition metadata and admits the final module. This sequence has the same
+engineering boundary as 9.2 but much larger compiler/runtime obligations.
+
+The general backend is a separate compiler feature, not a prerequisite for
+modernizing all existing C-native construction.
+
+*** 10. Required Source Changes and Retained Responsibilities
+:PROPERTIES:
+:ID: 04d4ac5e-d8cd-5748-8530-388a3d346a3d
+:CUSTOM_ID: 10-required-source-changes-and-retained-responsibilities
+:END:
+
+The following are design assignments for later implementation, not edits made
+by this research. Future source locations are responsibilities, not new files
+created here.
+
+| Surface | Keep | Required change for this design | Must not do |
+|-
+| ~gsc/_gsclib.scm~ | Public compile/link semantics and target selection | Build a structured native request/result handoff in the managed profile; distinguish toolchain choice from CC override semantics | Move Scheme module linking into Zig or silently change return/error conventions |
+| ~configure.ac~ and configured outputs | Gambit feature/probe meaning and generated headers | Publish the effective native profile and mode defaults as machine-readable data | Maintain a divergent feature resolver in Zig |
+| ~bin/gambuild-C.unix.in~ role | Existing knowledge of native metadata/options during the source audit | Replace shell/environment command assembly directly for the selected managed profile | Put a permanent shell protocol translator under a new name |
+| New Zig engineering component | Native-only resource ownership | Resolve plans, run tools/services, preserve effective options, supervise jobs and publish artifacts | Import runtime struct layouts or perform module initialization |
+| ~_t-c-1.scm~ | C generation and module resource/link-unit production | Emit structured module/native requirements; expose logical metadata to non-C backends when needed | Make platform symbol resolution substitute for Gambit semantic link processing |
+| ~_front.scm~, ~_gvm.scm~, ~_back.scm~, ~_t-c-2.scm~ | Primitive, frame, root, poll and return-label meaning | Add an explicitly owned export/backend adapter only when that backend is selected | Export raw pointers or erase current candidate distinctions |
+| ~_module.scm~, ~_eval.scm~, ~setup.c~, ~os_dyn.c~ | Gambit load, fixup, registration, initialization and lifetime | Enforce one shared managed preflight before native mapping; bind it to the consumed artifact | Preflight only in the producer or claim arbitrary init rollback |
+| ~gambit.h.in~, ~c_intf.c~, generated FFI wrappers | Existing roots, marker admission, return/unwind and supported nesting | Add only narrowly required native adapters/metadata under the same protocol generation | Create an alternative Zig root stack or universal foreign-thread attachment |
+| Process facilities and resource owner | Existing Scheme process/port behavior | Define managed request ownership, drain and cancellation delivery against actual nonlocal exits | Treat request cancellation or a wrapper error as completed teardown |
+| MLIR service bundle | MLIR internals and external backend dependencies | Implement declared export/lowering and artifact roles in an isolated bundle | Leak MLIR handles/types into ordinary Gambit or Zig contracts |
+| Outer build/evidence framework | Product selection, source identity and acceptance authority | Declare request/tool/artifact dependencies and nested budgets | Infer native correctness from cache availability or construction success |
+
+*** 11. Compatibility, Invalidation and Error Rules
+:PROPERTIES:
+:ID: ffd940e0-e72b-52f2-bde8-4b28addd338f
+:CUSTOM_ID: 11-compatibility-invalidation-and-error-rules
+:END:
+
+The source changes above have different triggers. Structured construction,
+configuration publication and the Zig executor belong to the managed engineering
+profile. Descriptor emission and shared loader preflight are required when that
+profile admits dynamic Scheme modules. Semantic export and new lowering belong
+only to a selected MLIR backend. The standalone-process construction route
+requires no replacement collector, root stack, SFUN protocol or Scheme scheduler;
+those existing responsibilities remain with the matched Gambit runtime.
+
+| Change/outcome | Required response |
+|-
+| Runtime frame/barrier/inline protocol or effective layout changes | Regenerate/rebuild affected runtime, generated C, libraries and extensions under one selected generation |
+| Target/CPU/libc/SDK/configuration changes | Reconfigure and reconstruct affected native products; do not reuse by filename |
+| MLIR service/dialect/policy/export changes | Invalidate corresponding optimized results; ordinary C artifacts depend only on their actual inputs |
+| Zig upgrade | Re-resolve tool/recipe identity and affected products; no automatic runtime ABI bump purely from the version string |
+| Unchanged source but changed metadata/package/tool dependency | Invalidate affected plan/artifact identities |
+| Unsupported contract | Return unsupported before unsafe lowering; no invented semantics |
+| Compiler/linker failure | Preserve stage and original diagnostic/status; publish no successful requested product |
+| Scheme error after native return | Gambit delivers its established error after native ownership cleanup |
+| Error after native module mapping/fixup/init begins | Retain actual stage and Gambit lifecycle state; no generic unload-and-retry transaction |
+| Failed native job drain/join | Retain outstanding ownership and error; no false cancellation or teardown completion |
+
+Construction results, profile compatibility and runtime entry are separate
+decisions with separate owners. This design adds no claim of performance,
+safe general lowering or completed native acceptance.
+
+*** 12. Remaining Specification Work
+:PROPERTIES:
+:ID: 4f2662d1-a93c-5937-9a23-c1d979514066
+:CUSTOM_ID: 12-remaining-specification-work
+:END:
+
+The architecture now selects boundary placement and ownership. Remaining details
+are explicit specifications, not a recommendation to begin minimal experiments:
+
+- Exact construction wire fields, size/encoding limits and argv conversion for
+  the currently supported option forms.
+- The supported managed configuration set and how its generated profile is
+  emitted without duplicating configure logic.
+- Preflight placement covering all supported load entries, and a stable artifact
+  instance protocol compatible with each selected platform loader.
+- Scheme-owned request/resource cleanup for interruption, continuation escape
+  and abandoned delivery, mapped to the actual process implementation.
+- The complete semantic export/operation inventory for any selected general
+  MLIR backend, including embedded C and all runtime descriptor consumers.
+- The earlier high-level export before destructive normalization/lowering,
+  its function/effect/escape semantics and its relation to the runtime-level
+  export; higher-order and memory-region research depend on this explicit path.
+
+Those details can be refined within the chosen architecture. Arbitrary-thread
+attachment, general callback-capable services, module hot-unload, JIT and a
+rewritten runtime are separate proposals with additional contracts, rather than
+unspoken promises of this boundary.
+
+*** 13. Source-Reading Provenance
+:PROPERTIES:
+:ID: cccdff07-1c07-5be7-9169-96cd8ba8fba6
+:CUSTOM_ID: 13-source-reading-provenance
+:END:
+
+Directly inspected baseline inputs are recorded in the existing source review
+for ~_back.scm~, ~_t-c-1.scm~, ~_gsclib.scm~, ~configure.ac~, ~gambit.h.in~,
+~setup.c~, ~_kernel.scm~ and ~gambuild-C.unix.in~. Additional baseline hashes:
+
+| Input under ~vendor/gambit/~ | SHA-256 |
+|-
+| ~gsc/_t-c-2.scm~ | ~27d9cc50c6331a0e526c09e029f68153b7fb4bf0e8ce62ed75ec1ba9224a52a0~ |
+| ~gsc/_front.scm~ | ~e05dd9b2370da0e1a7baa3c8b7ea1d212fc3efe23e0e90e8fce3db69119c63de~ |
+| ~gsc/_ptree1.scm~ | ~1d0f218192d9531d85b5269dd54ba6cd01326446e51e38d538a51eba92b4e2b7~ |
+| ~gsc/_ptree2.scm~ | ~8dbf9c446430752ce106bc1c650e2eaab5d2f399170ba81677fda76f568b7905~ |
+| ~lib/_module.scm~ | ~09e78679ce17213823ffe092c8e09831f1c05ac7dfeeee7b29fc2401f8cb52ae~ |
+| ~lib/_eval.scm~ | ~00af1ceff01ba2b114fc8694374ab712079f771cab8a6a0e1fd4c97b595b636d~ |
+| ~lib/c_intf.c~ | ~40c42c6ece7b40a2ddeb4d3082b093b85795cb9b193d47e429ee686f06eff0ae~ |
+| ~lib/os_dyn.c~ | ~b2221a08612d26bcca163ccecee1a634fb0012dc297a4e56bc39c77e9d894f28~ |
+| ~lib/gambit/process/process.scm~ | ~31029718e7798ad764a3895ceccb10d4a8b29d2a41ea4558e9cfe2b859dfe17c~ |
+
+The candidate compiler/header/FFI changes were read from the hash-bound patch
+identified in section 2. Existing [[file:../../../../docs/experimental/metadata-wait-roots-exits.md][wait/root]],
+[[file:../../../../docs/experimental/runtime-entry-contracts.md][entry]], [[file:../../../../docs/experimental/c-backend-compatibility.md][C compatibility]]
+and [[file:../../../../docs/experimental/stage-one-handoff-recipe.md][handoff]] studies constrain the design; their
+native/model results are neither rerun nor promoted by this source reading.
+
+Only documentation consistency, references and source identity are checked for
+this deliverable. There is no implementation, model execution, downstream
+compilation or minimal validation workload in this change.

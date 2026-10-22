@@ -1,11 +1,30 @@
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from gambit_smp.process_observation import probe_group, capture_batch
+from gambit_smp.process_observation import probe_group, capture_batch, capture, communicate_progress
 
 
 class ProcessGroupObservationTests(unittest.TestCase):
+    def test_invalid_process_budget_cannot_start_or_journal_a_child(self):
+        for budget in (float("nan"), float("inf"), -float("inf"), True, False, 0, -1):
+            with self.subTest(budget=budget), patch("gambit_smp.process_observation._task_spawn") as spawn:
+                recorder = Mock()
+                with self.assertRaisesRegex(ValueError, "positive finite process budget"):
+                    capture(["unused"], ".", budget, None, recorder=recorder)
+                spawn.assert_not_called()
+                recorder.assert_not_called()
+
+    def test_invalid_progress_window_cannot_poll_or_admit_progress(self):
+        for window in (float("nan"), float("inf"), -float("inf"), True, False, 0, -1):
+            with self.subTest(window=window):
+                process, progress, recorder = Mock(), Mock(), Mock()
+                with self.assertRaisesRegex(ValueError, "positive finite progress window"):
+                    communicate_progress(process, window, progress, recorder=recorder)
+                process.communicate.assert_not_called()
+                progress.assert_not_called()
+                recorder.assert_not_called()
+
     def test_failed_launch_is_not_a_started_process_and_does_not_hide_other_jobs(self):
         import os
         import sys

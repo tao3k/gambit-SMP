@@ -1,0 +1,1 @@
+(("accepted" ("sync-publication-assurance")) ("declarationIdentity" "194edd18eb051c3ed15ee120cf8b84fa9bb379f8f2f3e86eb8017b162a1c39d9") ("executionAuthorized" #f) ("prefix" "386927aa169c68c825ca48135af2791b80754d1f576071359c445b2266247f09") ("retainedClues" 1) ("runtimeAdmitted" #f) ("scope" "sync-publication-assurance") ("submissions" 1))

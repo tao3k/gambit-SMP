@@ -1,0 +1,285 @@
+#+TITLE: Foreign Release Effects, Executors and GC Worker Admission
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Foreign Release Effects, Executors and GC Worker Admission :ffi:
+:PROPERTIES:
+:ID: 63b15b53-aba2-5891-ae65-c7b98f39b411
+:CUSTOM_ID: foreign-release-effects-executors-and-gc-worker-admission
+:SOURCE_PATH: docs/experimental/zig/foreign-release-worker-contract.md
+:SOURCE_SHA256: f481a6170fe1c3715864cff6c44fd809e06ba2103153f0b1b62caa6238449aca
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Architecture/source research only. No implementation,
+compiler, native test, model execution, solver or prover ran. Read the
+[[file:foreign-release-worker-evidence.org][source and primary evidence]],
+[[file:device-release-support-matrix.org][device service comparison and net-benefit matrix]]
+and [[file:../../../../../docs/experimental/zig/foreign-release-worker-traceability.json][trace map]].
+This refines RUC08/GWD07 and PA04--PA07 in the
+[[file:../../execution/studies/shared-runtime-root-custody-design.org][root/custody study]]; it does not discharge
+the full runtime or Zig economic gates.
+
+*** 1. Source Findings That Change the Design
+:PROPERTIES:
+:ID: 52539c5c-7649-5748-8cb7-71483dd120c5
+:CUSTOM_ID: 1-source-findings-that-change-the-design
+:END:
+
+A Gambit foreign release function receives ~void*~ and returns a Scheme-encoded
+error code. The manual promises at-most-once invocation per foreign object;
+the default pointer release does nothing, while a default struct/union/type
+release frees a copy and may invoke a C++ destructor [FR-S01/S02/S04]. This is
+not an effect or thread-safety annotation. The inspected manual passage does
+not specify collector-safe allocation, lock, callback or thread-affinity rules.
+Do not infer that all callbacks are permitted, or that absence of a documented
+restriction qualifies an independent worker.
+
+Four origins actually call release, with different control/error contexts:
+
+| ID | Real origin and call path | Observed result/error handling | Executor and migration consequence |
+|-
+| FRO01 | GC strong/weak processing -> cleanup -> ~free_unmarked_still_objs~ -> ~release_foreign~ [FR-S03] | Ignores returned release error, then frees unreachable Scheme wrapper storage | Current collecting processor executes its still-list cleanup before the next collective barrier. This is neither a separate finalizer service nor an allocation-thread promise. A blocked release can hold up collection. |
+| FRO02 | ~foreign-release!~ -> ~##foreign-release!~ -> ~release_foreign~ [FR-S01/S02] | After normal return, nonzero error becomes a Scheme exception; interrupts disabled in the primitive | Calling managed context supplies the operation; wrapper ptr/release fields are cleared before call. Preserve explicit result/exception behavior under an admitted reentry frontier. |
+| FRO03 | STRUCT/UNION/TYPE-to-Scheme allocation failure -> direct ~release_fn(x)~; other POINTER callers do their own rollback [FR-S04/S07] | Three typed conversion helpers ignore release result and return conversion error; inspected device callers often ignore rollback cleanup error | Runs before successful wrapper publication, on the conversion caller. No wrapper flag exists to arbitrate with the native creator. Ownership transfer and which error wins must be explicit. |
+| FRO04 | ~cleanup_mem_pstate~ -> ~free_still_objs~ -> ~release_foreign~; I/O group shutdown also invokes device cleanup [FR-S03/S05/S09] | Still cleanup ignores result and frees wrapper; group cleanup stops its loop on an error and frees group | Shutdown caller/context supplies execution. Memory/OS/module/queue dependencies must remain until release users drain; group membership is not a successful-cleanup receipt. |
+
+~release_foreign~ reads the function pointer, clears the wrapper's function and
+payload fields, then calls it [FR-S02]. This supports sequential at-most-once
+attempt for that wrapper under the existing serialization assumptions. It is
+not an atomic claim against concurrent native releasers; not a proof that two
+wrappers to the same payload share one release authority; and not proof of
+successful destruction. C and Zig both need the actual resource identity and
+claim law if these origins become concurrent.
+
+*** 2. Concrete Effects and Thread/State Dependencies
+:PROPERTIES:
+:ID: 57fb1679-4535-58ee-afb8-aba632dc3568
+:CUSTOM_ID: 2-concrete-effects-and-threadstate-dependencies
+:END:
+
+| ID | Source-backed body | Effects / actual users | Independent GC-worker status |
+|-
+| FRE01 | Default pointer ~release_pointer~ [FR-S02] | No-op: payload is controlled by C world | Possible direct no-op only after wrapper/map lifetime is safe. It frees no external resource and supplies no proof of its external lifetime. |
+| FRE02 | Default generated copy release [FR-S04] | C/C++ delete/free path; user class destructor may have arbitrary transitive effects | Requires allocator and destructor-specific effect/exception/affinity evidence. Generated adapter is not a no-callback certificate. |
+| FRE03 | ~___release_event~ -> ~release_rc~ [FR-S06/S08] | Native bytes, but RC release updates linked-list neighbors and a non-atomic count | Not automatically worker-safe even though body is small. Need registration/list-owner serialization and no concurrent readers. Windows event origin is profile-specific; not Darwin evidence. |
+| FRE04 | ~___release_rc_tls_context~ [FR-S08] | Releases RC strings, SSL_CTX, then wrapper RC; library release can invoke configured callbacks [FR-P03] | List ownership, wrapper borrowers, library build/callbacks and TLS/thread data must be qualified. No installed OpenSSL effects inferred from rolling docs. |
+| FRE05 | ~___device_cleanup_from_ptr~ -> ~___device_cleanup~ [FR-S05/S06] | Unlinks shared group, closes read/write, waits/selects on EAGAIN, decrements refcount, virtual release/free | Generic path is not admitted as bounded GC-worker release. It can wait; it uses implicit processor OS state in select/poll profiles. |
+| FRE06 | File/directory/socket close and TCP client's ~SSL_free~ [FR-S08/S10] | OS close/status, stage mutation, library cleanup; error can follow partial side effects | Classify actual operations/profile, not just device family. No unconditional nonblocking guarantee; current stage flags are not proof all OS effects succeeded. |
+| FRE07 | Stream pumps and virtual release [FR-S09] | Native pump threads hold extra device refs; close requests termination; select/wait checks thread state; final release frees pump state | Need producer/worker/borrower drain and platform-specific state. Windows pump evidence does not establish Darwin participation or executor behavior. |
+| FRE08 | User release function / generated C++ destructor [FR-S01/S04] | Raw function pointer can access external state, use locks, call libraries, throw or transfer control; exact effects unspecified by signature | Unknown stays unresolved. No callback into moving managed state, recursive GC or raw nonlocal jump across Zig/collector frames is admitted. |
+
+Allocation owner, list owner, logical VM owner, execution thread and library
+executor are different. Source FRO01 executes on the processor whose list is
+being cleaned, but retirement transfer can change storage custody [FR-S11].
+A native function taking no processor argument may still use ~___PSTATE~
+transitively: ~device_select~ borrows fdset buffers and abort handles from it
+[FR-S06]. Merely binding TLS to a different context is not safe scratch/VM ownership.
+Nor does a thread-compatible allocator establish lock progress: a parked mutator
+may hold a lock that a finalizer needs. Boehm's primary slides describe this
+hazard; moving to a thread while keeping mutators stopped can retain the same
+deadlock [FR-P01].
+
+*** 3. Real-User Closure for Release
+:PROPERTIES:
+:ID: acc35d02-5c0f-5522-8f57-f7725df1ac0a
+:CUSTOM_ID: 3-real-user-closure-for-release
+:END:
+
+[[file:../diagrams/foreign-release-lifecycle.svg][Release origins, custody and outcomes]]
+[[file:../diagrams/foreign-release-lifecycle.d2][D2 source]].
+
+The native release operation is itself a resource user. A wrapper being dead
+in the Scheme heap does not mean its payload, destructor image or library
+context is dead. Conversely a live wrapper does not protect a copied native
+pointer after explicit ~foreign-release!~ without a separate borrow protocol.
+
+For each selected native resource, the proposed coordinator needs:
+
+| ID | Required actual dependency / issuer | Closing condition and evidence boundary |
+|-
+| FRU01 | Native creator, wrapper publisher, conversion rollback and explicit release authority | Decide ownership transfer before publication. One ResourceId/control cell owns release; another wrapper may borrow but cannot silently gain a second destructive authority. An address alone cannot disambiguate reused allocations. |
+| FRU02 | Device group and pending close/select operations | Close new operations and group-derived issuance; drain existing operation borrows. Group unlink currently occurs before cleanup success [FR-S05]; do not equate unlink with native completion. |
+| FRU03 | Managed port/condvar and native device entry functions | The Scheme object graph retains normal inputs, but raw extracted device pointers/ongoing operations must have independent borrows [FR-S07/S10]. Explicit release can invalidate an otherwise live graph. |
+| FRU04 | Pump/native task, library borrower, TLS server accept | Pin device/wrapper/SSL state while actual tasks can read them. Pump refs are existing support to reuse; TLS normal Scheme retention is credited, not replaced by an invented missing reference. External native bypass remains an explicit boundary. |
+| FRU05 | Release callback/image, vtable, library configuration and optional owner executor | Acquire release-use pins before removing originating wrapper/registration custody. Queue/executor cannot outlive callback code or the library context it calls. Permanent runtime images are a valid bounded case. |
+| FRU06 | Managed data needed by a later callback or cleanup action | It must already be in a root carrier before the final root cut, or the deferred operation must be native-only with owned inputs. Do not discover managed pointers in arbitrary payload bytes after strong tracing and try to root them then. Do not strongly root the dead wrapper itself merely to retain an independent payload. |
+| FRU07 | Directory resolution readers and competing release triggers | Withdraw independent resolution, drain preexisting readers, arbitrate one authorized claim; transfer child pins before dropping parent. Unregistered copied raw aliases prevent early reclaim. |
+| FRU08 | Completed/partially completed OS side effects and error observer | Track payload disposition separately from error status, keep unresolved actions in a stable retained record, and deliver errors according to origin. Returning an error does not imply the payload is still allocated. |
+
+**** Conditional closure argument
+:PROPERTIES:
+:ID: 13e9fb75-57b4-5f7e-a977-64a75a76e5bc
+:CUSTOM_ID: conditional-closure-argument
+:END:
+
+Assume a stable ResourceId, complete FRU01--FRU08, closed issuers/readers, a unique
+release claim, valid callback/input pins and an allowed executor/effect interval.
+Every known user is either an active borrow or retained registered issuer.
+A pending or running release holds its own use. A derived user is issued before
+its parent is dropped. Therefore a zero set of outstanding target uses after
+closure excludes any later admitted payload access; it does not require unrelated
+VM work to finish. Destruction can then run once under its disposition protocol.
+The record and code pins remain until terminal disposition, completion-reader
+drain and all dependency uses are accounted for. Delivering an error or an
+unknown-disposition diagnostic does not drain the payload or release these pins;
+RetainedUnknown is not NativeReleaseDrained.
+
+This is a handwritten instantiation of PT05, not an assertion that today's raw
+ABI meets those premises. In particular native copies, arbitrary release_fn,
+C++ effects, concurrent explicit-release aliases and library callbacks remain
+outside a proven closed cohort. A timeout or a zero Scheme reachability count
+cannot replace this closure. Retaining memory alone does not make an unknown
+native mutator safe for GC.
+
+*** 4. Worker Admission Is Per Operation and Profile
+:PROPERTIES:
+:ID: eea5e780-2f49-5878-a349-613b7e1fecfe
+:CUSTOM_ID: 4-worker-admission-is-per-operation-and-profile
+:END:
+
+[[file:../diagrams/foreign-release-admission.svg][GC worker versus release executor admission]]
+[[file:../diagrams/foreign-release-admission.d2][D2 source]].
+
+| ID | Independent evidence needed | Failure / unresolved disposition |
+|-
+| FRA01 identity/claim | Native creator and all release origins share a unique control cell; claim is synchronized; wrapper aliases classified | No concurrent destructive migration on an untracked raw ABI. A flag in one wrapper is insufficient. |
+| FRA02 complete effects | Transitive call/callback list; no managed access/allocation, reentry, recursive GC or nonlocal exit during direct GC cleanup | Unknown effects prevent direct GC-worker execution. Model labels/function-pointer types are not certificates. |
+| FRA03 executor | Thread, VM/list, OS scratch and library-affinity requirements supplied independently | Existing ~___PSTATE~ select path cannot be run on arbitrary new workers; use an admitted explicit wait context or retain its existing executor. |
+| FRA04 progress/locks | Bounded work or a proved wait graph whose dependencies can progress while mutators are stopped; no gate/collector lock held across user code | Blocking, owner-paused or unknown lock dependency excludes synchronous direct-worker cleanup. No timeout implies success. |
+| FRA05 input/code lifetime | FRU01--FRU08 pins including destructor image and prepublished managed dependencies | No bare ~void*~ enqueue after freeing the only source of its ownership/dependencies. |
+| FRA06 failure law | Scalar status plus payload disposition; no C++ unwind/longjmp across inadmissible frames; no automatic replay after partial effects | Retain/quarantine unknown disposition, or use a separately qualified fatal boundary. Never synthesize success. |
+| FRA07 phase/reservation | Action/control storage available before unsafe collection phase; no managed allocation to enqueue release; no missing root/graph work at epoch completion | Reserve/embedded record outside G; exhaustion before commit refuses admission. Partial moving collection cannot simply abort and resume old aliases. |
+| FRA08 semantic origin | Explicit release completion/error, rollback primary error, GC/shutdown policy and timing defined | Moving every legacy release to a later queue is a semantic change; it is not admitted merely because GC can finish sooner. |
+| FRA09 shutdown/drain | Stop issuers, keep executor/library/code and dependents live, drain or record safe retention before teardown | Killing executor, freeing device group or unloading image early leaves closure unresolved. |
+
+Three execution classes follow:
+
+1. *Direct GC release:* only the operation/profile satisfying all direct-worker
+   conditions. It runs outside G and collector locks, with bounded effects and
+   complete inputs; successful collection publication includes its required work.
+2. *Owned native deferred release:* a known native-only operation may execute
+   after the moving epoch on a qualified release executor. This needs an explicit
+   timing/ownership redesign. A paused owner cannot be synchronously awaited by
+   the collector when that owner must resume first. Payload, code and dependencies
+   survive independently of the dead wrapper. No automatic deferral of arbitrary
+   legacy function pointers is allowed.
+3. *Managed/unknown/nonlocal release:* no direct worker admission. A managed
+   post-epoch action requires its own rooted invocation and effect/control law;
+   unknown raw effects remain retained/excluded or on a separately admitted legacy
+   route. Preserving legacy execution is not a proof of its safety for new workers.
+
+~MemoryEpochComplete~ means graph/root movement and all epoch-critical operations
+are safely complete. ~NativeReleaseDrained~ means a particular release's native
+side effects and dependencies have terminal disposition. These are different
+facts; the first does not report an fd closed. If cleanup changes graph tracing,
+root validity or space needed to finish the collector, it is epoch-critical and
+cannot be deferred by relabeling it. A heap-overflow/scarce-resource decision
+may require a release-drain frontier before retry even when memory movement has
+finished. Error delivery into Scheme occurs only after admitted reentry/reload.
+
+*** 5. The Necessary Shared Component: Device Release Coordinator
+:PROPERTIES:
+:ID: 59d5916d-4491-5f4b-9cae-4ec493df0921
+:CUSTOM_ID: 5-the-necessary-shared-component-device-release-coordinator
+:END:
+
+Choose the existing device cleanup service, not a speculative generic container.
+Ten registration expressions in ~os_io.c~ pass the same
+~___device_cleanup_from_ptr~ adapter [FR-S07]. They cover raw fd, predefined/file
+streams, process stream, TCP client/server/accepted client, UDP, directory and
+event queue. GC, explicit release, setup rollback and group shutdown converge on
+the same cleanup core. Ten is a textual source count across platform branches,
+not ten simultaneously active Darwin consumers or a measurement of work saved.
+
+The new coordinator replaces lifecycle/admission authority for a declared
+migrated device cohort while reusing leaf OS/library mechanics. It is necessary
+because independent cleanup changes who may unlink shared state, wait, run
+virtual methods and report destruction results. A separate asynchronous queue is
+necessary only for admitted deferred operations; it is not imposed on every
+resource to inflate the C comparison.
+
+**** Data contract (design fields, not implementation)
+:PROPERTIES:
+:ID: 948599b3-75a3-5b82-86a7-fc00dd830c97
+:CUSTOM_ID: data-contract-design-fields-not-implementation
+:END:
+
+| Record | Fields / authority |
+|-
+| DeviceReleasePolicy | Issued operation kind, effect/affinity profile, close-direction order, deferred permission, origin error policy, pinned vtable/provider identity; Scheme/runtime policy owns semantics |
+| DeviceControl | ResourceId/reuse identity, ownership/claim state, group affiliation, active operation/pump borrows, payload disposition and retained dependencies; native coordinator owns physical state |
+| ReleaseAttempt | Origin (GC/explicit/rollback/shutdown), closed issuer set, authorized executor, phase, owned action input, code/library pins, optional completion destination and primary-error identity |
+| ReleaseOutcome | Attempt state, scalar error code, payload disposition (alive-partial/freed/unknown), closed directions/partial-effects record, dependency-drain status; never infer disposition from error alone |
+| WaitContext | Explicit owned OS wait buffers/abort channel, executor lifetime and no-managed-access law; not an alias for an arbitrary managed processor's OS fields |
+
+The coordinator's states are Owned -> Closing -> ReadClose -> ReadWait (if
+needed) -> WriteClose -> WriteWait -> FinalRelease -> TerminalKnown, with a
+separate RetainedPartial/RetainedUnknown outcome rather than a fake drained
+terminal. Close/readiness
+retry is a stage transition under an operation-specific law; it is not permission
+to repeat the entire foreign release_fn. Failed setup before publication retains
+the creator's rollback authority. Failure after wrapper invalidation does not
+restore a stale pointer or silently reacquire release authority.
+
+**** Concrete failure distinctions retained from source
+:PROPERTIES:
+:ID: 02d29358-0a57-5034-afd4-0061ccf69cc7
+:CUSTOM_ID: concrete-failure-distinctions-retained-from-source
+:END:
+
+~device_cleanup~ removes group membership before either close loop. A non-EAGAIN
+close/select error returns without reaching final release. Thus error can leave
+a native allocation alive but detached. ~device_release~ instead calls virtual
+release and frees device storage even if virtual release returned an error
+[FR-S05]. Both outcomes currently look like an error code to their caller.
+New state/result typing must preserve that difference and record unresolved
+external effects; it cannot blindly retry/free on error. This is a source-level
+path argument, not a reproduced leak or native fault.
+
+For explicit ~foreign-release!~, preserve a single synchronous logical attempt
+and its result/exception delivery; an executor hop would require an admitted
+participating wait, outside the moving epoch. If its operation is incompatible
+with that wait policy it remains outside the managed profile. For rollback,
+retain the original conversion error as the caller result and record cleanup
+failure separately according to declared policy. GC/shutdown error diagnostics
+are separate from a successful managed call; adding observability does not
+retroactively establish successful cleanup.
+
+*** 6. Theory Completion Boundary
+:PROPERTIES:
+:ID: d821fe6c-8f66-5ef4-bcd7-cfc86ad36cdb
+:CUSTOM_ID: 6-theory-completion-boundary
+:END:
+
+The source now supports a real shared-service choice, four origin distinctions,
+eight effect/user families, nine admission obligations and a payload-disposition
+state machine. No present destructor/profile is claimed fully qualified for an
+independent GC worker. Full transitive effects, user/issuer closure, library and
+Darwin conditional configuration, synchronization and progress still need proof.
+The accompanying modern-C/Zig comparison prices this same service in both
+languages; a shorter lexical cleanup path does not retire its asynchronous
+protocol, wait context or real-consumer obligations.
+
+*** Explicit Wait, Delivery and Drain Refinement
+:PROPERTIES:
+:ID: 26287121-b6e0-5511-9ff9-7443e3d91f61
+:CUSTOM_ID: explicit-wait-delivery-and-drain-refinement
+:END:
+
+The [[file:device-release-wait-contract.org][WaitContext/task/drain contract]] expands
+FRA03--FRA09 into owned native wait state, wake leases, transactional acceptance,
+observer cancellation, partial-effect outcomes and eight shutdown obligations.
+The [[file:device-release-wait-cost-matrix.org][support matrix]] compares twelve residual
+support families in modern C and Zig. These are conditional design refinements;
+no profile, retirement, native result or positive bound is admitted.

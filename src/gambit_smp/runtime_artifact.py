@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 import tarfile
 import time
 
-from gambit_smp.framework import digest
+from gambit_smp.framework import digest, relative
 
 
 SCHEMA = "gambit-source-core-artifact.v1"
@@ -38,8 +38,52 @@ def export_deadline(run, outer):
     return started, deadline
 
 
+def source_core_ancestry(rows):
+    """The archive and retained phase share one native type/configuration contract."""
+    from gambit_smp.step_checkpoint import ancestry, seed_ancestry
+    core = rows[-1]
+    if (core["capability"] != "gambit.source-core"
+            or set(core["outputs"]) != {"runtime", "identity"}
+            or core.get("claim") != "source-regenerated-core-not-full-two-pass-bootstrap"
+            or core["outputs"]["runtime"]["type"] != "source-runtime"
+            or core["outputs"]["identity"]["type"] != "runtime-identity"):
+        raise ValueError("source-core cannot be replaced by a seed or full-bootstrap claim")
+    if core.get("effectiveConcurrency") != {"smp": True, "multipleVMs": True, "multipleThreadedVMs": True}:
+        raise ValueError("final source-core has no effective three-flag observation")
+    if (set(core["configurationFiles"]) != {"include/gambit.h", "lib/makefile"}
+            or any(core["outputs"]["runtime"]["identity"].get(name, {}).get("sha256") != sha
+                   for name, sha in core["configurationFiles"].items())):
+        raise ValueError("final configuration bytes differ from the exported generation")
+    configured, materialized = seed_ancestry(ancestry(rows, core["arguments"]["runtime"]["step"]))
+    flags = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
+    commands = [row for row in configured['commands'] if row['stage'] == 'configure']
+    if not commands:
+        reused = configured.get('configurationReuse', {})
+        if (reused.get('schema') != 'gambit-configure-reuse.v1' or
+                any(reused.get('files', {}).get(name) != sha
+                    for name, sha in configured.get('configurationFiles', {}).items())):
+            raise ValueError('reused configuration must bind current generated files')
+        raw = reused.get('receiptBytes', '')
+        receipt = json.loads(raw) if raw else {}
+        if (hashlib.sha256(raw.encode()).hexdigest() != reused.get('receiptSha256')
+                or receipt.get('state') != 'OBSERVED' or receipt.get('stage') != 'configure'
+                or receipt.get('exit') != 0 or receipt.get('timeout') is not False
+                or receipt.get('parentReaped') is not True or receipt.get('processGroupQuiescent') is not True):
+            raise ValueError('reused configuration lacks its actual process observation')
+        commands = reused.get('commands', [])
+        if len(commands) != 1 or any(receipt.get(key) != item for key, item in commands[0].items()):
+            raise ValueError('reused configure command differs from its process observation')
+    if len(commands) != 1 or commands[0].get('exit') != 0 or commands[0].get('timeout') is not False:
+        raise ValueError('one completed actual configure command or its bound reuse proof required')
+    if not flags <= set(commands[0]["argv"]):
+        raise ValueError("all three concurrency flags required in actual configure command")
+    if configured.get("effectiveConcurrency") != {"smp": True, "multipleVMs": True, "multipleThreadedVMs": True}:
+        raise ValueError("effective three-flag configuration was not established")
+    return configured, materialized
+
+
 def checked_manifest(value):
-    from gambit_smp.step_checkpoint import ancestry, content_id, seed_ancestry
+    from gambit_smp.step_checkpoint import ancestry, content_id
     if value.get("schema") != SCHEMA:
         raise ValueError("typed source-core archive required")
     outer = json.loads(value["outerReceipt"])
@@ -85,25 +129,7 @@ def checked_manifest(value):
                         value["logs"].get("run/" + row["id"] + "/" + name) != command[sha_key]):
                     raise ValueError("original command log/stream binding missing or changed")
     core = rows[-1]
-    if (core["capability"] != "gambit.source-core"
-            or set(core["outputs"]) != {"runtime", "identity"}
-            or core.get("claim") != "source-regenerated-core-not-full-two-pass-bootstrap"
-            or core["outputs"]["runtime"]["type"] != "source-runtime"
-            or core["outputs"]["identity"]["type"] != "runtime-identity"):
-        raise ValueError("source-core cannot be replaced by a seed or full-bootstrap claim")
-    if core.get("effectiveConcurrency") != {"smp": True, "multipleVMs": True, "multipleThreadedVMs": True}:
-        raise ValueError("final source-core has no effective three-flag observation")
-    if (set(core["configurationFiles"]) != {"include/gambit.h", "lib/makefile"}
-            or any(core["outputs"]["runtime"]["identity"].get(name, {}).get("sha256") != sha
-                   for name, sha in core["configurationFiles"].items())):
-        raise ValueError("final configuration bytes differ from the exported generation")
-    configured, materialized = seed_ancestry(ancestry(rows, core["arguments"]["runtime"]["step"]))
-    flags = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
-    command = next(row for row in configured["commands"] if row["stage"] == "configure")
-    if not flags <= set(command["argv"]):
-        raise ValueError("all three concurrency flags required in actual configure command")
-    if configured.get("effectiveConcurrency") != {"smp": True, "multipleVMs": True, "multipleThreadedVMs": True}:
-        raise ValueError("effective three-flag configuration was not established")
+    _, materialized = source_core_ancestry(rows)
     if (value["runtimeIdentity"] != json.loads(value["identityBytes"])
             or hashlib.sha256(value["identityBytes"].encode()).hexdigest() != core["outputs"]["identity"]["sha256"]
             or value["files"] != core["outputs"]["runtime"]["identity"]
@@ -209,42 +235,105 @@ def supervised_export(root, run, step, out):
     return json.loads(result.stdout)
 
 
-def unpack(path, destination):
+def archive_manifest(archive, *, verify_runtime=False):
+    """Authenticate inventory and retained observations without unpacking trees."""
+    members = archive.getmembers()
+    names = set()
+    links = set()
+    for member in members:
+        parts = PurePosixPath(member.name)
+        if (parts.is_absolute() or ".." in parts.parts or str(parts) != member.name
+                or member.name in names or member.islnk() or member.mode & ~0o777
+                or not (member.isfile() or member.isdir() or member.issym())):
+            raise ValueError("unsafe or duplicate artifact archive member")
+        names.add(member.name)
+        if member.issym():
+            link = PurePosixPath(member.linkname)
+            resolved = posixpath.normpath(str(parts.parent / link))
+            if (link.is_absolute() or not member.name.startswith("runtime/")
+                    or not resolved.startswith("runtime/")):
+                raise ValueError("artifact link must remain inside its runtime")
+            links.add(parts)
+    if any(parent in links for name in names for parent in PurePosixPath(name).parents):
+        raise ValueError('artifact entry writes through a symlink ancestor')
+    if "manifest.json" not in names or not archive.getmember("manifest.json").isfile():
+        raise ValueError("regular artifact manifest required")
+    value = json.load(archive.extractfile("manifest.json"))
+    checked_manifest(value)
+    expected = {"manifest.json", "runtime", *["runtime/" + name for name in value["files"]],
+                *["evidence/" + name for name in value["logs"]]}
+    if names != expected:
+        raise ValueError("archive member inventory differs from declared full inventory")
+    for name, sha in value['logs'].items():
+        member = archive.getmember('evidence/' + name)
+        if not member.isfile() or hashlib.file_digest(archive.extractfile(member), 'sha256').hexdigest() != sha:
+            raise ValueError('original evidence log changed')
+    if verify_runtime:
+        for name, row in value['files'].items():
+            member = archive.getmember('runtime/' + name)
+            if 'sha256' in row:
+                matches = (member.isfile() and member.mode == row['mode']
+                           and hashlib.file_digest(archive.extractfile(member), 'sha256').hexdigest() == row['sha256'])
+            elif 'link' in row:
+                matches = member.issym() and member.linkname == row['link']
+            else:
+                matches = member.isdir()
+            if not matches:
+                raise ValueError('reproduction archive runtime content differs from its inventory')
+    return value
+
+
+def unpack(path, destination, *, retained_runtime=None, context=None, metadata_only=False):
     """Reject aliases, extra members and special files before extraction."""
     from gambit_smp.recipes import tree_identity
     if destination.exists():
         raise ValueError("fresh artifact destination required")
     with tarfile.open(path) as archive:
+        value = archive_manifest(archive)
         members = archive.getmembers()
-        names = set()
-        for member in members:
-            parts = PurePosixPath(member.name)
-            if (parts.is_absolute() or ".." in parts.parts or str(parts) != member.name
-                    or member.name in names or member.islnk()
-                    or not (member.isfile() or member.isdir() or member.issym())):
-                raise ValueError("unsafe or duplicate artifact archive member")
-            names.add(member.name)
-            if member.issym():
-                link = PurePosixPath(member.linkname)
-                resolved = posixpath.normpath(str(parts.parent / link))
-                if (link.is_absolute() or not member.name.startswith("runtime/")
-                        or not resolved.startswith("runtime/")):
-                    raise ValueError("artifact link must remain inside its runtime")
-        if "manifest.json" not in names or not archive.getmember("manifest.json").isfile():
-            raise ValueError("regular artifact manifest required")
-        value = json.load(archive.extractfile("manifest.json"))
-        checked_manifest(value)
-        expected = {"manifest.json", "runtime", *["runtime/" + name for name in value["files"]],
-                    *["evidence/" + name for name in value["logs"]]}
-        if names != expected:
-            raise ValueError("archive member inventory differs from declared full inventory")
-        destination.mkdir()
-        archive.extractall(destination, filter="data")
-    if tree_identity(destination / "runtime") != value["files"]:
-        raise ValueError("runtime path, mode, link or content drift")
+        if context is not None:
+            from gambit_smp.artifact_storage import extract_archive
+            extract_archive(path,destination,context,stage='runtime-extract',
+                            omit_runtime=retained_runtime is not None or metadata_only)
+        else:
+            destination.mkdir()
+            selected = members if retained_runtime is None and not metadata_only else [member for member in members
+                           if member.name != 'runtime' and not member.name.startswith('runtime/')]
+            archive.extractall(destination, members=selected, filter="data")
+    if not metadata_only or retained_runtime is not None:
+        actual = tree_identity(destination / 'runtime' if retained_runtime is None else retained_runtime)
+        observed = actual if retained_runtime is None else {name:actual.get(name) for name in value['files']}
+        if observed != value["files"]:
+            raise ValueError("runtime path, mode, link or content drift")
     if any(digest(destination / "evidence" / name) != sha for name, sha in value["logs"].items()):
         raise ValueError("original evidence log changed")
     return value
+
+
+def producer_generation(root, slot, value, current):
+    """Authenticate an explicitly pinned old seal; never execute its Python.
+
+    This transports completed bytes, not an interrupted stage or retry grant.
+    Source, configuration, tool and output checks in consume remain mandatory.
+    """
+    from gambit_smp.research_kernel import manifest_paths
+    from gambit_smp.recipes import fields
+    reference = slot.get('producerEngine')
+    if reference is None:
+        if current['files'] != value['engineManifest']['files']:
+            raise ValueError('different producer implementation requires its explicit sealed generation')
+        return dict(kind='same-implementation', engineId=value['engineManifest']['engineId'])
+    fields(reference, ('path', 'engineId'))
+    path = Path(reference['path'])
+    if path.is_absolute() or '..' in path.parts or path.parts[:1] != ('.cache',):
+        raise ValueError('pinned producer seal must belong to this project Cache')
+    producer = manifest_paths(relative(root, path.as_posix()))
+    original = json.loads(value['outerReceipt'])
+    if (producer != value['engineManifest'] or producer['engineId'] != reference['engineId']
+            or original['engineId'] != reference['engineId']):
+        raise ValueError('pinned original producer generation differs from the archive')
+    return dict(kind='pinned-completed-generation', engineId=producer['engineId'],
+                consumerEngineId=current['engineId'], runtimeAdmitted=False, resumptionAuthorized=False)
 
 
 def validate_import(args, inputs):
@@ -256,16 +345,130 @@ def validate_import(args, inputs):
         raise ValueError("declared typed runtime input descriptor required")
 
 
-def consume(args, ctx):
-    from gambit_smp.recipes import source_path, tree_identity, read_json, fields
-    from gambit_smp.framework import relative
+def import_steps(ctx):
+    plan = getattr(ctx, 'planned_steps', ctx.receipt.get('plannedSteps', ()))
+    imports = [step for step in plan if step['capability'] == 'gambit.runtime-import'
+               and step['arguments']['source']['step'] == ctx.directory.name]
+    reference = dict(step=ctx.directory.name, output='source')
+    def consumes(value):
+        if isinstance(value, dict):
+            return value == reference or any(consumes(item) for item in value.values())
+        return isinstance(value, (list, tuple)) and any(consumes(item) for item in value)
+    if imports and any(step['capability'] != 'gambit.runtime-import' and consumes(step['arguments']) for step in plan):
+        raise ValueError('import source projection cannot serve a mutable source consumer')
+    return imports
+
+
+def reuse_import_source(args, ctx):
+    """The existing materializer borrows authenticated producer bytes for imports."""
+    imports = import_steps(ctx)
+    if not imports:
+        return None
+    archives = {step['arguments']['archive'] for step in imports}
+    if len(archives) != 1:
+        raise ValueError('one completed generation required for an import source')
+    runtime, value, _, storage = prepare_import(archives.pop(), ctx)
+    if args['sourceLock'] != value['sourceLock']:
+        raise ValueError('consumer source lock differs from the completed generation')
+    return {'outputs': ctx.publish('source', 'source-tree', runtime),
+            'sourceReuse': source_projection(value, storage),
+            'claim': 'authenticated-producer-source-projection-not-native-admission'}
+
+
+def source_projection(value, storage):
+    from gambit_smp.step_checkpoint import content_id
+    transport = 'checkpointSha256' if 'checkpointSha256' in storage else 'archiveSha256'
+    return dict(schema='completed-import-source.v1', sourceLockSha256=value['sourceLockSha256'],
+                sourceIdentity=content_id(value['sourceIdentity']), **{transport: storage[transport]})
+
+
+def prepare_stage_import(slot, path, ctx):
+    """Borrow the exact completed source-core phase, even if later testing failed."""
+    from gambit_smp.research_kernel import manifest_paths
+    from gambit_smp.recipes import fields, source_path, artifact_path, tree_identity, read_json
+    from gambit_smp.step_checkpoint import observe_stage_record, content_id
+    from gambit_smp.reasoning_history import read_execution_checkpoint, execution_checkpoint_head
+    from gambit_smp.artifact_storage import checked_workspace_state
+    from gambit_smp.workspace import task_output
     from gambit_smp.suite_primitives import check_runtime
-    descriptor = source_path(ctx.root, args["archive"])
+    reference = slot.get('producerEngine')
+    if not isinstance(reference, dict):
+        raise ValueError('stage consumption requires its explicitly pinned producer seal')
+    fields(reference, ('path', 'engineId'))
+    engine_path = Path(reference['path'])
+    if engine_path.is_absolute() or '..' in engine_path.parts or engine_path.parts[:1] != ('.cache',):
+        raise ValueError('pinned producer seal must belong to this project Cache')
+    producer = manifest_paths(relative(ctx.root, engine_path.as_posix()))
+    if producer['engineId'] != reference['engineId']:
+        raise ValueError('pinned producer generation identity changed')
+    proof, header, rows, run = observe_stage_record(ctx.root, path, producer)
+    _, materialized = source_core_ancestry(rows)
+    core = rows[-1]
+    lock = materialized['arguments']['sourceLock']
+    if (digest(source_path(ctx.root, lock)) != header['inputs'].get(lock)
+            or digest(Path(ctx.tools['gcc'])) != producer['hostTools']['gcc']['sha256']):
+        raise ValueError('consumer source or compiler differs from completed phase')
+    selected_ids = {row['id'] for row in rows}
+    prefix = read_execution_checkpoint(ctx.root, run)
+    paths = [path, run / 'run-header.json', relative(ctx.root, reference['path']) / 'engine.json']
+    for entry in prefix['records']:
+        if entry['payload'].get('step', {}).get('id') not in selected_ids:
+            continue
+        paths.append(Path(entry['path']))
+        paths.extend(Path(name) if Path(name).is_absolute() else ctx.root / name for name in entry['inputs'])
+        paths.extend(Path(name) for name in entry['payload']['toolInputs'])
+        paths.extend(Path(name) for name in entry['payload']['step'].get('observedInputs', {}))
+    for row in rows:
+        for descriptor in row.get('outputs', {}).values():
+            if 'identity' in descriptor:
+                if 'stateEvidence' not in descriptor:
+                    raise ValueError('phase ancestry lacks retained workspace evidence')
+                checked_workspace_state(ctx.root, descriptor['stateEvidence'], descriptor['identity'])
+                paths.append(relative(ctx.root, descriptor['stateEvidence']['path']))
+    output = core['outputs']['runtime']
+    if 'workspace' not in output:
+        raise ValueError('phase import requires its existing managed producer; no duplicate fallback')
+    runtime = artifact_path(run / 'run', output, root=ctx.root)
+    if task_output(ctx.root, runtime) != runtime:
+        raise ValueError('completed phase belongs to another task or process')
+    observed = tree_identity(runtime)
+    if observed != output['identity']:
+        raise ValueError('completed phase runtime drift; no duplicate fallback')
+    runtime = ctx.lease_workspace(runtime, observed)
+    identity_path = artifact_path(run / 'run', core['outputs']['identity'], root=ctx.root)
+    if digest(identity_path) != core['outputs']['identity']['sha256']:
+        raise ValueError('completed phase runtime identity changed')
+    identity_bytes = identity_path.read_text()
+    runtime_identity = json.loads(identity_bytes)
+    check_runtime(runtime, runtime_identity)
+    from gambit_smp.upstream_tests import preflight_import
+    make_scope = preflight_import(ctx, runtime)
+    if execution_checkpoint_head(ctx.root, run) != proof['prefixIdentity']:
+        raise ValueError('producer prefix changed during phase consumption')
+    ctx.bind([*paths, identity_path, source_path(ctx.root, lock)])
+    current = manifest_paths(Path(ctx.receipt['engine']['path']))
+    value = dict(checkpoint=proof, sourceLock=lock, sourceLockSha256=header['inputs'][lock],
+        sourceIdentity=materialized['outputs']['source']['identity'], files=output['identity'],
+        runtimeIdentity=runtime_identity, identityBytes=identity_bytes, producerBudgetSeconds=header['budgetSeconds'])
+    generation = dict(kind='pinned-completed-stage', engineId=producer['engineId'],
+        consumerEngineId=current['engineId'], runtimeAdmitted=False, resumptionAuthorized=False)
+    return runtime, value, generation, dict(managed=True, warm=True, mode='same-producer-workspace',
+        workspace=str(runtime), sourceContentId=content_id(output['identity']), checkpointSha256=digest(path),
+        makeScopePreflight=make_scope, copiedFiles=0)
+
+
+def prepare_import(name, ctx):
+    from gambit_smp.recipes import source_path, tree_identity, read_json, fields
+    from gambit_smp.suite_primitives import check_runtime
+    from gambit_smp.step_checkpoint import content_id
+    if ctx.receipt.get('workspacePolicy') != 'in-place':
+        raise ValueError('runtime reuse requires in-place maintained workspace policy')
+    descriptor = source_path(ctx.root, name)
     slot = read_json(descriptor)
-    fields(slot, ("schema", "path"))
+    fields(slot, ("schema", "path"), ('producerEngine',))
     if (slot["schema"] != "runtime-artifact-input.v1" or not isinstance(slot["path"], str)
             or Path(slot["path"]).is_absolute() or ".." in Path(slot["path"]).parts
-            or ".git" in Path(slot["path"]).parts or not slot["path"].endswith(".tar")):
+            or ".git" in Path(slot["path"]).parts or Path(slot['path']).suffix not in {'.tar', '.json'}):
         raise ValueError("repository-relative runtime artifact input required")
     incoming = ctx.root / slot["path"]
     if any(path.is_symlink() for path in (incoming, *incoming.parents) if path.is_relative_to(ctx.root)):
@@ -274,24 +477,38 @@ def consume(args, ctx):
     if not archive.is_file():
         raise ValueError("runtime artifact input unavailable or aliased")
     ctx.bind([descriptor, archive])
+    if archive.suffix == '.json':
+        return prepare_stage_import(slot, archive, ctx)
     before = digest(archive)
-    value = unpack(archive, ctx.directory / "generation")
+    with tarfile.open(archive) as stream:
+        value = archive_manifest(stream)
+        child = json.loads(value['childReceipt'])
+        tools = child['toolInputs']
+        member = 'evidence/run/' + tools['path']
+        if value['logs'].get('run/' + tools['path']) != tools['sha256']:
+            raise ValueError('producer tool inventory changed')
+        tool_inputs = json.load(stream.extractfile(member))
+        core = next(step for step in child['steps'] if step['id'] == value['checkpoint']['step'])
+        output = core['outputs']['runtime']
+        location = None
+        if 'workspace' in output:
+            member = 'run/' + output['path']
+            if value['logs'].get(member) != output.get('locationSha256'):
+                raise ValueError('managed producer location is not bound by archive provenance')
+            location = json.load(stream.extractfile('evidence/' + member))
+            if location != dict(schema='managed-workspace-location.v1', workspace=output['workspace']):
+                raise ValueError('managed producer location differs from completed output')
     ctx.remaining()
     from gambit_smp.research_kernel import manifest_paths
     current = manifest_paths(Path(ctx.receipt["engine"]["path"]))
-    if current["files"] != value["engineManifest"]["files"]:
-        raise ValueError("artifact producer and consumer implementation/provider differ")
+    generation = producer_generation(ctx.root, slot, value, current)
+    if 'producerEngine' in slot:
+        ctx.bind([relative(ctx.root, slot['producerEngine']['path']) / 'engine.json'])
     original = json.loads(value["outerReceipt"])
     paths = [source_path(ctx.root, name) for name in original["inputs"]]
     if any(digest(path) != original["inputs"][path.relative_to(ctx.root).as_posix()] for path in paths):
         raise ValueError("producer source inputs changed")
     ctx.bind(paths)
-    child = json.loads(value["childReceipt"])
-    tools = child["toolInputs"]
-    original_tools = relative(ctx.directory / "generation/evidence/run", tools["path"])
-    if digest(original_tools) != tools["sha256"]:
-        raise ValueError("producer tool inventory changed")
-    tool_inputs = read_json(original_tools)
     if not tool_inputs or len(tool_inputs) != tools["count"]:
         raise ValueError("complete producer tool inventory required")
     for name, sha in tool_inputs.items():
@@ -299,23 +516,76 @@ def consume(args, ctx):
         if not tool.is_absolute() or digest(tool) != sha:
             raise ValueError("producer tool bytes differ on artifact consumer")
     ctx.bind([Path(name) for name in tool_inputs])
-    source = ctx.artifact(args["source"], "source-tree")
-    source_step = next(row for row in ctx.receipt["steps"] if row["id"] == args["source"]["step"])
-    if (source_step["capability"] != "gambit.materialize"
-            or source_step["arguments"]["sourceLock"] != value["sourceLock"]
-            or digest(source_path(ctx.root, value["sourceLock"])) != value["sourceLockSha256"]
-            or tree_identity(source) != value["sourceIdentity"]
-            or digest(Path(ctx.tools["gcc"])) != value["compilerSha256"]):
+    if (digest(source_path(ctx.root, value['sourceLock'])) != value['sourceLockSha256']
+            or digest(Path(ctx.tools['gcc'])) != value['compilerSha256']):
         raise ValueError("consumer source or compiler differs from completed generation")
-    runtime = ctx.directory / "generation/runtime"
+    runtime = None
+    if location is not None:
+        from gambit_smp.workspace import bounded, owned_build_reference
+        candidate = bounded(ctx.root, location['workspace'])
+        from gambit_smp.artifact_storage import fixture_root
+        fixture_root(ctx.root, candidate)
+        if candidate.exists():
+            if owned_build_reference(ctx.root, candidate, 'gambit-core') != candidate:
+                raise ValueError('completed producer belongs to another work item')
+            runtime = ctx.lease_workspace(candidate, tree_identity(candidate))
+    warm = runtime is not None
+    mode = 'same-producer-workspace'
+    if runtime is None:
+        from gambit_smp.workspace import build_output, sync_build_source
+        from gambit_smp.artifact_storage import extract_archive
+        # Archive envelope/log changes do not create another native generation.
+        work = build_output(ctx.root, 'gambit-core', compiler=ctx.tools['gcc'],
+                            flags=['completed-runtime-import.v1', content_id(value['files'])])
+        runtime = work / 'source'
+        runtime.mkdir(exist_ok=True)
+        state_path = work / 'source-state.json'
+        state = read_json(state_path) if state_path.is_file() else {}
+        links = {name: row['link'] for name, row in state.get('pending', {}).items()
+                 if state.get('phase') == 'updating' and isinstance(row, dict) and 'link' in row}
+        ctx.lease_workspace(runtime, tree_identity(runtime, broken_links=links or None), broken_links=links or None)
+        warm = state.get('phase') in {'building', 'ready'}
+        # Empty staging is only a delta carrier; runtime bytes install once.
+        staged = ctx.directory / 'import-staging'
+        staged.mkdir()
+        transfer=None if warm else lambda: extract_archive(archive,runtime,ctx,stage='runtime-install',
+            runtime_only=True,existing_inputs=value['files'])
+        sync_build_source(ctx.root, work, staged, inventory=value['files'],initial_transfer=transfer)
+        staged.rmdir()
+        mode = 'retained-import-workspace' if warm else 'installed-import-workspace'
+    observed = tree_identity(runtime)
+    if {name: observed.get(name) for name in value['files']} != value['files']:
+        raise ValueError('completed producer runtime path, mode, link or content drift; no duplicate fallback')
     check_runtime(runtime, value["runtimeIdentity"])
-    identity = ctx.directory / "identity.json"
-    identity.write_text(value["identityBytes"])
+    from gambit_smp.upstream_tests import preflight_import
+    make_scope = preflight_import(ctx, runtime)
     if digest(archive) != before:
         raise ValueError("runtime archive changed during consumption")
+    return runtime, value, generation, dict(managed=True, warm=warm, mode=mode, workspace=str(runtime),
+        sourceContentId=content_id(value['files']), archiveSha256=before,
+        makeScopePreflight=make_scope,
+        copiedFiles=0 if warm else sum('sha256' in row for row in value['files'].values()))
+
+
+def consume(args, ctx):
+    from gambit_smp.recipes import tree_identity
+    runtime, value, generation, storage = prepare_import(args['archive'], ctx)
+    source = ctx.artifact(args['source'], 'source-tree')
+    source_step = next(row for row in ctx.receipt['steps'] if row['id'] == args['source']['step'])
+    proof = source_projection(value, storage)
+    projected = source_step.get('sourceReuse') == proof and source == runtime
+    if (source_step['capability'] != 'gambit.materialize'
+            or source_step['arguments']['sourceLock'] != value['sourceLock']
+            or (not projected and tree_identity(source) != value['sourceIdentity'])):
+        raise ValueError('consumer source differs from completed generation')
+    identity = ctx.directory / 'identity.json'
+    identity.write_text(value['identityBytes'])
     return {"outputs": {**ctx.publish("runtime", "source-runtime", runtime),
                         **ctx.publish("identity", "runtime-identity", identity)},
             "producerCheckpoint": value["checkpoint"],
-            "producerBudgetSeconds": json.loads(value["outerReceipt"])["budgetSeconds"],
+            'producerGeneration': generation,
+            'workspaceReuse': storage,
+            "producerBudgetSeconds": value['producerBudgetSeconds'] if 'producerBudgetSeconds' in value
+                                     else json.loads(value["outerReceipt"])["budgetSeconds"],
             "claim": "completed-source-core-reuse-not-bootstrap-or-retry-permission",
             "runtimeAdmitted": False, "resumptionAuthorized": False}

@@ -1,0 +1,57 @@
+#+TITLE: Cursor Handoff Witnesses, Contracts and Net Work
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+
+* RESEARCH Native projection
+:PROPERTIES:
+:CUSTOM_ID: ebnf-cursor-handoff-matrix
+:AUTHORITY: EbnfCursorHandoff
+:STATUS: source-and-conditional-models
+:END:
+
+Derived from [[file:models/sysml/ebnf-cursor-handoff.sysml][SysML]]; see [[file:ebnf-cursor-handoff-design.org][source derivation and limits]].
+
+| Case | Prefix / suffix | Legacy / coherent datum code | Scope | Reason |
+|---+---+---+---+---|
+| lexerQuote | " ->" / "'(T 42)\n" | 1 / 2 | source-derived-reader-and-generator-shape | Adjacent quote is buffered; current action (T 42) and coherent action (quote (T 42)) both fit deflexer token/action pair |
+| lexerParen | " ->" / "(T 42)\n" | 3 / 1 | source-derived-reader-entry | Adjacent opening paren is buffered; current reads T then remaining lexer validation differs |
+| lexerSpace | " ->" / " (T 42)\n" | 1 / 1 | datum-only-under-standard-reader | Discarded single space is ignored by standard datum reading; effects/locations and rule spans still need qualification |
+| lexerNewline | " ->" / "\n(T 42)\n" | 1 / 1 | datum-only-under-standard-reader | Discarded newline may retain datum but port and private location counters differ |
+| parserQuote | "=>" / "'value\n" | 4 / 5 | source-derived-selected-action-boundary | ACTION wins equal-length tie over Ident; quote cannot extend Ident; helper reach from a whole production remains separately scoped |
+| parserNumber | "=>" / "42\n" | -1 / -1 | source-derived-not-an-action | Ident extends through digits; maximal munch consumes =>42, so a delimiter-only ACTION model is invalid |
+| arrowEOF | " ->" / "" | 0 / 0 | source-derived-action-then-explicit-error | No extra character exists; read-syntax returns EOF and reader helper raises its explicit syntax error |
+
+** Handoff and custody
+
+| Node | Class | Source | Rule |
+|---+---+---+---|
+| witness | source | ebnf/lang-reader.ss:237-245,318-327; deflexer.ss:51-67 | Reader-accepted, generator-shaped quote-loss witness; standard handler assumptions explicit |
+| scan | protocol | ebnf/lexer.ss:120-206 | Maximal munch reads past accepted delimiter; first matching reduction wins ties |
+| chars | owner | ebnf/stream.ss:40-65 | Private unread characters and location history do not rewind physical port |
+| tokens | owner | ebnf/lexer.ss:54-99; defparser.ss:17-24 | Pending token objects preserve identity; token payload alone cannot reconstruct source trivia |
+| receipt | contract | runtime/syntax.ss:255-276; ebnf/stream.ss:93-100 | One custody record binds physical/logical coordinates, epoch, aliases and declared observation mode |
+| reader | consumer | ebnf/lang-reader.ss:165-170,237-245; _io.scm:13835-13870 | Current helper reads physical port; coherent adapter reads buffered suffix plus remaining source |
+| observations | open | parser/base.ss:72-96; lexer.ss:99-105; stream.ss:31-35 | Datum, locations, errors and callbacks matter; fresh-stream zero end gives intermediate off arithmetic, while normal Gambit filepos packing uses line/column |
+| mode | decision | ebnf/lang-reader.ss:165-170,237-245 | Coherent quote preservation changes an existing accepted source observation; classify as behavior repair |
+| settlement | custody | ebnf/lexer.ss:163-189; expander/module.ss:275-318 | Reject retains source owner; unknown commit retains authoritative record and prevents blind replay |
+
+** Qualification
+
+| Gate | Qualified | Obligation |
+|---+---+---|
+| tokenBoundary | false | No future token residue or fully qualified raw-span delivery; payload printing is insufficient |
+| positions | false | Port identity, encoding/EOL, logical/physical coordinates and rule spans are preserved for declared mode |
+| effectsAndErrors | false | Readtable/refill and exception observations are source-equivalent or classified as behavior repair |
+| settlement | false | Epoch-pinned, root-protected single custody and commit-result settlement are qualified |
+
+** Net work
+
+| Family | Potential removed work | Mechanism | Added cost / limit |
+|---+---+---+---|
+| resetConstructors | Baseline T=sections+actions character-stream and token-stream constructor calls | Keep one coherent cursor domain only after mode-specific equivalence | Cannot credit removal before token/location/error consumers and continuation aliases are migrated |
+| tokenReplay | Avoid repeated token construction only where source consumer no longer needs it | Preserve canonical tokens or stable raw spans without re-lexing | Span storage, token identity and trivia/handler history; some work is mandatory |
+| parallelConsumers | Remove false serialization for independent input domains | Owner-scoped cursors and qualified immutable reader definitions | Pins, epochs, owner handoff and unknown-result settlement; shared physical input remains serialized |
+| acceptedBehavior | Quote loss has a source-derived accepted-reader witness | Choose an explicit behavior-repair decision before corrected buffered reading | Correctness repair is not an automatic speedup or equivalence claim |
+
+Source witness derived: true; native reproduced: false; actual adapter admitted: false.
+Datum codes: -1 not an ACTION boundary, 0 EOF, 1 (T 42), 2 (quote (T 42)), 3 symbol T, 4 symbol value, 5 (quote value). Equal datum codes do not prove complete source equivalence.

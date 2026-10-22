@@ -1,0 +1,326 @@
+#+TITLE: Native Build Job Service and Shared Support Portfolio
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: zig
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Native Build Job Service and Shared Support Portfolio :zig:
+:PROPERTIES:
+:ID: 959c0e52-bd89-5f04-a340-f6ee222037a9
+:CUSTOM_ID: native-build-job-service-and-shared-support-portfolio
+:SOURCE_PATH: docs/experimental/zig/native-job-service-design.md
+:SOURCE_SHA256: 9e2a75267eb89022e399b0a16357e10ad7ef4e71b1cb559d32f5c7bc38ce6b8f
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Architecture/source research only. No implementation,
+native test, compiler invocation, performance measurement or ASCENT evaluation.
+Read with the [[file:native-job-service-evidence.org][evidence ledger]] and
+[[file:native-job-service-benefit-matrix.org][benefit/accounting matrix]].
+
+*** 1. Select an Existing Necessary Service
+:PROPERTIES:
+:ID: f81da7d8-d2a3-5104-b7a1-7dae9a9f1da1
+:CUSTOM_ID: 1-select-an-existing-necessary-service
+:END:
+
+Select *NJS*, native build job execution and result delivery. Its baseline is
+not hypothetical: ~##compile-file~ and ~##build-executable~ call ~##gambuild~,
+which encodes parameters into environment variables and starts a target-specific
+driver. The C driver resolves package/metadata inputs, substitutes templates and
+executes object, dynamic and executable commands. The patched Gerbil Darwin
+branch also enters it through ~env~ with explicit object/metadata/alias roles
+[J01-J04]. Unlike pure RFD arithmetic, this boundary already combines process,
+configuration, output, failure and resource ownership.
+
+Its required function is execution of the selected native build operation and
+delivery of its result. A new resident daemon, universal task framework,
+parallel scheduler, cache database and transaction manager are *not* established
+requirements. The existing generic Scheme process API is a serious lower-cost
+alternative; retaining it is not a failure to modernize.
+
+The proposed managed service replaces compiler-specific transport and command
+reconstruction rather than forwarding back through ~gambuild-C~. It accepts
+structured intent/profile data; a resolver produces exact child plans; a runner
+executes those plans without reinterpreting flags. Semantic Scheme generation,
+module/linker identity, configuration feature probes and runtime loading remain
+with their current authorities. The [[file:../../modern-c/studies/native-caller-retirement-plan.org][M2-M8 caller plan]]
+and [[file:../../../architecture/toolchain/studies/native-argv-equivalence-matrix.org][E01-E32 acceptance matrix]] remain binding.
+
+*** 2. Process Ownership Determines Deployment
+:PROPERTIES:
+:ID: 2368e22d-2c47-5d0d-88b2-e14d5bc02d9b
+:CUSTOM_ID: 2-process-ownership-determines-deployment
+:END:
+
+J06 exposes a concrete integration constraint: under the inspected
+~USE_SIGNALS~/~USE_POSIX~ branches, Gambit's SIGCHLD handler calls
+~waitpid(-1, ..., WNOHANG)~ and searches its device group for each returned PID.
+A second in-process waiter could lose a status to that handler. A dedicated
+native thread does not create a separate child namespace. This is a conditional
+source-derived hazard, not a reproduced Darwin failure or proof of the installed
+configuration.
+
+For the *independent native-owner comparison*, select an out-of-process worker:
+Gambit owns/reaps the worker through its existing process machinery; the worker
+owns its tool children. C-G, C-ZT and Zig use the same topology and observable
+contract. Worker bootstrap must establish its own supported signal/wait policy;
+it cannot assume inherited masks/dispositions already match its runner. Ordinary
+direct children are the initial domain. Subreapers, detached descendants,
+process-group cancellation and crash-orphan cleanup need separate protocols.
+
+There are two cheaper controls that cannot be discarded without evidence:
+
+1. Keep typed recipe resolution and direct child execution in Scheme, reusing
+   J05/J07; eliminate the dedicated shell protocol there. No second native reaper
+   or worker transport is necessary for that topology.
+2. Embed a C or Zig service only after one integrated child-ownership/reaper and
+   GC/wait protocol is designed. Do not concurrently enable an independent
+   libuv/Zig waiter and assume lexical cleanup resolves the conflict.
+
+Compare the worker designs with each other first, then compare the selected
+worker to the cheaper Scheme topology. Isolation can also contain later provider
+fatal exits, but the *external-tool-only* service does not need in-process LLVM.
+Do not charge or credit provider-crash isolation until that demand is selected.
+
+*** 3. Common Data and Lifecycle Contract
+:PROPERTIES:
+:ID: e994f881-bded-5079-93fa-6f443f9e4467
+:CUSTOM_ID: 3-common-data-and-lifecycle-contract
+:END:
+
+#+BEGIN_SRC text :eval never
+NativeJobIntent {
+  request_id, schema_id, configured_profile_id, input_product_ids,
+  operation_and_recipe_id, ordered_native_options, declared_output_roles
+}
+ChildPlan {
+  action_id, tool_identity, executable, argv, explicit_environment,
+  cwd, stdin_policy, stdout_policy, stderr_policy,
+  admitted_input_closure, expected_output_roles, capability_policy_id
+}
+JobResult {
+  request_and_plan_id, outcome, normalized_diagnostic,
+  child_terminal_record_if_available, output_role_records,
+  cleanup_state, result_delivery_state
+}
+outcome = plan_rejected | launch_failed | tool_exited | tool_signalled
+        | observation_failed | worker_lost
+#+END_SRC
+
+These are logical records, not implemented schemas, callable APIs or public
+union layouts. Job success requires the selected tool outcome and output-role
+postconditions, then successful result delivery. Worker exit zero is not tool
+success. A delivery failure cannot be relabelled a compiler diagnostic or an
+accepted cache artifact. If a worker is lost, already-started tool/output state
+is potentially unknown; automatic retry is not justified.
+
+The initial shared lifecycle is:
+
+1. *Accept:* validate envelope/profile/capabilities and ownership of request
+   bytes. No movable Scheme pointer escapes; allocation failure has bounded
+   diagnostic fallback. Scheme waits through an admitted I/O/control boundary.
+2. *Resolve:* issue ordered package query actions, preserving both cflags and
+   libs queries even for object mode. Decode the admitted output format;
+   structured argv does not parse package flags automatically. Seal each tool
+   plan after its actual inputs/dependencies and earlier query effects are known.
+3. *Launch:* explicit child env/cwd/stdio; no process-global ~chdir~/~setenv~
+   per request. Separate failure before exec from a tool's nonzero exit. The old
+   process path already does child-side cwd/env setup; credit no fictitious old
+   parent-global mutation removal [J05/J06].
+4. *Run/observe:* inherit the admitted stdio for ordinary compile/link jobs.
+   Bounded byte capture is a separate query policy; concurrent drain or an
+   equivalent admitted mechanism prevents pipe deadlock. EOF, child termination
+   and complete observation are different facts. No total stdout/stderr order
+   or unbounded lossless capture is inferred. Truncation/overflow rejects query
+   interpretation rather than accepting a partial flag list.
+5. *Reap/normalize:* one owner obtains terminal state and closes actual fds/
+   handles. Map status into the caller's existing success/error domain; J07's
+   process status is not a Zig enum ordinal. Keep query/TTY/error ordering and
+   caller-specific exception contracts explicit.
+6. *Deliver/close:* validate declared output roles and return provenance.
+   Retain native ownership until transfer is acknowledged; record incomplete
+   cleanup separately from build outcome. Each acquired resource needs an owner
+   across partial failure, shutdown and result-copy allocation failure.
+
+Gambit resets TTY mode and leaves ordinary compiler output uncaptured [J02].
+Substituting a convenient capture-everything helper changes stdin/stdio and is
+not equivalent. Worker fd/TTY forwarding, controlling-terminal behavior and
+interactive modes remain admission questions. Initially unsupported contexts
+use explicit legacy routing; they are not silently passed as equivalent.
+
+Output path/cwd can affect debug paths, tool behavior and module identity.
+Initially preserve their admitted spellings. Do not replace direct compiler
+output with arbitrary staging/rename merely to claim atomic publication.
+Multi-output atomicity, durable cache publication and crash recovery would be
+additional selected services. J01 deletes a generated temporary source before
+checking the returned status on its ordinary path; the replacement must preserve
+that sequencing/error precedence or declare a restricted/changed profile. No
+general rollback of compiler filesystem effects is promised.
+
+Do not invent baseline output checks: J01 accepts the zero status branch, while
+J04 explicitly checks the dynamic bundle exists. Any stronger output validation
+is a declared managed-profile requirement/extension with its own acceptance
+case, rather than evidence that the old route already enforced it.
+
+*** 4. Three Equal-Capability Realizations
+:PROPERTIES:
+:ID: a28d6631-f87e-5abc-af60-829f9bd57721
+:CUSTOM_ID: 4-three-equal-capability-realizations
+:END:
+
+| Duty | C-G | C-ZT | Zig |
+|-
+| Common resolver/worker | Modern C, checked arithmetic, explicit data/status and one shared cleanup discipline | Same C core and worker; same selected downstream Zig driver as Zig | Native records, private errors, scope cleanup and reusable selected library mechanics |
+| Process backend | Credit retained Scheme topology as alternative; for independent worker choose a qualified POSIX/platform adapter or reusable C library | Same C backend, not a new adapter for each tool | Selected standard process/I/O primitives behind the same adapter contract; not an automatic project-policy implementation |
+| Mature reuse control | libuv supplies args/env/cwd/stdio and terminal callbacks; event-loop/close/drain integration and dependency work remain | Same; shared driver support is separate | May also call the same C backend if that is cheaper; cannot claim its removal while using it |
+| Diagnostics/bytes | Shared schema, bounded storage, rich context and fallback; existing C libraries can be reused | Same | Private error sets do not replace external diagnostic storage or mapping |
+| Cleanup/transfer | Ownership table, explicit partial-state cleanup and result transfer | Same | Scope syntax can express parts more compactly; no affine ownership, subtree kill, safe crash cleanup or rollback follows |
+| LLVM adapter, if demanded | LLVM/MLIR C APIs plus normalization and provider cohort | Same, or external Zig IR driver | Same provider laws; C import eases declarations, not ownership/stability |
+| Build/support | Actual C compiler/library/platform burden | C burden plus selected Zig *tool* burden | Marginal Zig language/stdlib/import/build burden plus selected provider/platform work |
+
+P01-P03 make both reusable native choices concrete. The Zig convenience capture
+route is not the ordinary compiler stdio contract; successful buffer handoff
+must also remain guarded through later failure. Neither a library function nor
+a callback API earns a project ownership-law deletion. libuv is a viable C
+comparison candidate, not a locally installed or qualified dependency decision.
+
+*** 5. Necessary Portfolio and Actual Sharing Edges
+:PROPERTIES:
+:ID: edffbe38-c6f1-58e2-bc3f-4c521b4c66cf
+:CUSTOM_ID: 5-necessary-portfolio-and-actual-sharing-edges
+:END:
+
+The cost unit is an owned support artifact or change event, not a name assigned
+to an operation. The portfolio contains the following distinct consumers:
+
+| Component / demand | Shared support actually used | Local duties that do not amortize away |
+|-
+| R: existing RFD reconstruction target | Bounded request/result transport if placed in this worker, allocator/status/profile identity | Frame/root/decoder laws; exact-array algorithm still suffices; no process runner used by pure RFD |
+| Q: existing metadata/package resolution | Child runner, byte observation, env/cwd, diagnostics | Ordered conditions, precedence, package output decoding and dependency closure |
+| B: existing object/dynamic/executable operation executor | Same child runner, inherited stdio path, diagnostics and ownership support | Distinct recipes/aliases/output roles, status and caller semantics; three modes are not three runner implementations |
+| L: future selected LLVM/MLIR emission adapter | Request/result envelope, diagnostics and artifact ownership; child runner only for external-driver topology | Provider registration/ownership, mutation-on-failure, runtime/layout/tail qualification and version work |
+
+Q and B are present necessary operation families [J01-J04]. R's new worker
+placement and L are proposals; neither is an existing native allocation or a
+forced justification for Zig. Q's query bytes and B's live terminal policy
+share a runner but retain separate observation adapters. R cannot subsidize
+process support it never calls. LLVM contexts/modules are not RFD buffers or
+Scheme GC roots. Sharing a diagnostic transport does not unify all diagnostic
+meaning or make a provider-specific disposer generic.
+
+*** 6. Conditional Retirement Ledger
+:PROPERTIES:
+:ID: ee255105-ba49-513f-b5b5-41831e0dfa3c
+:CUSTOM_ID: 6-conditional-retirement-ledger
+:END:
+
+| ID | Existing support / callers | What can leave the managed route | What remains / deletion prerequisite |
+|-
+| NJR01 | ~_gsclib~ params/~##gambuild~, J01/J02 | GAMBUILD environment serialization and target-C script dispatch | Semantic generation/naming, non-C drivers, legacy callers and public APIs; M5/E caller closure required |
+| NJR02 | Shell metadata/query helpers, J03 | Managed grep/sed condition reduction, package command reconstruction and string accumulation | Typed resolver still owns these laws; legacy/info users keep helpers; M6/E18-E23/query/TTY evidence |
+| NJR03 | Shell substitute/eval obj/dyn/exe, J03 | Shell template reconstruction and eval for supported requests | One configured rule graph and direct argv recipes required, not a copied second table; M7/M8 and full E obligations |
+| NJR04 | Patched Gerbil Darwin ~env -> gambuild-C~, J04 | Native dispatch leg plus nested native-only GSC object invocation when separately migrated | Initial semantic ~gsc -c~, one existing generation, object/bundle ordering, metadata source and alias remain; M2-M5/G4 evidence |
+| NJR05 | Common Gerbil ~invoke~, J04 | Selected native callers only | Semantic GSC and other users remain; no global ~invoke~ deletion |
+| NJR06 | Scheme process/J07 and ~os_io.c~/J06 | Compiler-specific use can move to worker runner | Public process APIs, other child users, generic runtime/reaper support remain; no global retirement |
+| NJR07 | Prospective native C runner support | Selected private platform/drain/cleanup bodies can be delegated to Zig support *only if actually otherwise required* | Mature C-library/retained-Scheme alternatives credited; library integration and project policies remain; no existing native runner family retired today |
+| NJR08 | RFD RF01-RF07 and future provider adapter | Existing RFD selected-call retirement stays separately tracked | Do not add RFD retirement twice or claim LLVM adapter removal; provider/resource laws retained |
+
+NJR01-NJR05 describe substantial real compiler-path replacement shared by all
+three realizations. Whole-file deletion requires no residual reachable callers
+in the declared support scope; a managed bypass does not prove that. During
+coexistence, installation, diagnostics and both paths cost real work. All rows
+are design conditions; actual retired code/support count is zero.
+
+*** 7. Portfolio Cost Closure and Decision
+:PROPERTIES:
+:ID: 4637ac82-d727-5aa7-9b53-136867c8aff1
+:CUSTOM_ID: 7-portfolio-cost-closure-and-decision
+:END:
+
+Use the matrix's SA01-SA09 support ownership and NC01-NC07 change accounts.
+For a justified horizon/demand and matched capability, define:
+
+#+BEGIN_SRC text :eval never
+Net_Z_over_C(H) = sum(local_C_work_i - local_Z_work_i)
+               + sum(unique_shared_C_work_j - unique_shared_Z_work_j)
+               - incremental_migration - coexistence - cross_component_coordination
+               - marginal_language_library_build_and_exit_work
+#+END_SRC
+
+Shared work includes acquisition, integration, maintenance and qualification,
+not upstream source size. Count one artifact/change once, with a real incidence
+edge to each consumer. Don't include the same propagation saving again as a
+container/ADT saving. A driver already present in C-ZT cancels only for identical
+work; extra Zig library use does not. Shared semantic/configuration/provider work
+cancels only where its actual effort is common. Shared new architecture gains
+against B0 are a separate comparison; they cannot fill the Zig-over-C terms.
+
+The accounts must be disjoint: the local/shared differences exclude the four
+separately subtracted incremental accounts. Assign a library integration or
+upgrade task either to its shared backend owner or to marginal language/library
+support, never both. Record the assignment before estimating intervals. A
+support family that stays in both designs has only its actual work difference,
+not a whole-family acquisition saving.
+
+*Amortization is not new value:* a genuine fixed support charge F spread over
+n demanded consumers has average F/n, but remains F in the portfolio. C can also
+share it. Adding optional components to increase n is not a benefit. A further
+component helps only when its disjoint saving exceeds its local migration,
+support and extra coordination cost, using already-counted fixed owners.
+
+For compatible cost intervals, a sufficient theory certificate is:
+
+#+BEGIN_SRC text :eval never
+lower_bound(disjoint local + unique shared savings)
+  > upper_bound(migration + coexistence + coordination + marginal support + exit)
+#+END_SRC
+
+First establish required capabilities, support selection and actual retirement
+domain. Then supply defensible work bounds per change account; no fabricated
+hours, speedups, target counts or native small test closes that inequality.
+
+*Positive domain worth pursuing:* several already-demanded native adapters
+need the same otherwise project-owned C runner/storage/error mechanics; Zig's
+selected reusable support removes those private bodies, leaves smaller proven
+residual adapters, and the total saving exceeds its one-time and recurring
+increment. This is stronger than RFD's expression-only opportunity, but the
+reviewed sources do not establish those cost bounds or disqualify C reuse.
+
+*Countermodels:* (a) one reused C runner already serves Q/B and R is exact
+arrays, so counting another runner saving for every mode is false; (b) typed
+Scheme direct execution solves the required scope more cheaply than a worker;
+(c) IPC/TTY/control or library-upgrade work consumes the support saving;
+(d) legacy callers keep old helpers alive and dual-path costs dominate;
+(e) optional L/extra platforms are added only to manufacture amortization;
+(f) in-process double-reaper design fails ownership admission regardless of cost.
+
+*Decision:* NJS is a more substantial system-engineering candidate than RFD:
+it can remove real native command reconstruction and establish independent
+process/provider ownership. Multiple consumers expose a plausible shared-support
+positive domain, *not an established positive net bound*. Keep both C controls
+and the typed-Scheme alternative open. TG4/TG5, process/TTY/control/provider and
+runtime gates remain unresolved; no implementation or native test is authorized
+or performed by this study.
+
+[[file:../diagrams/native-job-service-ownership.svg][Native job ownership and service boundary]]
+
+[[file:../diagrams/native-job-support-portfolio.svg][Shared support and cost ownership]]
+
+The [[file:njs-executor-storage-cleanup.org][executor/byte/cleanup refinement]] now
+selects stdout-only Q capture, inherited B stdio and optional bounded BS1 exact
+storage, with independent terminal/EOF/close/delivery axes. Its
+[[file:njs-support-cost-modernization-matrix.org][residual-cost and modernization matrix]]
+compares Scheme, mature C support and Zig after reuse. MG01-MG12 explicitly
+separate native-boundary engineering from Gambit GC/VM/FFI/language evolution;
+the [[file:njs-executor-evidence.org][ledger]] binds the OCaml comparison and current
+source assets. No mandatory growth/dual-capture framework or positive net bound
+is inferred from variable query output.

@@ -1,0 +1,62 @@
+#+TITLE: Still initialization, safe-point and root custody and peak matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: init-caller-matrix
+:END:
+#+NAME: init-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| structure-init | _kernel.scm:43-112,4950-4981;_kernel.c:23856-23904 | GC_SAVE type -> still allocate -> native refcount dec -> restore type -> fill -> return | Linked/header-valid/refcount0 body is not yet scannable | Generation-bound InitSpec completion and published result root before yielding |
+| sync-producer | setup.c:1140-1201,66-90 | GC call -> OP_GARBAGE_COLLECT -> raise INTR_SYNC_OP -> trip flag -> execute_sync_op_loop | Request and delivery flag are not a participant acknowledgement | Separate monotonic request identity, root freeze and actual barrier-entry receipt |
+| sync-consumer | _kernel.scm:1426-1446;setup.c:1012-1129 | Saved RA/registers -> service_sync_op -> barrier -> GC pstate | Disable interrupts leaves sync-op enabled; no-GC comes from admitted C interval | Modern C safe-point gate cannot be replaced by interrupt masking |
+| interrupt-delivery | setup.c:206-241;_kernel.scm:1448-1477;os_setup.c:3037-3042 | Record/trip -> lowest pending code -> Scheme handler; procedural callback for OTHER | Posting, clearing, servicing and Scheme callback are different transitions | Queue during init, deliver after complete roots; do not wait synchronously on own GC request |
+| root-scratch | gambit.h.in:8059-8086,11623;mem.c:6526-6538,6858 | GC_SAVE1 stores saved[0]; mark_saved scans saved[3] per participant | Nested saves/clears can overwrite outer type; patch marker protection is not a stack | Token-owned root records and own-only unwind; complete replacement census before retiring scratch |
+| callback-marker | c_intf.c:6511-6562;setup.c:3275-3413;gambit.h.in:SFUN macros | SFUN marker allocation -> call/trampoline -> return/unwind -> marker invalidation | Before-marker GC and exceptional nonlocal exit have independent obligations | Reuse HR-MARKER/EXIT/RC/binding requirements; park roots and initializer or refuse unsafe entry |
+| cleanup-reentry | mem.c:4387-4412;c_intf.c:1683-1711 | GC cleanup -> release_foreign -> native release_fn | Arbitrary hook exists; actual legal reentry into Scheme during GC is not established | Qualify/desugar deferred destructor handoff; no inference that Tcl deletion runs during this constructor |
+| sibling-allocators | _kernel.scm:inline-allocation family;_num.scm:7941;_system.scm:1404;c_intf.c:4381-5653 | Vector/word/atomic constructors, bignum/weak helpers and native conversions also allocate | One structure audit does not prove all custom initializers, raw FFI hooks or blocked/native paths | Typed payload/effect classification and complete admitted-caller census; unqualified paths remain open |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: init-benefit-matrix
+:END:
+#+NAME: init-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| init completion gate | Replace implicit cannot-GC-here reasoning with a checkable C/GC boundary | Selected structure fills a words once; withholding ack adds no required second O(a) fill | Init token, prefix/completion and request/owner generation metadata; mature-to-young remembered coverage before minor-GC admission | No bounded pause follows from word count; native blocking/interposition hooks need effect contracts |
+| request vs acknowledgement | Avoid treating trip/mask/pending bit as roots-ready | Default path already posts VM-wide sync request and uses barrier; no new fanout saving | Fresh request generation, root freeze and participant lifetime | Do not re-enable a frozen context before completing or withdrawing its participation |
+| nested roots | Eliminate unowned slot0 overwrite/clear hazards after complete migration | Existing saved array is3 root words; target scan sum R_i over retained activation records | O(K) root records and O(sum R_i) root scan; dual support during migration is extra work | Only a full SAVE/RESTORE/marker/native caller census can retire fixed scratch scanning |
+| unknown allocation | Keep an unobserved successful allocation and its roots accountable | Held unknown charge >= full possible container request plus operation metadata | Bounded pending slots, same-ID query, generation and initializer ownership | No refund, replay, release or acknowledgement solely on timeout/cancel; liveness not proved |
+| callbacks and exceptions | Prevent cycles: GC waits initializer while callback waits GC | No callback inside selected unfinished C fill; after completion reuse normal semantics | Own-token cleanup and retained exception/continuation roots; result-style service boundaries | Unsafe hook either finishes, obtains an independently proved scan-safe representation, or is refused admission |
+| alternative scan-safe partials | Permit later exploration of GC inside a constructor only with initialized valid slots | Sentinel prefill costs a extra writes before final a writes; partial descriptors require separate proof | Extra O(a) writes or field-validity metadata/scan logic | Not needed for selected one-pass fill; not implemented or counted as a gain |
+| whole peak | Make root/init/unknown retention explicit in phase maximum | Actual existing still request8a+63 remains; root/ledger bytes added to every overlapping phase | Root metadata, pending full storage and delayed reclamation | Positive Qg still requires omitted actual acquisition > added costs at every dominant phase; no measured or unconditional gain |
+
+* Exact model scopes and dependencies
+#+NAME: init-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| SI-H | interleaving | models/gambit/still_init_safepoint.qnt | still_init_safepoint:21-named-histories;safe;seed=17;100x80 | One initializer/two root activations; requested versus acknowledged GC, interrupt delivery, nested cleanup and unknown block8 custody; source and C memory model open |
+| SI-I | induction | models/gambit/lean/StillInitSafepoint.lean | GambitSMP.StillInitSafepoint:noUninitializedAck;noUnrootedAck;requestIsNotAck;freshRequestInvalidates;initializedPublication;childReleasePreservesParent;releasedChildAbsent;unknownCannotAck;unknownChargeRetained;accountingSettlementNotFree;sourceRefcountIsNotReadiness;boundedRootSlots;wholePeakNeedsAllPhases | 13 conditional gate/token/epoch/storage propositions; not complete QNT induction, native roots or C atomics |
+| SI-GATE | source-refinement | models/gambit/lean/StillInitSafepoint.lean | SI-GATE:actual-source-refinement | Alloc->link/header->decrement->initialize->publish; request/trip is not barrier participation; forbid acknowledgement/delivery/reentry with uninitialized owned body; match request and root epoch |
+| SI-CUSTODY | source-refinement | models/gambit/lean/StillInitSafepoint.lean | SI-CUSTODY:actual-source-refinement | Outer type/result roots use distinct activation tokens; every callback/throw/unknown keeps exact initializer and full storage liability; fixed saved[3]/marker patch not nested-root proof |
+
+#+NAME: init-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| SI-GATE | SI-H |
+| SI-GATE | SI-I |
+| SI-GATE | SP-POLL |
+| SI-GATE | GW-S |
+| SI-GATE | IH-MEMORY |
+| SI-GATE | HR-BIND |
+| SI-CUSTODY | SI-H |
+| SI-CUSTODY | SI-I |
+| SI-CUSTODY | SI-GATE |
+| SI-CUSTODY | HR-MARKER |
+| SI-CUSTODY | HR-EXIT |
+| SI-CUSTODY | HR-RC |
+| SP-STILL | SI-GATE |
+| SP-PEAK | SI-CUSTODY |
+| SI-GATE | WB-WRITERS |
+| SI-GATE | WB-SNAPSHOT |

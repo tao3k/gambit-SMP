@@ -10,6 +10,7 @@ from unittest.mock import patch
 from gambit_smp.artifact_storage import clone_file, transfer_generation, transfer_tree
 from gambit_smp.artifact_storage import cache_path, runtime_output
 from gambit_smp.artifact_storage import database_path, migrate_database, fixture_name, fixture_path
+from gambit_smp.artifact_storage import fixture_root, observation_root
 
 
 class ArtifactStorageTests(unittest.TestCase):
@@ -83,6 +84,51 @@ class ArtifactStorageTests(unittest.TestCase):
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     cache_path(root, name)
 
+    def test_receipt_cache_roundtrip_does_not_expand_source_workspace_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            run = root / ".cache/research-observations/bootstrap"
+            run.mkdir(parents=True)
+            self.assertEqual(root / ".cache", observation_root(root, run))
+            self.assertEqual(".cache/research-observations/bootstrap", fixture_name(root, run))
+            self.assertEqual(run, fixture_path(root, fixture_name(root, run)))
+            with self.assertRaisesRegex(ValueError, "fixture store"):
+                fixture_root(root, run)
+            for path in (root / ".cache", root / "evidence/run", root.parent / "outside"):
+                with self.subTest(path=path), self.assertRaises(ValueError):
+                    observation_root(root, path)
+
+    def test_in_place_receipt_root_does_not_depend_on_disposable_data_directory(self):
+        import json
+        from gambit_smp.framework import digest
+        from gambit_smp.artifact_storage import seal_workspace_state
+        from gambit_smp.recipes import tree_identity, inspect_run
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            source = root / "evidence/source.c"
+            source.parent.mkdir()
+            source.write_text("source fixture")
+            run = root / ".cache/run"
+            workspace = run / "workspace"
+            workspace.mkdir(parents=True)
+            (workspace / "generated.c").write_text("generated fixture")
+            state = seal_workspace_state(root, workspace,
+                root / ".cache/research/workspace-states/unit.json", {"evidence/source.c": digest(source)})
+            tools = run / "tools.json"
+            tools.write_text("{}")
+            receipt = {"schema": "evidence-recipe-run.v1", "recipe": "fixture", "outcome": "DENY",
+                "workspacePolicy": "in-place", "inputs": {str(source): digest(source)},
+                "toolInputs": {"path": "tools.json", "sha256": digest(tools)},
+                "steps": [{"id": "source", "outputs": {"source": {
+                    "path": "workspace", "type": "source-tree", "identity": tree_identity(workspace),
+                    "stateEvidence": state}}}]}
+            (run / "receipt.json").write_text(json.dumps(receipt))
+            self.assertFalse((root / ".data").exists())
+            result = inspect_run(run)
+            self.assertEqual(result["identityStatus"], "CURRENT")
+            self.assertEqual(result["evidenceBindingStatus"], "CURRENT")
+            self.assertEqual(result["recordedOutcome"], "DENY")
+
     def test_cache_alias_cannot_write_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = self.repository(directory)
@@ -92,6 +138,43 @@ class ArtifactStorageTests(unittest.TestCase):
                 cache_path(root, "run")
             with self.assertRaisesRegex(ValueError, "cache alias"):
                 runtime_output(root, root / ".cache/run")
+            with self.assertRaises(ValueError):
+                observation_root(root, root / ".cache/run")
+
+    def test_stale_custody_does_not_erase_material_observation_or_grant_reuse(self):
+        from gambit_smp.framework import digest
+        from gambit_smp.artifact_storage import seal_workspace_state
+        from gambit_smp.recipes import inspect_outputs, tree_identity
+        with tempfile.TemporaryDirectory() as directory:
+            root = self.repository(directory)
+            source = root / "evidence/source.c"
+            source.parent.mkdir()
+            source.write_text("original source")
+            run = root / ".cache/run"
+            workspace = run / "workspace"
+            workspace.mkdir(parents=True)
+            generated = workspace / "generated.c"
+            generated.write_text("generated fixture")
+            state = seal_workspace_state(root, workspace,
+                root / ".cache/research/workspace-states/unit.json",
+                {"evidence/source.c": digest(source)})
+            steps = [{"id": "source", "outputs": {"source": {
+                "path": "workspace", "identity": tree_identity(workspace),
+                "stateEvidence": state}}}]
+            source.write_text("changed source")
+            for expected, action in (
+                ("AVAILABLE", lambda: None),
+                ("MODIFIED", lambda: generated.write_text("changed material")),
+                ("MISSING", lambda: (generated.unlink(), workspace.rmdir())),
+            ):
+                with self.subTest(material=expected):
+                    action()
+                    result = inspect_outputs(run, steps, root=root)
+                    self.assertEqual(result["status"], "UNKNOWN")
+                    row = result["outputs"][0]
+                    self.assertEqual(row["status"], "UNKNOWN")
+                    self.assertEqual(row["materialStatus"], expected)
+                    self.assertEqual(row["custodyStatus"], "UNVERIFIED")
 
     def test_runtime_outputs_stay_outside_git_sources(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -109,15 +192,21 @@ class ArtifactStorageTests(unittest.TestCase):
                  (evidence_index, ["--validate"]), (review_validation, []))
         with tempfile.TemporaryDirectory() as directory:
             root = self.repository(directory)
+            from gambit_smp import workspace
+            workspace.git(root,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','--allow-empty','-qm','policy')
+            workspace.start(root,'artifact-policy',adopt=True)
             for module, args in cases:
                 target = root / "evidence/unpublished-run"
                 with self.subTest(module=module.__name__), \
                      patch.object(module, "ROOT", root, create=True), \
                      patch.object(evidence_index, "ROOT", root), \
+                     patch("gambit_smp.framework.project_root",return_value=root), \
+                     patch("gambit_smp.task_dependencies.default_task",return_value="artifact-policy"), \
                      patch("sys.argv", [module.__name__, *args, "--out", str(target)]), \
                      self.assertRaisesRegex(ValueError, "runtime output"):
                     module.main()
                 self.assertFalse(target.exists())
+                workspace.resume(root,"artifact-policy")
 
     def test_cache_root_is_git_toplevel_not_selected_subdirectory(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -242,6 +331,25 @@ class ArtifactStorageTests(unittest.TestCase):
             for target in (source, source / "child", link, source.parent):
                 with self.subTest(target=target), self.assertRaises(ValueError):
                     transfer_tree(source, target, dirs_exist_ok=True)
+
+    @unittest.skipUnless(__import__('sys').platform == 'darwin', 'real APFS clone')
+    def test_native_clone_preserves_modes_times_and_independent_mutation(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            source, target = Path(directory) / 'source', Path(directory) / 'target'
+            source.write_bytes(b'original'); source.chmod(0o751)
+            os.utime(source, ns=(1_700_000_000_123_456_789, 1_700_000_000_987_654_321))
+            expected = source.stat()
+            with patch('gambit_smp.artifact_storage.shutil.copystat', wraps=__import__('shutil').copystat) as metadata:
+                mode = clone_file(source, target)
+                if mode == 'copy-on-write':metadata.assert_not_called()
+            actual = target.stat()
+            self.assertEqual(expected.st_mode, actual.st_mode)
+            self.assertEqual(expected.st_mtime_ns, actual.st_mtime_ns)
+            self.assertEqual(expected.st_atime_ns, actual.st_atime_ns)
+            self.assertNotEqual(expected.st_ino, actual.st_ino)
+            target.write_bytes(b'changed')
+            self.assertEqual(b'original', source.read_bytes())
 
     def test_cross_device_fallback_is_reported(self):
         with tempfile.TemporaryDirectory() as directory:

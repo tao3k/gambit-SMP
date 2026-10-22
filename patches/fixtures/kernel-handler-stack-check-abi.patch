@@ -1,0 +1,17 @@
+--- a/gsc/_front.scm
++++ b/gsc/_front.scm
+@@ -2983,7 +2983,13 @@
+     (if (and (or stack-only? (intrs-enabled? (node-env node)))
+              (case where
+                ((call)
+-                (or stack-only? (> delta (- poll-period poll-head))))
++                ;; (not warnings) is the existing contract on the nontail
++                ;; calls whose return label is the next ##c-code entry.
++                ;; A stack-only poll inserts a label ahead of that entry.
++                ;; Ordinary disabled calls keep warnings enabled and still poll.
++                (if stack-only?
++                    (warnings? (node-env node))
++                    (> delta (- poll-period poll-head))))
+                ((tail-call)
+                 (or stack-only? (> delta poll-tail)))
+                ((return)

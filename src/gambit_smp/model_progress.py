@@ -1,4 +1,5 @@
 """Check progress of unchanged QNT models with explicit finite fault controls."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import json
 from pathlib import Path
@@ -47,7 +48,7 @@ def main():
     case = next((row for row in manifest["cases"] if row["id"] == args.case), None)
     if manifest.get("schema") != "gambit-progress-obligations.v1" or case is None:
         parser.error("known progress obligation required")
-    version = subprocess.check_output(["quint", "--version"], text=True, timeout=10).strip()
+    version = _task_check_output(["quint", "--version"], text=True, timeout=10).strip()
     if version != manifest["quintVersion"]:
         raise ValueError("progress verifier version differs")
     source = ROOT / "models/gambit" / (case["id"] + ".qnt")
@@ -96,5 +97,9 @@ def main():
     return 0 if receipt["accepted"] else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('progress')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('progress', main))

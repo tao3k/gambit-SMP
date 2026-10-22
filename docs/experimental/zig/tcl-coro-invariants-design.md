@@ -1,0 +1,272 @@
+# Coroutine Depth Debt, Environment Pairing and Reuse
+
+Source and architecture research only: no implementation, native test, retained
+fixture run, model execution, prover or performance experiment. Modern
+Scheme-generated modern C is the mandatory foundation. A C-to-Zig implementation
+evolution must preserve its C capabilities and replace a named owner; comparison
+does not require two maintained implementations. LLVM/MLIR are independently
+admitted services, not new semantic owners. See the [whole-runtime foundation](gambit-modernization-foundation.md).
+This study refines [private entry and coroutine admission](tcl-private-coro-design.md).
+Read [arguments/counterexamples](tcl-coro-invariants-arguments.md),
+[evidence](tcl-coro-invariants-evidence.md), [benefit matrix](tcl-coro-invariants-benefit-matrix.md)
+and [traceability](tcl-coro-invariants-traceability.json) together.
+
+ID01. Use phase-indexed invariants, not a global nonnegative depth claim.
+
+Tcl's numLevels is a signed interpreter field used for ordinary commands,
+bracket substitution, compilation, hidden invocation and coroutine accounting.
+It is not the count of native frames or coroutine objects. A coroutine root
+has one staged command increment explicitly discounted at creation; its
+NRCommand later decrements before exit compensates. Aux is state-dependent:
+active stores the current activation's caller depth; suspended stores a relative
+offset. Deferred callback reservations can exist before their command credit.
+These facts defeat one scalar "all pending callbacks = depth" invariant.
+The inventory is a bounded lexical aid, not a whole-program writer proof.
+[IX01–IX04, IX06, IX08]
+
+ID02. Declare the necessary accounting schema in Scheme.
+
+The following are proposed semantic records, not implemented Tcl structures.
+They have one Scheme-owned semantic definition. A proposed C-to-Zig replacement
+must preserve field meanings and boundary representations where required; this
+does not mandate generating or maintaining two implementations.
+
+| Record | Required fields / distinction | Source obligation |
+|---|---|---|
+| DepthLease | signed delta, origin, credited/deferred/retired state, owner environment and activation | Ordinary NRCommand, push point, hidden invoke, compile and bracket increments cannot be confused |
+| RootDebt | one discounted root credit; terminal decrement seen; compensation outstanding/settled | Creation discount and exit compensation are paired exactly once |
+| Activation | coroutine identity, state, current caller environment, saved caller depth b, suspended offset a, root debt, native boundary | aux is a tagged meaning, not an absolute saved depth |
+| CallbackLease | environment identity/generation, callback identity, queued/popped-in-flight/returned/freed state | Pop-before-call and environment switching precede callback free |
+| RunnerBoundary | entry environment, exclusive sentinel identity or null, native runner invocation, permitted switch/return pairing | Sentinel equality alone is not environment restoration |
+| TailTransfer | source activation, destination environment, NRCommand splice slot, owned list identity, queued/canceled/dispatched/released state | yieldto writes caller state before successful yield is known |
+| ReuseBoundary | target/epoch, admitted producer set, pending effects, root/marker/resource custody, reset/result obligations | Local return, suspension and target reuse are distinct receipts |
+
+No new root authority is introduced. Gambit's actual RC roots, marker and
+native-return responsibilities remain authoritative. [IE01, IX02–IX10, IO01]
+
+ID03. Reproduce every selected depth producer before claiming closure.
+
+The source-bound site ledger distinguishes initialization; ordinary evaluation
+credit/NRCommand retirement; explicit tailcall push-point credit; root discount
+and exit compensation; resume/yield updates; hidden-command extra credit and
+NRPostInvoke retirement; compile nesting and bracket nesting. TclMarkTailcall
+reserves an NRCommand without increasing numLevels; TclNREvalObjv consumes
+deferredCallbacks and increases depth once. That field is interpreter-wide,
+not a CorContext or ExecEnv field. The managed admission contract must bind
+its reservation to the correct upcoming command/environment and reject an
+unexplained outstanding reservation at a switch or final boundary. This is a
+new qualification obligation, not proof upstream private extensions obey it.
+[IX01–IX04, IX08]
+
+ID04. State the local affine invariant exactly.
+
+For an activation of coroutine C from environment P, let b be numLevels just
+before the activation callback switches to C, and a its suspended aux value.
+At the resume transition n=b+a and aux=b. While active, record the actual
+signed depth deltas within this activation, including properly nested child
+activations; call their net contribution s. Before suspension n=b+a+s.
+Successful yield sets aux=a+s and n=b. This is a local arithmetic identity
+from the source assignments, conditional on same-activation pairing and no
+unknown depth writer. It is not an independently proved global nonnegative
+bound on a+s. Positive offsets require a separate matched-lease/root invariant.
+Active aux must not be interpreted as an offset; suspended aux must not be
+interpreted as the old caller's absolute depth. [IX03, IX04, IP02]
+
+ID05. Keep the one-unit root debt until terminal compensation.
+
+Creation stages a canonical-list root through Tcl_NREvalObj/TclNREvalObjv,
+adding one, then explicitly subtracts one. Initial a=0. Eventually its root
+NRCommand retires the staged command and decreases n once; terminal exit
+deletes command/environment/line table, restores caller context/environment,
+then adds one. In a balanced terminal segment with no other live relative
+leases, n reaches b-1 before the compensation restores b. Calls and cleanup
+can occur in that interval. Debt is not paid merely because root callbacks
+have been popped. A proposed unsigned counter or eager +1 before cleanup
+changes predicates observable to hooks and cancellation. [IX02–IX04, IX07]
+
+ID06. Deletion/rewind does not earn an ordinary command credit.
+
+Tcl_DeleteCommandFromToken invokes the command deleteProc directly. Coroutine
+creation registers DeleteCoroutine. When suspended, DeleteCoroutine captures
+the caller callback root and calls RewindCoroutine, which saves result state,
+sets the coroutine ExecEnv rewind flag and directly invokes TclNRInterpCoroutine
+with objc=0. That function schedules activation; it does not call
+TclNREvalObjv or add an ordinary command increment. Namespace deletion also
+explicitly deletes coroutine commands; an active coroutine's deleteProc waits
+for its later caller callback to trigger rewind after suspension. [IX07, IX09]
+
+Consequently the older nested-command bound d>=h+1 does not automatically
+apply to a direct deletion callout at depth h. Its activation base may be h;
+terminal discounted depth may be h-1. A source construction starts a coroutine
+whose root command is yield, lets the public evaluation return, then calls the
+public deletion API at owner-idle b=0. Its suspended a=0; rewind activates at
+0, root NRCommand can expose -1, exit compensates to 0. This follows the
+selected bodies under finite/no-error/no-extra-hook premises; no native run
+or cancellation bug is asserted. Preserve signed arithmetic and exact ==0
+reset tests. Concrete deletion beneath an old U=1 trace with an admitted
+callout/force/reset producer remains a separate unresolved composition.
+[IX02–IX04, IX07, IX09, IX11, IP03, IP04]
+
+ID07. Give yieldto an owned cross-environment transfer.
+
+The object command builds a namespace-prefixed list, temporarily selects
+callerEEPtr, splices the list into a caller NRCommand, stores yieldPtr, restores
+the coroutine environment and only then schedules yield. The bytecode
+INST_YIELD_TO_INVOKE does the corresponding transfer with its own explicit
+reference handling; it must be covered independently. Neither route directly
+enters the target coroutine. After a successful yield, caller callbacks restore
+the context; caller NRCommand takes the list, schedules TclNRTailcallEval,
+and that callback either releases the list on preemption/namespace error or
+stages the target command through ordinary dispatch. The suspended source can
+remain live after the target returns. [IX05, IX06, IX10, IL03]
+
+ID08. Splice-slot obligations include failure and result preemption.
+
+TclSetTailcall selects the first unmarked NRCommand with an empty data[1],
+skipping redirector markers; absent slot panics. Successful yield clears
+coroutine yieldPtr as a temporary rollback handle, leaving the queued list
+owned by the caller callback. NRCommand clears its slot before scheduling
+TclNRTailcallEval. A non-OK result or missing namespace makes that callback
+release rather than dispatch. Track this exact ownership progression; a null
+yieldPtr is not proof the transfer ran, and a resumed target is not proof the
+source activation is complete. Preserve error/status ordering and reference
+handoff in each emitter path. [IX05, IX06, IX10]
+
+ID09. Failed yield must roll back the caller-side splice first.
+
+On a C-stack-position mismatch, activation temporarily switches to callerEEPtr,
+finds the callback whose data[1] is yieldPtr, clears that slot and decrements the
+list reference, clears yieldPtr, restores the coroutine environment and returns
+ERROR. It does not perform successful depth/aux suspension updates. Require
+the exact queued slot/list identity and valid caller environment until rollback
+is done. Source inspection of this selected branch is not a proof the scan
+finds its slot in every extension/history; record lookup failure or unknown
+mutation as unresolved, not a fabricated successful rollback receipt.
+[IX04–IX06, IX10, IX12]
+
+ID10. Pair callback roots with environments and actual runner returns.
+
+TOP_CB resolves through the interpreter's current ExecEnv. TclNRRunCallbacks
+compares only TOP_CB with its exclusive root pointer, pops a callback before
+calling it, then frees the callback after it returns; its callback can switch
+environments. A null sentinel is shared by empty stacks in different
+environments, and callback addresses can be reused. Therefore a proposed
+RunnerReceipt must bind the entry environment/generation, exclusive sentinel,
+native runner invocation and complete switch/return edges. It requires the
+expected caller environment and frame context on actual return, not only
+pointer equality or TOP_CB==NULL. The source runner has no extra environment
+check; this is the qualified adapter's obligation. [IX02, IX04, IX07, IX08]
+
+ID11. Pop-before-call creates an in-flight callback obligation.
+
+The exit callback asserts the coroutine stack is empty and the caller top is
+NRCoroutineCallerCallback. It clears deleteProc to avoid recursive coroutine
+delete, cleans the command, clears corPtr, deletes ExecEnv, restores the caller
+and compensates depth. The currently executing exit callback was already
+removed from the queue; the runner still owns it until native return and free.
+Caller callback sees eePtr==NULL and frees CoroutineData. Empty queue and freed
+environment therefore precede complete callback/native return. NRE assertions
+may be disabled; assertions express a required invariant but do not prove it.
+TclDeleteExecEnv checks pending callbacks/coroutine and live exec-stack markers,
+with special cached-in-exit exemptions; these exemptions do not qualify ordinary
+managed reuse. [IX02, IX07, IX08]
+
+ID12. Rewind is cleanup control, not normal resumable evaluation.
+
+Rewind preserves result state with an extra caller callback, sets rewind=1,
+activates, and runs until the caller root for direct deletion. TclInterpReady
+rejects rewind after resetting result; bytecode resumption and catch lookup
+also bypass normal execution toward abnormal return. Variable/frame cleanup,
+command deletion, reference decrements and native callbacks still matter.
+Do not promise normal try/finally code runs equivalently to an ordinary ERROR,
+or that cancellation/result restoration equals producer settlement. Deleted
+while active is a different branch: deleteProc does not synchronously rewind;
+after yield the caller callback observes CMD_IS_DELETED and schedules rewind.
+[IX07, IX09, IX10, IX12]
+
+ID13. Nested trace preserves both native and logical boundaries.
+
+TraceExecutionProc uses synchronous Tcl_EvalEx and restores saved whole flags
+after that actual call. Selected-record busy and interpreter-trace suppression
+remain distinct. Trying to yield the currently active coroutine across a live
+extra C stack can fail the stack-position check. Resuming a different suspended
+coroutine inside a trace is not ruled out by that active-yield check; its new
+activation captures the current stack position. Its valid yieldto can leave a
+suspended source plus a caller-side tail task while the old trace frame and
+its saved flags still exist. Guard custody must cover all of them. This does
+not supply a legal force-reset hook or depth-zero private trace caller.
+[IE01, IX04–IX07, IX12, IX13, IL01]
+
+ID14. Do not generalize a positive-depth floor across uncredited rewind.
+
+For an older trace at h>=1, ordinary nested coroutine command dispatch gives
+b>=h+1. Under balanced leases and nonnegative suspended offset, its terminal
+minimum b-1 remains >=h. Direct deletion has no such wrapper increment;
+b may equal h, so b-1 may be h-1. Private entry, hidden dispatch, compile/bracket
+leases, deferred reservations, tailcall redirects and injected work each need
+their own mapping. The previous bounded ordinary-command argument remains
+valid under its explicit premises; it cannot become a full all-history
+no-zero-clear theorem. Unsupported inject is an actual source entry that
+adds a callback in a suspended environment and must be rejected or separately
+admitted, never silently omitted. [IX01, IX03–IX09, IX12, IP04]
+
+ID15. Publish two local receipts before considering target reuse.
+
+InvocationReturnReceipt requires this native call and its runner have actually
+returned with expected environment/context/depth balance and result, with its
+in-flight callback and borrowed values released or transferred. SuspensionReceipt
+records a live owned activation/environment and offset, not target completion.
+A TailTransferReceipt records queued/canceled/dispatched/released ownership;
+one state cannot stand for the whole lifecycle. Local receipts may transfer
+target custody upward; they must not wait for an ancestor blocked on their
+return. No pointer into a returned C frame may serve as persistent activation
+storage. [IE01, IX02, IX04–IX08, IL01, IL02]
+
+ID16. ReusableReceipt requires target-wide closure at a named boundary.
+
+The control owner may issue clean target reuse only after all predicates hold:
+
+| Predicate | Necessary closure |
+|---|---|
+| Identity and owner | Same live target/image/owner and current epoch; issuing operation is owner-controlled |
+| Native/runner closure | No old native trace, popped callback, runner, borrowed vector, marker-return or future saved-flags writer |
+| Debt/environment closure | Expected caller environment/context restored; all epoch depth leases, root debts and deferred reservations discharged; idle baseline restored |
+| Activation closure | Every epoch coroutine terminated/rewound or excluded by an independently proved isolation/transfer contract |
+| Transfer/resource closure | All epoch tail slots, lists, injected callbacks, result restoration, command/frame cleanup and native resources delivered or drained |
+| Producer/reset closure | Closed cancel/async/event/hook writers; immutable-message/mark settlement; source-reset observations preserved; owned reset postconditions met |
+| Result/publication closure | Actual result/status delivery fixed, no rawInterference, no producer admission window between closure and next-epoch publication |
+
+This is a proposed sufficient boundary only conditional on a complete admitted
+producer/domain invariant. The current source reading does not establish those
+predicates for all loaded Tcl/Gambit programs, so no reusable profile is issued.
+Unknown hook, alias, injection, deferred reservation or raw producer rejects
+clean managed reuse and retains custody. No later reset return can retroactively
+complete an earlier unknown native effect. [IX01–IX13, IL01, IO01]
+
+ID17. Preserve persistent-session semantics when refusing clean reuse.
+
+A live suspended application coroutine can legitimately persist across host
+calls. Forced deletion solely to manufacture an empty guard changes application
+semantics. Such a session can report a completed invocation while retaining
+session-owned state, but cannot claim a clean independent epoch from depth or
+bits. A future transfer/isolation profile must prove what persistent state may
+observe, including interpreter-wide cancellation and callbacks. That profile
+is unresolved here. Shutdown drain also needs finite producers and cleanup
+termination; rewind source flags do not prove arbitrary user/native callouts
+terminate. [IX07, IX09, IX11, IL01, IL02, IO01]
+
+ID18. Retire old emitters only with complete semantic replacement.
+
+Scheme owns the common state/effect/credit schema and failure/result policy.
+Generate typed signed depth leases, tagged aux states, environment/root handles,
+tail-transfer and guard transitions into modern C; Zig may consume the same
+plan. Replace manual root discount/compensation, ad hoc callback pairing and
+scattered splice/reset authority only after every actual producer migrates and
+observations/termination are qualified. No source path retires here. LLVM/MLIR
+may lower the plan or serve native compilation, but cannot waive Tcl stack,
+Gambit root/marker or cancellation ownership. No Zig-exclusive support
+elimination or positive full incremental net benefit is established. [IV01–IV08]
+
+![Depth debt and offsets](tcl-coro-debt.svg)
+![yieldto and environment pairing](tcl-coro-transfer.svg)
+![Reuse receipts](tcl-coro-reuse.svg)

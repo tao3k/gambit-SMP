@@ -1,0 +1,52 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "docs/saved-stack-root-closure-recipe.md": "fdddf2e2bb4f561c0fec6272690d9a46f8d8d71d99b132a26a67c53e5a93be95",
+    "models/gambit/saved_stack_root_closure.qnt": "4c77c864581ae5e5f1317e3a3d210c5fd074db722e217c6462588a213197f5d4",
+    "models/gambit/saved_stack_arena_ownership.qnt": "f460922d3e41fd850c39bcbc9f4ee994b69851edb866ca98500e5588c3b8fb74",
+    "models/gambit/resize_saved_stack_retirement_isolated.qnt": "38dbe1b570efda86a261922781c3ee4de0ba9da379fbbd8d0697a177290c989c",
+    "models/gambit/lean/SavedStackRootClosure.lean": "1f64064b7476adad0d1aedee5266e8ad882018443c95717b5676057f8c1c156f",
+    "models/gambit/lean/WorkAccounting.lean": "7d6a00be12e01ad2283469df505f4e728468356db927c6df0c2b1eecfc113f0e",
+    "evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json": "df9277dff351209ad7b33d12589d07821089262f7cdac40b358988aea2fc0466",
+    "patches/fixtures/runtime-mutex-return-cumulative.patch": "49514f1819da3ca6008b07690e732a13625a54811a3e44a7da3615e25fdf0d55",
+    "vendor/gambit/include/gambit.h.in": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2",
+    "vendor/gambit/lib/setup.c": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "vendor/gambit/lib/_kernel.scm": "9afa811a1c15104b953a10d42cd11bddffbfa0b8684b4f8f8191d848fdb6d9ec",
+    "vendor/gambit/lib/_thread.scm": "810f58f679d745826dd18f81f39c84dc3c6e4bb3dd7c6f505a453ca5331e4515",
+    "vendor/gambit/lib/_thread#.scm": "e7113bd34c26296b5ef6890737ed47ac263bb8c072bc72c664cd76b5dfc2db14",
+    "vendor/chez/s/mkgc.ss": "9e0c2053b8cb7fdae29fb473b24bad2d6c1f1ba88dfa32973e6f2d24ed050406",
+    "vendor/chez/c/thread.c": "6081cd912e5903e19cba808fbe646a846ad49459bab73e79b4d67d6ff59c1c72",
+    "vendor/ocaml/runtime/domain.c": "6fbcad99870a514925fa0d0d587cd28c5c84e75ac55817cc7efa25075ee6a64c",
+    "vendor/ocaml/runtime/major_gc.c": "d94c5f348eaf6501f7e42622c310521e1900dd7ae94338003e65b55f92623812",
+    "vendor/ocaml/runtime/fiber.c": "ac03f7af8976a64b8e78cb16f6b5123751d2008d0ef17595950b7a1ffb62c670"
+  },
+  "cases": [
+    {
+      "id": "saved_stack_root_closure",
+      "mode": "characterization",
+      "dependencies": ["saved_stack_arena_ownership.qnt", "resize_saved_stack_retirement_isolated.qnt"],
+      "composes": ["saved_stack_arena_ownership", "resize_saved_stack_retirement_isolated"],
+      "invariants": ["closureSafe"],
+      "protocolInitializers": {"closureSafe": "initClosure"},
+      "oldInvariants": ["rootCoverage", "chainCoverage", "phaseCoverage", "noRetainedAliasesAfterHeadReturn", "noClosedChainReuse"],
+      "oldInitializers": {
+        "rootCoverage": "initClosure",
+        "chainCoverage": "initClosure",
+        "phaseCoverage": "initClosure",
+        "noRetainedAliasesAfterHeadReturn": "initClosure",
+        "noClosedChainReuse": "initClosure"
+      },
+      "counterexampleMeaning": {
+        "noRetainedAliasesAfterHeadReturn": "safe-non-GC-head-return-does-not-discharge-tail-or-escaped-origin",
+        "noClosedChainReuse": "safe-next-cycle-reuse-after-declared-raw-origin-and-target-work-closure-not-protocol-failure"
+      },
+      "step": "closureStep",
+      "temporal": "closureCompletion",
+      "source": ["lib/setup.c:setup_processor_scmobj_pstate,vm_resize_pstate", "lib/mem.c:mark_array,mark_processor_scmobj,garbage_collect_mark_strong_phase,mark_captured_continuation", "lib/_kernel.scm:break handler"],
+      "scope": "Current repair research composition, not runtime qualification. Reuses unchanged single-frame arena model; finite declared tail and escaped origins, actual root handoff assumed, target work closure and later cycle reuse abstracted. PERM pointer does not imply payload scanning. Does not prove actual empty/forwarded retired queues, complete alias census, C memory ordering, half bounds or native FFI return safety. Roles are not machine CPU settings."
+    }
+  ]
+}

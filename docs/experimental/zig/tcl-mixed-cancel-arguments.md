@@ -1,0 +1,126 @@
+# Mixed Cancellation: Conditional Arguments and Counterexamples
+
+These handwritten arguments concern the [proposed contract](tcl-mixed-cancel-design.md).
+They are not model-checked proofs, native receipts or benchmark results. Source
+facts are linked in [evidence](tcl-mixed-cancel-evidence.md); the selected mixed
+policy and stronger idle-consumption contract are explicit premises.
+
+MP01. **Pending replacement versus installed provenance.** Assume actual accept
+and callback-select transitions are captured under C. Before any callback selects,
+a later raw accept replaces pending message and flags. It therefore may replace
+a pending U. After a callback installs U, a later non-U accept/install does not
+unset it; only an actual reset transition does. Tracking independent selected
+payload, C/U contributors and message source represents both cases without
+resurrecting overwritten state. Source equality of strings or request counters
+could not distinguish them. [MD01–MD05, MX01–MX04]
+
+MP02. **Coalescing without lost custody or false acknowledgement.** Assume covered
+acceptance intervals/sets are complete, raw-takeover freezes new managed delivery,
+and terminal records retain selected/displaced provenance. A raw request replaced
+before installation may share the later raw request's effect, but does not receive
+an individual observed-error receipt. Its idle debt remains in the coalesced
+coverage until a qualified effect is consumed. An already installed managed U may
+still influence later raw behavior; its terminal outcome cannot subtract a live
+shared flag. No arbitrary mixed-policy equivalence follows. [MD02–MD05, MD07,
+MD11, MD14, MX01–MX04, MO01]
+
+MP03. **Already installed is not evaluation consumption.** Assume install/check/
+return records identify the actual owner scopes. A callback in idle event service
+can install C/U without evaluating a script. Canceled(U-only) can then clear C and
+return OK, with no cancellation ERROR route. Neither transition supplies the
+required next-evaluation witness. Rejecting discharge for that history preserves
+the contract instead of silently inventing a completed observation. Some existing
+extension behavior may itself fail the stronger contract; preserving source steps
+and qualifying that contract are separate obligations. [MD06–MD11, MX04, MX07–MX10]
+
+MP04. **Conditional idle consumption.** Assume a complete owner/evaluation frontier,
+a designated actual next evaluation, a recorded cancellation ERROR check routed
+there, actual return of all derived scopes, source-conformant removal of persistent
+raw contributors, and no pending/claimed/re-marked installer. Then there is no raw
+next-evaluation effect left to erase during managed cleanup: the required effect
+has already occurred and no old source can reinstall it. This is a conditional
+history result, not an assertion that every Tcl entry supplies the premises.
+Empty direct source, filtered checks and early bytecode U failure are concrete
+reasons those premises may fail. [MD09–MD12, MX04–MX10, ML01]
+
+MP05. **Active unobserved retirement has a narrower meaning.** Assume acceptance
+was proven inside a live affected evaluation and that all source-defined checks/
+resets and actual returns are recorded. If every raw contributor and future
+installer is gone, residual neutrality is established even when no cancellation
+ERROR was reported. Under an explicitly permitted active-natural-retirement
+outcome, interference can discharge. Under a confirmed-interruption or idle-next-
+script contract it cannot use that classification. Unknown/possible-idle phases
+cannot borrow this proof. [MD06–MD08, MD12, MX04–MX08, MX10]
+
+MP06. **Discharge is generation-bound.** Assume issuer-owned identity, monotone
+interference generation/serials, complete terminal coverage, owner exclusivity and
+L -> C -> A locking. Clearing rawInterference changes only the blocking state for
+the verified cut, not native pending/flags or old records. Any later raw acceptance
+creates another interference generation and invalidates that receipt. A receipt
+from a consumed/older generation cannot clear the new one, so retries cannot erase
+late requests by reusing an old successful Boolean. [MD12–MD15, MO01, ML01–ML02]
+
+MP07. **Receipt composition closes the reset gap.** Assume final validation,
+non-forced reset/postcondition and fresh descriptor publication share C/A/L
+exclusion, with all allocations/callback-capable work outside. A concurrent raw
+acceptance either precedes validation and is detected or follows publication and
+retains its fresh raw effect. Pending managed settlement cannot authorize clearing
+an unresolved raw contributor. A natural reset followed by late NRCommand async
+installation invalidates any earlier neutrality witness. [MD10, MD13–MD16,
+MX01–MX08, MO01, ML01–ML02]
+
+MP08. **Complete history is necessary, not free.** Assume evidence capacity is
+reserved, stamps cannot call user code, and any unrecorded transition/overflow
+sets an unknown-state refusal without changing raw evaluator behavior. Then failure
+to record cannot masquerade as a clean cut. This does not prove all entry points
+were found, all callbacks terminate, signal-sensitive paths support the mechanism,
+or allocation failures preserve every exit; those remain qualification work.
+The selected lock order proves only the reviewed paths' ordering. [MD04–MD06,
+MD15–MD18, ME01, MX01–MX10, MO01]
+
+MP09. **Net benefit is conditional on real recovered histories.** Let N be the
+number of completed histories rejected solely by permanent taint that now satisfy
+all discharge predicates. Recovered reuse can save N equivalent reconstruction
+costs or enable N required reuse operations. Charge history records, retained bytes,
+closure/discharge/commit work, synchronization and upgrade policies over all jobs,
+including histories still refused. A positive balance requires saved work or a
+necessary admitted capability to exceed those additions under the same semantics.
+N=0, already-cheap construction, common raw idle debt or excessive metadata costs
+refute the runtime gain. This proof method supplies no exclusive Zig saving.
+[MD17–MD18, ML01]
+
+## Inert Counterexample Histories
+
+| Case | Distinguishing history | Required outcome / missing premise |
+| --- | --- | --- |
+| MC01 | R(a,U) then R(b,0), both before callback read | Select b/0; no pending flag union or replay of a |
+| MC02 | Install R(a,U), then install R(b,0) | Message b with persistent U; last flags alone cannot classify state |
+| MC03 | Install M(m,U), raw R(r,0) installs | Raw check may report unwind because of managed-installed U; mixed provenance retained |
+| MC04 | R(a) is replaced by R(NULL), callback installs | Empty/default message lane; do not match a to outcome |
+| MC05 | Raw message bytes differ only after an embedded NUL | Report text is not an injective request ID; preserve actual formatting |
+| MC06 | Invoke clears ready, later raw update changes pending before callback locks C | Callback selects later payload; selection is not mark-time snapshot |
+| MC07 | Callback reads newest payload; re-mark already set ready for another pass | Repeated installation possible; first observation does not close future-installer debt |
+| MC08 | Raw installed by idle DoOneEvent, no evaluator has entered | Installed-not-consumed; next-evaluation debt remains |
+| MC09 | C=1,U=0; Canceled(U-only) clears C and returns OK | Destructive filtered check; no idle consumption receipt |
+| MC10 | C+U checked ERROR once; native evaluator returns with U still set | Observation is insufficient; persistent raw residue blocks clean reuse |
+| MC11 | Non-list bytecode object calls TclInterpReady with installed U before callback registration | Early ERROR does not schedule that bytecode-return reset; selected source route stays non-neutral |
+| MC12 | Canonical list resets in TEOV_Exception, then NRCommand services a late raw mark | New installation survives prior reset; final real-return/history validation required |
+| MC13 | Empty direct Tcl_EvalEx returns OK while cancellation token is pending | Successful entry is not consumption; entry-path contract remains unqualified |
+| MC14 | Helper evaluates dummy script solely to consume idle raw cancellation | Changes the intended next evaluation; cannot publish later user job as transparently clean |
+| MC15 | Check returns ERROR but surrounding catch returns OK | Record inner cancellation route and actual return; outer OK does not disprove observation |
+| MC16 | Script returns ERROR unrelated to cancellation without a relevant check | Return code/text does not establish consumption |
+| MC17 | Proven active raw flag disappears through recorded natural reset; no ERROR observation | Can qualify only allowed active-natural-retirement outcome, not confirmed interruption |
+| MC18 | Raw caller sees unsynchronized numLevels=0 while owner is in a direct/nested route | Phase remains unknown/possible-idle; no active-retirement shortcut |
+| MC19 | Parent is neutral but child retains independently installed raw U | Whole-frontier refusal; parent-only history cannot discharge |
+| MC20 | rawInterference false from old receipt, then new raw request accepts | Advance generation/serial and invalidate; never reuse old discharge |
+| MC21 | Receipt issued, raw request arrives before final reset | Revalidation fails before reset; preserve new raw work |
+| MC22 | Raw waits on final commit's C and accepts after fresh publication | Valid raw cancellation of the next evaluation; no old cleanup may erase it |
+| MC23 | Metadata capacity overflows during check/reset journaling | Preserve evaluator behavior, set unknown, refuse clean reuse |
+| MC24 | Managed request accepted before raw takeover is retroactively called rejected/observed | Keep accepted custody and explicit displacement/settlement outcome |
+| MC25 | Later raw request supersedes idle raw request; host drops earlier idle coverage | Coalescing may share effect but cannot erase next-evaluation debt |
+| MC26 | Zig scope cleanup is credited with removing phase/provenance/root obligations | Same core history and native-return/GC support required; no exclusive retirement proved |
+| MC27 | Filtered OK clears raw C; later managed-only ERROR occurs in the next evaluation | Unrelated managed error cannot consume the outstanding raw idle debt |
+
+These are handwritten source-composed distinguishing schedules, not observations
+of a native run. All complete-domain/native/progress/value gates remain open in
+[traceability](tcl-mixed-cancel-traceability.json).

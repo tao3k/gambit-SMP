@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "still-materialization-custody:f5b88ada17f84362aff013b57c83236598b5e477c316910c14b8c3b199b710ac" "still-materialization-custody:f5b88ada17f84362aff013b57c83236598b5e477c316910c14b8c3b199b710ac" "support" "dev/architecture/runtime/gc/models/sysml/still-materialization-custody.sysml"))
+ (fact (factor "still-materialization-custody:f5b88ada17f84362aff013b57c83236598b5e477c316910c14b8c3b199b710ac" "target-model-bundle-sha256" "f5b88ada17f84362aff013b57c83236598b5e477c316910c14b8c3b199b710ac"))
+ (fact (factor "still-materialization-custody:f5b88ada17f84362aff013b57c83236598b5e477c316910c14b8c3b199b710ac" "native-output-sha256" "b6666f4881079fd1b29d70cb809f1e6204cd3edf96a4ce2e29d8c5a0bf92fb13"))
+ (fact (factor "still-materialization-custody:f5b88ada17f84362aff013b57c83236598b5e477c316910c14b8c3b199b710ac" "planner-dsl-sha256" "cc9c8d1947556b15cb655ea9fad522fceca8463a32c506f0245126e213e6fac7"))
+)

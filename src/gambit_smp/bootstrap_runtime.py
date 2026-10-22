@@ -1,3 +1,4 @@
+from gambit_smp.task_processes import run as _task_run
 #!/usr/bin/env python3
 """Source-bound two-pass bootstrap in an isolated copy, never a release claim."""
 import argparse
@@ -69,7 +70,7 @@ def object_compilation_observed(output, compilers):
 
 
 def archive_members(path):
-    names = subprocess.run(["ar", "t", str(path)], capture_output=True, check=True, timeout=10).stdout.decode().splitlines()
+    names = _task_run(["ar", "t", str(path)], capture_output=True, check=True, timeout=10).stdout.decode().splitlines()
     if not names or len(names) != len(set(names)) or any(not name or name.startswith("-") or "/" in name for name in names):
         raise ValueError("archive members must have unique plain names")
     # Darwin ar lists its generated symbol index; its offsets are container
@@ -77,7 +78,7 @@ def archive_members(path):
     names = [name for name in names if name not in ("__.SYMDEF", "__.SYMDEF SORTED", "__.SYMDEF_64", "__.SYMDEF_64 SORTED")]
     if not names or any(not name.endswith(".o") for name in names):
         raise ValueError("runtime archive must contain object members")
-    return {name: hashlib.sha256(subprocess.run(["ar", "p", str(path), name], capture_output=True,
+    return {name: hashlib.sha256(_task_run(["ar", "p", str(path), name], capture_output=True,
                                                 check=True, timeout=10).stdout).hexdigest() for name in names}
 
 
@@ -282,5 +283,9 @@ def main():
     return 0 if accepted else 1
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('bootstrap')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('bootstrap', main))

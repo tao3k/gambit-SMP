@@ -1,0 +1,317 @@
+#+TITLE: Script-line Capture, Writer Closure and Complete Linker Observations
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Preserve the real Scheme chain while making reuse obligations explicit
+:PROPERTIES:
+:ID: d3bbdbeb-e422-4997-a42b-e73dcf9922e7
+:CUSTOM_ID: gsc-script-line-reflection-design
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain; GambitAssuranceRelations
+:STATUS: source-slices-and-conditional-kernel-actual-trace-refinement-open
+:EVIDENCE_CLASS: source-and-standalone-kernel
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; ROOT-HANDOFF
+:END:
+
+Modern generated C remains the required engineering direction. Scheme retains
+source reading, metadata policy, interning, selection, escaping and compiler
+semantics. An explicit request/snapshot/outcome contract can govern ownership,
+resource delivery and reuse without duplicating those algorithms in native code.
+Zig supplies no additional writer, root or effect proof merely by replacing C.
+
+[[file:models/sysml/architecture.sysml][Toolchain SysML]] owns S-ORIGIN through S-COST, their bounded research status,
+source anchors and dependencies. [[file:script-line-reflection-map.org][The closure and benefit matrix]] and
+[[file:diagrams/script-line-reflection.svg][the D2 graph]] derive from it. [[file:../../modeling/models/sysml/assurance.sysml][Assurance SysML]] binds the existing
+[[file:../../../models/build/IncrementalBuild.lean][Lean]] and [[file:../../../models/build/incremental_build.qnt][QNT]] roots and ASCENT projection. ROOT-HANDOFF remains
+[[file:../../modeling/correspondence.org::#root-handoff][one shared execution/GC/FFI contract]]. The previous [[file:scheme-value-admission-design.org][logical value study]]
+and [[file:output-fidelity-design.org][complete generated-record study]] remain prerequisites, not superseded proofs.
+
+* RESEARCH A bounded census of real writers
+:PROPERTIES:
+:CUSTOM_ID: script-line-writer-census
+:END:
+
+[[file:../../../vendor/gambit/lib/_io.scm::13427][##read-script-line]] reads the rest of a line, string-appends the prefix,
+may update language/readtable configuration, and sets readenv's script-line.
+[[file:../../../vendor/gambit/lib/_io#.scm::1198][The generated readenv structure]] also defines that mutable field's accessor
+and setter. [[file:../../../vendor/gambit/lib/_eval.scm::1257][The evaluator]] exports only a string or false from this field;
+it does not make that string immutable for its remaining lifetime.
+
+#+NAME: script-line-write-capability-census
+| Writer / capability | Concrete path | Bounded finding | Remaining closure |
+|---+---+---+---|
+| Reader initialization | readenv constructor and ##read-script-line setter | One explicit named script-line setter call in the inspected Scheme source corpus | Generated/private setters, aliases and reader/provider callbacks |
+| GSC initial insert | [[file:../../../vendor/gambit/gsc/_front.scm::228][Frontend compilation context]] through [[file:../../../vendor/gambit/gsc/_host.scm::1173][host adapter]] | Truthy initial script-line enters the new compilation context | A fresh context does not freeze retained payloads |
+| Module compiler initial insert | [[file:../../../vendor/gambit/lib/_module.scm::440][##compile-mod]] | The same truthy initial insert has a separate real caller | Later expansion and retained context escape |
+| Metadata expansion | [[file:../../../vendor/gambit/lib/_nonstd.scm::166][##expand-meta-info]] | A symbolic key and desourcified arbitrary attributes can replace script-line | Full dynamic macro/eval/native effect closure |
+| Direct table writer | [[file:../../../vendor/gambit/lib/_eval.scm::1495][##meta-info-add! / combine!]] | script-line becomes a new singleton containing the latest value | Generic table mutation and direct calls need mediation |
+| define-library option writer | [[file:../../../vendor/gambit/lib/_define-library/define-library-expand.scm::295][Five-option declaration branch]] | Only cc-options, ld-options, ld-options-prelude, pkg-config and pkg-config-path enter this branch; script-line is excluded | This exclusion does not cover arbitrary ##meta-info syntax in a library body |
+| Context table replacement | [[file:../../../vendor/gambit/lib/_eval#.scm::256][Context vector slot 2]] and [[file:../../../vendor/gambit/gsc/_host.scm::1203][host setter wrapper]] | Setter definition/wrapper exist; no additional explicit caller found by the retained literal census | Evaluated calls, vector aliases and raw stores |
+| Retained attrs and payload | Pair/vector/table mutations; [[file:../../../vendor/gambit/lib/gambit/string/string.scm::15][generated string procedures]] | Mutators need not contain a script-line name | Reachable alias and callback/provider provenance |
+| Native mutation | [[file:../../../vendor/gambit/include/gambit.h.in::5509][___STRINGSET]] and FFI/provider ingress | C can store into a string body through a valid reference | Actual providers, synchronization and root participation |
+
+The declaration branch collects options in a separate library table, stores
+[[file:../../../vendor/gambit/lib/_define-library/define-library-expand.scm::679][its association list]] in libdef, then [[file:../../../vendor/gambit/lib/_define-library/define-library-expand.scm::950][expands it back to ##meta-info forms]].
+It is a real metadata producer but its shown key guard excludes script-line.
+Do not inflate a source-guard exclusion into universal absence of library writes.
+
+[[file:../../../vendor/gambit/lib/_std#.scm::373][define-prim-vector-procedures]] constructs mutation names programmatically.
+The family includes [[file:../../../vendor/gambit/lib/_std#.scm::571][element stores]], [[file:../../../vendor/gambit/lib/_std#.scm::741][fill/copy]] and [[file:../../../vendor/gambit/lib/_std#.scm::1200][shrink]] paths, among
+others. Searching only literal string-set! calls cannot close it. Mutability
+checks constrain legal writes but are not a snapshot/exclusive-borrow protocol.
+
+The retained source census covers statically spelled entrances in vendor/gambit
+Scheme files, with exact query arguments and source hashes in [[file:../../../evidence/research/gsc-script-line-reflection/checks.json][the receipt]].
+It does not enumerate arbitrary Scheme evaluation, native aliases, generated C
+copies or every future provider. Named-site coverage is source evidence;
+allWriters is an independent capability obligation and remains open.
+
+* RESEARCH There are three different cuts
+:PROPERTIES:
+:CUSTOM_ID: script-line-capture-cuts
+:END:
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1492][##meta-info->alist]] delegates to [[file:../../../vendor/gambit/lib/_system.scm::2307][table->list]]. The latter folds new
+association/list cells around retained keys and values; it is shallow.
+[[file:../../../vendor/gambit/gsc/_front.scm::390][The frontend captures this alist before compile-parsed-program]]. A freeze
+introduced only immediately before final emission would be too late to explain
+which values the existing compilation actually captured.
+
+#+NAME: script-line-cut-contracts
+| Cut | Required contract | What it does not imply |
+|---+---+---|
+| Table selection | Govern enumeration and capture the actual key/attrs identities at the existing source point | The whole payload graph is immutable |
+| Captured value lifetime | Protect retained attrs/string and live temporaries through Scheme writing and later C-string emission | The original table may never change again |
+| Input/currentness and publication | Bind source/dependency/configuration epoch and successful complete output custody | A stable old snapshot is current after an input change |
+
+A later ordinary script-line insertion replaces the table entry with a new
+singleton. It need not rewrite the previously retained singleton. That differs
+from mutating its string or pair fields through an alias. untouchedPayloadPreservesView
+checks that a logical write outside the complete read set preserves endpoint
+agreement. It does not prove that a real native write is outside that set, nor
+that endpoint agreement supplies an interval-wide lease.
+
+The design must protect acquisition itself. Copying a concurrently changing
+string can produce an inconsistent owned copy. A valid owned result needs a
+qualified copy/read protocol before source roots and leases are released.
+After delivery of independent immutable content, the source root need not be
+retained merely for the owned bytes. Their origin/currentness obligations remain.
+
+QNT sourceBorrowEligible names all-writer coverage, external quiescence,
+no-reentrant-write, root coverage and matching epochs. Every flag needs an actual
+issuer. Epoch checks around non-atomic C reads do not remove data races, and
+same-thread reentrant callbacks can mutate without a second OS thread. Existing
+ROOT-HANDOFF supplies the shared obligation, not an already accepted scanner.
+
+The S-ALIASES/S-CUT flags require concrete evidence, not caller assertions:
+
+#+NAME: script-line-stable-view-issuance-evidence
+| Existing guard | Evidence needed before issuance | Failure and continuation responsibility |
+|---+---+---|
+| allWriters | An instance-bound manifest covering table/context writers, generated mutation families, reachable aliases and admitted FFI providers | An unknown writer denies the credential; a literal census cannot grant authority |
+| externalQuiescent | A serialized acquisition cut: admitted in-flight writers finish and new writer ingress cannot race the protected reads | No such concrete gate is established in this source slice; retry checks cannot cure C data races |
+| noReentrantWrite | Callback/provider restrictions or a proven managed protocol that prevents conflicting observation without changing Scheme mutation semantics | A valid Scheme write must not be rejected merely to preserve a cache credential; abandon/refuse reuse instead |
+| rootCovered | Existing ROOT-HANDOFF participation and protection of temporary references before each allocating operation | Reload after GC-capable calls; nonzero RC scanner closure remains open |
+| Captured epoch | Complete relevant write tracking, no ABA and a qualified memory-order relation | A changed relevant view invalidates the attempt; unrelated-cell exclusion requires actual read-set refinement |
+| Owned result | Acquisition completed from one governed view, with complete immutable content and settled destination ownership | Until acceptance, source lease/root responsibility and partial-buffer cleanup remain with the acquiring owner |
+| Unwind and resume | Release/revocation ordering integrated with the existing execution/control contract | A continuation resumption cannot revive a previously released borrow; reacquire and revalidate under the current identity |
+
+These are refinement obligations for the existing guards, not a second runtime
+state machine. In particular, a same-owner callback must not deadlock waiting
+for a lock held by its own observation. A copy is useful only when acquisition
+is protected; an opaque native store cannot be made observable by declaring a
+registry entry. The managed profile must remain refused until its real provider
+and mutation paths can enforce the chosen protocol.
+
+A generated modern C store/FFI contract could share the mutation boundary with
+other runtime services, but current direct primitive/native stores would need
+migration or explicit exclusion. This study does not implement that boundary
+or count its maintenance as already removed. The same obligations apply to Zig.
+
+* RESEARCH Readback is a record-prefix law with a real string alphabet
+:PROPERTIES:
+:CUSTOM_ID: script-line-real-readback
+:END:
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::1358][The emitter]] writes key and attributes separately through [[file:../../../vendor/gambit/gsc/_host.scm::787][the host writer]].
+[[file:../../../vendor/gambit/lib/_io.scm::11428][The actual string writer]] marks or emits depending on style, quotes the
+string, escapes delimiter/backslash, handles control tables and numeric escapes,
+and reads length/characters/substrings over time. R7RS compatibility flags and
+max-unescaped-character settings affect the branch. The stable view covers all
+these reads, not only the first character or the string's length.
+
+[[file:../../../vendor/gambit/lib/_io.scm::13828][The reader dispatch]] invokes [[file:../../../vendor/gambit/lib/_io.scm::13083][the escaped-string builder]], which checks character
+range and reads octal/hexadecimal/table escapes with readtable-dependent rules.
+A source-aligned case argument is available for direct non-delimiter characters
+and matched delimiter/backslash escapes under matching tables. A complete
+lexical inverse over the admitted Gambit character domain, substring delivery,
+exception paths and external port conversion is still not kernel-proved.
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::880][targ-link-info]] checks the generated first line, reads one Scheme datum,
+closes on its normal path and then checks a small prefix of the record: pairs,
+compiler version and backend name. [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1086][targ-get-mod]] subsequently converts the
+record to a vector and accesses slots through 11. Passing the earlier prefix
+checks does not prove that all those slots exist or have the required shape.
+
+The generated C suffix is expected after the Scheme record. Whole decoding of
+the mathematical integer wire must not be misapplied as an EOF requirement on
+the entire C file. Qualification separates exact consumed record extent from
+whole C bytes; C compilation remains a separate consumer observation.
+
+The input close is an ordinary suffix after read, not a dynamic-wind cleanup in
+this function. No universal read-exception cleanup theorem follows from that
+suffix. A recovered/continued reader exception must not be mistaken for the
+successful admitted datum. Actual port/provider behavior and exceptional custody
+remain separate obligations.
+
+[[https://small.r7rs.org/attachment/r7rs.pdf][R7RS]], sections 6.13.2--6.13.3, distinguishes datum reading, machine-readable
+write output, sharing labels and textual ports. Those guarantees motivate the
+admitted value relation; they do not prove Gambit's extension syntax, matching
+readtables, external encodings or this complete generated record's inverse.
+
+* ESTABLISHED Source-aligned selection laws and their limits
+:PROPERTIES:
+:CUSTOM_ID: script-line-selection-laws
+:EVIDENCE_CLASS: source-aligned-mathematical-model
+:END:
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::934][combine-meta-info]] first finds the matching key with assq. Within that
+entry it takes car of the cdr when the cdr is a pair, otherwise the cdr itself.
+Across ordered input modules, or chooses the new value only when it is truthy.
+The pure ScriptValue/foldScript/firstScript definitions model these rules after
+an independently qualified actual-key and attribute projection.
+
+#+NAME: script-line-selection-matrix
+| Case | Source behavior / checked model fact | Consequence |
+|---+---+---|
+| A later false value | Previous truthy value survives | False is not a clear operation |
+| A later empty string | It is truthy and wins | Do not collapse empty string into absence |
+| Duplicate matching entries | First matching entry wins | No arbitrary map deduplication before assq |
+| Malformed truthy attribute | It can replace an earlier valid string | Preserve later errors or refuse the qualified profile |
+| Two ordered module segments | Fold of concatenation equals sequential folds | Parallel summaries need this exact order and merge law |
+| Later table replacement | Captured old attrs may remain unchanged | Separate capture granularity from source currentness |
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::2494][targ-c-string merely builds a tagged pair]]. It does not check the string
+immediately. [[file:../../../vendor/gambit/gsc/_t-c-1.scm::2310][targ-code dispatches that pair]], and [[file:../../../vendor/gambit/gsc/_t-c-1.scm::2564][the later string emitter]]
+reads the retained string again. It handles NUL specially and emits escaped
+UTF-8-oriented text using helper branches. Neither this C-string emission nor
+its output port is identical to the earlier Scheme datum writer.
+
+singletonScriptEncodingReflects proves exact string-unit equality from equality
+of the prior mathematical string-atom wire. It does not obtain those units from
+an actual Scheme string, prove textual readback, or establish a Unicode/native
+byte representation. The remaining real adapter and alphabet premises stay open.
+
+* RESEARCH Linker outcomes include diagnostics, effects and custody
+:PROPERTIES:
+:CUSTOM_ID: script-line-linker-outcomes
+:END:
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::906][targ-link]] normally returns the output path after [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1208][targ-link-aux]]. The latter
+may [[file:../../../vendor/gambit/gsc/_t-c-1.scm::577][print resource/module warnings]], initializes the dump, writes the record,
+SCRIPT_LINE, link tables and sections, then closes. [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1297][targ-start-dump opens the
+named output]] and changes emitter globals. The shown path is direct emission;
+it does not establish staged atomic publication or failure rollback.
+
+[[file:../../../vendor/gambit/gsc/_utils.scm::426][with-exception-handling]] temporarily assigns a global continuation handler,
+then restores it on the ordinary return/continuation path. [[file:../../../vendor/gambit/gsc/_utils.scm::446][Compiler errors]]
+print diagnostics and [[file:../../../vendor/gambit/gsc/_utils.scm::508][compiler-abort]] jumps to that continuation with false.
+It is not a universal catcher/finalizer for arbitrary Scheme exceptions or
+continuation escapes. [[file:../../../vendor/gambit/gsc/_back.scm::663][The backend caller's target-end!]] is likewise an ordinary
+suffix. The broader host may have additional handling, but its complete cleanup
+composition has not been established in this slice.
+
+Reentrant or parallel requests must also account for global targ-port, line and
+filename counters, warning modes, current output ports, selected target state
+and the compiler continuation handler. An explicit per-request LinkContext and
+owned outcome/delivery boundary are modernization requirements. This design
+neither introduces that context nor prescribes a new C parser. The existing
+Scheme algorithm can consume the same contract.
+
+#+NAME: linker-complete-observation
+#+BEGIN_EXAMPLE
+LinkTraceObservation = {
+  returnPath, disposition(success | compilerAbort | raised | refused | unsettled),
+  emitted, diagnostics, effects, settled, context
+}
+
+observe(actual) = kernel(scriptUnits(actual), allOtherInputs(actual))
+allOtherInputs includes full non-script records, filenames, flags,
+module order, target/configuration, warnings and port/effect context.
+
+same admitted script wire + same allOtherInputs + independently proved factors
+  => same complete observation
+same complete observation + P(reference) => P(candidate)
+#+END_EXAMPLE
+
+The effects field denotes the declared semantic observation boundary, with an
+independent mapping from real ordered events. It is not a free assumption that
+open/write/close events are invisible. If every physical I/O event is observable,
+a skip with no events cannot equal an executed reference trace. A narrower effect
+boundary needs its own proof, including every dependent consumer/callback.
+
+Consequently, reusing pure linker computation and delivering necessary effects
+are separate decisions. Required warnings cannot simply disappear; replay needs
+ordering and exactly-once ownership. Existing output bytes do not alone prove
+current owned delivery. Partial writes, failed close and outstanding resources
+cannot be normalized into an ordinary false return or success.
+
+sameReturnedPathCanChangeDiagnostics and abortCanRetainPartialWrite retain finite
+model counterexamples. scriptFullObservationCongruence checks only the stated
+factorization implication; scriptPropertyReflection transfers an arbitrary
+property of that complete observation. No real targ-link trace refinement or
+safety predicate has been instantiated by those theorems.
+
+[[https://simon.peytonjones.org/assets/pdfs/build-systems-jfp.pdf][Build Systems a la Carte]] studies tasks, dependencies and rebuilding under
+explicit input assumptions. [[https://www.mathematik.uni-marburg.de/~seba/publications/pluto-incremental-build.pdf][The Pluto paper]] requires consistency of dynamically
+required and generated resources. Their lesson here is to bind real requirements
+and products before cutoff. Neither supplies an equivalence theorem for Gambit
+warnings, mutable globals, exceptional port ownership or effect replay.
+
+* RESEARCH Bounded closure and net benefit
+:PROPERTIES:
+:CUSTOM_ID: script-line-benefit-and-frontier
+:END:
+
+Twelve new Lean statements bring the standalone total to 68, preserving the prior
+56 theorem bodies. Eight QNT modules typecheck only. The first failed attempt
+(reserved identifiers in both formalisms) is retained. No state exploration,
+GSC build, runtime adapter, native test or timing workload is performed.
+
+#+NAME: script-line-closure-matrix
+| Layer | Closed in this scope | Still open |
+|---+---+---|
+| Source entrances | Named initial inserts, replacement policy, define-library key guard and generated mutator family found | Dynamic eval/alias/native writer universe |
+| Capture | Shallow cells and later final-read points identified; untouched logical cells preserve endpoint view | Actual acquisition, interval stability, roots and currentness |
+| Selection | False/empty/first-match/order laws checked in the source-aligned pure model | Actual Scheme key/shape projection |
+| Wire | Exact string-atom units reflected from mathematical wire equality | Actual escaped-string/readtable/port and whole record law |
+| Link outcomes | Normal result, compiler-abort and selected warning/write/global paths found | All exceptional cleanup and real semantic effect projection |
+| Safety | Full-observation congruence and property transfer checked conditionally | Actual factorization and instantiated linker safety theorem |
+
+For an m-unit string let L = 2 + sum(escapeLength(unit)). This describes the
+quoted lexical body, not file bytes. Under the direct printable-character branch
+with no delimiter/backslash, L = m+2; configured escaping and actual port encoding
+change the cost. No native character/byte bound or resource theorem is claimed.
+The existing pipeline can inspect the retained content during both Scheme
+writing and later C-string emission; an owned snapshot adds acquisition/copy
+work rather than automatically removing those required transformations.
+
+#+NAME: script-line-net-benefit-matrix
+| Design | Work potentially avoided | Necessary added/retained work | Positive condition / retirement |
+|---+---+---+---|
+| Scheme-owned observation | Duplicate native reader, interner and general heap walker | Qualified content view and complete record validation | Reuse existing language machinery; no extra parser is justified by the proof model |
+| Owned captured content | Long-lived source handle and later GC reloads | Stable acquisition plus m-unit copy when needed; origin/currentness | Copy plus validation cheaper than coordination or avoided recomputation |
+| Qualified borrow | Unnecessary content copy | Complete writer/alias closure, reentrancy control, roots and reloads | All source-read intervals governed; unknown writer refuses credential |
+| Granular capture dependencies | Invalidations from unrelated cell writes | Actual alias/read-set refinement; separate input epoch checks | Fewer revalidations only when noninterference is proved |
+| Reused pure linker computation | Redundant selection/combination/render planning | Same full context and required effect delivery; warnings and failures retained | A > V+S+R+E+F; externally required I/O is not counted as removed |
+| Shared modern C contracts | Duplicate context/cleanup/custody bookkeeping across necessary services | Generated request, owned snapshot, explicit outcome and effect owner | Legacy globals retire only after every caller, callback and unwind path migrates |
+| Optional Zig | No unique semantic or traversal saving established here | Same writer/root/effect proofs and another language/toolchain boundary | No positive Zig-specific net gain or native retirement is established |
+
+A is actual avoided pure/downstream work; V validation, S stable acquisition,
+R root/reentrancy coordination, E required effect delivery and F retry/fallback.
+These are work categories, not assumed timing constants or person-day estimates.
+The SysML status column distinguishes source-rule findings, conditional kernel
+results and open bridges. No global obligation, runtime profile or old native
+path is promoted or retired by this study.
