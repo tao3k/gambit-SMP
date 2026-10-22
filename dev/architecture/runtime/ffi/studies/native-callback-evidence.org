@@ -1,0 +1,98 @@
+#+TITLE: Native Callback Custody: Source and Primary Evidence
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Native Callback Custody: Source and Primary Evidence :ffi:
+:PROPERTIES:
+:ID: 07667050-26aa-5590-aa7b-e696a80f6471
+:CUSTOM_ID: native-callback-custody-source-and-primary-evidence
+:SOURCE_PATH: docs/experimental/zig/native-callback-evidence.md
+:SOURCE_SHA256: 3599c37d7144239ad747764b9fb1c1a99e5654c8dd4e63ce97ce60fe29010719
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed 2026-10-21. Research HEAD
+~1a2d8612f2065387c62858e10baf63ce369cc48c~; Gambit HEAD
+~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~. Working bytes, not just commit
+names, are bound in the [[file:../../../../../docs/experimental/zig/native-callback-traceability.json][trace]]. Existing
+patches, recorded Darwin configuration and vendor baseline are separate
+identities. No new compiler expansion, native experiment or proof-engine run.
+The inventory is selected manual caller tracing, not a whole-program census.
+
+*** Gambit and Recorded Configuration
+:PROPERTIES:
+:ID: 64bcabc5-3684-56e5-9eb2-e17c7613000e
+:CUSTOM_ID: gambit-and-recorded-configuration
+:END:
+
+| ID | Source anchors | Observation and limit |
+|-
+| NE01 | [[file:../../../../../vendor/gambit/lib/gambit/list/list.scm::850][public map]], 850–929; [[file:../../../../../vendor/gambit/include/gambit.h.in::6589][capture macro]], 6589–6618; [[file:../../../../../vendor/gambit/lib/mem.c::3667][capture materialization]], 3667–3966; [[file:../../../../../vendor/gambit/lib/_thread.scm::340][dynamic state]], 340–477, 4623–4706, 4908–5078 | Map calls arbitrary proc and retains pending work; capture can leave stack-backed frames until materialization. Denv/cache/binding aliases require their own writer coverage. Scheme continuation lifetime is not C activation lifetime. Prior map point/layout and writer studies supply detailed frame correspondence; no regenerated C. |
+| NE02 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::124][Tcl bridge]], 124–195, 217–228, 260–345 | Actual ClientData → RC data → still vector → proc → apply path; creation, delete callback and result string release are distinct. Source failure path and deletion during invocation do not establish the external Tcl ownership/thread/escape contract. |
+| NE03 | [[file:../../../../../vendor/gambit/gsc/_ptree2.scm::2902][FFI generator]], 2902–3012, 3200–3254, 3295–3336; [[file:../../../../../vendor/gambit/include/gambit.h.in::10040][SFUN macros]], 10040–10066; [[file:../../../../../vendor/gambit/include/gambit.h.in::10325][CFUN macros]], 10325–10405 | scheme-object parameters converted before other types; cleanup requirement chooses a CFUN body catcher. SFUN error handler reenters Scheme through temp1–4. Generated conversion cleanup and normal END are not proof of per-scope cleanup on unmatched outer unwind. |
+| NE04 | [[file:../../../../../vendor/gambit/lib/mem.c::674][RC operations]], 674–829; [[file:../../../../../vendor/gambit/lib/mem.c::3969][RC scanning]], 3969–3996; [[file:../../../../../vendor/gambit/lib/mem.c::6840][baseline strong phase]], 6840–6873; [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::3160][existing cumulative patch]], 3160–3234, 3433–3452, 4362–4385 | Plain list/refcount/data operations; collector updates data location. Baseline P0 call versus patched per-processor call and donor transfer are different source layers. cleanup_rc frees its list independent of native refcount. Existing repair is credited, not newly implemented or requalified. |
+| NE05 | [[file:../../../../../vendor/gambit/lib/setup.c::3275][call/run]], 3275–3422; [[file:../../../../../vendor/gambit/lib/setup.c::839][throw/propagate]], 839–867; [[file:../../../../../vendor/gambit/lib/_kernel.scm::1019][return to C]], 1019–1071 | call creates RA/marker frame, sets GVM state, enters configured host/trampoline TRY, matches destination or rethrows. Kernel checks marker/processor. run has an outer TRY; its normal marker kill is not an independently established unmatched-unwind cleanup. |
+| NE06 | [[file:../../../../../vendor/gambit/doc/gambit.txi::12208][manual C-return case]], 12208–12267; [[file:../../../../../vendor/gambit/doc/gambit.txi::19137][identity conversion]], 19137–19145; [[file:../../../../../vendor/gambit/doc/gambit.txi::19835][still-root conversion example]], 19835–19895 | Existing documented capture/resume example reaches multiple-c-return exception after original return. Wrong-processor return is separate. scheme-object exposes raw representation; manual converter explicitly retains still objects across allocating constructors. Manual sample was read, not executed. |
+| NE07 | [[file:../../../../../vendor/gambit/lib/os_dyn.c::637][dynamic closure]], 637–675, 744–789, 1045–1058; [[file:../../../../../vendor/gambit/lib/c_intf.c::2887][procedure conversion]], 2887–2968; [[file:../../../../../vendor/gambit/include/gambit.h.in::8622][PSTATE binding]], 8622–8635, 8690–8720; [[file:../../../../../vendor/gambit/lib/os_thread.c::697][thread setup]], 697–709 | Dynamic code is guarded by target provider; c_closure_self is global with TLS TODO. Native thread setup/binding is distinct from callback admission; fixed binding macros do not prove nested nonlocal restoration. Tcl static entry does not require this trampoline. |
+| NE08 | [[file:../../../../../vendor/gambit/lib/c_intf.c::1682][pointer ownership]], 1682–1776, 2825–2883; [[file:../../../../../vendor/gambit/lib/c_intf.c::3199][string copies]], 3199–3310, 3625–3658; [[file:../../../../../vendor/gambit/lib/_thread.scm::2530][Scheme wait]], 2530–2566; [[file:../../../../../vendor/gambit/lib/_kernel.scm::4505][wait wrapper]], 4505–4522; [[file:../../../../../vendor/gambit/lib/os_io.c::11493][C wait]], 11493–11607 | FOREIGN pointer conversion unwraps external storage; release_foreign clears wrapper then calls release_fn; release_pointer is no-op. String conversion allocates independent RC bytes. Wait wrapper saves/restores GVM state; C adapter caches Scheme condvars/device pointers across queue unlock/wait/relock. These copies are not covered by merely saving GVM registers. |
+| NE09 | [[file:../../../../../vendor/gambit/lib/c_intf.c::6511][marker]], 6511–6562; [[file:../../../../../vendor/gambit/include/gambit.h.in::8059][saved roots]], 8059–8086; [[file:../../../../../vendor/gambit/lib/mem.c::6526][saved scanning]], 6526–6538 | Explicit TODO about proc_or_false before allocating marker. Marker slot zero roots proc/validity and threaded slot one records processor. saved[0..2] are fixed published scratch locations; SAVE1/RESTORE1 does not create nested reservation semantics. |
+| NE10 | [[file:../../../../../vendor/gambit/include/gambit.h.in::9959][TRY and cleanup]], 9959–10012; [[file:../../../../../../ci-source-patch-check/src/gambit/bin/gambuild-C.unix::15][recorded build script]], 15–38; [[file:../../../../../../ci-source-patch-check/src/gambit/include/gambit.h::1580][recorded header]], 1580–1600, 1670–1695, 6818–6840 | Recorded GCC path / flags and conditional setjmp, C++ and tail/trampoline branches. Raw header token occurrence is not active preprocessed configuration. No binary/configuration equivalence or mixed Zig nonlocal ABI qualified by reading it. |
+| NE11 | [[file:../../../../../vendor/ocaml/runtime/globroots.c::28][OCaml root lists]], 28–100, 116–178, 235–254; [[file:../../../../../vendor/ocaml/runtime/callback.c::387][named callback registration]], 387–431; [[file:../../../../../vendor/ocaml/runtime/signals.c::147][blocking hooks]], 147–217, 300–310; [[file:../../../../../vendor/ocaml/runtime/caml/memory.h::439][local-root exits]], 439–456 | Concrete root-classification support, registry synchronization, rooted lock acquisition/reload, blocking hook and pending action handling, and root-head restoration. Surrounding OCaml collector/domain rules are part of their correctness; membership mutex alone is not a portable proof that plain root update races are safe. |
+
+Local OCaml HEAD ~46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91~,
+[[file:../../../../../vendor/ocaml/VERSION][VERSION]] reports 5.5.1. It is a separate source
+identity from the published 5.3 manual/header. Neither is equated to a tested
+Gambit/OCaml binary. Remote ~runtime/callback.c~ and ~globroots.c~ fetches
+failed with cache miss in this study; local inspected sources above supply
+the source claims instead. These failures are not positive retrieval evidence.
+
+*** Primary Literature and Platform/Language Rules
+:PROPERTIES:
+:ID: 5b5043fc-0f9b-50f6-a24d-fa8900402953
+:CUSTOM_ID: primary-literature-and-platformlanguage-rules
+:END:
+
+| ID | Primary evidence | Bounded use |
+|-
+| NP01 | [[https://ocaml.org/manual/5.3/intfc.html][OCaml C interface]], §§5.1, 7.3, 12.1–12.2 | Rooted locations and cooperative updates differ from heap access permission. Native threads require registration. Named root values can change during GC. Blocking transitions may run pending callbacks/raise and forbid managed access while released. Gambit's analogous participation protocol must be derived, not copied. |
+| NP02 | [[https://anil.recoil.org/papers/2020-icfp-retropar.pdf][Retrofitting Parallelism onto OCaml]], §§1.2–1.4, 5.4 | Existing C access assumptions constrain collector design; activation/scanning of fibers needs explicit synchronization. Infer a Gambit access protocol; do not import benchmark percentages or assume current library internals match the paper. |
+| NP03 | [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570]], §5.1.2.4 ¶25; §7.13.2.1 ¶2–3; §7.17.3 | Conflicting unsynchronized non-atomic actions are undefined; longjmp needs a live same-thread environment; certain modified nonvolatile automatic locals become indeterminate. Proposed gate, cut and off-stack ledger are deductions from these constraints, not supplied algorithms. |
+| NP04 | [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][Retrofitting Effect Handlers onto OCaml]], §§2.3, 3.1–3.2, 5 | Deliberate one-shot and no-C-frame capture choices, mixed-stack exception handling and cleanup tradeoffs. Gambit retains different Scheme and native-marker semantics. The paper does not validate jumping across Zig frames. |
+| NP05 | [[https://raw.githubusercontent.com/ocaml/ocaml/5.3/runtime/caml/callback.h][OCaml callback header]], lines 26–52 | Explicit propagating versus typed result callbacks offer distinct boundaries. This is inspiration for an intentionally specified service result, not equivalence of a returned error and a Scheme continuation transfer. |
+| NP06 | [[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][A Parallel Virtual Machine for Efficient Scheme Compilation]], §§1–2 | Historical Gambit motivation for a target-parameterized semantic machine and frontend/backend information exchange. Supports the architectural direction; does not describe today's FFI, prove a modern GC or require Zig. |
+| NP07 | [[https://ziglang.org/documentation/0.15.1/][Zig language reference]], tagged unions, error unions, defer and atomics | Private state/ordinary cleanup can be expressed with typed mechanisms. No lifetime, moving-root, complete GC or foreign-longjmp guarantee follows from those facilities. Compare against generated/opaque modern C, not today's raw C macros alone. |
+
+NP references are primary reading identities, not downloaded byte-pinned
+inputs. No quotation or numerical performance result is reused. The
+architectural conclusions and formulas are our conditional deductions.
+
+*** Existing Design Dependencies
+:PROPERTIES:
+:ID: fb06ff02-aa48-5ec6-828d-54bc5ea0cde8
+:CUSTOM_ID: existing-design-dependencies
+:END:
+
+ND01. [[file:../../control/studies/continuation-writer-closure-design.org][Writer/caller closure]],
+[[file:../../control/studies/continuation-minor-scan-proof.org][minor edge-cut proof]] and
+[[file:../../control/studies/continuation-writer-benefit-matrix.org][writer matrix]]: complete aliased
+frame/denv/root writers are required for mature graph elision.
+
+ND02. [[file:owned-callback-participating-wait-contract.org][Owned callback / participating wait]],
+[[file:rc-marker-caller-evidence.org][RC caller evidence]],
+[[file:../../execution/studies/shared-runtime-root-custody-design.org][root custody]]: existing fixes,
+participation cuts, donor transfer and lifetime requirements are credited.
+
+ND03. [[file:../../../../refactoring/modern-c/studies/generated-c-native-contract.org][Generated native contract]],
+[[file:../../control/studies/map-generated-c-design.org][map generated C]],
+[[file:../../gc/studies/gc-native-runtime-design.org][GC architecture]]: Scheme remains semantic owner;
+generated C is the mainline, other providers share the same native contract.

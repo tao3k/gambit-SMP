@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
+from tests.support import clue_fixture
 
 from gambit_smp.ascent_program import engine_api
 from gambit_smp.framework import ROOT, digest
@@ -36,6 +37,8 @@ FACTOR_QUERY = '''(define-evidence (query)
 
 class EvidenceCacheTestCase(unittest.TestCase):
     def setUp(self):
+        from tests.support import source_checkpoint_fixture_rows, seed_source_checkpoint_fixture
+        source_rows=source_checkpoint_fixture_rows(ROOT)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = ROOT
@@ -47,6 +50,7 @@ class EvidenceCacheTestCase(unittest.TestCase):
                         side_effect=lambda _root, name, _legacy: Path(self.temporary.name) / name)
         durable.start()
         self.addCleanup(durable.stop)
+        seed_source_checkpoint_fixture(ROOT,source_rows)
 
 
 class ProgressiveClueTests(EvidenceCacheTestCase):
@@ -304,7 +308,7 @@ class TrajectoryCliTests(EvidenceCacheTestCase):
             bindings=[["mechanism", "debug-control-point-id-remapping"]]))
         argv = ["trajectory", "clues", declaration]
         with patch.object(sys, "argv", argv), redirect_stdout(output), \
-                patch.object(module, "repository_clues", wraps=repository_clues) as query:
+                patch.object(module, "_repository_reader", wraps=module._repository_reader) as query:
             main()
         self.assertEqual(query.call_args.kwargs["selector"], (ROOT / path).read_text())
         self.assertIn("entry-contract-debug-label-mapping-consistent", output.getvalue())
@@ -554,19 +558,29 @@ print(json.dumps(result))'''
         with self.assertRaisesRegex(ValueError, "cache identity mismatch"):
             repository_clues(ROOT, claim, checkpoint=first["checkpoint"])
 
-    def test_folded_scope_read_finishes_without_redisplaying_families(self):
+    def test_folded_fitting_scope_finishes_without_redisplaying_families(self):
+        with clue_fixture(ROOT) as root:
+            self._folded_scope(root)
+
+    def _folded_scope(self, root):
         from gambit_smp.reasoning_history import load_clue_checkpoint
         source = '''(define-evidence (query)
           (sources clue attested) (outputs question)
           (include clue-selection-schema)
           (relation question (claim))
           ((question C) <-- (clue I D C _ _ _) (attested I D _)))'''
-        oracle = repository_clues(ROOT, selector=source, display_bytes=1024 * 1024)
-        self.assertTrue(oracle["brief"]["presentationComplete"])
+        oracle = repository_clues(root, selector=source, display_bytes=1024 * 1024)
         expected = {family["claim"] for family in oracle["brief"]["families"]}
+        tokens = set()
+        while not oracle["brief"]["presentationComplete"]:
+            self.assertNotIn(oracle["checkpoint"], tokens, "oracle pagination made no progress")
+            tokens.add(oracle["checkpoint"])
+            oracle = repository_clues(root, selector=source, display_bytes=1024 * 1024,
+                                      checkpoint=oracle["checkpoint"])
+            expected.update(family["claim"] for family in oracle["brief"]["families"])
         expected_relations = {tuple(row) for row in
-            load_clue_checkpoint(ROOT, oracle["checkpoint"])["body"]["relations"]}
-        packet = repository_clues(ROOT, selector=source, display_bytes=8192)
+            load_clue_checkpoint(root, oracle["checkpoint"])["body"]["relations"]}
+        packet = repository_clues(root, selector=source, display_bytes=8192)
         self.assertFalse(packet["brief"]["presentationComplete"])
         seen = set()
         seen_relations = set()
@@ -574,7 +588,7 @@ print(json.dumps(result))'''
             brief = packet["brief"]
             shown = {family["claim"] for family in brief["families"]}
             acknowledged = {tuple(row) for row in
-                load_clue_checkpoint(ROOT, packet["checkpoint"])["body"]["relations"]}
+                load_clue_checkpoint(root, packet["checkpoint"])["body"]["relations"]}
             self.assertFalse(shown & seen)
             self.assertTrue(shown or acknowledged - seen_relations or brief["presentationComplete"])
             self.assertTrue(seen_relations <= acknowledged)
@@ -582,21 +596,38 @@ print(json.dumps(result))'''
             seen.update(shown)
             if brief["presentationComplete"]:
                 break
-            packet = repository_clues(ROOT, selector=source, display_bytes=8192,
+            packet = repository_clues(root, selector=source, display_bytes=8192,
                                       checkpoint=packet["checkpoint"])
         self.assertEqual(seen, expected)
         self.assertEqual(seen_relations, expected_relations)
         claim = next(iter(expected))
-        smaller = repository_clues(ROOT, claim, checkpoint=packet["checkpoint"])
+        smaller = repository_clues(root, claim, checkpoint=packet["checkpoint"])
         self.assertEqual(smaller["brief"]["mode"], "rescope")
         self.assertEqual(smaller["brief"]["delta"]["removed"], 0)
         self.assertEqual(smaller["brief"]["families"], [])
-        wider = repository_clues(ROOT, selector=source, checkpoint=smaller["checkpoint"])
+        wider = repository_clues(root, selector=source, checkpoint=smaller["checkpoint"])
         self.assertEqual(wider["brief"]["families"], [])
-        novel = repository_clues(ROOT, "unexplored-caller-owned-hypothesis",
+        novel = repository_clues(root, "unexplored-caller-owned-hypothesis",
                                  checkpoint=wider["checkpoint"])
         self.assertTrue(novel["brief"]["explorationOpen"])
         self.assertTrue(novel["brief"]["families"][0]["unknown"])
+
+    def test_unfitting_unit_stays_deferred_until_caller_changes_presentation_capacity(self):
+        from gambit_smp.reasoning_history import load_clue_checkpoint
+        with clue_fixture(ROOT, claims=1, body='x' * 16384) as root:
+            first = repository_clues(root, 'claim-0', display_bytes=8192)
+            self.assertFalse(first['brief']['presentationComplete'])
+            self.assertEqual(first['brief']['families'], [])
+            self.assertEqual(load_clue_checkpoint(root, first['checkpoint'])['body']['items'], [])
+            same = repository_clues(root, checkpoint=first['checkpoint'], display_bytes=8192)
+            self.assertEqual(same['checkpoint'], first['checkpoint'])
+            self.assertTrue(same['brief']['deferred'])
+            expanded = repository_clues(root, checkpoint=same['checkpoint'], display_bytes=32768)
+            self.assertTrue(expanded['brief']['presentationComplete'])
+            self.assertEqual([f['claim'] for f in expanded['brief']['families']], ['claim-0'])
+            retained = repository_clues(root, checkpoint=expanded['checkpoint'])
+            self.assertEqual(retained['brief']['families'], [])
+            self.assertFalse(retained['brief']['runtimeAdmitted'])
 
     def test_managed_folded_read_does_not_acknowledge_unshown_evidence(self):
         first = repository_clues(ROOT, selector=FACTOR_QUERY,

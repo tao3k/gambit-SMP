@@ -1,0 +1,368 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "ci-bazel-profile-gc-ffi-inventory",
+  "scope": "Current numeric-host Bazel producer. Original 03-number/_num.scm stays inside the 90-second default-control cap, then official test7/test8/test9, the four upstream stress files in gsi and gsc, and the declared PR fixtures. Not an O3 configure, not a raised cap, and not release admission. Source refinement: declared source-bound global numeric groups preserve original expressions and order; original phase windows, configured optimization, loader and full inventory retained.",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace-numeric-host.patch",
+    "evidence/research/incremental-builds/qualified-runtime-input.json",
+    "evidence/research/incremental-builds/qualified-upstream-tests.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/ci/upstream-tests.json",
+    "evidence/research/ci/test-scope.entry.json",
+    "evidence/dsl/upstream-test-scope.ss",
+    "models/gambit/native/pr1047/thread_interrupt_ended.scm",
+    "models/gambit/native/pr1037/pipe_concurrent_read_deadline.scm",
+    "models/gambit/native/pr1038/serialization.scm",
+    "models/gambit/native/pr1038/serialization_gc.scm",
+    "models/gambit/native/process_spawn.scm",
+    "models/gambit/native/pr1038/table_iteration_gc.scm",
+    "models/gambit/native/numeric-alias/outline-assertions.scm"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json"
+      }
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/incremental-builds/qualified-runtime-input.json"
+      }
+    },
+    {
+      "id": "numeric",
+      "capability": "gambit.compiler-observation",
+      "dependsOn": [
+        "runtime"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "selection": "03-number/_num.scm",
+        "scheduling": "default-control",
+        "phaseBudgetSeconds": 90,
+        "loader": "original-gsi",
+        "numericGrouping": {
+          "source": "models/gambit/native/numeric-alias/outline-assertions.scm",
+          "sha256": "4bf384b92bd647fdec9641444702198b5b0f9ceaa2f40b5ae6bf43e677c46604",
+          "fixtureSha256": "b757a18805a38f48e55055907a983d53f0e50d1acb627c462fe6d34924bd0d9d"
+        }
+      }
+    },
+    {
+      "id": "official",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "runtime",
+        "numeric"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "targets": [
+          "test7",
+          "test8",
+          "test9"
+        ],
+        "scopeContract": "evidence/research/incremental-builds/qualified-upstream-tests.json"
+      }
+    },
+    {
+      "id": "stress-gsi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "runtime",
+        "official"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "inventory": "stress",
+        "jobs": 1
+      },
+      "budgetSeconds": 3600
+    },
+    {
+      "id": "stress-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "runtime",
+        "stress-gsi"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "inventory": "stress",
+        "jobs": 1
+      },
+      "budgetSeconds": 3600
+    },
+    {
+      "id": "pr-gsi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "runtime",
+        "stress-gsc"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/thread_interrupt.scm",
+          "06-thread/thread_interrupt_ended.scm",
+          "09-io/pipe_concurrent.scm",
+          "09-io/write_shared.scm",
+          "10-tables/serialization.scm",
+          "10-tables/serialization_gc.scm",
+          "10-tables/table-search.scm",
+          "12-os/process_spawn.scm",
+          "diagnostic/table_iteration_gc.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/thread_interrupt.scm",
+          "06-thread/thread_interrupt_ended.scm",
+          "09-io/pipe_concurrent.scm",
+          "09-io/write_shared.scm",
+          "10-tables/serialization.scm",
+          "10-tables/serialization_gc.scm",
+          "10-tables/table-search.scm",
+          "12-os/process_spawn.scm",
+          "diagnostic/table_iteration_gc.scm"
+        ],
+        "inventory": "unit",
+        "jobs": 1,
+        "additionalFixtures": {
+          "06-thread/thread_interrupt_ended.scm": {
+            "source": "models/gambit/native/pr1047/thread_interrupt_ended.scm",
+            "sha256": "5034a9937f3ac8df8dddf5182d48a08b0cac095bd239355b97de638768b73a6d"
+          },
+          "09-io/pipe_concurrent.scm": {
+            "source": "models/gambit/native/pr1037/pipe_concurrent_read_deadline.scm",
+            "sha256": "760513881622cd51bbf258eebd8ac09562ef85e4f84330c33fbc1020df366f93"
+          },
+          "10-tables/serialization.scm": {
+            "source": "models/gambit/native/pr1038/serialization.scm",
+            "sha256": "ef42cdb7b317e44baf7cd435438383447ca462284f95f63b46aa867f45c17baa"
+          },
+          "10-tables/serialization_gc.scm": {
+            "source": "models/gambit/native/pr1038/serialization_gc.scm",
+            "sha256": "6d1e709df3fde6dce5d99a34d9309d49434d45440924c8b1e5f47c9144de7741"
+          },
+          "12-os/process_spawn.scm": {
+            "source": "models/gambit/native/process_spawn.scm",
+            "sha256": "eba139d1aa995cc78e53891d5bcf93fd7ce33eff08f6080f52efb78a8f5c98c7"
+          },
+          "diagnostic/table_iteration_gc.scm": {
+            "source": "models/gambit/native/pr1038/table_iteration_gc.scm",
+            "sha256": "57f8cea541700c6f22b281961f9d360976fc5167c50e376e4217127175d1f997"
+          }
+        },
+        "fileBudgetSeconds": {
+          "06-thread/thread_interrupt_ended.scm": 20,
+          "10-tables/serialization_gc.scm": 60,
+          "diagnostic/table_iteration_gc.scm": 20
+        }
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "pr-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "runtime",
+        "pr-gsi"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/thread_interrupt.scm",
+          "06-thread/thread_interrupt_ended.scm",
+          "09-io/pipe_concurrent.scm",
+          "09-io/write_shared.scm",
+          "10-tables/serialization.scm",
+          "10-tables/serialization_gc.scm",
+          "10-tables/table-search.scm",
+          "12-os/process_spawn.scm",
+          "diagnostic/table_iteration_gc.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/thread_interrupt.scm",
+          "06-thread/thread_interrupt_ended.scm",
+          "09-io/pipe_concurrent.scm",
+          "09-io/write_shared.scm",
+          "10-tables/serialization.scm",
+          "10-tables/serialization_gc.scm",
+          "10-tables/table-search.scm",
+          "12-os/process_spawn.scm",
+          "diagnostic/table_iteration_gc.scm"
+        ],
+        "inventory": "unit",
+        "jobs": 1,
+        "additionalFixtures": {
+          "06-thread/thread_interrupt_ended.scm": {
+            "source": "models/gambit/native/pr1047/thread_interrupt_ended.scm",
+            "sha256": "5034a9937f3ac8df8dddf5182d48a08b0cac095bd239355b97de638768b73a6d"
+          },
+          "09-io/pipe_concurrent.scm": {
+            "source": "models/gambit/native/pr1037/pipe_concurrent_read_deadline.scm",
+            "sha256": "760513881622cd51bbf258eebd8ac09562ef85e4f84330c33fbc1020df366f93"
+          },
+          "10-tables/serialization.scm": {
+            "source": "models/gambit/native/pr1038/serialization.scm",
+            "sha256": "ef42cdb7b317e44baf7cd435438383447ca462284f95f63b46aa867f45c17baa"
+          },
+          "10-tables/serialization_gc.scm": {
+            "source": "models/gambit/native/pr1038/serialization_gc.scm",
+            "sha256": "6d1e709df3fde6dce5d99a34d9309d49434d45440924c8b1e5f47c9144de7741"
+          },
+          "12-os/process_spawn.scm": {
+            "source": "models/gambit/native/process_spawn.scm",
+            "sha256": "eba139d1aa995cc78e53891d5bcf93fd7ce33eff08f6080f52efb78a8f5c98c7"
+          },
+          "diagnostic/table_iteration_gc.scm": {
+            "source": "models/gambit/native/pr1038/table_iteration_gc.scm",
+            "sha256": "57f8cea541700c6f22b281961f9d360976fc5167c50e376e4217127175d1f997"
+          }
+        },
+        "fileBudgetSeconds": {
+          "06-thread/thread_interrupt_ended.scm": 20,
+          "10-tables/serialization_gc.scm": 60,
+          "diagnostic/table_iteration_gc.scm": 20
+        }
+      },
+      "budgetSeconds": 900
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "numeric",
+        "official",
+        "stress-gsi",
+        "stress-gsc",
+        "pr-gsi",
+        "pr-gsc"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

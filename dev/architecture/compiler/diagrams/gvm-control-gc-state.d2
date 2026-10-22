@@ -1,0 +1,29 @@
+direction: down
+classes: {
+  compute: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  boundary: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  runtime: {style.fill: "#E7F4E8"; style.stroke: "#397344"}
+  control: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+}
+cached: "Cached native execution\nRegisters / SSA cache GVM state\nNo unmanaged root survives a collecting boundary" {class: compute}
+cached -> cached: "proved local noncollecting CFG"
+prepare: "Prepare a complete Scheme frame\nLive slots + map / RA / SELF / registers\nRequired allocation and control state\nNo collection or reentry while incomplete" {class: boundary}
+cached -> prepare: "collect / poll / runtime / control effect"
+canonical: "Canonical runtime-visible state\nActual scanner can interpret every live root\nNot a new atomic flag or global lock" {class: boundary}
+prepare -> canonical
+execute: "Existing Gambit runtime participation\nAllocation / GC / interrupts / FFI / control\nMovable roots can change; current host may escape" {class: runtime}
+canonical -> execute
+capture: "Continuation capture and graft\nFrame chain + dynamic environment + break frames\nRETN / RETI and descriptor chunks preserved" {class: control}
+execute -> capture
+storage: "Retained interpretation storage\nCode + descriptors outlive frames / captures / scanners\nReuse existing root-map lifetime owner" {class: runtime}
+capture -> storage
+resume: "Actual resumed control point\nMay differ from the original successor\nReload relocated roots and GVM state\nRecompute derived pointers; new SSA epoch" {class: boundary}
+execute -> resume
+capture -> resume
+resume -> cached
+transfer: "Tail transfer preserves caller continuation\nNon-tail call builds a Scheme return frame\nD0 bounded dispatcher OR admitted D1 bridges\nNative ret only returns a host activation" {class: control}
+canonical -> transfer
+transfer -> resume: "callee / return control point"
+reject: "Reject missing root / map / bridge capability\nLLVM tail hint is insufficient\nNo implicit recursive-call or C fallback" {class: boundary}
+prepare -> reject: "incomplete contract"
+transfer -> reject: "unproved tail-space bound"

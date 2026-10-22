@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import Mock, patch
 
@@ -31,6 +32,7 @@ class GambitCIContracts(unittest.TestCase):
             (source / "lib").mkdir()
             (source / "lib/makefile").write_text("define-cond-expand-feature|enable-smp|")
             ctx = Mock(directory=source, tools={"aclocal": "aclocal", "autoconf": "autoconf", "sh": "sh"})
+            ctx.receipt = {'steps': [{'id': 'source', 'arguments': {}}]}
             ctx.progress_mode = False
             ctx.remaining.return_value = 10
             ctx.require.side_effect = lambda name, *args: "#define ___MULTIPLE_VMS\n#define ___MULTIPLE_THREADED_VMS\n" if name == "configuration-macros" else ""
@@ -52,6 +54,7 @@ class GambitCIContracts(unittest.TestCase):
             (source / "lib").mkdir()
             (source / "lib/makefile").write_text("define-cond-expand-feature|enable-smp|")
             ctx = Mock(tools={"aclocal": "aclocal", "autoconf": "autoconf", "sh": "sh"})
+            ctx.receipt = {'steps': [{'id': 'source', 'arguments': {}}]}
             ctx.progress_mode = False
             ctx.remaining.return_value = 10
             ctx.require.return_value = "#define ___MULTIPLE_VMS\n"
@@ -245,6 +248,11 @@ class GambitCIContracts(unittest.TestCase):
         for source in (workflow, framework, install):
             self.assertNotIn(".cache/ci", source)
             self.assertNotIn(".cache/fixtures", source)
+        # Separate Actions steps cannot inherit an execution scope from setup.
+        # Every native action declares its stable actor at the public entry.
+        for line in workflow.splitlines():
+            if "run: uv run --no-sync gambit-smp " in line:
+                self.assertIn("gambit-smp --task repair-9-12 ", line)
         archive = recipes.read_json(DIRECTORY / "runtime-input.json")["path"]
         self.assertIn("--out " + archive, workflow)
         self.assertIn("path: " + archive, workflow)
@@ -252,6 +260,59 @@ class GambitCIContracts(unittest.TestCase):
         engine = ".cache/tasks/repair-9-12/ci"
         self.assertIn("-C " + engine + " engine", workflow)
         self.assertIn("sealed-engine.tar -C " + engine, workflow)
+
+    def test_framework_ci_uses_explicit_task_for_all_execution_steps(self):
+        workflow = (ROOT / ".github/workflows/verify.yml").read_text()
+        for command in ("research --seal", "validate-review --profile full", "evidence --validate"):
+            self.assertIn("gambit-smp --task repair-9-12 " + command, workflow)
+        self.assertNotIn("python -m gambit_smp.review_validation", workflow)
+
+    def test_framework_lean_transport_retries_keep_the_pinned_version(self):
+        workflow = (ROOT / '.github/workflows/verify.yml').read_text()
+        self.assertIn('set -euo pipefail', workflow)
+        self.assertIn('--retry 3 --retry-all-errors', workflow)
+        self.assertIn('toolchain="$(cat models/library/lean/lean-toolchain)"', workflow)
+        self.assertIn('toolchain install "$toolchain"', workflow)
+        self.assertIn('test "$attempt" -lt 3', workflow)
+        self.assertIn('run "$toolchain" lean --version', workflow)
+
+    def test_actual_lean_install_shell_retries_transport_but_never_masks_failure(self):
+        workflow = (ROOT / '.github/workflows/verify.yml').read_text()
+        block = workflow.split('      - name: Install the pinned Lean compiler for the proof controls\n', 1)[1]
+        script = textwrap.dedent(block.split('        run: |\n', 1)[1].split('      - name:', 1)[0])
+        pinned = (ROOT / 'models/library/lean/lean-toolchain').read_text().strip()
+        for failures, verify_failure, curl_failure, installs, expected in (
+                (2, 0, 0, 3, 0), (3, 0, 0, 3, 1),
+                (0, 7, 0, 1, 7), (0, 0, 22, 0, 22)):
+            with self.subTest(failures=failures, verify=verify_failure, curl=curl_failure), tempfile.TemporaryDirectory() as name:
+                root = Path(name)
+                binary = root / '.elan/bin'
+                binary.mkdir(parents=True)
+                toolchain = root / 'models/library/lean/lean-toolchain'
+                toolchain.parent.mkdir(parents=True)
+                toolchain.write_text(pinned + '\n')
+                scripts = {
+                    'curl': '#!/bin/sh\nexit "$CURL_FAILURE"\n',
+                    'sleep': '#!/bin/sh\nexit 0\n',
+                    'elan': '#!/bin/sh\nprintf "%s\\n" "$*" >> "$HOME/calls"\n'
+                            'if [ "$1" = toolchain ]; then\n'
+                            ' n=0; if [ -f "$HOME/count" ]; then n=$(cat "$HOME/count"); fi\n'
+                            ' n=$((n+1)); printf "%s" "$n" > "$HOME/count"\n'
+                            ' if [ "$n" -le "$ELAN_FAILURES" ]; then exit 35; fi\n'
+                            'else exit "$VERIFY_FAILURE"; fi\n'}
+                for executable, body in scripts.items():
+                    path = binary / executable
+                    path.write_text(body)
+                    path.chmod(0o700)
+                result = subprocess.run(['bash', '-c', script], cwd=root, text=True,
+                    capture_output=True, timeout=10, env=dict(os.environ,
+                        HOME=str(root), PATH=str(binary) + os.pathsep + os.environ['PATH'],
+                        GITHUB_PATH=str(root / 'github-path'), ELAN_FAILURES=str(failures),
+                        VERIFY_FAILURE=str(verify_failure), CURL_FAILURE=str(curl_failure)))
+                self.assertEqual(result.returncode, expected, result.stderr)
+                calls = (root / 'calls').read_text().splitlines() if (root / 'calls').exists() else []
+                self.assertEqual(calls.count('toolchain install ' + pinned), installs)
+                self.assertEqual(calls.count('run ' + pinned + ' lean --version'), int(installs > failures))
 
     def test_contract_batch_uses_the_same_fixture_isolation_as_full_validation(self):
         request = recipes.read_json(ROOT / ".github/gambit/contracts.json")

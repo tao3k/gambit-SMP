@@ -1,6 +1,5 @@
 """Native runtime branches require their own exact-source observations."""
 import json
-import re
 import unittest
 
 from gambit_smp import repository_clues
@@ -26,6 +25,8 @@ class RuntimeRetirementEvidenceTests(unittest.TestCase):
         with engine_api() as (engine, _):
             initial, _ = evaluate(engine, facts, catalog, queries)
             for witness, claim, contract, _ in facts["receipt"]:
+                if witness != "runtime-retirement-formal":
+                    continue
                 self.assertIn((claim, witness), initial["applicable"])
                 for c, k, name in facts["required_binding"]:
                     if (c, k) != (claim, contract):
@@ -57,34 +58,22 @@ class RuntimeRetirementEvidenceTests(unittest.TestCase):
         self.assertGreater(again["brief"]["counts"]["counter"], 0)
         self.assertFalse(again["brief"]["runtimeAdmitted"])
 
-    def test_native_runtime_witness_and_logs_match_current_sources(self):
-        directory = ROOT / "evidence/source-results/runtime-retirement"
-        result = json.loads((directory / "receipt.json").read_text())
-        self.assertEqual(result["status"], "PASS")
-        self.assertFalse(result["bootstrapRepeated"])
-        self.assertFalse(result["naturalJoinFailureReachabilityAdmitted"])
-        self.assertTrue(result["originalCheckpointUnchanged"])
-        for name, sha in result["inputs"].items():
-            self.assertEqual(digest(ROOT / name), sha, name)
-        for row in result["commands"]:
-            self.assertEqual(row["exit"], 0, row["stage"])
-            self.assertFalse(row["timeout"])
-            self.assertTrue(row["parentReaped"])
-            self.assertTrue(row["processGroupQuiescent"])
-            self.assertEqual(digest(directory / row["log"]), row["logSha256"])
-        for variant in ("baseline", "candidate"):
-            for mode in ("normal", "pending", "sticky"):
-                self.assertEqual((directory / f"{variant}-{mode}.log").read_text(),
-                                 f"RUNTIME-JOIN-QUARANTINE:{mode}:PASS\n")
-        witness = result["terminalWitness"]
-        self.assertGreater(witness["captured"], 0)
-        self.assertEqual(witness["captured"] % 4, 0)
-        self.assertEqual(witness["drained"], 0)
-        self.assertEqual(witness["gate"], 3)
-        match = re.fullmatch(r"DRAIN-WITNESS captured=(\d+) drained=(\d+) gate=(\d+)\nTERMINAL-REGISTRY-DRAIN:PASS\n",
-                             (directory / "terminal-drain-execute.log").read_text())
-        self.assertIsNotNone(match)
-        self.assertEqual(tuple(map(int, match.groups())),
-                         (witness["captured"], witness["drained"], witness["gate"]))
-        self.assertEqual(result["executables"]["baseline"]["programSha256"],
-                         result["executables"]["candidate"]["programSha256"])
+    def test_cached_runtime_reports_are_not_reproducible_current_qualification(self):
+        document, facts, catalog, _ = load(ROOT,
+            "evidence/scenarios/runtime-lifecycle/runtime-retirement.view.json")
+        self.assertNotIn("native-result", {r["id"] for r in document["references"]})
+        self.assertEqual({row[2] for row in facts["binding"] if row[1] == "native-result"},
+                         {"481643cbb68cd447bab22ed540df96f596d9e91b9a5e410af0a8aa577e5bb81e"})
+        native = {row[0] for row in facts["receipt"] if row[0].endswith("-native")}
+        self.assertTrue(native.isdisjoint(row[0] for row in facts["verified"]))
+        self.assertTrue(native.isdisjoint(row[0] for row in facts["command_observation"]))
+        self.assertEqual(native, {row[0] for row in facts["withdrawn"]})
+        queries = dict(document["queries"], applicable="applicable")
+        with engine_api() as (engine, _):
+            answers, _ = evaluate(engine, facts, catalog, queries)
+            for receipt, claim, _, _ in facts["receipt"]:
+                if receipt in native:
+                    self.assertIn((claim,), answers["unclosed"])
+                    self.assertNotIn((claim, receipt), answers["applicable"])
+        for name in ("runtime_join_quarantine.scm", "terminal_registry_drain.scm"):
+            self.assertTrue((ROOT / "models/gambit/native" / name).is_file())

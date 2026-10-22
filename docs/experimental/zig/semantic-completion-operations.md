@@ -192,3 +192,12 @@ measures are separately represented in the [ASCENT view](zig-research-chains.md)
 Its dependency closure reports missing premises; it does not execute these
 operations, qualify root bounds or convert a source-derived design into native
 acceptance. No backend or performance experiment was performed.
+
+## Modern C Producer/Renderer Ownership
+
+The [new mainline contract](generated-c-native-contract.md) retains Scheme as
+the producer of these semantic operations and chooses a Scheme common planner
+and C renderer. C policy code implements the actual runtime algorithms. The
+previous Zig ownership of physical C/native construction is optional rather
+than required. Operation meanings, mandatory roots, exceptional paths and the
+[role contracts](runtime-role-entry-contracts.md) remain admission obligations.

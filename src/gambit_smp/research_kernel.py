@@ -23,13 +23,20 @@ from gambit_smp.framework import ROOT, digest, execute, relative
 
 SCHEMA = "evidence-recipe.v2"
 ENGINE_SCHEMA = "research-engine-seal.v2"
+PROCESS_PROTOCOL = 'child-birth-exec-and-audited-python.v2'
+PROCESS_IMPLEMENTATION = ('__init__','spawn_protocol','task_processes','storage_policy','workspace','framework','process_observation','grok_session')
+
+
+def process_transport_identity():
+    package=Path(__file__).resolve().parent
+    return {'python/gambit_smp/'+name+'.py':digest(package/(name+'.py')) for name in PROCESS_IMPLEMENTATION}
 GENERATION = re.compile(r"\.o[1-9][0-9]*")
 ALLOWED = frozenset({"gambit.materialize", "source.overlay", "source.project", "source.bind",
                      "native.workspace-build", "native.test", "quint.parse", "quint.typecheck", "quint.test", "quint.verify",
                      "evidence.evaluate", "gambit.configure", "gambit.object", "gambit.seed-core", "gambit.seed-checkpoint",
                      "gambit.regenerate-module", "gambit.source-core", "gambit.bootstrap", "gambit.suite", "gambit.review",
                      "gambit.completed-runtime", "gambit.probe", "gambit.executable-test", "gambit.compiler-observation",
-                     "gambit.runtime-import", "gambit.upstream-tests"})
+                     "gambit.runtime-import", "gambit.upstream-tests", 'gerbil.build', 'gerbil.test'})
 FORBIDDEN_IMPORTS = frozenset({"source_unit", "ffi_source_unit", "allocator_acquire", "allocator_object",
                                "sync_retirement_source", "gc_wait_source", "gc_queue_binding"})
 
@@ -130,6 +137,8 @@ def process_recorder(root, run, journal, *, owner_path=None, deadline=None):
             except CheckpointConflict:
                 if deadline is None or time.monotonic() >= deadline:
                     raise
+    record.root=Path(root).resolve()
+    record.spawn_root=Path(run).resolve()/'process-starts'
     return record
 
 
@@ -236,7 +245,42 @@ def implementation_paths(package):
         if not transport.is_file() or transport.is_symlink():
             raise ValueError('unavailable task command transport')
         used.add('cli')
+    # Provider entrypoints have a lazy dispatcher registry, not kernel imports.
+    # Every byte required by transport admission must nevertheless be sealed.
+    for name in PROCESS_IMPLEMENTATION:
+        path = package / (name + '.py')
+        if not path.is_file() or path.is_symlink():
+            raise ValueError('unavailable process transport implementation: ' + name)
+        used.add(name)
     return [package / (name + ".py") for name in sorted(used)]
+
+
+def failed_prefix_retry(state, prefix, recipe, steps, inputs, engine_id):
+    """A quiescent, fully recorded failed execution is history, not a live resume."""
+    records = prefix['records']
+    header = records[0]['payload']
+    if not state['resumption']['relations'].get('failed_attempt_history'):
+        return None
+    if not state['resumption']['executionQuiescence']['observed']:
+        raise ValueError('failed prefix retry requires observed process quiescence')
+    if header['recipe'] != recipe['id']:
+        raise ValueError('failed prefix retry requires the same recipe identity')
+    old = header['declaration']
+    graph = lambda rows: [(r['id'], r['capability'], r['dependsOn']) for r in rows]
+    if graph(old['steps']) != graph(steps):
+        raise ValueError('failed prefix retry requires the same capability graph')
+    if (any(s['budgetSeconds'] > header['stepBudgets'][s['id']] for s in steps)
+            or recipe.get('timeoutPolicy') != old.get('timeoutPolicy')
+            or recipe['budgetSeconds'] > header['budgetSeconds']):
+        raise ValueError('failed prefix retry cannot expand watchdog or phase budgets')
+    changed = {name: sha for name, sha in inputs.items() if header['inputs'].get(name) != sha}
+    if not changed:
+        raise ValueError('unchanged failed prefix is not a fresh repair attempt')
+    return dict(committedPrefix=prefix['prefixIdentity'], engineId=header['engineId'],
+                engineChanged=header['engineId'] != engine_id, changedInputs=changed,
+                failedPrefixExpenditure=dict(accountingOnly=True, freshAttempt=True,
+                    parentCompletionObserved=False, oldAggregateOutcome=None),
+                runtimeAdmitted=False)
 
 
 def validate_graph(recipe, steps):
@@ -251,7 +295,10 @@ def validate_graph(recipe, steps):
     if len(evaluations) != 1 or steps[-1] != evaluations[0]:
         raise ValueError("one terminal native evidence evaluation required")
     dsl_only = len(steps) == 1 and "dsl" in evaluations[0]["arguments"]
-    if not dsl_only and not any(step["capability"] == "gambit.materialize" for step in steps):
+    model_only = (any(step['capability'].startswith('quint.') for step in steps)
+                  and all(step['capability'].startswith('quint.') or step['capability'] == 'evidence.evaluate'
+                          for step in steps))
+    if not (dsl_only or model_only) and not any(step["capability"] == "gambit.materialize" for step in steps):
         raise ValueError("a new research run must start from a locked source producer")
     for step in steps:
         if step["capability"] in {"gambit.suite", "gambit.bootstrap", "gambit.upstream-tests"}:
@@ -507,6 +554,7 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, 
     sealed_files = {path.relative_to(out).as_posix(): digest(path)
                     for path in out.rglob("*") if path.is_file()}
     identity = {"schema": ENGINE_SCHEMA, "files": sealed_files, "hostTools": tools,
+                "processProtocol": PROCESS_PROTOCOL,
                 "privateFileTransfers": {**private_transfers, "hardlinks": False},
                 "resourceOwnership": {"contract": "checked-generation-sharing.v1", "generations": generations,
                                       "boundary": "byte-bound resources; shared generations are not write-isolated"},
@@ -556,6 +604,25 @@ def evaluation_teardown_deadline(recipe, requested_deadline, owner):
     if recipe.get("timeoutPolicy", {}).get("mode") == "progress":
         return owner.deadline
     return requested_deadline
+
+
+def begin_evaluation_teardown(recipe, requested_deadline, owner):
+    """Recipe completion starts its declared close phase, not another review."""
+    policy = recipe.get('timeoutPolicy', {})
+    completed = owner.process is None or (bool(owner.records) and all(
+        row.get('requestCompleted') is True and row.get('timeout') is False for row in owner.records))
+    mode = 'original-deadline'
+    if policy.get('mode') == 'progress' and completed:
+        from gambit_smp.recipes import budget
+        budget(policy['overheadSeconds'])
+        owner.deadline = time.monotonic() + policy['overheadSeconds']
+        mode = 'fresh-configured-phase'
+    elif policy.get('mode') == 'progress':
+        mode = 'unfinished-request'
+    return dict(scope='owner-close-only', mode=mode,
+        deadline=evaluation_teardown_deadline(recipe, requested_deadline, owner),
+        budgetSeconds=policy.get('overheadSeconds') if mode == 'fresh-configured-phase' else None,
+        nativeStageBudgetsChanged=False)
 
 
 def worker(engine):
@@ -630,12 +697,14 @@ def _worker(engine):
                       engine=engine, deadline=request["deadline"], journal=request["journal"],
                       budget_reservation=request.get("budgetReservation"), resume_prefix=request.get("resumePrefix"))
         owner_finalization_started = time.monotonic()
+        teardown = begin_evaluation_teardown(recipe, request['deadline'], owner)
+        teardown_deadline = teardown['deadline']
     owner_result = owner.receipt
-    teardown_deadline = evaluation_teardown_deadline(recipe, request["deadline"], owner)
     if owner_result is not None:
         owner_path = Path(request["out"]) / "evaluation-owner/receipt.json"
         receipt["evaluationOwner"] = {"path": "evaluation-owner/receipt.json", "sha256": digest(owner_path)}
         receipt["evaluationOwnerFinalizationSeconds"] = time.monotonic() - owner_finalization_started
+        receipt['evaluationOwnerTeardownPolicy'] = teardown
         receipt["wholeSeconds"] += receipt["evaluationOwnerFinalizationSeconds"]
         if (owner_result["exit"] != 0 or owner_result["forcedTermination"]
                 or any(not row["requestCompleted"] or row["timeout"] for row in owner_result["requests"])
@@ -688,10 +757,24 @@ def completed_stage_frontier(out, steps, journal):
         return False
 
 
-def completed_work(out, steps):
-    """Observe completed stages/processes/files, never timestamps or log volume."""
+def completed_work(out, steps, *, journal=None, required_inputs=None):
+    """Observe completed checks/stages/processes/files, never timestamps or log volume."""
     count = 0
     run = out / "run"
+    validation = run / 'input-validation.json'
+    if journal is not None and required_inputs is not None and not validation.is_symlink():
+        try:
+            row = json.loads(validation.read_text())
+            if (row.get('schema') == 'recipe-input-validation.v1'
+                    and row.get('header') == journal
+                    and row.get('scope') == 'declared-inputs-not-native-work'
+                    and row.get('completed') is True
+                    and row.get('requiredInputs') == required_inputs
+                    and isinstance(row.get('observedInputs'), dict)
+                    and all(row['observedInputs'].get(name) == sha for name, sha in required_inputs.items())):
+                count += 1
+        except (OSError, ValueError, TypeError):
+            pass
     for step in steps:
         try:
             stage = json.loads((run / (step["id"] + ".observation.json")).read_text())
@@ -707,7 +790,8 @@ def completed_work(out, steps):
                 row = json.loads(path.read_text())
                 count += int(row.get("schema") == "recipe-process-observation.v1"
                              and row.get("state") == "OBSERVED" and type(row.get("exit")) is int
-                             and row.get("completionObserved") is True and row.get("parentReaped") is True)
+                             and row.get("completionObserved") is True and row.get("parentReaped") is True
+                             and row.get('processGroupQuiescent') is True)
             except (OSError, ValueError, TypeError):
                 pass
         for path in directory.glob("*.progress.json"):
@@ -719,6 +803,27 @@ def completed_work(out, steps):
             except (OSError, ValueError, TypeError):
                 pass
     return count
+
+
+def require_incremental_builds(recipe, steps):
+    """All future provider/native build launches use the maintained workspaces.
+
+    Retained observations and running older sealed programs remain readable.
+    Historical declarations are not silently translated into another program.
+    """
+    by_id = {step['id']: step for step in steps}
+    for step in steps:
+        if (step['capability'] in {'gambit.runtime-import', 'gambit.completed-runtime'}
+                and recipe.get('workspacePolicy') != 'in-place'):
+            raise ValueError('runtime reuse requires in-place maintained workspace policy')
+        if step['capability'] in {'gerbil.build','gerbil.test'} and recipe.get('workspacePolicy') != 'in-place':
+            raise ValueError('Gerbil build execution requires in-place incremental workspace')
+        if step['capability'] != 'gambit.configure':
+            continue
+        source = by_id[step['arguments']['source']['step']]
+        if (recipe.get('workspacePolicy') != 'in-place' or source['capability'] != 'gambit.materialize'
+                or source['arguments'].get('buildWorkspace') != 'gambit-core'):
+            raise ValueError('native build execution requires its maintained incremental workspace Recipe')
 
 
 def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
@@ -774,6 +879,14 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                 "requestedIdentityMatches": matching, "resumption": state["resumption"],
                 "executionLaunched": False, "wholeSeconds": time.monotonic() - started,
                 "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
+    # Historical inspection above launches nothing; only a new execution needs
+    # the current birth/exec transport. Do not invalidate retained history.
+    transport = transport_compatibility(manifest)
+    if not transport['current']:
+        reason = ('sealed engine predates birth/exec admission' if manifest.get('processProtocol') != PROCESS_PROTOCOL
+                  else 'sealed engine birth/exec implementation differs')
+        raise ValueError(reason + '; transport evidence: ' + json.dumps(transport, sort_keys=True))
+    require_incremental_builds(recipe, steps)
     out.mkdir(parents=True, exist_ok=False)
     deadline = started + recipe["budgetSeconds"]
     request = {"engineId": manifest["engineId"], "root": str(root), "recipe": path.relative_to(root).as_posix(),
@@ -819,7 +932,13 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
             state = recovered_resumption(root, prior)
             old = read_execution_checkpoint(root, prior)
             header = old["records"][0]["payload"]
-            if (state["outcome"] != "INCOMPLETE" or state["engineId"] != manifest["engineId"]
+            prior_identity = dict(committedPrefix=old['prefixIdentity'], engineId=header['engineId'],
+                                  oldAggregateOutcome=None, runtimeAdmitted=False)
+            retry = failed_prefix_retry(state, old, recipe, steps, inputs, manifest['engineId'])
+            if retry is not None:
+                prior_identity = retry
+                request['prior'] = None
+            elif (state["outcome"] != "INCOMPLETE" or state["engineId"] != manifest["engineId"]
                     or state["recipe"] != recipe["id"]):
                 raise ValueError("interrupted continuation requires the same engine and recipe contract")
             if not state["resumption"]["executionQuiescence"]["observed"]:
@@ -828,10 +947,11 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                 raise ValueError("interrupted continuation cannot expand a phase budget")
             if header["inputs"] == inputs and state["resumption"]["relations"]["failed"]:
                 raise ValueError("unchanged failed stage is not an interrupted-only continuation")
-            request["resumePrefix"] = state["resumption"]["prefixIdentity"]
-            prior_identity = {"committedPrefix": request["resumePrefix"], "engineId": header["engineId"],
-                              "interruptedContinuation": True, "oldAggregateOutcome": None,
-                              "changedInputs": {name: sha for name, sha in inputs.items() if header["inputs"].get(name) != sha}}
+            if retry is None:
+                request["resumePrefix"] = state["resumption"]["prefixIdentity"]
+                prior_identity = {"committedPrefix": request["resumePrefix"], "engineId": header["engineId"],
+                                  "interruptedContinuation": True, "oldAggregateOutcome": None,
+                                  "changedInputs": {name: sha for name, sha in inputs.items() if header["inputs"].get(name) != sha}}
         except (OSError, KeyError, ValueError, TypeError) as error:
             return retain_receipt({"schema": "sealed-research-run.v1", "recipe": recipe["id"],
                 "engine": str(engine), "engineId": manifest["engineId"], "inputs": inputs, "root": str(root),
@@ -847,7 +967,11 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                               "engineChanged": previous["engineId"] != manifest["engineId"]}
             if previous.get("schema") != "sealed-research-run.v1":
                 raise ValueError("matching sealed prior observation required")
-            if previous["recipe"] != recipe["id"]:
+            from gambit_smp.recipes import checked_build_migration
+            migration = checked_build_migration(root, path, recipe, previous) if previous['recipe'] != recipe['id'] else None
+            if migration is not None:
+                prior_identity['buildMigration'] = migration
+            if previous["recipe"] != recipe["id"] and migration is None:
                 if "timeoutPolicy" not in recipe:
                     raise ValueError("matching sealed prior observation required")
                 old_request = prior / "request.json"
@@ -931,6 +1055,7 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
               "budgetSeconds": recipe["budgetSeconds"],
               "stepBudgets": {step["id"]: step["budgetSeconds"] for step in steps},
               "request": dict(request), "executionCompleted": False,
+              "requestedPrior": str(prior) if prior is not None else None,
               "prior": prior_identity,
               "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
     if "timeoutPolicy" in recipe:
@@ -947,7 +1072,8 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                                             owner_path=Path(request["launchOwner"]), deadline=deadline),
                                         completion_check=lambda: completed_stage_frontier(out, steps, journal),
                                         completion_grace=30,
-                                        **({"progress_check": lambda stdout, stderr: completed_work(out, steps)}
+                                        **({"progress_check": lambda stdout, stderr: completed_work(
+                                            out, steps, journal=journal, required_inputs=inputs)}
                                            if progress_mode else {}))
     (out / "launch.log").write_text(log)
     child = out / "run/receipt.json"
@@ -973,6 +1099,23 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
     return retain_receipt(receipt)
 
 
+def transport_compatibility(manifest):
+    """Expose launch premises separately from seal-byte identity and producer reuse."""
+    from gambit_smp.ascent_program import load_component_catalog, query
+    required = dict(process_transport_identity(), protocol=PROCESS_PROTOCOL)
+    recorded = dict(manifest.get('files', {}))
+    if manifest.get('processProtocol') is not None:
+        recorded['protocol'] = manifest['processProtocol']
+    catalog = load_component_catalog(ROOT/'evidence/dsl/components.json', entry='checkpoint-state',
+        constructor='make-execution-transport', trusted=True)
+    result = query(dict(transport_required=list(required.items()),
+        transport_recorded=[(key, recorded[key]) for key in required if key in recorded],
+        transport_enumerated=[()]), catalog, dict(gaps='transport_gap', current='transport_current'))
+    return dict(current=bool(result['current']), gaps=result['gaps'],
+                expectedProtocol=PROCESS_PROTOCOL, recordedProtocol=manifest.get('processProtocol'),
+                scope='new-execution-transport-not-native-producer-identity', runtimeAdmitted=False)
+
+
 def inspect(out, *, input_archive=None, include_resumption=False):
     from gambit_smp.recipes import inspect_run, read_json
     if (out / "engine.json").is_file():
@@ -981,6 +1124,7 @@ def inspect(out, *, input_archive=None, include_resumption=False):
         manifest = manifest_paths(out)
         dependencies = {name for name in manifest["hostTools"] if name.startswith("quint-file:")}
         return {"artifactKind": "sealed-engine", "engineId": manifest["engineId"],
+                "transportCompatibility": transport_compatibility(manifest),
                 "hostTools": {name: row for name, row in manifest["hostTools"].items()
                               if name not in dependencies},
                 "hostToolDependencyCount": len(dependencies),
@@ -1041,10 +1185,11 @@ def inspect(out, *, input_archive=None, include_resumption=False):
 def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     selection = parser.add_mutually_exclusive_group(required=True)
-    selection.add_argument("--seal", type=Path)
+    selection.add_argument("--seal", type=Path,
+        help="freeze framework/ASCENT code and host-tool identities; does not build Gambit, change a native producer or reset native budgets")
     selection.add_argument("--run")
     selection.add_argument("--read", type=Path,
-                           help="validate and inspect a sealed engine or retained research run; never execute")
+                           help="read a run directory or sealed engine, not a prefixIdentity hash; includes live progress/checkpoint and detached execution; never execute")
     selection.add_argument("--export-producer", type=Path)
     selection.add_argument("--export-runtime", type=Path)
     parser.add_argument("--step")
@@ -1068,7 +1213,26 @@ def execution_policy(arguments):
     return "read" if args.read and args.out is None and not args.portable_seal else "task"
 
 
+def launch_summary(receipt, out):
+    """Expose the actual allocated observation, not a workflow recommendation."""
+    keys = (("recipe", "engineId", "outcome", "resumeStatus", "executionLaunched", "wholeSeconds",
+             "requestedIdentityMatches", "resumption") if "resumption" in receipt else
+            ("recipe", "engineId", "outcome", "exit", "timeout", "denial"))
+    result = {key: receipt.get(key) for key in keys}
+    result.update(out=str(out), receipt=str(out / 'receipt.json'))
+    child = out / 'run/receipt.json'
+    if receipt.get('childReceiptSha256') and child.is_file():
+        raw = child.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != receipt['childReceiptSha256']:
+            raise ValueError('launch summary child receipt identity changed')
+        result['stepFailures'] = [{key: row.get(key) for key in ('id', 'capability', 'outcome', 'reason')}
+                                  for row in json.loads(raw).get('steps', [])
+                                  if row.get('outcome') not in {'PASS', 'BLOCKED'}]
+    return result
+
+
 def main():
+    from gambit_smp.task_entry import present_observation
     from gambit_smp.recipes import discover, load, source_path
     parser = argument_parser()
     args = parser.parse_args()
@@ -1094,8 +1258,9 @@ def main():
                 proof, _, _, _ = observe_journal(ROOT, args.read, args.step)
                 print(json.dumps(proof, indent=2))
             else:
-                print(json.dumps(inspect(args.read.resolve(), input_archive=args.input_archive,
-                                         include_resumption=True), indent=2))
+                result = inspect(args.read.resolve(), input_archive=args.input_archive,
+                                 include_resumption=True)
+                print(json.dumps(present_observation(result), indent=2))
             return 0
         if args.export_producer:
             from gambit_smp.completed_producer import export_reference
@@ -1119,10 +1284,7 @@ def main():
         if selected is None or args.engine is None or args.out is None:
             parser.error("--run requires a declared recipe, --engine seal, and --out run directory")
         receipt = run_sealed(root, selected, args.out, args.engine.resolve(), prior=args.prior, allow_native=True)
-        keys = (("recipe", "engineId", "outcome", "resumeStatus", "executionLaunched", "wholeSeconds",
-                 "requestedIdentityMatches", "resumption")
-                if "resumption" in receipt else ("recipe", "engineId", "outcome", "exit", "timeout", "denial"))
-        print(json.dumps({key: receipt.get(key) for key in keys}))
+        print(json.dumps(present_observation(launch_summary(receipt, args.out))))
         return 0 if receipt["outcome"] == "PASS" else 2
     except (OSError, ValueError, KeyError, TypeError) as error:
         print("RESEARCH-DENY " + str(error), file=sys.stderr)

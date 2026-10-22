@@ -130,9 +130,9 @@ def _api_inventory():
     return dict(files), copy.deepcopy(build), identity
 
 
-def _check_inventory_paths(paths):
+def _check_inventory_paths(paths, *, checked=None):
     """Check every path component once per boundary, without following aliases."""
-    checked = set()
+    if checked is None:checked = set()
     for path in set(paths):
         if not path.is_absolute() or '..' in path.parts:
             raise ValueError("installed ASCENT inventory path became an alias")

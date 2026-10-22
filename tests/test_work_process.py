@@ -90,3 +90,12 @@ class WorkProcessTests(unittest.TestCase):
         self.assertEqual(receipt,p.absorb(self.root,'repair','audit','old-audit'))
         self.assertEqual(['history:old-audit'],p.collect(self.root,'repair','audit',today=date(2099,1,1),opened=[]))
         self.assertFalse(target.exists())
+
+    def test_bounded_process_cannot_bypass_the_provider_owner_through_workspace_execute(self):
+        w.start(self.root,'repair',adopt=True)
+        fake=self.root/'codex';fake.write_text('#!/bin/sh\nexit 99\n');fake.chmod(0o700)
+        with p.scope(self.root,'repair','audit'):
+            with self.assertRaisesRegex(ValueError,'maintenance processes run bounded tools'):
+                w.execute(self.root,'repair',[str(fake)])
+        owner=json.loads(p.paths(self.root,'repair','audit')[0].read_text())
+        self.assertFalse(list((self.root/'.state/task-processes/repair'/owner['run']).glob('*.json')))

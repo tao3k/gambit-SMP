@@ -153,14 +153,15 @@ class GateTests(unittest.TestCase):
         self.assertLess(free, 131072)
 
     def test_first_unadmitted_model_stops_remaining_checks_and_native_execution(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            out = Path(temporary) / "attempt"
+        from tests.support import task_fixture
+        with task_fixture('model-stop') as (_, cache):
+            out = cache / 'attempt'
             version = json.loads((gate.MODELS / "cases.json").read_text())["quintVersion"]
             argv = ["gambit_smp.check_gambit.py", "--case", "gc_table_header_lifetime", "--out", str(out),
                     "--native-gsi", str(out / "unused-gsi"),
                     "--toolchain-receipt", str(out / "unused-identity")]
             with patch.object(sys, "argv", argv), \
-                    patch.object(gate.subprocess, "check_output", return_value=version), \
+                    patch.object(gate, "_task_check_output", return_value=version), \
                     patch.object(gate, "check_model", return_value=(
                         {"accepted": False, "exit": 1, "timeout": False, "seconds": 0.1},
                         "checker infrastructure failed", None)) as run, \

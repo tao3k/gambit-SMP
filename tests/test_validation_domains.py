@@ -16,6 +16,22 @@ from gambit_smp.evidence_capabilities import EvaluationOwner, evaluation_owner, 
 
 
 class ValidationDomainTests(unittest.TestCase):
+    def test_isolated_owner_bootstraps_its_sealed_package_before_task_imports(self):
+        import shutil
+        from gambit_smp.framework import ROOT
+        from gambit_smp.task_processes import run
+        with tempfile.TemporaryDirectory() as directory:
+            engine = Path(directory)
+            package = engine / "python/gambit_smp"
+            shutil.copytree(ROOT / "src/gambit_smp", package,
+                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            result = run([sys.executable, "-I", "-B", str(package / "evidence_capabilities.py")],
+                         capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("FileNotFoundError", result.stderr)
+            self.assertIn("engine.json", result.stderr)
+            self.assertNotIn("ModuleNotFoundError", result.stderr)
+
     def test_owner_metadata_reuse_is_not_a_request_completion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,0 +1,44 @@
+#!/bin/bash
+set -euo pipefail
+r=.cache/tasks/retained-rc-scan
+e=evidence/research/retained-rc-scan
+bash "$r/assert.sh" > "$r/assertions.log" 2>&1
+rg -q '15 passing' "$r/quint-final-tests.log"
+rg -q 'No violation found' "$r/quint-final-simulation.log"
+! rg -q 'error:|sorryAx' "$r/lean-refinement.log"
+jq -e '.missingFiles==[] and .missingCustomIds==[] and .duplicateIds==[]' "$r/org-links.json" >/dev/null
+jq -e '.exit==0 and ((.errors//[])|length)==0' "$r/native-metadata.json" >/dev/null
+rg --files dev -g '*.sysml' -0 | xargs -0 openssl dgst -sha256 | LC_ALL=C sort > "$r/models-after.sha256"
+cmp "$r/models-before.sha256" "$r/models-after.sha256"
+openssl dgst -sha256 evidence/research/host-roots-refinement/checks.json evidence/research/component-assurance/checks.json patches/fixtures/processor-interrupt-collective-wait-cumulative.patch vendor/gambit/lib/{mem,setup,os_thread}.c vendor/gambit/include/gambit.h.in models/gambit/host_roots_refinement.qnt models/gambit/lean/HostRootsRefinement.lean > "$r/preserved-after.sha256"
+cmp "$r/entry-sources.sha256" "$r/preserved-after.sha256"
+jq -r 'to_entries[]|[.key,.value]|@tsv' "$r/source-bindings.json" | while IFS=$'\t' read -r f expected; do actual=$(openssl dgst -sha256 "$f"|awk '{print $NF}'); test "$actual" = "$expected"; done
+jq -e --slurpfile old evidence/research/host-roots-refinement/checks.json '.==$old[0].reasoning.current' "$r/predecessor-current.json" >/dev/null
+jq -e --slurpfile b evidence/research/host-roots-refinement/source-bindings.json '.sourceBindings==$b[0]' evidence/research/host-roots-refinement/checks.json >/dev/null
+jq -Rn '[inputs|capture("^[^(]+\\((?<key>.+)\\)= (?<value>[a-f0-9]{64})$")]|from_entries' "$r/models-after.sha256" > "$r/model-bindings.json"
+jq --slurpfile m "$r/model-bindings.json" '.modelSourceBindings += $m[0]' dev/modeling/formal-bindings.json > "$r/formal-bindings-next.json"
+cp "$r/formal-bindings-next.json" dev/modeling/formal-bindings.json
+jq -e --slurpfile old "$r/entry-formal-bindings.json" 'del(.modelSourceBindings)==($old[0]|del(.modelSourceBindings))' dev/modeling/formal-bindings.json >/dev/null
+jq -n --slurpfile p "$r/planner-input.json" --slurpfile b "$r/source-bindings.json" '{newChecks:[{source:"models/gambit/retained_rc_scan.qnt",stage:"typecheck",exitCode:0,log:"quint-final-typecheck.log"},{source:"models/gambit/retained_rc_scan.qnt",stage:"bounded-histories",exitCode:0,log:"quint-final-tests.log",tests:15,seed:1,samplesPerHistory:1},{source:"models/gambit/retained_rc_scan.qnt",stage:"bounded-invariant-simulation",exitCode:0,log:"quint-final-simulation.log",seed:17,maxSamples:100,maxSteps:50,invariant:"safe",step:"step",faultActionsIncluded:false},{source:"models/gambit/lean/RetainedRcScan.lean",stage:"inductive-preservation",exitCode:0,log:"lean-refinement.log"}],scopeProbe:{source:"probe.lean",log:"lean-scopes.log",namedStatements:11,exitCode:0},nativeModelScopes:[$p[0].needs[]|select(.obligationId=="RC-H" or .obligationId=="RC-I")|{component,obligationId,subjectPath,subjectScope,digest}],exhaustiveVerification:false,wholeGcInvariantProved:false,readerWriterKernelInduction:true,livenessProved:false,cSourceSimulation:false}|.newChecks|=map(.+{sourceSha256:$b[0][.source]})' > "$r/formal-checks.json"
+for f in "$r"/case-*.json; do jq --arg file "$(basename "$f")" '{file:$file,componentReady:(.componentReady|map(.[1])|sort),locallyChecked:(.locallyChecked|length),sourceRoutes:(.sourceRoute|length),runtimeAdmitted,retainedTaskHypotheses}' "$f"; done | jq -s . > "$r/scenario-summary.json"
+jq -n --slurpfile p "$r/planner-input.json" --slurpfile a "$r/case-current.json" '[$p[0].components[]|.id as $id|{component:$id,needs:([$p[0].needs[]|select(.component==$id)]|length),qualifiedLocal:([$a[0].locallyChecked[]|select(.[1]==$id)]|length),frontier:[$a[0].componentFrontier[]|select(.[1]==$id)|.[2]],complete:([$a[0].componentReady[]|select(.[1]==$id)]|length>0)}]' > "$r/closure-matrix.json"
+jq -n '{primaryEvidence:[{url:"https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_join.3.html",status:"read",scope:"Archived API contract; success, error return and concurrent join restriction, not current binary qualification"},{url:"https://pubs.opengroup.org/onlinepubs/9799919799/functions/pthread_join.html",status:"HTTP-403"},{url:"https://pubs.opengroup.org/onlinepubs/9699919799/functions/pthread_join.html",status:"HTTP-403"}],codeEvidence:["os_thread.c:546-572","os_base.c:1050-1076"],inference:"Failure keeps custody; raw error classification is lost by errno wrapper; errno zero yields UNKNOWN, not success"}' > "$r/platform-evidence.json"
+quint --version > "$r/quint-version.txt"
+sysml --version > "$r/sysml-version.txt" 2>&1
+d2 --version > "$r/d2-version.txt" 2>&1
+(cd models/gambit/lean && lean --version) > "$r/lean-version.txt"
+# Immutable text/JSON records and preview images; no native binaries/olean cache.
+rg --files --hidden --no-ignore "$r" -g '*.json' -g '*.ss' -g '*.scm' -g '*.sysml' -g '*.log' -g '*.sh' -g '*.el' -g '*.jq' -g '*.sha256' -g '*.txt' -g '*.tsv' -g 'probe.lean' -g '*.png' | while IFS= read -r f; do cp "$f" "$e/$(basename "$f")"; done
+jq -n --slurpfile p "$r/planner-input.json" --slurpfile a "$r/case-current.json" --slurpfile f "$r/formal-checks.json" --slurpfile s "$r/scenario-summary.json" --slurpfile c "$r/closure-matrix.json" --slurpfile h "$r/source-bindings.json" --slurpfile o "$r/org-links.json" --arg head "$(git rev-parse HEAD)" --arg time "$(date -u +%FT%TZ)" '{
+ kind:"modern-c-retained-rc-scan-refinement",status:"retained-domain-contract-and-kernel-checked-concrete-source-open",recordedAt:$time,repositoryHead:$head,
+ authority:{policy:"dev/modeling/models/sysml/assurance-routing.sysml",hostRoots:"dev/architecture/runtime/ffi/models/sysml/host-roots-refinement.sysml",retainedRoots:"dev/architecture/runtime/ffi/models/sysml/retained-rc-scan.sysml",inference:"dev/modeling/ascent/assurance-planner.ss"},
+ inputIdentity:{modelBundleSha256:$p[0].bundleHash,nativeOutputSha256:$p[0].nativeHash,dslSha256:$p[0].dslHash},sourceBindings:$h[0],
+ structure:{nativeSysmlFiles:40,nativeEvaluatedScalars:878,components:8,needs:48,directPrerequisites:94,sharedContracts:8,sourceRoutes:12,newRetainedDetailRoutes:6,views:[{source:"dev/modeling/diagrams/component-proof-dependencies.d2",needNodes:48,edges:94},{source:"dev/architecture/runtime/ffi/diagrams/host-roots-refinement.d2",nodes:37,edges:74},{source:"dev/architecture/runtime/ffi/diagrams/retained-rc-scan.d2",nodes:24,edges:46}],nativeMetadataAuthority:true,visuallyReviewed:true,satisfactionClaimed:false},
+ formal:$f[0],inherited:{localSlices:18,receipt:"evidence/research/host-roots-refinement/checks.json",proofSourceDigestsEqual:true,rerun:false,scopeExpanded:false},
+ reasoning:{scenarios:$s[0],scenarioCases:12,allExpectedClosureSetsMatched:true,sourceRoutesMatchNativeRecords:true,dependencyTripleTransportLossless:true,current:$a[0],components:$c[0],selectedHypotheses:1,retainedTaskHypotheses:2,supportObservations:0,nativeRuntimeAdmitted:false,syntheticControlEvidenceIsNotActualSourceProof:true},
+ closure:{currentQualifiedLocalSlices:20,currentSourceSimulationOpen:19,currentPlatformOpen:9,currentCompleteComponents:0,retainedSourceNeedsOpen:5,retainedMemoryNeedOpen:1,legacyGlobalObligationLedgerReclassified:false},org:$o[0],
+ preservation:{vendorAndPatchUnchanged:true,priorScopedReceiptsUnchanged:true,previousFormalModelsUnchanged:true,legacyRegistryNonHashFieldsUnchanged:true,leanInitialFailureRetained:true,sysmlReservedKeywordFailureRetained:true,controlFormBoundRetained:true,failedAttemptsPromoted:false},
+ execution:{nativeSysmlValidation:true,nativeMetadataLookup:true,quintTypecheck:true,quintTests:true,quintBoundedSimulation:true,quintExhaustiveVerification:false,leanCheck:true,exactNamespaceProbes:true,ascentQueries:true,orgParseAndLinks:true,newPythonMaintained:false,runtimeImplementation:false,nativeRuntimeTesting:false,performanceValidation:false},
+ quantitativeBoundary:{domainEnumeration:"O(A+T)",requiredRootAndStillWork:"O(sum R_d + sum S_d), plus descendants",epochMetadata:"O(A+T)",rcSplice:"O(1)",existingStillTailWalk:"O(S_donor)",unresolvedMetadata:"O(U)",retainedBackingBound:"Unbounded without recovery; no native pause/throughput bound",zigSpecificNetGainEstablished:false,nativeSpeedup:null,personDaysUsed:false},runtimePathsRetired:0,nativeProfilesAccepted:0,
+ remaining:["Raw join classification and complete writer/borrower freeze","Enrollment before executor removal and exact retained-domain census","Active copying-context and retained still/weak/cleanup adapters","Every transfer link/counter/receipt source event and unknown outcome","Foreign release ownership and physical last use/capacity accounting","Concrete C memory order, progress and full QNT/Lean/source refinement"]
+ }' > "$e/checks.json"

@@ -12,7 +12,71 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import threading
 from pathlib import Path
+
+_workspace_locks = {}
+_workspace_locks_mutex = threading.RLock()
+
+
+def _workspace_scope():
+    return [os.environ.get(name) for name in ('GAMBIT_SMP_TASK_ROOT', 'GAMBIT_SMP_TASK_ID',
+                                             'GAMBIT_SMP_TASK_PROCESS', 'GAMBIT_SMP_TASK_RUN')]
+
+
+@contextmanager
+def workspace_custody(environment=None):
+    """Duplicate real workspace locks into children, including Python helpers.
+
+    The open description, not an environment assertion, survives supervisor
+    death. Duplicates protect the spawn/lease-close race and close after exec.
+    """
+    duplicates, records = [], []
+    inherited = json.loads(os.environ.get('GAMBIT_SMP_WORKSPACE_LEASES', '[]'))
+    if not isinstance(inherited, list) or len(inherited) > 128:
+        raise ValueError('bounded actual workspace descriptor inventory required')
+    scope = _workspace_scope()
+    try:
+        with _workspace_locks_mutex:
+            selected = [row for row in _workspace_locks.values() if row['scope'] == scope] + inherited
+            seen = set()
+            for row in selected:
+                if row['scope'] != scope:
+                    raise ValueError('workspace custody belongs to another task generation')
+                key = (row['fd'], row['source'])
+                if key in seen:continue
+                seen.add(key)
+                fd = row['fd']; actual = os.fstat(fd)
+                source = Path(row['source']).stat()
+                if ([actual.st_dev, actual.st_ino] != row['lockIdentity'] or
+                        [source.st_dev, source.st_ino] != row['sourceIdentity']):
+                    raise ValueError('workspace descriptor or source generation changed')
+                lock = Path(row['lock'])
+                expected = lock.stat()
+                if [expected.st_dev, expected.st_ino] != row['lockIdentity']:
+                    raise ValueError('workspace lock was replaced')
+                probe = os.open(lock, os.O_RDWR | os.O_NOFOLLOW)
+                try:
+                    try:fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:pass
+                    else:raise ValueError('workspace descriptor is not holding a lease')
+                    # A freshly opened descriptor for someone else's occupied
+                    # lock is not an inherited open description.
+                    try:fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError as error:
+                        raise ValueError('workspace descriptor is not the lease owner') from error
+                finally:os.close(probe)
+                duplicate = os.dup(fd); duplicates.append(duplicate)
+                copied = os.fstat(duplicate)
+                if [copied.st_dev, copied.st_ino] != row['lockIdentity']:
+                    raise ValueError('workspace descriptor changed during delegation')
+                records.append(dict(row, fd=duplicate))
+        env = dict(os.environ if environment is None else environment)
+        if records:env['GAMBIT_SMP_WORKSPACE_LEASES'] = json.dumps(records)
+        else:env.pop('GAMBIT_SMP_WORKSPACE_LEASES', None)
+        yield tuple(duplicates), env
+    finally:
+        for fd in duplicates:os.close(fd)
 
 
 @lru_cache(maxsize=128)
@@ -173,6 +237,20 @@ def fixture_root(root, path):
         store = root / name
         if path != store and path.is_relative_to(store):
             return store
+    store = root / '.cache/tasks'
+    if path.is_relative_to(store):
+        parts = path.relative_to(store).parts
+        offset = 3 if len(parts) > 2 and parts[1] == 'processes' else 1
+        from gambit_smp.workspace import bounded, identifier
+        identifier(parts[0])
+        if offset == 3:
+            identifier(parts[2])
+        tail = parts[offset:]
+        if (len(tail) >= 4 and tail[0] == 'build' and tail[3] == 'source'
+                and len(tail[2]) == 64 and all(c in '0123456789abcdef' for c in tail[2])):
+            identifier(tail[1])
+            bounded(root, path.relative_to(root))
+            return store / Path(*parts[:offset])
     raise ValueError("runtime must belong to this project's fixture store")
 
 
@@ -261,7 +339,7 @@ def workspace_lease(root, source, expected_identity, *, broken_links=None, ident
     fixture_root(root, source)
     identity = (source.stat().st_dev, source.stat().st_ino)
     key = hashlib.sha256(str(source).encode()).hexdigest()
-    store = (cache_path(root, "workspace-leases") if fixture_root(root, source).parent.name == ".cache"
+    store = (cache_path(root, "workspace-leases") if source.is_relative_to(root / '.cache')
              else root / ".data/workspace-leases")
     store.mkdir(parents=True, exist_ok=True)
     lock_path = store / (key + ".lock")
@@ -281,10 +359,15 @@ def workspace_lease(root, source, expected_identity, *, broken_links=None, ident
         actual = identity_reader(source) if identity_reader is not None else tree_identity(source, broken_links=broken_links)
         if actual != expected_identity:
             raise ValueError("workspace state differs from admitted input")
+        lock_identity = os.fstat(fd)
+        with _workspace_locks_mutex:
+            _workspace_locks[fd] = dict(fd=fd, source=str(source), lock=str(lock_path), scope=_workspace_scope(),
+                lockIdentity=[lock_identity.st_dev, lock_identity.st_ino], sourceIdentity=list(identity))
         yield source
         if source.is_symlink() or (source.stat().st_dev, source.stat().st_ino) != identity:
             raise ValueError("workspace replaced while leased")
     finally:
+        with _workspace_locks_mutex:_workspace_locks.pop(fd, None)
         os.close(fd)
 
 
@@ -518,7 +601,14 @@ def clone_file(source, destination, *, clone=None):
         clone.restype = ctypes.c_int
     if clone is not None:
         if clone(os.fsencode(source), os.fsencode(destination), 0) == 0:
-            shutil.copystat(source, destination)
+            # APFS clones usually already retain these values. Avoid hundreds
+            # of redundant chmod/utime writes, but repair actual discrepancies.
+            def metadata(path):
+                state = os.stat(path, follow_symlinks=False)
+                return (state.st_mode, state.st_atime_ns, state.st_mtime_ns,
+                        getattr(state, "st_flags", None))
+            if metadata(source) != metadata(destination):
+                shutil.copystat(source, destination)
             return "copy-on-write"
         error = ctypes.get_errno()
         if error not in {errno.EXDEV, errno.ENOTSUP, errno.ENOSYS}:
@@ -534,6 +624,72 @@ def transfer_tree(source, destination, *, dirs_exist_ok=False):
         with source_capacity(destination):
             return _transfer_tree(source, destination, dirs_exist_ok=dirs_exist_ok)
     return _transfer_tree(source, destination, dirs_exist_ok=dirs_exist_ok)
+
+
+def extract_archive(archive, destination, ctx, *, stage, omit_runtime=False, runtime_only=False, existing_inputs=None,
+                    preserve_modes=True):
+    """Validate the entire tree before supervised native tar writes anything.
+
+    No member may write through a symlink ancestor, irrespective of entry order.
+    Relative internal links are data; hard links, devices and special modes are
+    refused. The destination must be empty and owned by the current task.
+    """
+    import posixpath
+    from pathlib import PurePosixPath
+    from gambit_smp.workspace import task_output
+    archive,destination=Path(archive),Path(destination)
+    if task_output(ctx.root,destination) != destination:
+        raise ValueError('archive destination requires current task custody')
+    if destination.is_symlink():
+        raise ValueError('archive extraction requires an empty non-alias destination')
+    if destination.exists() and any(destination.iterdir()):
+        from gambit_smp.recipes import tree_identity
+        if existing_inputs is None:raise ValueError('archive extraction requires an empty destination')
+        links={name:row['link'] for name,row in existing_inputs.items() if 'link' in row}
+        observed=tree_identity(destination,broken_links=links or None)
+        if any({key:value for key,value in row.items() if key != 'unresolved'} != existing_inputs.get(name)
+               for name,row in observed.items()):
+            raise ValueError('partial archive import contains unrecorded bytes')
+    with tarfile.open(archive) as tree:
+        names,links=set(),set()
+        for member in tree.getmembers():
+            path=PurePosixPath(member.name)
+            if (path.is_absolute() or '..' in path.parts or str(path) != member.name
+                    or member.name in names or member.islnk()
+                    or not (member.isdir() or member.isfile() or member.issym())
+                    or member.mode & ~0o777):
+                raise ValueError('unsafe archive member')
+            names.add(member.name)
+            if member.issym():
+                target=PurePosixPath(member.linkname)
+                resolved=posixpath.normpath(str(path.parent/target))
+                if target.is_absolute() or resolved == '..' or resolved.startswith('../'):
+                    raise ValueError('archive link escapes destination')
+                links.add(path)
+        if any(parent in links for name in names for parent in PurePosixPath(name).parents):
+            raise ValueError('archive entry writes through a symlink ancestor')
+    if not omit_runtime and ('lib/setup.c' in names or 'runtime/lib/setup.c' in names):
+        from gambit_smp.fixture_storage import source_capacity
+        plan = getattr(ctx, 'planned_steps', ())
+        staging = any(step['id'] == ctx.directory.name and step['capability'] == 'gambit.materialize'
+                      and step['arguments'].get('buildWorkspace')
+                      for step in plan) and ctx.receipt.get('workspacePolicy') == 'in-place'
+        with source_capacity(destination, staging=bool(staging)):
+            pass
+    destination.mkdir(parents=True,exist_ok=True)
+    if omit_runtime and runtime_only:raise ValueError('one archive selection required')
+    options=(['--exclude=runtime','--exclude=runtime/*'] if omit_runtime else
+             ['--strip-components=1','runtime'] if runtime_only else [])
+    argv=[ctx.tools['tar'],'-xpf' if preserve_modes else '-xf',archive,'-C',destination,'--no-same-owner',*options]
+    if not preserve_modes:
+        # Match tarfile's data filter for Git source modes (0664/0775), without
+        # changing this process's or another worker's umask.
+        argv=[ctx.tools['sh'],'-c','umask 022; exec "$@"','source-extract',*argv]
+    ctx.require(stage,argv,
+                ctx.root,min(30,ctx.remaining()))
+    completed=ctx.commands[-1]
+    if completed.get('parentReaped') is not True or completed.get('processGroupQuiescent') is not True:
+        raise ValueError('archive extraction has no completed quiescent process observation')
 
 
 def _transfer_tree(source, destination, *, dirs_exist_ok=False):

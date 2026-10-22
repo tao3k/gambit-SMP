@@ -56,9 +56,12 @@ def lineage(workflow, *, task=None, branch="workspace", selection="all", policy=
 @lru_cache(maxsize=32)
 def _storage_location(source_bytes, registry_bytes):
     """Cache only identity-bound routing metadata, never evidence or eligibility."""
-    catalog = load_component_catalog(RULES.parent / "components.json", entry="state-storage",
-                                     constructor="make-history-storage", trusted=True)
-    locations = query({}, catalog, {"location": "location"})["location"]
+    # Construction and routing are one owned API boundary. Nested native
+    # loaders reuse its identity; entry and exceptional exit still hash bytes.
+    with engine_api(retain=True) as (engine, _):
+        catalog = load_component_catalog(RULES.parent / "components.json", entry="state-storage",
+                                         constructor="make-history-storage", trusted=True)
+        locations = query({}, catalog, {"location": "location"}, engine=engine)["location"]
     if len(locations) != 1 or len(locations[0]) != 1:
         raise ValueError("one registered durable history location required")
     if STORAGE_RULES.read_bytes() != source_bytes or (RULES.parent / "components.json").read_bytes() != registry_bytes:
@@ -157,8 +160,18 @@ def _database(root):
         yield db
 
 
-def cache_clue_checkpoint(root, checkpoint):
+def cache_clue_checkpoint(root, checkpoint, *, wire_bytes=None, frame_bytes=None, scope=None):
     """Content-addressed read hint, separate from observations and admission."""
+    if scope is not None:
+        if not isinstance(scope, str) or not scope:
+            raise ValueError('nonempty investigation scope required')
+        checkpoint = dict(schema='gambit-smp.clue-investigation.v1', scope=scope, checkpoint=checkpoint)
+    if wire_bytes is not None or frame_bytes is not None:
+        if (type(wire_bytes) is not int or type(frame_bytes) is not int
+                or not 0 < frame_bytes <= wire_bytes):
+            raise ValueError('complete bounded clue frame required')
+        checkpoint = dict(schema='gambit-smp.clue-wire-frame.v1', checkpoint=checkpoint,
+                          wireBytes=wire_bytes, frameBytes=frame_bytes, encoding='utf-8')
     encoded, identity = canonical(checkpoint), fingerprint(checkpoint)
     with _database(root) as db:
         db.execute("INSERT OR IGNORE INTO clue_read_checkpoints VALUES (?,?)", (identity, encoded))
@@ -168,7 +181,7 @@ def cache_clue_checkpoint(root, checkpoint):
     return "clue-read:" + identity
 
 
-def load_clue_checkpoint(root, token):
+def load_clue_checkpoint(root, token, *, require_framed=False, include_scope=False):
     """Missing disposable cache safely replays; altered bytes never suppress reads."""
     identity = token.removeprefix("clue-read:")
     if (not token.startswith("clue-read:") or len(identity) != 64
@@ -177,11 +190,25 @@ def load_clue_checkpoint(root, token):
     with _database(root) as db:
         row = db.execute("SELECT body FROM clue_read_checkpoints WHERE id=?", (identity,)).fetchone()
     if row is None:
-        return None
+        return (None, None) if include_scope else None
     checkpoint = json.loads(row[0])
     if fingerprint(checkpoint) != identity:
         raise ValueError("clue read checkpoint cache identity mismatch")
-    return checkpoint
+    if isinstance(checkpoint, dict) and checkpoint.get('schema') == 'gambit-smp.clue-wire-frame.v1':
+        window, size = checkpoint.get('wireBytes'), checkpoint.get('frameBytes')
+        if (type(window) is not int or type(size) is not int or not 0 < size <= window
+                or checkpoint.get('encoding') != 'utf-8' or 'checkpoint' not in checkpoint):
+            raise ValueError('clue wire-frame cache contract differs')
+        checkpoint = checkpoint['checkpoint']
+    elif require_framed:
+        return (None, None) if include_scope else None
+    scope = None
+    if isinstance(checkpoint, dict) and checkpoint.get('schema') == 'gambit-smp.clue-investigation.v1':
+        if (set(checkpoint) != {'schema', 'scope', 'checkpoint'}
+                or not isinstance(checkpoint['scope'], str) or not checkpoint['scope']):
+            raise ValueError('clue investigation scope contract differs')
+        scope, checkpoint = checkpoint['scope'], checkpoint['checkpoint']
+    return (checkpoint, scope) if include_scope else checkpoint
 
 
 def _clue_rows(db, scope):
@@ -376,6 +403,96 @@ def append_observation(root, scope, inputs, results, backend, *, bound_inputs=No
     return identity
 
 
+def _native_build_keys(header):
+    """Build dependency identities exclude attempt names, display IDs and budgets."""
+    steps = {step["id"]: step for step in header.get("declaration", {}).get("steps", [])}
+    inputs = header.get("inputs", {})
+    memo = {}
+
+    def value(item):
+        if isinstance(item, dict):
+            if set(item) == {"step", "output"} and item["step"] in steps:
+                return {"producer": identity(item["step"]), "output": item["output"]}
+            return {key: value(data) for key, data in item.items()}
+        if isinstance(item, list):
+            return [value(data) for data in item]
+        if isinstance(item, str) and item in inputs:
+            return {"inputSha256": inputs[item]}
+        return item
+
+    def identity(name):
+        if name not in memo:
+            step = steps[name]
+            arguments = step.get('arguments', {})
+            if step['capability'] == 'gambit.materialize':
+                arguments = {key:data for key,data in arguments.items()
+                             if key not in {'buildWorkspace', 'workspace', 'workspaceState', 'cacheReceipt'}}
+            memo[name] = fingerprint({"capability": step["capability"],
+                                      "arguments": value(arguments),
+                                      "dependencies": sorted(identity(dep) for dep in step.get("dependsOn", []))})
+        return memo[name]
+
+    costly = {"gambit.configure", "gambit.seed-core", "gambit.source-core", "gambit.bootstrap", 'gerbil.build'}
+    return {identity(name) for name, step in steps.items() if step.get("capability") in costly}
+
+
+def _guard_native_build_start(db, checkpoint, observation):
+    """Serialize fresh starts against existing durable headers, including old runs.
+
+    This is an execution guard, never cache admission. Actual prior validation,
+    tool/source checks, quiescence and stage reuse remain the runner's job.
+    """
+    record = _observation(db, observation)
+    payloads = record["queries"].get("run_record", [])
+    if len(payloads) != 1:
+        return
+    header = json.loads(payloads[0])
+    if header.get("schema") != "research-run-header.v1":
+        return
+    root = header.get("request", {}).get("root")
+    if not root:
+        return
+    cache = Path(root).resolve() / ".cache/tasks"
+    run = Path(checkpoint["run"])
+    if not run.is_relative_to(cache):
+        return
+    task = run.relative_to(cache).parts[0]
+    owner = cache / task
+    keys = _native_build_keys(header)
+    if not keys:
+        return
+    previous = None
+    # The existing BEGIN IMMEDIATE covers both this read and the header insert.
+    # No disposable directory scan or new scheduler/state database is involved.
+    for path, identity, encoded in db.execute(
+            "SELECT run,identity,body FROM execution_checkpoints "
+            "WHERE run>=? AND run<? AND sequence=0 ORDER BY rowid", (str(owner) + "/", str(owner) + "0")):
+        if path == checkpoint["run"]:
+            continue
+        body = json.loads(encoded)
+        if fingerprint(body) != identity or body.get("run") != path:
+            raise ValueError("build start checkpoint identity mismatch")
+        old = _observation(db, body["observation"])
+        rows = old["queries"].get("run_record", [])
+        if len(rows) != 1:
+            raise ValueError("build start checkpoint lacks its immutable header")
+        old_header = json.loads(rows[0])
+        if (old_header.get("schema") == "research-run-header.v1"
+                and (old_header.get("recipe") == header.get("recipe")
+                     or keys & _native_build_keys(old_header))):
+            previous = path
+    if previous is None:
+        return
+    requested = header.get("requestedPrior")
+    if requested is None:
+        prior = header.get("request", {}).get("prior")
+        requested = str(Path(prior).parent) if prior else None
+    if requested is not None and str(Path(requested).resolve()) == previous:
+        return
+    raise CheckpointConflict("native build already has a durable attempt; inspect/reuse its checkpoint "
+                             "with --prior or an explicit completed-runtime/seed-checkpoint producer: " + previous)
+
+
 def _append_execution_checkpoint(db, checkpoint, observation):
     run = checkpoint["run"]
     previous = db.execute("SELECT sequence,identity,body FROM execution_checkpoints WHERE run=? "
@@ -387,6 +504,8 @@ def _append_execution_checkpoint(db, checkpoint, observation):
         raise CheckpointConflict("concurrent checkpoint publication; refresh the committed prefix")
     if previous and json.loads(previous[2])["runId"] != checkpoint["runId"]:
         raise ValueError("checkpoint path belongs to another execution")
+    if previous is None:
+        _guard_native_build_start(db, checkpoint, observation)
     if previous:
         retained = _observation(db, json.loads(previous[2])["observation"])
         payloads = retained["queries"].get("run_record", [])

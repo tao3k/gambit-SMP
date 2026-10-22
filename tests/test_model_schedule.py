@@ -46,8 +46,8 @@ class ModelScheduleTests(unittest.TestCase):
             self.assertEqual(8192, schedule.physical_memory())
 
     def campaign(self, controls_only, fail=False, compiled=False):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory).resolve()
+        from tests.support import task_fixture
+        with task_fixture('model-schedule') as (root, cache):
             modules = root / "src/gambit_smp"
             modules.mkdir(parents=True)
             for name in ("verify_protocols", "check_gambit", "framework", "tlc_values", "quint_backend", "model_schedule", "tlc_execution"):
@@ -61,7 +61,7 @@ class ModelScheduleTests(unittest.TestCase):
                     "id": "example", "mode": "characterization", "temporal": "progress",
                     "oldInvariants": ["one", "two"], "invariants": ["sourceSafe", "combinedSafe"],
                     "protocolInitializers": {"sourceSafe": "initSource", "combinedSafe": "initCombined"}}]}))
-            out = root / "campaign"
+            out = cache / "campaign"
             calls = []
             def check(snapshot, **options):
                 calls.append(options)
@@ -87,7 +87,7 @@ class ModelScheduleTests(unittest.TestCase):
             with patch.object(verify, "ROOT", root), \
                  patch.object(verify, "available_processors", return_value=12), \
                  patch.object(verify, "physical_memory", return_value=32 * 1024 ** 3), \
-                 patch.object(verify.subprocess, "check_output", return_value="0.33.0"), \
+                 patch.object(verify, "_task_check_output", return_value="0.33.0"), \
                  patch.object(verify, "check_model", side_effect=check), \
                  patch("sys.argv", argv):
                 code = verify.main()
@@ -123,8 +123,8 @@ class ModelScheduleTests(unittest.TestCase):
         self.assertEqual({"initSource", "initCombined"},
                          {row["initializer"] for row in calls if not row["negative"]})
         self.assertEqual([6, 6, 12, 12], [row["tlcWorkers"] for row in receipt["results"]])
-        self.assertIn("campaign/tlc-config-old.json", receipt["inputs"])
-        self.assertIn("campaign/tlc-config-protocol.json", receipt["inputs"])
+        self.assertIn(".cache/tasks/model-schedule/campaign/tlc-config-old.json", receipt["inputs"])
+        self.assertIn(".cache/tasks/model-schedule/campaign/tlc-config-protocol.json", receipt["inputs"])
 
     def test_compiled_artifacts_do_not_replace_per_check_log_or_trace_names(self):
         code, receipt, _ = self.campaign(False, compiled=True)

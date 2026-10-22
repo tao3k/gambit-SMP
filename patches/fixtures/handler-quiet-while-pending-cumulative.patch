@@ -4570,7 +4570,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
    /*
     * The error code must be sent to processor 0 because it is the one
     * that must handle this error code (terminate the VM) and it has
-@@ -863,10 +1098,131 @@
+@@ -863,10 +1098,133 @@
    if (err != ___FIX(___NO_ERR))
      {
        ___throw_error (___PSP err);
@@ -4687,8 +4687,10 @@ diff -ruN a/lib/setup.c b/lib/setup.c
 +            }
 +          else
 +            {
++              /* Errno comes from this ___thread_join. Leave the worker pending.
++                 The same owner joins on a later entry, not with a second call here. */
 +              int os_err = ___ERRNO_FROM_ERR_CODE(___INT(joined));
-+              if (os_err > 0)
++              if (os_err > 0 && os_err != 22)
 +                vm->lifecycle_os_join_errno = os_err;
 +              if (err == ___FIX(___NO_ERR))
 +                err = joined;
@@ -4702,13 +4704,25 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  ___SCMOBJ ___vm_resize_pstate
     ___P((___processor_state ___ps,
           ___SCMOBJ thunk,
-@@ -887,9 +1243,15 @@
+@@ -887,9 +1245,27 @@
    ___sync_op_struct sop;
    int initial = ___vms->processor_count;
  
-+  /* Previous result publication orders this common guard for every member. */
++  /* A nonzero count is a later entry, not a second join in the error branch.
++     Processor 0 joins each pending slot once. Every processor then returns:
++     the other members are not inside the resize barrier. */
 +  if (__atomic_load_n(&___vms->pending_join_count, __ATOMIC_ACQUIRE) != 0)
-+    return ___FIX(___UNKNOWN_ERR);
++    {
++      if (id == 0)
++        {
++          ___SCMOBJ join_err = recover_retired_processors (___ps);
++          if (join_err != ___FIX(___NO_ERR))
++            return join_err;
++        }
++      if (__atomic_load_n(&___vms->pending_join_count, __ATOMIC_ACQUIRE) != 0)
++        return ___FIX(___UNKNOWN_ERR);
++      return ___FIX(___NO_ERR);
++    }
 +
    if (id == 0)
      {
@@ -4718,7 +4732,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
  #ifdef ___ACTIVITY_LOG
        if (target_processor_count > ___vms->actlog.max_processor_count)
-@@ -897,8 +1259,15 @@
+@@ -897,8 +1273,15 @@
  #endif
      }
  
@@ -4736,7 +4750,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
      {
        if (___garbage_collect_pstate (___ps, 0))
          {
-@@ -929,7 +1298,30 @@
+@@ -929,7 +1312,30 @@
  
        if (id >= target_processor_count)
          {
@@ -4768,7 +4782,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
            ___thread_exit (); /* this call does not return */
          }
      }
-@@ -947,18 +1339,34 @@
+@@ -947,18 +1353,34 @@
                != ___FIX(___NO_ERR))
              {
                while (--i >= initial)
@@ -4804,7 +4818,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
        sop.op = OP_SET_PROCESSOR_COUNT;
        sop.arg[0] = target_processor_count;
        barrier_sync_op (___PSP &sop);
-@@ -966,16 +1374,39 @@
+@@ -966,16 +1388,49 @@
        if (target_processor_count < initial)
          {
            /*
@@ -4824,8 +4838,18 @@ diff -ruN a/lib/setup.c b/lib/setup.c
 -              ___thread_join (t); /* ignore error */
 +              if (join_err != ___FIX(___NO_ERR))
 +                {
++                  /* One ___thread_join. A non-EINVAL error stays pending for a
++                     later entry by this owner. Do not join again in this branch. */
 +                  int os_err = ___ERRNO_FROM_ERR_CODE(___INT(join_err));
-+                  if (os_err > 0)
++                  if (os_err > 0 && os_err != 22)
++                    ___vms->lifecycle_os_join_errno = os_err;
++                  if (err == ___FIX(___NO_ERR))
++                    err = join_err;
++                }
++              if (join_err != ___FIX(___NO_ERR))
++                {
++                  int os_err = ___ERRNO_FROM_ERR_CODE(___INT(join_err));
++                  if (os_err > 0 && os_err != 22)
 +                    ___vms->lifecycle_os_join_errno = os_err;
 +                  if (err == ___FIX(___NO_ERR))
 +                    err = join_err;
@@ -4847,7 +4871,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
              }
          }
        else
-@@ -1021,10 +1452,43 @@
+@@ -1021,10 +1476,43 @@
  
    switch (sop_ptr->op)
      {
@@ -4893,7 +4917,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
      case OP_GARBAGE_COLLECT:
        sop_ptr->arg[0] = ___garbage_collect_pstate (___ps, sop_ptr->arg[0]);
        break;
-@@ -1061,18 +1525,25 @@
+@@ -1061,18 +1549,25 @@
    ___virtual_machine_state ___vms = ___VMSTATE_FROM_PSTATE(___ps);
    int id = ___PROCESSOR_ID(___ps,___vms); /* id of this processor */
    ___SCMOBJ ___err = ___FIX(___NO_ERR);
@@ -4920,7 +4944,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
             */
  
            ___ps->intr_flag[___INTR_SYNC_OP] = ___FIX(0);
-@@ -1086,14 +1557,52 @@
+@@ -1086,14 +1581,52 @@
             */
  
            if (!first_iter)
@@ -4974,7 +4998,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
              }
            else
              execute_sync_op (___PSP &sop);
-@@ -1109,7 +1618,10 @@
+@@ -1109,7 +1642,10 @@
        first_iter = 0;
      }
  
@@ -4986,7 +5010,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
      ___throw_error (___PSP ___err);
  }
  
-@@ -1152,6 +1664,56 @@
+@@ -1152,6 +1688,56 @@
  }
  
  
@@ -5043,7 +5067,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  ___EXP_FUNC(___SCMOBJ,___current_vm_resize)
     ___P((___PSD
           ___SCMOBJ thunk,
-@@ -1164,18 +1726,28 @@
+@@ -1164,18 +1750,28 @@
  int target_processor_count;)
  {
    ___PSGET
@@ -5080,7 +5104,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  }
  
  
-@@ -1475,15 +2047,28 @@
+@@ -1475,15 +2071,28 @@
  }
  
  
@@ -5111,7 +5135,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  ___BOOL collect_undef_glo;
  ___UTF_8STRING str;
  int supply;
-@@ -1649,7 +2234,8 @@
+@@ -1649,7 +2258,8 @@
        while (i-- > 0)
          {
            ___glo_struct *glo = 0;
@@ -5121,7 +5145,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
                                       glo_names[i],
                                       i<supcount,
                                       &glo);
-@@ -3128,7 +3714,7 @@
+@@ -3128,7 +3738,7 @@
  }
  
  
@@ -5130,7 +5154,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
     ___P((___mod_or_lnk mol),
          (mol)
  ___mod_or_lnk mol;)
-@@ -3141,7 +3727,9 @@
+@@ -3141,7 +3751,9 @@
  
        while (p1->mol != 0)
          {
@@ -5141,7 +5165,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
            p1++;
          }
  
-@@ -3158,13 +3746,11 @@
+@@ -3158,13 +3770,11 @@
            str = align_subtyped (___CAST(___SCMOBJ*,sym_ptr[___SUBTYPED_BODY+___SYMKEY_NAME]));
            glo = ___CAST(___glo_struct*,sym_ptr[___SUBTYPED_BODY+___SYMBOL_GLOBAL]);
  
@@ -5160,7 +5184,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
            sym_ptr[0] = ___MAKE_HD((___SYMBOL_SIZE<<___LWS),___sSYMBOL,___PERM);
  
-@@ -3196,6 +3782,8 @@
+@@ -3196,6 +3806,8 @@
            ___intern_symkey (key);
          }
      }
@@ -5169,7 +5193,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  }
  
  
-@@ -4127,12 +4715,16 @@
+@@ -4127,12 +4739,16 @@
              case 3:
                val = ___VECTORREF(fixup_objs, ___FIX(arg));
                val = ___make_global_var (val);
@@ -5186,7 +5210,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
                val = ___CAST(___WORD, &___GLOBALVARPRIMREF(val));
                break;
  
-@@ -4646,7 +5238,7 @@
+@@ -4646,7 +5262,7 @@
  
  #ifndef ___SINGLE_THREADED_VMS
  
@@ -5195,7 +5219,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
     ___P((___processor_state ___ps),
          (___ps)
  ___processor_state ___ps;)
-@@ -4655,14 +5247,42 @@
+@@ -4655,14 +5271,42 @@
    SYNC_INIT_MSG(___ps->sync_id1);
    SYNC_INIT_MSG(___ps->sync_id2);
  
@@ -5239,7 +5263,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
     ___P((___processor_state ___ps),
          (___ps)
  ___processor_state ___ps;)
-@@ -4671,7 +5291,49 @@
+@@ -4671,7 +5315,49 @@
    cleanup_os_and_mem_pstate (___ps);
  }
  
@@ -5289,7 +5313,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  ___EXP_FUNC(___SCMOBJ,___setup_pstate)
     ___P((___processor_state ___ps,
           ___virtual_machine_state ___vms),
-@@ -4689,6 +5351,8 @@
+@@ -4689,6 +5375,8 @@
  
  #ifndef ___SINGLE_THREADED_VMS
    ___ps->vmstate = ___vms;
@@ -5298,7 +5322,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  #endif
  
    /*
-@@ -4696,14 +5360,20 @@
+@@ -4696,14 +5384,20 @@
     */
  
    if (!(___vms == &___GSTATE->vmstate0 && ___PROCESSOR_ID(___ps, ___vms) == 0))
@@ -5321,7 +5345,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
    ___ACTLOG_PS(run,green);
  
-@@ -4733,6 +5403,7 @@
+@@ -4733,6 +5427,7 @@
    ___ps->handler_sfun_conv_error = ___GSTATE->handler_sfun_conv_error;
    ___ps->handler_cfun_conv_error = ___GSTATE->handler_cfun_conv_error;
    ___ps->handler_stack_limit     = ___GSTATE->handler_stack_limit;
@@ -5329,7 +5353,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
    ___ps->handler_heap_limit      = ___GSTATE->handler_heap_limit;
    ___ps->handler_not_proc        = ___GSTATE->handler_not_proc;
    ___ps->handler_not_proc_glo    = ___GSTATE->handler_not_proc_glo;
-@@ -4762,7 +5433,11 @@
+@@ -4762,7 +5457,11 @@
  
  #ifndef ___SINGLE_THREADED_VMS
  
@@ -5342,7 +5366,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
  #endif
  
-@@ -4770,16 +5445,119 @@
+@@ -4770,16 +5469,119 @@
  }
  
  
@@ -5463,7 +5487,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  ___EXP_FUNC(___SCMOBJ,___setup_vmstate)
     ___P((___virtual_machine_state ___vms),
          (___vms)
-@@ -4791,9 +5569,38 @@
+@@ -4791,9 +5593,38 @@
     * Virtual machine starts off with a single processor.
     */
  
@@ -5503,7 +5527,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
    /*
     * Setup ticket lock debugging.
     */
-@@ -4821,34 +5628,157 @@
+@@ -4821,34 +5652,157 @@
     * Setup virtual machine's OS specific structures and memory management.
     */
  
@@ -5667,7 +5691,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
  #ifndef ___SINGLE_THREADED_VMS
  
-@@ -4856,15 +5786,24 @@
+@@ -4856,15 +5810,24 @@
     * Shutdown processors of this VM except for processor 0.
     */
  
@@ -5694,7 +5718,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
  #else
  
-@@ -4873,18 +5812,34 @@
+@@ -4873,18 +5836,34 @@
    do
      {
        ___vms = ___vms->prev;
@@ -5730,7 +5754,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  ___EXP_FUNC(void,___cleanup_and_exit_process)
     ___P((int status),
          (status)
-@@ -5962,6 +6917,8 @@
+@@ -5962,6 +6941,8 @@
  
    ___GSTATE->___current_vm_resize
      = ___current_vm_resize;
@@ -5739,7 +5763,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
    ___GSTATE->___garbage_collect
      = ___garbage_collect;
-@@ -6253,10 +7210,18 @@
+@@ -6253,10 +7234,18 @@
     * Check for valid setup_params structure.
     */
  
@@ -5758,7 +5782,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
    /*
     * Remember setup parameters.
     */
-@@ -6279,6 +7244,11 @@
+@@ -6279,6 +7268,11 @@
  
    ___MUTEX_INIT(___GSTATE->vm_list_mut);
  
@@ -5770,7 +5794,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
    ___vms->prev = ___vms;
    ___vms->next = ___vms;
  
-@@ -6312,7 +7282,9 @@
+@@ -6312,7 +7306,9 @@
  
    {
      ___virtual_machine_state ___vms = &___GSTATE->vmstate0;
@@ -5781,7 +5805,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
    }
  
    /*
-@@ -6326,7 +7298,10 @@
+@@ -6326,7 +7322,10 @@
     */
  
    if ((err = setup_os_and_mem ()) != ___FIX(___NO_ERR))
@@ -5793,7 +5817,7 @@ diff -ruN a/lib/setup.c b/lib/setup.c
  
    /*
     * Allow cleanup.
-@@ -6346,7 +7321,8 @@
+@@ -6346,7 +7345,8 @@
     */
  
    init_symkey_glo1 (mol);

@@ -1,0 +1,261 @@
+# GC Capacity Publication, Resize Branches and Space Accounting
+
+Reviewed: 2026-10-20. Architecture research only: no implementation, native test,
+model/solver/engine execution, checked proof or positive net-benefit bound.
+This refines CWR07, CQM03/06/08/09, CWB02--04/12 and CWS09 in the
+[collector-context study](collector-work-context-design.md). Read the
+[source/paper ledger](gc-capacity-result-evidence.md),
+[matched C/Zig matrix](gc-capacity-result-cost-matrix.md) and
+[document trace map](gc-capacity-result-traceability.json).
+SharedRuntimeContract retains Gambit's Scheme, continuation and GC authority.
+
+The [still construction and tail handoff study](still-construction-tail-design.md)
+refines GCM04--08/GAL01--08: credit consumption commits known private actual
+storage before root/list publication; unused-credit refund differs from actual
+reclamation. It supplies constructor profiles, held-cut recount/carry and explicit
+tail segment/resume transitions. Its conditions supersede interpreting the
+coarse CommittedActual below as requiring public-list visibility, without
+claiming that the reconstructed service is implemented or qualified.
+
+## 1. What the Existing Result Actually Means
+
+| ID | Selected source behavior | Consequence for the new service |
+| --- | --- | --- |
+| GCU01 | gc_pstate initializes a local overflow=0; only processor 0 assigns resize_heap's return, then all actors prepare and return their local value [GC-S01]. | The inspected vendor path has no common GC capacity publication. A barrier orders participation; it does not copy a local variable into other actors. This is a source-level gap, not a reproduced configured-build failure. |
+| GCU02 | resize_heap first computes demand as if requested still words were live; on success that charge remains. On recoverable overflow it removes that demand and lowers emergency reserve; fatal exhaustion can terminate [GC-S02]. | Capacity success is logical accounting for admitted demand. Collection completion, granted capacity and physical allocation are separate facts. Overflow may follow a completed collection and changed heap/reserve policy. |
+| GCU03 | alloc_scmobj_still calls GC with header/body word demand, then allocates native storage. A later native allocation failure subtracts its words; small allocations defer VM accounting [GC-S03]. | A successful Boolean cannot promise native storage exists. Allocation, initialization, credit consumption and refund need one real owner; neither GC completion nor response delivery performs them. |
+| GCU04 | GC combines requested arg0; matching combined requests consume the selected operation. Noncombined resize/losing requests have separate consumption rules [GC-S04]. | One published batch outcome needs exact RequestId membership and per-request disposition. A shared flag without demand ownership is insufficient. |
+| GCU05 | resize tests a free-section guard, may run child GC, and branches on that return before count publication. Setup/exit/join/create are later steps [GC-S05]. | Both the decision to collect and the child result need coherent stage publication before dependent branches. A final result broadcast cannot repair an earlier divergent collective path. |
+| GCU06 | Candidate C adds a MAX-combined heap guard, leader resize-result publication, corrected setup cleanup, target rollback and join tracking; shown GC dispatch remains local [GC-S06]. | Credit actual C support. Guard agreement, child-GC outcome agreement and final resize-result agreement are distinct obligations. No candidate native result is adopted here. |
+| GCU07 | After resize_heap, GC still guarantees heap fudge, accounts bytes and prepares each context's fp/hp/limits/interrupt state [GC-S01/S07]. | A heap-policy decision is provisional until the admitted resume preparations and all physical phase writes are settled. It cannot by itself complete every request. |
+
+The old Boolean is an overflow indication, not “GC ran”, “native malloc cannot
+fail”, “VM topology stayed unchanged on error” or “all contexts can resume”.
+Normalizing GCU01 to a common outcome is an explicit semantic/publication repair
+whose ABI and participant behavior need independent qualification in either C or
+Zig. The design below does not claim faithful equivalence already exists.
+
+## 2. Public Outcome and Publication Contract
+
+![Outcome publication](gc-capacity-publication.svg)
+[D2 source](gc-capacity-publication.d2).
+
+Use pre-reserved native records. G protects operation/record publication; heap
+services protect actual allocation/accounting. T still protects trace work.
+No G/T/C/L nesting, allocation, callback or blocking wait occurs in a short
+publication gate. Native cross-thread delivery/synchronization must be qualified.
+
+| ID | Proposed record | Meaning / authority |
+| --- | --- | --- |
+| GCR01 | SelectedDemandManifest | SelectedOperationId, round/reuse identity, exact represented RequestIds, each demand/ABI/result sink and checked total D. One active legacy proposal per participant per round remains the retained profile. New arrivals cannot join a sealed capacity calculation. |
+| GCR02 | HeapBudgetDecision | CollectorEpoch, manifest identity, immutable heap/extent revision, observed allocation result, grant/deny decision, reserve policy and prepared placement/credit dispositions. Produced once by authorized heap policy using actual allocator facts, not desired section count alone. It is not a completed-GC or resume receipt. |
+| GCR03 | GCCapacityOutcome | Same identities plus completed phase/root-write facts, actual budget decision, per-owner ResumeBinding revision and required preparation completion. Class is KnownGranted, KnownDeniedWithSafeDelivery, or retained Unknown/FailedEpoch. Common capacity class is distinct from collection status and native allocation success. |
+| GCR04 | BatchResultMap and GrantRecord | Immutable represented-request/outcome/grant association, with authoritative mutable grant custody stored separately by GrantId. A copied outcome/token cannot consume/refund capacity. Zero-demand requests have no invented native allocation credit. |
+| GCR05 | ResizeStageDecision | Parent operation and StageId, before/after topology identities, budget/child-outcome identity, role-specific action map and required observations/action settlements. Equal stage identity supports coherent actions; actors need not all execute the same action. |
+| GCR06 | Publication/user leases | Pins for result, represented requests, rooted arguments, grants, VM/heap and physical readers/waiters/resolvers. Lost replies and observer cancellation do not consume a grant or free live result storage. No ABA slot reuse before actual users settle. |
+
+| ID | Ordered publication operation | Required visibility / custody |
+| --- | --- | --- |
+| GCO01 | Freeze selected membership and demand. | Prepare exact batch/result/credit capacity outside G, then commit selection under G with checked arithmetic and source/ABI policy. Unselected requests stay pending. |
+| GCO02 | Complete admitted moving/root/weak/cleanup work; evaluate heap policy outside G/T. | All collector producer/borrower premises remain. Heap services return actual section/extent dispositions and proposed still credits; allocation shortfall is not hidden by the requested target. |
+| GCO03 | Publish immutable HeapBudgetDecision under G. | Writer's actual heap/accounting facts precede publication through qualified delivery/G synchronization. Consumers acquire matching epoch/manifest/revision. This decision permits only stated resume-preparation actions; it is not false-success at the old ABI. |
+| GCO04 | Perform owner-specific resume/fudge preparation outside gates. | Bind actual stack/heap ranges, limits and safe error-delivery capacity; record successful writes or typed failure by owner/role. Requests and the VM remain held. No cached pre-GC value is restored on failure. |
+| GCO05 | Validate all required preparation/phase reports; publish GCCapacityOutcome and prebuilt BatchResultMap together under G. | One protected handle commit, no O(request-count) allocation/callback inside G. A missing/unknown report cannot become KnownGranted or safe denial. Authoritative credits are already enrolled; KnownDenied has no newly granted batch credit. |
+| GCO06 | Consumers acquire the same immutable outcome, pin current authority and map their RequestId. | GC/resize wrappers use the common capacity class only after required resume state is visible. Legacy false is permitted only for a qualified KnownGranted mapping. KnownDenied may return true/rooted error only with safe delivery; Unknown has no guessed Boolean mapping. |
+| GCO07 | Deliver/resolve responses and perform later allocation-credit transitions. | Response loss resolves the same batch/member/grant. Response completion, capacity consumption and physical user drain are separate cuts. Quiescence of this publication does not destroy T, the heap or live carriers. |
+
+The G release/acquire chain must order the producer's actual writes through
+native delivery, immutable decision publication, owner preparation reports,
+outcome commit and consumer reload [GC-P01]. Ordinary volatile fields or a
+matching C/Zig struct layout supply no such qualification. Use one opaque
+publication/credit service on a qualified ABI side or prove the actual native
+mapping; do not share an assumed atomic representation across languages.
+
+Prepared credits remain unusable until the batch outcome activates their exact
+manifest in the protected commit. This avoids a per-member activation loop in G;
+credit consumers validate the authoritative batch/member state. Unknown is a
+queryable retained status, not terminal request completion or resume authority.
+
+Records are one-shot per operation/epoch identity. Multiple resolvers serialize
+idempotent lookup/publication, not a second collector run. Policy decision and
+terminal outcome have different state/slots, so a waiter cannot mistake an
+intermediate decision for terminal success. Unknown moving/preparation state
+retains actual roots, extents, context and service dependencies. No generic
+recovery, safe forced resume or finite retention bound is established.
+
+## 3. Resize Branch Agreement Is Stage and Role Agreement
+
+![Resize stages](resize-capacity-branches.svg)
+[D2 source](resize-capacity-branches.d2).
+
+An actor first observes a matching immutable stage decision, performs its assigned
+action outside gates, then reports ActionSettled with its actual disposition.
+DecisionObserved is not ActionSettled. The coordinator advances only after the
+required reports for that stage; it never counts a timeout as a departed actor.
+Roster changes have explicit transition receipts and terminal old-role facts,
+not a silent change to an array-count quorum.
+
+| ID | Stage | Common decision and role-specific obligations |
+| --- | --- | --- |
+| GRB01 | Guard snapshot | Bind old topology, allocator/budget revision, target context count, worker roster and placement demand. Publish NeedChildCollect from that snapshot. The candidate's MAX guard is existing partial support, not the complete snapshot/protocol. |
+| GRB02 | Optional child collection | All relevant old contexts participate or supply qualified stable carriers; W performs its admitted work. The child inherits parent admission and old U/K/S, with W frozen. No participant independently chooses to skip a required collective. |
+| GRB03 | Child outcome checkpoint | If a child ran, acquire its matching GCCapacityOutcome; otherwise acquire the matching NoChildRequired guard/placement disposition, without inventing a GC completion. Settle required old-role observations/actions before branching. Known denial takes one coherent error path; missing/unknown disposition keeps the stage held. Leader-only overflow or a later final broadcast cannot replace this checkpoint. |
+| GRB04 | Denied before topology commit | Restore the target-count hint under the designated authority if needed; keep actual post-GC roots/heap state. Deliver common error with safe restored/resume bindings. Never restore an obsolete pre-GC pointer snapshot or claim that collection did not happen. |
+| GRB05 | Prepare new native contexts | Reserve actual owner stack/buffer/root storage before Scheme startup. Designated setup actors report actual successes/failures; rollback only known private preparations when all borrowers are excluded. Old topology is still authoritative. Credit candidate corrected cleanup/rollback support. |
+| GRB06 | Membership cut | After preceding actions settle, publish the new topology and new required role map at a nonmoving cut. Retiring old roles have explicit custody/terminal duties; newcomers enter with registered dormant roots. Old actors that will exit cannot be required to acknowledge a future new-roster barrier. |
+| GRB07 | Startup and retirement | Distinguish native creation, Scheme startup-ready, selected resize result and actual joins/drain. Retain helpers needed for startup GC. Thread-create fatal paths, failed joins and pending donor users cannot be rewritten as ordinary rollback success. |
+| GRB08 | Parent result | Publish one parent outcome reflecting actual topology and pending obligations. Error after count commit can mean AppliedWithPendingRetirement; it does not imply Unchanged. Only the represented resize request gets its mapped result; later requests retain their identities/roots. |
+
+Coherent branch agreement means every admitted action is authorized by the same
+stage/epoch and role map. P0 may update a hint or allocate contexts while others
+wait/acknowledge; this difference is intentional. Agreement alone does not prove
+all roles exist, progress, use valid roots or avoid wait cycles. Holding G or a
+registry lock while awaiting an actor/resolver needing it remains forbidden.
+Resize child GC does not consume independently queued GC requests [GCO01,
+GRB02]; future subsumption needs its own demand/result refinement.
+
+## 4. Merged Completion and Still-Credit Custody
+
+Choose all-or-none capacity grants for the selected GC batch. A batch has exact
+membership J and D = sum(d_j), with each admitted d_j nonnegative, representable
+and counted once. This preserves a common capacity decision; it is not permission
+to merge resize requests or silently drop a zero-demand caller's failure behavior.
+A different partial-grant policy would need its own semantics and ABI admission.
+
+| ID | Completion / credit law | Relation to real callers |
+| --- | --- | --- |
+| GCM01 | Collection completed is independent from capacity granted. | A zero-demand explicit GC may share a denied batch with allocation requests. Typed results retain both facts; the retained legacy profile maps the common overflow class explicitly. It cannot return false merely because tracing finished. |
+| GCM02 | Exact selected membership and one result binding. | Same-opcode requests arriving later do not share the old result. Losing resize/GC requests stay pending. A NOOP helper has participant duties without an originating request credit. |
+| GCM03 | Granted batch creates one authoritative credit per positive-demand member. | The sum of those credits is D, not D per caller or per W. Still header/body words use the actual caller demand; native allocator metadata/alignment is a separate physical cost [GC-S03]. |
+| GCM04 | Credit state: Reserved -> Allocating -> CommittedActual, or known Refunded; unknown stays retained. | Claim Allocating once under the service; allocate outside gates with pins. Successful actual storage/list/accounting publication consumes credit exactly once. Allocation failure refunds once only after no storage/publication effect is confirmed. A cancellation/timeout cannot guess this. |
+| GCM05 | Initialization/root safety is separate from charge commitment. | Existing still API requires caller body initialization before the next allocation. A construction/root participation lease must protect uninitialized/unpublished storage in the reconstructed service; consuming credit does not authorize a collector to scan an unfinished body. |
+| GCM06 | Selection/cancellation and lost-response order. | Cancellation before selection can exclude a member. After frozen selection it observes/resolves shared execution; it cannot mutate D or reverse collection. A granted member's runtime custodian must consume/refund/retain its credit even if the observer leaves. |
+| GCM07 | Outstanding credits survive across later budgets/epochs until disposition. | A new recount of actual still lists must carry outstanding unmaterialized credits separately, or explicitly rebase them under the same authority. Recounting only objects loses a promise; recounting objects plus already-consumed credit double charges. This is necessary support for queued/asynchronous service lifetimes, not a claim that the inspected synchronous path already provides it. |
+| GCM08 | Native failure and completed result do not rewrite each other. | Source alloc_scmobj_still may fail after GC returned no overflow and undo charge. Preserve that distinct allocation error. Replaying a successful GC response is not another allocation/grant; Unknown actual allocation retains quota and possibly live storage. |
+
+For a batch whose allocation dispositions are known, the weighted grant-state
+partition is D = Reserved + Allocating + CommittedActual + Refunded, counting each
+original d_j in exactly one state. CommittedActual/Refunded here are cumulative
+batch dispositions, not live unused capacity. Native storage/initialization and
+physical bytes have their separate ledgers. Unknown storage/list publication
+blocks authoritative rebudget at that scope; continuing allocation under unknown
+state would require a separate conservative-bound protocol not admitted here.
+
+For example, a batch with demands x and y initially grants x+y once. If x's
+native allocation is known to fail/refund while y remains reserved, unused quota
+is y. If y later becomes an actual object, its reserved charge moves to actual
+charge; it is not added again. The historical common GC result remains granted,
+while x's subsequent allocation result is failure. This is an algebraic example,
+not an executed test or a native accounting witness.
+
+A result slot is retired only after its actual readers/waiters/delivery/resolution
+users settle. A GrantRecord can remain live afterward, or a copied historical
+result can outlive already consumed capacity. Current-use authority is checked
+against the runtime record; data copying or LLVM metadata cannot create credit.
+This is an exactly-once **state-transition requirement**, not a distributed
+exactly-once execution guarantee or an existing Gambit receipt API [GC-P02].
+
+## 5. Copy Arena and Context Resume Capacity
+
+![Capacity identities](collector-capacity-ledger.svg)
+[D2 source](collector-capacity-ledger.d2).
+
+### Source units must remain distinct
+
+| ID | Source quantity | Exact correspondence / limit |
+| --- | --- | --- |
+| GCA01 | M = ___MSECTION_SIZE = 131072 words; F = 8193 + ___SUBTYPED_BODY; minimum two sections per processor [GC-S08]. | These are source definitions, not a measured/configured native footprint. A byte conversion additionally needs word width and native allocation/header/alignment facts. |
+| GCA02 | One physical msection contains from/to halves; active initial stack or heap range is M/2. | words_movable_objs uses twice the measured heap/stack occupancy; compute_msection_space uses M-2F. That is a policy charge/capacity convention, not M-2F usable copy words in one active half. Chunk markers, padding and fudge further affect placement [GC-S08/S09]. |
+| GCA03 | Initial setup assigns one stack and one heap section per context; assigned=2u and stack sections=u [GC-S09]. | Replacing u by w everywhere omits context stacks. Adding 2u+2w blindly can double-count roles/extents and is not a derived bound. Actual overlap and time of use determine the budget. |
+| GCA04 | resize_heap plans a target N but adjust_msections can partially expand; actual nb_sections reports what exists [GC-S02/S10]. | Neither successful arithmetic nor desired N supplies physical memory. A safe recoverable denial still needs valid live extents, roots and error-delivery capacity; otherwise outcome is held/fatal under the admitted profile. |
+| GCA05 | Current heap_size, occupied still, deferred words, reserve and section counts encode different accounting views [GC-S03/S08]. | Managed policy charge is not native bytes or process RSS. A completed still charge cannot be counted as unmaterialized credit too. Emergency reserve is not ordinary copy slack or another request grant. |
+| GCA06 | Candidate adds allocation headroom ceil(normal_reserve/M)+1 above the context section floor [GC-S11]. | If those extra sections are actually obtained and unused, H*M-normal_reserve >= M: one section's nominal headroom in that source arithmetic. This is a conditional algebraic bound, not a native result or a bound for arbitrary W independent of U. |
+
+### Proposed ledger and placement obligations
+
+| ID | Proposed accounting object / invariant | Required design boundary |
+| --- | --- | --- |
+| GAL01 | ExtentLedger: SectionId/reuse identity, actual native extent, halves/intervals, phase occupancy, owner/borrowers and reclaimability. | Count physical section identities once even when old fromspace and new tospace are both live inside them. Reclamation requires actual old-half/queue/root users to settle, not merely a new allocation owner. |
+| GAL02 | RolePlacement: CopyArena(W), ContextResumeStack(U), context heap buffers, pinned live copied prefixes and retained shards. | Assign disjoint writable intervals at each phase. Read-only aliases/borrowers are not extra physical allocation; two writable cursors into overlapping range are invalid. Aggregate free-word sums alone do not prove aligned/contiguous placement. |
+| GAL03 | PhasePeakPlan | For each cut t, required sections are the union of actual SectionIds needed at t; peak is max_t cardinality of that union. Add new sections only for unsatisfied placements. Do not sum fromspace+tospace full sections or assume trace-phase slack is available before its borrowers release. |
+| GAL04 | Rebind worker tail to context buffer | After required worker queue/cursor/allocator borrowers settle, transfer allocation rights to an eligible unused tail with adequate alignment/fudge. Live copied prefix remains VM-owned. A fully used tail contributes zero reusable buffer; it cannot satisfy every context simultaneously. |
+| GAL05 | Resume capacity and emergency path | Every admitted context needs its actual stack/frame storage and next checked-allocation/fudge obligations, plus safe capacity for designated error handling. Reserve these in the placement plan before terminal outcome. Percontext scalar limits may be conservative triggers; they cannot independently promise the same physical free interval. |
+| GAL06 | StillQuota ledger | Distinguish actual committed still words, uniquely deferred actual words and outstanding unmaterialized grants. At a chosen accounting cut each actual object/credit belongs to exactly one state; recount/commit/refund/rebase preserve that partition. Managed quota and physical native allocation are separately checked. Unknown allocation/list-publication disposition blocks an authoritative rebudget at the affected scope until resolved; exact partition is not assumed while it is unknown. |
+| GAL07 | Actual versus desired capacity publication | Heap services return actual N/extent revision and placement/credit dispositions. Growth shortfall or failed preparation revises the proposed outcome; publish KnownGranted only when required placements and quota exist. Actual post-GC state is retained on denial, not rolled back to old pointers. |
+| GAL08 | Native support and scope | Result/credit/ledger/resume metadata, native allocator overhead and foreign/provider storage have explicit noncollecting budgets/dependencies. They are not free because Zig has no GC, and not automatically included in Gambit's managed max_heap policy. |
+
+For a whole-section, unshared **initial trace** profile, u dedicated resume-stack
+sections and w initial copy-arena sections already require u+w distinct sections,
+before additional live/overflow/headroom obligations. This is a selected lower
+bound, not a complete heap bound. At resume, u context heap buffers may reuse
+eligible worker tails; if none meets the needed interval, additional placements
+are required. There is no universal replacement of 2u by 2w or 2u+2w.
+
+In general, count physical bytes from actual unique native extents; count
+allocation promises from RolePlacement and StillQuota. A single section can have
+several disjoint roles over time without being counted several times physically.
+A single physical spare range cannot fund several simultaneous exclusive grants.
+The scalar managed-pressure policy must be explicitly mapped to these facts;
+source factors of two, max_heap and reserve behavior cannot be reused with
+changed cardinalities without proof.
+
+## 6. Conditional Arguments and Countermodels
+
+These are handwritten implications under complete admission, root, phase,
+allocator and memory-order premises. They are not checked/native evidence.
+
+| ID | Conditional argument | Derivation / open premise |
+| --- | --- | --- |
+| GCP01 | Published terminal success has one capacity meaning for all bound consumers. | GCR01--03 and GCO02--06 bind one actual decision, completed preparation and matching publication. Qualified acquire sees the same immutable identity/content. Actual memory ordering and complete report domains remain native obligations. |
+| GCP02 | Resize cannot legally take incompatible collective branches. | GRB01--08 require one stage/role map, matching child outcome and ActionSettled reports before advance. Different designated actions are coherent with that map. Missing actors keep the operation held; this does not prove finite progress. |
+| GCP03 | A merged positive-demand request receives at most one usable grant. | GCO01/05 freeze membership and one result map; GCM02--04 bind unique GrantId and serialized consumption/refund. No replay/copied result creates a second authoritative transition [GC-P02]. |
+| GCP04 | Still quota is neither lost nor charged twice across consumption/recount. | GCM04/07 and GAL06 partition known actual/deferred/credit states; each settled transition transfers charge under the accounting authority. Unknown disposition holds the affected rebudget rather than inventing an exact partition. Raw allocation/refund/recount bypasses falsify the premise. |
+| GCP05 | Worker/context separation does not overcommit a physical region. | GAL01--05 track actual unique extents and nonoverlapping writable placements with lifetime-aware tail rebinding; GAL07 validates them against actual allocation. The precise placement/fudge/allocator algorithm remains unresolved. |
+| GCP06 | Known capacity denial can preserve completed GC semantics. | GCO04--06 require valid post-GC roots/resume/error-delivery state; GRB04 retains actual heap state. Denial is not rollback. Unsafe/unknown preparation has no mapped Boolean or forced resume. |
+| GCP07 | Physical retirement cannot use response completion as a proxy. | GCR06/GCO07 retain actual users; GCM04--08 retain pending grants/construction; GAL01/04 pin live copies and worker borrowers. Complete physical-user census and progress remain open. |
+| GCP08 | Positive reconstruction value does not establish positive Zig increment. | Publication, stage, credit and placement obligations apply to modern C and Zig. The matched matrix credits existing C mechanisms and shared LLVM leverage before any marginal saving. Neither economic gate closes here. |
+
+| ID | Logical countermodel, not an executed witness | Consequence |
+| --- | --- | --- |
+| GCX01 | Leader writes only its local overflow; others return initialized false. | Common branch/result agreement is not established. |
+| GCX02 | Publish policy Granted before fudge/resume preparation fails. | Callers see terminal success without valid next execution state. |
+| GCX03 | Use a stale outcome slot from another epoch or request set. | Wrong demand/branch/grant is attributed to a new operation. |
+| GCX04 | Final resize result is broadcast after actors diverged inside child GC. | The later broadcast cannot repair the earlier collective mismatch. |
+| GCX05 | Count DecisionObserved as ActionSettled. | Coordinator advances while setup, allocation or retirement action is still running. |
+| GCX06 | Require exited old participants in a new-topology quorum. | Impossible barrier/progress obligation. |
+| GCX07 | Treat resize error after failed join as unchanged topology. | Live new topology/pending donor custody is discarded. |
+| GCX08 | Give every merged caller D rather than its own d_j. | The same batch capacity is promised multiple times. |
+| GCX09 | Include a late same-opcode request in old completion. | Demand was never counted, though result grants it success. |
+| GCX10 | Credit is refunded on observer cancellation while allocation is in flight. | Capacity/storage can be reused before actual disposition. |
+| GCX11 | Successful native allocation also leaves its unmaterialized credit live. | Quota is double charged on the next recount. |
+| GCX12 | Recount actual still lists and discard all outstanding credits. | Pending promises disappear and later work overcommits quota. |
+| GCX13 | GC no-overflow means subsequent native allocation cannot fail. | Existing native-failure/refund path is lost. |
+| GCX14 | Treat M-2F as active-half payload capacity. | Copy/resume placement overestimates available words. |
+| GCX15 | Sum old fromspace and new tospace as two full physical SectionIds. | Physical budget is double counted; false denial/claimed overhead. |
+| GCX16 | One spare tail funds several context buffers with overlapping cursors. | Writable allocation rights overlap despite a correct total scalar. |
+| GCX17 | Retire a worker and free its live copied prefix. | Mutator/root pointers dangle. |
+| GCX18 | Desired N is published when actual section growth was partial. | Success refers to memory that does not exist. |
+| GCX19 | Outstanding credit allows scanning a body before caller initialization. | Capacity correctness hides an invalid object/root publication. |
+| GCX20 | Emergency reserve is counted again as ordinary copy or request grant capacity. | Error-delivery headroom disappears when it is needed. |
+| GCX21 | Equal free-word total is accepted without interval/alignment placement. | Fragmentation, stack sharing or marker/fudge constraints make the plan impossible. |
+| GCX22 | Unknown moving/preparation state is returned as ordinary heap overflow. | Caller may reload/use invalid state through a supposedly recoverable error. |
+
+## 7. Reconstruction and Remaining Gates
+
+1. Bind actual caller/ABI/root and participant profiles; resolve the leader-local
+   result semantic repair and legacy overflow/error mapping explicitly.
+2. Replace implicit public/local result delivery with selected membership,
+   immutable decisions/outcomes, actual report domains and one credit authority.
+3. Reconstruct resize guard/child/setup/membership/startup/retirement checkpoints,
+   including actual partial-failure dispositions and old-role completion.
+4. Refine allocator/extent/placement and still-quota transition laws together;
+   retain current C headroom, error, refund and cleanup mechanisms as reuse inputs.
+5. Admit owner resume/error capacity and physical borrower drain before retiring
+   any old private GC/result/allocator path. No implementation is authorized here.
+6. Bound post-reuse modern C and Zig maintenance, migration, pause/retention and
+   tool/ABI costs before selecting a positive-net candidate.
+
+Native ordering, all-exit allocation/initialization/refund, request semantics,
+resize branch progress, exact placement and hidden caller closure remain
+unresolved. Zero new worker profiles, runtime receipts or retired paths result
+from this design; all five whole-system/economic questions remain open.

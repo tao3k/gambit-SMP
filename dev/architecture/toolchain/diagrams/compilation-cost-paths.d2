@@ -1,0 +1,39 @@
+direction: down
+classes: {
+  existing: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  proposed: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  contract: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+}
+bazel: "Bazel action identity and lookup\nDeclared sources, dependencies, tools and configuration" {class: existing}
+hit: "Whole-action HIT\nReuse tree artifacts / receipts\nNo Zig worker or C compiler runs" {class: existing}
+miss: "Action MISS\nGerbil build.ss / std/make owns package order\nGambit owns semantics and module composition" {class: existing}
+bazel -> hit
+bazel -> miss
+front: "Scheme expansion, parsing and resolved tree\nTyped FFI side record needed during parsing" {class: existing}
+miss -> front
+c: {
+  label: "Retained C route"
+  style.font-size: 20
+  gen: "Normalize / GVM / generated C" {class: existing}
+  pp: "C preprocessing\nHeaders + module macro invocations" {class: existing}
+  backend: "C analysis / optimization / native codegen\nAssembly and platform construction" {class: existing}
+  gen -> pp -> backend
+}
+mlir: {
+  label: "Proposed direct semantic route"
+  style.font-size: 20
+  export: "Immutable semantic export\nTransport / startup / capability checks" {class: proposed}
+  passes: "Scheme-aware MLIR passes\nExplicit control and Gambit runtime lowering" {class: proposed}
+  native: "LLVM / native code generation" {class: proposed}
+  export -> passes -> native
+}
+front -> c.gen
+front -> mlir.export: "before normalization"
+zig: "Optional Zig native/service executor\nPinned tools, requests, artifacts\nNot a second package scheduler" {class: proposed}
+zig -> c.pp: "zig cc still has a C frontend" {style.stroke-dash: 3}
+zig -> mlir.export: "service engineering" {style.stroke-dash: 3}
+compose: "Gambit semantic composition + native link\nRemaining C runtime / FFI / link units may persist\nCompatibility preflight, load and initialization" {class: contract}
+c.backend -> compose
+mlir.native -> compose
+scope: "BYPASS SCOPE\nDirect MLIR can remove generated-body C frontend work\nIt retains Scheme expansion and adds semantic/native work\nNo measured speedup; current C-to-module timing is censored" {class: contract}
+compose -> scope

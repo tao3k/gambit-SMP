@@ -5,6 +5,13 @@ from contextvars import ContextVar
 from importlib import import_module
 
 _dispatch=ContextVar("smp_dispatch",default=False)
+_observation_address=ContextVar("smp_observation_address",default=None)
+_observation_presenter=ContextVar("smp_observation_presenter",default=None)
+
+
+def present_observation(value):
+    presenter = _observation_presenter.get()
+    return presenter(value) if presenter is not None else value
 
 
 def _dispatcher():

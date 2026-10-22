@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "still-init-recovery:7ed54f229187281a172632fe750f4703e3d7b51fba76abbe31b3ad24bb2958e4" "still-init-recovery:7ed54f229187281a172632fe750f4703e3d7b51fba76abbe31b3ad24bb2958e4" "support" "dev/architecture/runtime/gc/models/sysml/still-init-recovery.sysml"))
+ (fact (factor "still-init-recovery:7ed54f229187281a172632fe750f4703e3d7b51fba76abbe31b3ad24bb2958e4" "target-model-bundle-sha256" "7ed54f229187281a172632fe750f4703e3d7b51fba76abbe31b3ad24bb2958e4"))
+ (fact (factor "still-init-recovery:7ed54f229187281a172632fe750f4703e3d7b51fba76abbe31b3ad24bb2958e4" "native-output-sha256" "8e00f7ac1b247230d50403bb41f044b78047c074e1678c29a70fbab3b86e0a98"))
+ (fact (factor "still-init-recovery:7ed54f229187281a172632fe750f4703e3d7b51fba76abbe31b3ad24bb2958e4" "planner-dsl-sha256" "cc9c8d1947556b15cb655ea9fad522fceca8463a32c506f0245126e213e6fac7"))
+)

@@ -34,10 +34,10 @@ class InductionMatrixTests(unittest.TestCase):
         self.assertFalse(receipt["accepted"])
 
     def test_preflight_denial_is_recorded_only_in_new_owned_output(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+        from tests.support import task_fixture
+        with task_fixture('preflight-denial') as (_, cache):
             for existing in (False, True):
-                out = root / ("existing" if existing else "fresh")
+                out = cache / ("existing" if existing else "fresh")
                 if existing:
                     out.mkdir()
                     (out / "keep.txt").write_text("user input")

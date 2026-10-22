@@ -4,7 +4,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import tempfile
 import uuid
 
 from gambit_smp.framework import ROOT, digest, relative
@@ -19,10 +18,10 @@ def git(repository,*args,**kwargs):
 
 
 def review_sources(root,record_name):
-    """Apply explicit, reproducible source deltas to authored declarations only."""
+    """Bind reviewed immutable source identities to authored declarations only."""
     root=Path(root).resolve();review_path=source_path(root,record_name)
     review_sha=digest(review_path);review=json.loads(review_path.read_text())
-    if review.get('schema')!='ascent.source-binding-review.v1':raise ValueError('source binding review required')
+    if review.get('schema')!='ascent.source-binding-review.v2':raise ValueError('source binding review required')
     declaration=source_path(root,review['declaration']);original=declaration.read_bytes()
     if hashlib.sha256(original).hexdigest()!=review['declarationSha256']:raise ValueError('review declaration changed')
     spec=json.loads(original);references={row['id']:row for row in spec['references']};changes=[];seen=set()
@@ -30,29 +29,28 @@ def review_sources(root,record_name):
         name=change['reference']
         if name in seen or not change.get('reason') or not change.get('retainedScope'):raise ValueError('explicit scoped source review required')
         seen.add(name);row=references[name];locator=row['source']
-        if set(locator)!={'path','sha256'}:raise ValueError('review deltas require repository sources')
-        baseline=source_path(root,change['baseline']);delta=source_path(root,change['patch'])
-        before=baseline.read_bytes();patch=delta.read_bytes();patch_sha=hashlib.sha256(patch).hexdigest();actual=source_path(root,locator['path'])
+        if set(locator) not in ({'path','sha256'},{'path','sha256','identity'}):raise ValueError('review requires repository or immutable sources')
+        from gambit_smp.source_identity import read_source
+        if 'baseline' in change or 'patch' in change:raise ValueError('source copies and replay patches are forbidden')
+        before=read_source(root,change['before']);reproduced=read_source(root,change['after'])
+        actual=source_path(root,locator['path'])
         if hashlib.sha256(before).hexdigest()!=locator['sha256']:raise ValueError('review baseline does not match original binding')
         citations=spec['view']['facts'].get('citation',[])
         expected=sorted(item[0] for item in citations if len(item)>1 and item[1]==name)
         if sorted(change['citationIds'])!=expected:raise ValueError('source review omitted affected citations')
-        with tempfile.TemporaryDirectory(prefix='evidence-review-') as directory:
-            temp=Path(directory);file=temp/locator['path'];file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(before)
-            run(['git','apply','--whitespace=nowarn','-'],cwd=temp,input=patch,check=True,capture_output=True,timeout=30)
-            reproduced=file.read_bytes()
         if actual.read_bytes()!=reproduced:raise ValueError('review delta does not reproduce current source')
         after=hashlib.sha256(reproduced).hexdigest()
         changes.append(dict(reference=name,path=locator['path'],oldSha256=locator['sha256'],newSha256=after,
-                            baseline=change['baseline'],patch=change['patch'],patchSha256=patch_sha,
+                            before=change['before'],after=change['after'],
                             reason=change['reason'],retainedScope=change['retainedScope'],citationIds=expected))
         locator['sha256']=after
+        locator['identity']=change['after']
     with lease(root,'evidence-view-publication'):
         if declaration.read_bytes()!=original or digest(review_path)!=review_sha:raise ValueError('source review inputs changed')
         for change in changes:
             if (digest(source_path(root,change['path']))!=change['newSha256'] or
-                    digest(source_path(root,change['patch']))!=change['patchSha256'] or
-                    digest(source_path(root,change['baseline']))!=change['oldSha256']):
+                    hashlib.sha256(read_source(root,change['before'])).hexdigest()!=change['oldSha256'] or
+                    hashlib.sha256(read_source(root,change['after'])).hexdigest()!=change['newSha256']):
                 raise ValueError('source changed after review reproduction')
         archive=root/'.state/evidence-views/source-declarations'/hashlib.sha256(original).hexdigest()
         archive.parent.mkdir(parents=True,exist_ok=True)
@@ -97,8 +95,9 @@ def adopt_reviewed_view(root,declaration,review_name):
     if {row['id'] for row in view['references']}-set(old_refs)!=set(review['newReferences']):raise ValueError('semantic update reference inventory mismatch')
     changes={row['id']:row for row in review.get('reviewedReferenceChanges',[])}
     for row in view['references']:
-        actual=source_path(root,row['path'])
-        if digest(actual)!=row['sha256']:raise ValueError('semantic update source drift: '+row['path'])
+        from gambit_smp.source_identity import reference_bytes
+        actual_bytes=reference_bytes(root,row)
+        if hashlib.sha256(actual_bytes).hexdigest()!=row['sha256']:raise ValueError('semantic update source drift: '+row['path'])
         previous=old_refs.get(row['id'])
         if previous:
             locator=previous['source']
@@ -108,11 +107,13 @@ def adopt_reviewed_view(root,declaration,review_name):
                     raise ValueError('unreviewed existing reference change')
                 locator=dict(locator,sha256=row['sha256'])
             if 'repository' in locator:
-                expected='evidence/source-snapshots/'+locator['sha256']+'/source'+Path(locator['path']).suffix
+                imported=(root/locator['repository']/locator['path']).resolve()
+                expected=(str(imported.relative_to(root)) if imported.is_relative_to(root) else 'git-source/'+locator['sha256']+Path(locator['path']).suffix)
                 if row['path']!=expected:raise ValueError('import snapshot identity changed')
             elif locator['path']!=row['path']:raise ValueError('unexpected existing reference relocation')
             if previous['pointer']!=row['pointer']:raise ValueError('existing reference pointer changed')
         else:locator=dict(path=row['path'],sha256=row['sha256'])
+        if 'identity' in row:locator=dict(path=row['path'],sha256=row['sha256'],identity=row['identity'])
         refs.append(dict(id=row['id'],source=locator,pointer=row['pointer']))
     updated=dict(schema=spec['schema'],output=spec['output'],view={key:value for key,value in view.items() if key!='references'},references=refs)
     with lease(root,'evidence-view-publication'):
@@ -126,6 +127,11 @@ def adopt_reviewed_view(root,declaration,review_name):
                     reviewedViewSha256=output_sha,newClaims=len(new_claims-old_claims),newReferences=len(set(row['id'] for row in refs)-set(old_refs)),runtimeAdmitted=False)
         write(root/'.state/evidence-views/semantic-imports'/(review_sha+'.json'),result)
     return result
+
+
+def generator_sources():
+    return {str(Path('src/gambit_smp')/name):digest(Path(__file__).with_name(name))
+            for name in ('source_identity.py','evidence_views.py')}
 
 
 def materialize(root,declaration,*,expected_view_sha):
@@ -143,7 +149,11 @@ def materialize(root,declaration,*,expected_view_sha):
     for row in spec['references']:
         if set(row)!={'id','source','pointer'} or row['id'] in seen:raise ValueError('unique declared reference required')
         seen.add(row['id']);locator=row['source'];expected=locator['sha256']
-        if set(locator)=={'path','sha256'}:
+        if set(locator)=={'path','sha256','identity'}:
+            from gambit_smp.source_identity import read_source
+            if hashlib.sha256(read_source(root,locator['identity'])).hexdigest()!=expected:raise ValueError('reviewed identity changed')
+            path=locator['path']
+        elif set(locator)=={'path','sha256'}:
             original=source_path(root,locator['path'])
             if digest(original)!=expected:raise ValueError('reviewed source changed: '+locator['path'])
             path=locator['path'];inputs[path]=expected
@@ -161,24 +171,23 @@ def materialize(root,declaration,*,expected_view_sha):
             patch=git(repository,'diff','--binary','--no-ext-diff','--no-renames',revision,'--',name.as_posix())
             if hashlib.sha256(raw).hexdigest()!=expected or hashlib.sha256(patch).hexdigest()!=locator['patchSha256']:
                 raise ValueError('imported working source or patch changed')
-            with tempfile.TemporaryDirectory(prefix='evidence-source-') as directory:
-                temp=Path(directory);file=temp/name;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(base)
-                if patch:run(['git','apply','--whitespace=nowarn','-'],cwd=temp,input=patch,check=True,capture_output=True,timeout=30)
-                if file.read_bytes()!=raw:raise ValueError('import patch does not reproduce source bytes')
             if (digest(original)!=expected or git(repository,'rev-parse','HEAD').decode().strip()!=revision or
                     git(repository,'diff','--binary','--no-ext-diff','--no-renames',revision,'--',name.as_posix())!=patch):
                 raise ValueError('import changed during capture')
-            folder=root/'evidence/source-snapshots'/expected;folder.mkdir(parents=True,exist_ok=True)
-            for filename,data in [('source'+name.suffix,raw),('base'+name.suffix,base),('working.patch',patch)]:
-                target=folder/filename
-                if target.exists() and target.read_bytes()!=data:raise ValueError('snapshot custody collision')
-                if not target.exists():target.write_bytes(data)
-            path=str((folder/('source'+name.suffix)).relative_to(root));inputs[path]=expected
+            from gambit_smp.source_identity import retain_sources, git_source
+            retained=(git_source(root,locator['repository'],revision,name.as_posix())
+                      if raw==base else retain_sources(root,{'source':raw})['source'])
+            imported=repository/name
+            path=(str(imported.relative_to(root)) if imported.is_relative_to(root) else 'git-source/'+expected+name.suffix)
             imports.append(dict(reference=row['id'],repository=locator['repository'],revision=revision,
-                                originalPath=name.as_posix(),baseSha256=hashlib.sha256(base).hexdigest(),
-                                patchSha256=locator['patchSha256'],sha256=expected,snapshot=path))
+                                originalPath=name.as_posix(),sha256=expected,identity=retained))
         else:raise ValueError('explicit repository or Git import source required')
-        references.append(dict(id=row['id'],path=path,sha256=expected,pointer=row['pointer']))
+        reference=dict(id=row['id'],path=path,sha256=expected,pointer=row['pointer'])
+        if 'identity' in locator:
+            reference['identity']=locator['identity']
+        elif 'repository' in locator:
+            reference['identity']=retained
+        references.append(reference)
     view['references']=references
     if digest(source)!=source_sha:raise ValueError('Evidence declaration changed during generation')
     stage=output.with_name('.'+output.name+'.'+uuid.uuid4().hex+'.json')
@@ -192,6 +201,9 @@ def materialize(root,declaration,*,expected_view_sha):
         if digest(source)!=source_sha or any(digest(Path(p))!=sha for p,sha in packet['inputs'].items()):
             raise ValueError('Evidence inputs changed during generation')
         with lease(root,'evidence-view-publication'):
+            from gambit_smp.source_identity import reference_bytes
+            for reference in references:
+                if 'identity' in reference and hashlib.sha256(reference_bytes(root,reference)).hexdigest()!=reference['sha256']:raise ValueError('immutable source changed during publication')
             current=digest(output) if output.exists() else None
             if current!=expected_view_sha:raise ValueError('concurrent Evidence publication')
             changed=stage.read_bytes()!=previous
@@ -208,7 +220,7 @@ def materialize(root,declaration,*,expected_view_sha):
             if binding==output:binding=output.with_name(output.name+'.binding.json')
             write(binding,dict(schema='ascent.generated-view-binding.v1',declaration=declaration,
                   declarationSha256=source_sha,output=spec['output'],outputSha256=digest(output),
-                  generator='src/gambit_smp/view_materialize.py',generatorSha256=digest(Path(__file__)),
+                  generator='src/gambit_smp/view_materialize.py',generatorSha256=digest(Path(__file__)),generatorSources=generator_sources(),
                   imports=imports,engineIdentitySha256=hashlib.sha256(json.dumps(identity,sort_keys=True,default=str).encode()).hexdigest(),
                   engineEvaluated=True,runtimeAdmitted=False))
         bound=dict(packet['inputs']);bound.pop(str(stage),None);bound[str(output)]=digest(output)
@@ -233,21 +245,31 @@ def check_binding(root,name):
             record.get('declaration')!=str(authored.relative_to(root)) or
             record.get('declarationSha256')!=digest(authored) or
             record.get('output')!=name or record.get('outputSha256')!=digest(output) or
-            record.get('generatorSha256')!=digest(generator)):
+            record.get('generatorSha256')!=digest(generator) or record.get('generatorSources')!=generator_sources()):
         raise ValueError('generated Evidence binding stale; rerun the reviewed producer')
-    return {str(file):digest(file) for file in (authored,binding,generator)}
+    return {str(file):digest(file) for file in (authored,binding,generator,
+            generator.with_name('source_identity.py'),generator.with_name('evidence_views.py'))}
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--source',required=True)
+    parser.add_argument('--source')
+    parser.add_argument('--migrate-source-storage',action='store_true',help='migrate all legacy source copies into Git/task checkpoint identities')
     parser.add_argument('--adopt-reviewed-view',help='import an exact reviewed declaration update before generation')
-    parser.add_argument('--review-source',help='explicit baseline/patch/citation review; never a blanket hash refresh')
-    parser.add_argument('--expected-view-sha',required=True)
+    parser.add_argument('--review-source',help='explicit Git/checkpoint identity and citation review; never a blanket hash refresh')
+    parser.add_argument('--expected-view-sha')
     parser.add_argument('--out',required=True)
     args=parser.parse_args()
     from gambit_smp.artifact_storage import runtime_output
     target=runtime_output(ROOT,args.out);target.mkdir(parents=True,exist_ok=True)
+    if args.migrate_source_storage:
+        if args.source or args.review_source or args.adopt_reviewed_view or args.expected_view_sha:parser.error('migration is a separate maintenance action')
+        from gambit_smp.source_identity import migrate_source_storage
+        result=migrate_source_storage(ROOT)
+        write(target/'receipt.json',result)
+        print(json.dumps(result))
+        return 0
+    if not args.source or args.expected_view_sha is None:parser.error('--source and --expected-view-sha are required for generation')
     if args.review_source and args.adopt_reviewed_view:parser.error('choose a source delta or a semantic declaration update')
     semantic=adopt_reviewed_view(ROOT,args.source,args.adopt_reviewed_view) if args.adopt_reviewed_view else None
     review=None

@@ -1,0 +1,70 @@
+#+TITLE: Physical interval, reader and benefit matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Real caller and ownership matrix
+:PROPERTIES:
+:CUSTOM_ID: interval-caller-matrix
+:END:
+#+NAME: interval-callers-native
+| Family | Source anchors | Actual chain | Ownership contract | Failure boundary |
+|---+---+---+---+---|
+| backing | mem.c:540-598,891-1079;os_base.c:445-477 | alloc_mem_aligned_aux -> alloc_mem_heap -> allocator/WX-profile path; adjust_msections publishes every successful section | Actual storage object identity and aligned offsets; partial expansion retained and inspected | Sum-free or requested target count is not a placement certificate; no resident-memory guarantee |
+| local-scan | mem.c:3241-3305,4252-4382 | end_heap_chunk -> scan_movable_objs_to_scan -> scan_complete_heap_chunk | Queued/dequeued/local/private cursor retain exact descriptor and interval pins until final load/store | Queue-empty or returning a chunk link is not reader drain |
+| steal | mem.c:6692-6771 | scan loop steals chunk under owner queue lock -> scans ptr+1 after unlock -> returns to local scan | Transfer pin with the task before queue unlock; last-use release before idle decrement | Worker idle count cannot replace all task/root/native reader tokens |
+| frame | mem.c:3490-3811;gambit.h.in:9224-9226 | mark_array initializer and mark_captured_continuation decode/copy using source and destination | Initializer, frame descriptor, stack region and alias-rewrite footprint remain pinned | Forward address visible before readiness; FrameRef stack encodings need typed handling |
+| restore | mem.c:4525-4562,4717,7080,7215,7358,7402,7500 | prepare_mem_pstate called by setup, GC return, stack overflow paths, stack undo and heap_limit | Six call endpoints plus helper definition use committed context layout; no restoring stale PSTATE limits | Existing same-PSTATE tail reuse is credited; new cross-owner reuse is not a measured saving |
+| resize | setup.c:884-950;mem.c:6316-6468,7038-7049 | resize VM -> optional GC -> cleanup departing processor; resize_heap -> adjust_msections contraction/expansion | Source root/cursor/reader domains outlive thread exit; partial growth and unknown status stay ledger-owned | resize/fudge/restore branches cannot free a section still used by independent worker/context |
+| root-ffi | mem.c:703-829,3969-3986;c_intf.c:6511-6562;os_dyn.c:744-795 | mark_rc reads cached next/data -> root rewrite; callback marker and dynamic closure reads | Finite raw/descriptor borrow pins separate from durable RootRegistry membership | Do not wait for whole callback lifetime when callback awaits this GC; unknown aliases refuse cut |
+| shutdown | setup.c:4665-4673,4773-4780;mem.c:4928-4966 | cleanup_pstate -> mem cleanup/RC release; cleanup_vmstate -> destroy sync -> free_msections | Close ingress, settle tickets, drain real pins/debts and transfer retained roots before destroy/free | Current p0 TODO/assumptions are not evidence of a modern complete shutdown census |
+
+* Benefit and peak-memory matrix
+:PROPERTIES:
+:CUSTOM_ID: interval-benefit-matrix
+:END:
+#+NAME: interval-benefits-native
+| Capability | Removed work | Bound | Added cost | Positive condition and falsifier |
+|---+---+---+---+---|
+| placement | Eliminate retry after destructive forwarding due only to optimistic capacity counters | Validate every object/segment placement before forwarding; sum capacity alone is insufficient | Preflight extents/layout traversal plus interval/claim/partial-result records | Correctness benefit; no measured reduction of total allocation or pause |
+| tail reuse | Avoid fresh context reserve only when transferable suffix already covers an actual demand | 0<=q_i<=min(usableTail_i,requestedResume_i), with alignment/contiguity; Q=sum(q_i) | Transferred tail still belongs to committed destination; protect fudge and prefix indexes | Savings are relative to a naive separated-worker/context design; current same-PSTATE restore already reuses tails |
+| peak | Subtract accepted reuse from additional fresh context storage, never from destination and resume twice | Peak=max(phase peaks); pre-copy subtract only preflight-guaranteed Qg, post-copy may also subtract opportunistic Qo; never count either twice | Allocator headers, alignment, claim/layout/task/pin records and two card banks remain charged | Post-copy refunds cannot lower an earlier peak; preflight Qg must exceed any extra destination/metadata/held-partial cost; RSS/OOM still needs platform evidence |
+| reader lifetime | Replace implicit phase/pstate lifetime assumptions with explicit last-use custody | One short lifecycle-lock acquire/release per finite borrow; task handoff preserves one token; nested calls counted | Pin records and lock/condvar contention; per-thread generation alone is insufficient | No unparented old reader after retire; derived child acquired before releasing parent; no forced timeout unpin |
+| bounded retention | Prevent silent accumulation of old banks and unresolved allocations | Two preallocated card banks; no third epoch-bank publication until the older bank drains | A stalled reader can block progress; finite held-partial budget and unresolved operation slots remain owned | Safety by backpressure/refusal/quarantine, not a liveness or crashed-thread recovery theorem |
+
+* Model scopes and conjunctive dependencies
+#+NAME: interval-model-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| IH-H | interleaving | models/gambit/promotion_interval_handoff.qnt | promotion_interval_handoff:19-named-histories;safe;seed=17;100x80 | Finite one-region, two-pin ownership/reader kernel; interval, transfer and omission histories, not full source GC |
+| IH-I | induction | models/gambit/lean/PromotionIntervalHandoff.lean | GambitSMP.PromotionIntervalHandoff:splitConserves;noCrossBoundary;sumDoesNotFitFragment;commitExclusive;ackDoesNotRestoreWorker;dequeuePreservesPin;noReadersNoTasks;handoffNoZeroGap;liveOwnerForbidsFree;reuseBound;peakReuse;lateRefundCannotBeatPre;peakBelowRequiresBoth | Conditional interval arithmetic, task pin custody and no-free predicates; full transitions, C pointer provenance and source census remain open |
+| IH-EXTENTS | source-refinement | models/gambit/lean/PromotionIntervalHandoff.lean | IH-EXTENTS:actual-source-refinement | All allocator-issued backing objects, offsets, permissions and actual partial-commit intervals; checked placement and disjoint roles, not sum-only or RSS promise |
+| IH-TAIL | source-refinement | models/gambit/lean/PromotionIntervalHandoff.lean | IH-TAIL:actual-source-refinement | Every prepare_mem_pstate, heap/stack growth/undo, setup/resize and next-GC consumer adopts prefix/frontier/fudge and idempotent ownership commit |
+| IH-READERS | source-refinement | models/gambit/lean/PromotionIntervalHandoff.lean | IH-READERS:actual-source-refinement | Local, queued and dequeued scans, forwarding/frame helpers, roots/FFI, resize/free/cleanup and diagnostics acquire-before-exposure and last-use pins or reject unknown consumers |
+| IH-MEMORY | native-memory-order | vendor/gambit/lib/mem.c | IH-MEMORY:actual-source-refinement | Short lifecycle-lock acquisition protects descriptor+pin atomically; queue pin transfer, release/acquire, no lock inversion, provenance/size/WX and backing-platform admission remain open |
+
+#+NAME: interval-model-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| IH-EXTENTS | IH-H |
+| IH-EXTENTS | IH-I |
+| IH-EXTENTS | GW-S |
+| IH-EXTENTS | PR-I |
+| IH-TAIL | IH-H |
+| IH-TAIL | IH-I |
+| IH-TAIL | IH-EXTENTS |
+| IH-TAIL | GW-S |
+| IH-TAIL | CO-S |
+| IH-TAIL | FZ-PUBLISH |
+| IH-READERS | IH-H |
+| IH-READERS | IH-I |
+| IH-READERS | FZ-CENSUS |
+| IH-READERS | FZ-FREEZE |
+| IH-READERS | RC-LIFETIME |
+| IH-MEMORY | IH-H |
+| IH-MEMORY | IH-I |
+| IH-MEMORY | WB-MEMORY |
+| PR-BOUND | IH-EXTENTS |
+| PR-BOUND | IH-TAIL |
+| PR-RESIDUAL | IH-READERS |
+| PR-RESIDUAL | IH-MEMORY |
+| PR-MEMORY | IH-MEMORY |
+| PR-FFI | IH-READERS |

@@ -70,6 +70,7 @@ def scope(root,task,process,provider='codex'):
             run=uuid.uuid4().hex;target=run_path(root,task,process,run);cache.mkdir(parents=True,exist_ok=True)
             w.write(target,dict(schema=1,custodyProtocol=3,task=task,process=process,run=run,provider=provider,
                  state='running',startedAt=w.now().isoformat(),supervisorPid=os.getpid(),output=str(cache/'runs'/run),nativeAdmitted=False))
+            owner.pop('exit',None)
             owner.update(state='open',execution='running',run=run,checkout=parent['checkout'],lastActivity=w.now().isoformat())
             w.write(record,owner)
         environment=dict(GAMBIT_SMP_TASK_ID=task,GAMBIT_SMP_TASK_PROCESS=process,GAMBIT_SMP_TASK_ROOT=str(root),
@@ -90,12 +91,17 @@ def scope(root,task,process,provider='codex'):
     collect(root,task,process)
 
 
-def resume(root,task,process):
+def resume(root,task,process,*,discard_metadata_read=None):
     from gambit_smp import workspace as w
     from gambit_smp.task_processes import check
     from gambit_smp.work_items import admit
     admit(root,task,process)
     record,cache=paths(root,task,process)
+    if discard_metadata_read is not None:
+        from gambit_smp.spawn_reconciliation import reconcile_legacy
+        token,argv=discard_metadata_read
+        owner=json.loads(record.read_text())
+        reconcile_legacy(root,task,process,owner['run'],token,argv)
     with lease(root,task,process),admission(root,task):
         if json.loads(w.paths(root,task)[0].read_text())['state']!='open':raise ValueError('work item is not open')
         owner=json.loads(record.read_text());check(root,task,process=process)

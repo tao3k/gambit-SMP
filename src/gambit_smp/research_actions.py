@@ -664,11 +664,16 @@ def observe(root, handle):
             "executionAuthorized": False, "runtimeAdmitted": False}
 
 
-def main():
+def argument_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("discover", "select", "observe"))
     parser.add_argument("--request", type=Path, help="structured JSON request")
     parser.add_argument("--authorize-execution", action="store_true")
+    return parser
+
+
+def main():
+    parser = argument_parser()
     args = parser.parse_args()
     if args.request is None:
         parser.error("--request is required")

@@ -1,6 +1,6 @@
 ;;; Optional source-bound reasoning windows, never a workflow scheduler.
 (define-evidence (make-modeling-guidance)
-  (sources focus obligation signal assessment model model_revision method source
+  (sources focus obligation signal signal_witness assessment model model_revision method source
            proposal proposal_change proposal_attribute model_assumption scope_review
            checkpoint_context checkpoint_claim checkpoint_receipt_source related
            requirement dependency contract receipt completed_outcome verified
@@ -9,7 +9,7 @@
            prerequisite quiescent material available withdrawn
            mechanism_binding mechanism_withdrawn mechanism_target recovery_target recovery_key recovery_event recovery_consumer_event
            join_errno_population required_consumer capture_fact compatible_hypothesis compiler_sample compiler_artifact cost_observation)
-  (outputs recommendations model_gaps revision_gaps unbound actions
+  (outputs recommendations model_gaps revision_gaps coverage_gaps unbound actions
            applicability_gaps assumption_deltas current_scope_review
            checkpoint_observation checkpoint_dependency checkpoint_reason
            historical_complete applicable reusable unclosed invalidated_by
@@ -25,6 +25,9 @@
   (relation focus ((id string?) (candidate_source string?) (candidate_sha string?)))
   (relation obligation ((focus string?) (id string?) (kind string?)))
   (relation signal ((focus string?) (obligation string?) (kind string?) (source string?)))
+  (relation signal_witness ((id string?) (focus string?) (obligation string?) (kind string?) (source string?)))
+  (relation conflicting_signal (id))
+  (relation signal_observation (id digest focus obligation kind path))
   (relation assessment ((focus string?) (obligation string?) (model string?) (status string?) (source string?)))
   (relation model ((id string?) (source string?)))
   (relation model_revision ((model string?) (checked_sha string?) (report_source string?)))
@@ -52,6 +55,8 @@
   (relation recommendations (focus obligation action tool question reason path sha))
   (relation model_gaps (focus obligation model status path sha))
   (relation revision_gaps (focus obligation model checked_sha current_sha report_path report_sha))
+  (relation assessed_obligation (focus obligation))
+  (relation coverage_gaps (id focus obligation reason path digest))
   (relation unbound (focus obligation kind source))
   (relation actions (id query reason))
   ;; Mechanism-level observations share this component's source identity and
@@ -222,9 +227,7 @@
   ((factor I H (lit "outcome") Outcome) <--
     (checkpoint_observation I H C _ _ R _ _ E) (receipt E R _ Outcome)
     (checkpoint_context F C) (current_focus F))
-  ((factor I H N V) <--
-    (checkpoint_observation I H C _ _ _ _ _ _) (proposal_attribute C N V)
-    (checkpoint_context F C) (current_focus F))
+  ((factor I H N V) <-- (clue I H C _ _ _) (proposal_attribute C N V))
   ((factor I H (lit "reason") Reason) <--
     (checkpoint_observation I H C _ _ _ _ _ E) (checkpoint_reason C E _ Reason)
     (checkpoint_context F C) (current_focus F))
@@ -240,6 +243,37 @@
   ;; Related evidence is a caller-declared reference, not a proof dependency.
   ((link C T Label I H) <-- (clue I H C _ _ _) (related C T Label))
   ((current_focus F) <-- (focus F C H) (source C _ H))
+  ;; The same observation reaches Clue without selecting an action or a cause.
+  ((conflicting_signal I) <-- (signal_witness I F O K S) (signal_witness I F2 O2 K2 S2)
+    (if (F O K S F2 O2 K2 S2)
+      (not (and (equal? F F2) (equal? O O2) (equal? K K2) (equal? S S2)))))
+  ((signal_observation I H F O K Path) <--
+    (current_focus F) (obligation F O _) (signal F O K S) (source S Path H)
+    (signal_witness I F O K S) (not (conflicting_signal I)))
+  ((clue I H O (lit "support") (lit "observation") Path) <--
+    (signal_observation I H _ O _ Path))
+  ((factor I H (lit "category") (lit "investigation-window")) <--
+    (signal_observation I H _ _ _ _))
+  ((factor I H (lit "focus") F) <-- (signal_observation I H F _ _ _))
+  ((factor I H (lit "obligation") O) <-- (signal_observation I H _ O _ _))
+  ((factor I H (lit "signal") K) <-- (signal_observation I H _ _ K _))
+  ((factor I H (lit "sourceLock") Lock) <--
+    (signal_observation I H F _ _ _) (focus F _ Lock))
+  ((link O F (lit "observed-in-scope") I H) <--
+    (signal_observation I H F O _ _))
+  ;; Absence of a declared review is unknown, not coverage or a refutation.
+  ;; Bind the observation and obligation first; do not pair every model with
+  ;; every failure or require a nonempty model inventory.
+  ((assessed_obligation F O) <-- (assessment F O M Status Review)
+    (source Review _ _) (model M MS) (source MS _ _))
+  ((coverage_gaps I F O (lit "unreviewed") Path H) <--
+    (signal_observation I H F O _ Path) (not (assessed_obligation F O)))
+  ((coverage_gaps I F O (lit "revision-unreviewed") Path H) <--
+    (signal_observation I H F O _ Path) (revision_gaps F O _ _ _ _ _))
+  ((factor I H (lit "coverage-status") Reason) <--
+    (coverage_gaps I _ _ Reason _ H))
+  ((link O F (lit "model-coverage-unreviewed") I H) <--
+    (coverage_gaps I F O _ _ H))
   ;; A receipt for unchanged model bytes is not a review of changed premises.
   ;; This records a bound scope review, never proof/native admission or an order.
   ((current_scope_review F P M D V) <-- (current_focus F)

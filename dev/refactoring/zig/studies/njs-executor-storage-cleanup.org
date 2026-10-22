@@ -1,0 +1,267 @@
+#+TITLE: NJS Executor, Byte Storage and Cleanup Contract
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: zig
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN NJS Executor, Byte Storage and Cleanup Contract :zig:
+:PROPERTIES:
+:ID: f67c6ae6-bd09-550e-a947-cfa02e996f57
+:CUSTOM_ID: njs-executor-byte-storage-and-cleanup-contract
+:SOURCE_PATH: docs/experimental/zig/njs-executor-storage-cleanup.md
+:SOURCE_SHA256: 71455364deb26956d5e3b312617a3451768b7dea78138821f8d93ab537f813ad
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Source/theory design only; no implementation, native test,
+compiler invocation, performance measurement or ASCENT execution. Continues
+the [[file:native-job-service-design.org][NJS design]]. Read the
+[[file:njs-support-cost-modernization-matrix.org][cost and modernization matrix]] and
+[[file:njs-executor-evidence.org][evidence ledger]].
+
+*** 1. Required Scope Before Choosing Support
+:PROPERTIES:
+:ID: c3e9c72e-9fb4-5c39-8ac4-4b261e445f34
+:CUSTOM_ID: 1-required-scope-before-choosing-support
+:END:
+
+Separate *Q*, package query execution, from *B*, compile/link execution.
+The inspected shell Q path captures stdout via command substitution and inherits
+stderr; the ordinary Gambit B dispatch does not capture output or replace stdin
+[X01/X02]. Both use child execution, but only Q requires retained query bytes.
+Two separately captured streams, arbitrary fd graphs, a generic streaming
+framework and a growing byte container are not mandatory for this initial
+domain. The prior SA03/JB06 possibility is narrowed accordingly.
+
+The selected design has two adapters over one executor:
+
+- *QueryStdout:* admitted stdin policy, stdout byte pipe, inherited stderr,
+  bounded capture and explicit query decoding; ordered cflags then libs actions.
+- *BuildInherited:* admitted inherited stdin/stdout/stderr, terminal/cwd/env
+  correspondence and output-role delivery; no capture buffer is allocated merely
+  because the executor has one for Q.
+
+At the old script's package call, stdin is inherited. Any empty-stdin query
+policy is a declared restriction/change, not assumed legacy equivalence. A
+worker must forward the admitted descriptors/terminal context; IPC channels do
+not automatically stand in for the caller's stdin/stdout. Initial unsupported
+interactive/fd contexts retain explicit legacy routing.
+
+The deployment alternatives remain (S) typed Scheme using its current process
+owner, and (W) an independent native worker. In W, modern C-G/C-ZT and Zig have
+the same owner split. Do not embed a second native reaper beside the inspected
+Gambit wait-any-child handler [X04]. C-ZT keeps the C service core and adds only
+the same selected downstream Zig tool role used by the Zig alternative.
+
+*** 2. Concrete Executor Boundary
+:PROPERTIES:
+:ID: 37099149-e7a5-5a62-a9bb-e4e743de5491
+:CUSTOM_ID: 2-concrete-executor-boundary
+:END:
+
+#+BEGIN_SRC text :eval never
+ExecutionRequest {
+  job_id_and_generation, sealed_plan_identity, executable_and_argv,
+  child_environment, cwd, io_profile,
+  query_capture_limit_if_any, observation_deadline_policy,
+  output_roles, capability_profile_id
+}
+ExecutionRecord {
+  launch_state, terminal_state_if_known, observation_state,
+  owned_query_bytes_if_complete, diagnostic_origin,
+  cleanup_state, delivery_state
+}
+#+END_SRC
+
+These are logical fields, not an implemented ABI or struct layout. One request
+owns its immutable plan/argument storage until the chosen backend no longer
+uses it. Validate NUL, counts, byte lengths, tool identity and fd policy before
+launch. Preserve explicit env/cwd: host-global mutation is unnecessary in all
+designs. Tool lookup semantics remain part of the effective plan, not an
+allocator or process-library default.
+
+Separate transport success, successful launch, tool success, complete query
+observation and accepted result delivery. A worker exit cannot substitute for
+the tool's status. Version-specific native status representations are normalized
+at one adapter; Scheme error/timeout delivery stays in its semantic owner.
+
+*Completion is a product of states, not one linear event:* a child can exit
+before EOF, or close stdout before exiting. A descendant can retain a pipe write
+end. Process termination, stream completion, callback quiescence and result
+acknowledgement have independent obligations. A byte quota bounds retained
+bytes, not running time or shutdown duration.
+
+For Q, eligibility to interpret bytes requires successful tool termination,
+complete untruncated stdout and admitted decoding. For B, success has no query
+byte condition. Resource retirement additionally requires no future backend
+access, then release or accepted transfer of every owned resource. Delivery
+completion is recorded separately. If custody cannot be discharged, report
+cleanup-pending/unknown outcome; do not free a still-referenced object or start
+an automatic retry.
+
+*** 3. Bounded Byte Storage Without a Mandatory Grower
+:PROPERTIES:
+:ID: af156885-cdf7-51cc-9c1c-38d1f2e81ac2
+:CUSTOM_ID: 3-bounded-byte-storage-without-a-mandatory-grower
+:END:
+
+Select *BS1*, one exact-capacity byte area of admitted limit L for each active
+Q action, plus a bounded read/probe area and control metadata. L is a profile
+resource limit, not a measured maximum or an assertion all old requests fit.
+The supported compatibility domain must establish that bound; overflow is an
+explicit rejected/failed observation, never acceptance of partial compiler flags.
+
+The common logical capture procedure is:
+
+1. Validate L against representability and the aggregate budget, then acquire
+   the byte area before launching where feasible. Keep checked ~used <= L~.
+2. Read into admitted bounded storage/windows; retain at most L bytes, preserving
+   actual byte counts. Zero bytes returned by a backend need its explicit
+   EOF/would-block interpretation, not a universal EOF assumption [X03/P02].
+3. At capacity, continue with a nonempty bounded probe window to distinguish
+   exactly-L-and-EOF from extra data. Any extra byte rejects interpretation.
+   Never provide a zero-length read buffer as the mechanism to infer EOF.
+4. Establish stdout completion and terminal outcome independently. Then expose
+   a length-bounded immutable ByteView; no sentinel or Unicode decoding is
+   inferred from the byte buffer.
+5. Apply the admitted legacy-output normalization and flag decoder separately.
+   The shell path is not a lossless raw-byte protocol. Bash documentation, for
+   example, specifies removal of trailing newlines in command substitution;
+   that is a reading premise, not qualification of the installed ~/bin/sh~.
+   Bind actual shell/output domain before parity; NUL and unsupported encodings
+   must not be silently transformed [X01/P05].
+6. Retain the backing owner through decoding/accepted transfer; release on every
+   terminal failure. Keeping diagnostic/raw copies or decoded argv adds actual
+   storage, not another view of free memory.
+
+BS1 can use a Scheme u8vector and ~read-subu8vector~, a C byte allocation supplied
+to a C process library, or an exact Zig allocation. It requires neither a native
+bignum nor a custom geometric grower. Scheme's current string capture helper
+is not the byte adapter; byte-port operations exist separately [X03]. Scheme
+objects can move; native code must not retain their addresses across Scheme
+allocation/GC. No zero-copy Scheme/native handoff is assumed.
+
+Optional *BS2* chunked/growing storage or *BS3* spill files require demand
+that defeats BS1's admitted limits/peak budget. They add bounds, transfer,
+allocation or file custody duties. Do not impose them on C to make Zig win.
+The libuv byte callbacks do not themselves supply a retained output container;
+the project supplies buffer/storage policy. The selected Zig general capture
+helper has a different stdio policy and is not a drop-in replacement [P01/P02].
+Its buffered-output limit is checked around collection; it is not evidence that
+all internal allocations obey BS1's exact retained-payload reservation. The
+hard-bound design needs its own admitted backend/window policy.
+
+For active Q jobs A, the payload reservation is at most ~sum(L_a)~ under BS1.
+If all share limit L, this is ~A * L~, with checked aggregate arithmetic. Add
+backend buffers/handles, probe storage, plan/argv, decoder results, diagnostics
+and transport copies separately. Sequential cflags/libs actions can reuse one
+area only after the previous consumer relinquishes it; preserving both raw
+outputs disallows that reuse. For B's inherited-output route, Q payload storage
+is absent. These are design bounds, not RSS/allocation observations.
+
+*** 4. Resource Ownership and Cleanup Mechanisms
+:PROPERTIES:
+:ID: 26230407-2221-5c19-be1a-feeb33126871
+:CUSTOM_ID: 4-resource-ownership-and-cleanup-mechanisms
+:END:
+
+| ID / resource | Acquire / retain through | Release or transfer condition |
+|-
+| OR01 plan/argv/env/cwd bytes | Plan accepted; retain for actual backend use extent | Backend no longer borrows them; a synchronous call shape alone does not prove that extent |
+| OR02 job control/identity | Before any asynchronous registration or child creation | No pending callback/read/wait accesses it; reuse ID only under a fresh generation |
+| OR03 child status custody | Successful or partially successful backend launch | Definitive launch failure with no child, or terminal status owned/reaped by the one designated owner; unknown remains explicit |
+| OR04 pipes/stream handles | On successful initialization/acquisition, including partial launch paths | Drain/close policy completed and callbacks quiescent; inherited caller fds are borrowed and never indiscriminately closed |
+| OR05 query bytes/probe area | Before read/registration under L and aggregate budget | Decoder/transport no longer uses bytes, or acknowledged transfer to result owner |
+| OR06 diagnostic/result storage | As acquired, including fallback/status construction | Delivered and acknowledged, or safely discarded under failed-delivery policy; do not lose ownership on result allocation failure |
+| OR07 output files | Tool writes named output paths | Separate role/status contract; resource cleanup is not rollback of tool filesystem effects |
+
+*Scheme:* reuse process ports, byte vectors, runtime I/O waiting and existing
+status machinery. A Scheme controller still implements job states, exceptional
+cleanup and result delivery. ~dynamic-wind~ supplies dynamic-extent actions,
+not one-shot job ownership: continuation reentry and after-thunk exceptions need
+an explicit controller policy [X05]. Do not hold a native stack frame/resource
+across an unqualified Scheme nonlocal escape.
+
+*C/libuv:* reuse spawning, stream callbacks and loop integration primitives.
+Use one stable job owner with acquired-resource flags and pending-close counts.
+Request close once; do not free handle/control memory until the required close
+completion. Buffers remain project-owned. No hand-written platform spawn body
+or general vector library is charged where a reused backend/BS1 suffices [P02].
+
+*Zig:* reuse selected process/I/O and allocation primitives, private error
+propagation and scope cleanup. The same owner/state/transfer laws remain. A
+lexical defer cannot await a C asynchronous close callback or discharge an
+escaped owner's lifetime. Transfer guards remain armed until all later fallible
+work and custody handoff are complete. The versioned capture implementation's
+buffer handoffs precede its final wait; a wrapper must inspect that path rather
+than infer whole-job ownership correctness from its return type [P01]. This is
+a source-review requirement, not a reproduced library bug or native verdict.
+
+The selected synchronous worker need not use libuv: a simpler qualified C
+platform adapter may cost less. Compare both incremental C support profiles;
+likewise Zig may reuse the same C backend. Backend choice and implementation
+language are separate axes.
+
+*** 5. Failure/Completion Table
+:PROPERTIES:
+:ID: eb25b197-aae4-5d23-948e-1fc3432e5f73
+:CUSTOM_ID: 5-failurecompletion-table
+:END:
+
+| ID / trigger | Required disposition in every design | Remaining boundary |
+|-
+| FT01 allocation/profile failure before launch | Release acquired plan/storage; return bounded diagnostic; no child assumed | Allocating diagnostics need fallback |
+| FT02 spawn failure | Inspect backend partial acquisitions and actual child custody, close initialized resources | Nonzero status is not proof nothing was acquired |
+| FT03 zero-byte / would-block read | Preserve used count; retry via admitted wait/read policy | libuv zero read is not EOF; Scheme partial transfer/error semantics need normalization |
+| FT04 stdout overflow or read error | Never decode truncated bytes; mark observation failed and discharge running-child/stream custody | Blindly waiting with a full undrained pipe can deadlock; abort/drain policy requires admission |
+| FT05 EOF before child exit | Keep waiting for terminal state under policy | EOF is not tool success |
+| FT06 child exit before EOF | Preserve terminal state; finish or fail observation under policy | Descendant-held writer/deadline domain; no automatic tree cancellation |
+| FT07 later decode/result allocation failure | Preserve ownership of accepted byte buffers; no success transfer; cleanup actual resources | Private error propagation does not automatically reclaim already-transferred storage |
+| FT08 async close requested | Keep owner/control and counters alive until all callbacks finish | Scope return is not quiescence |
+| FT09 Scheme exception/continuation or delivery failure | Runtime-appropriate controller retains/settles job custody and reports delivery state | No unqualified continuation reentry or skip-over of native cleanup |
+| FT10 worker loss/shutdown uncertainty | Reject success/cache acceptance and unsafe automatic retry; expose unknown/pending custody | Orphan recovery, bounded termination and persistent recovery service remain unresolved |
+
+Closing the read end, terminating one child and killing a process tree are
+different effects. Neither a C cleanup label nor Zig defer makes them identical.
+The initial service must qualify a direct-child failure/abort policy before
+native admission; deadlines do not prove bounded cleanup or recover unknown
+filesystem outcomes. Generic descendant/process-group semantics are not added
+by this document.
+
+*** 6. What Is Left to Maintain and What Modernization Means
+:PROPERTIES:
+:ID: ade5a1b2-eeb3-5c8e-9222-384b97d52c3c
+:CUSTOM_ID: 6-what-is-left-to-maintain-and-what-modernization-means
+:END:
+
+After reuse, the irreducible project layer is a plan/stdio adapter, ownership
+controller, bounded-byte policy, query decoder, normalized status/diagnostics,
+Scheme control gateway and output/delivery rules. Backend- or language-specific
+wiring can shrink; these domain contracts remain. The matrix assigns them to
+RS01-RS12/CA01-CA08, avoiding one cleanup implementation per error exit or one
+runner per compiler mode.
+
+Modernization has two dimensions: *better engineering control* of this native
+boundary, and *Gambit's language/runtime evolution*. The former can support
+the latter but cannot substitute for it. MG01-MG12 require explicit owners,
+parallel participation, GC/FFI rules, invalidation, diagnostics, provider evolution
+and actual retirement. OCaml's lesson is to co-design those constraints and
+evaluate sequential/parallel/latency costs; it is not a requirement to copy its
+collector or replace Scheme continuations with its control features.
+
+The common interface can be implemented in Scheme, modern C or Zig. Selecting
+Zig needs an additional disjoint cost argument after C/library/Scheme reuse.
+No support code has been retired, no modernity score or positive cost bound is
+issued, and no native test or implementation occurs.
+
+[[file:../diagrams/njs-completion-ownership.svg][Independent completion and resource ownership]]
+
+[[file:../diagrams/njs-completion-ownership.d2][D2 source]].

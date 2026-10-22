@@ -6,7 +6,6 @@ from contextlib import contextmanager, nullcontext
 import os
 import selectors
 import subprocess
-from gambit_smp.task_processes import spawn as _task_spawn
 import time
 import traceback
 import hashlib
@@ -74,6 +73,7 @@ class EvaluationOwner:
         execution_origin(self.engine)
         request_sha = digest(request_path)
         if self.process is None:
+            from gambit_smp.task_processes import spawn as _task_spawn
             self.policy_identity()
             self.directory.mkdir(parents=True, exist_ok=False)
             self.log = (self.directory / "stderr.log").open("wb")
@@ -276,6 +276,10 @@ def facts(receipt):
         result["required_step"].append([name])
         result["observed_step"].append([name, step["outcome"], step["capability"]])
         result["step_dependency"].extend([name, parent] for parent in step["dependsOn"])
+        storage = step.get('workspaceReuse')
+        if isinstance(storage, dict) and 'sourceContentId' in storage:
+            result.setdefault('runtime_storage_observation', []).append([
+                name, storage['mode'], storage['sourceContentId'], storage['copiedFiles']])
         if step["outcome"] == "PASS":
             decision = step.get("producerDecisionSupersession")
             if decision is not None:

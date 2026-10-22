@@ -69,6 +69,29 @@ class NativeExecutableTests(unittest.TestCase):
                 self.assertEqual(str(result["executionProcessors"]),
                                  self.ctx.env["GAMBIT_SMP_EXPECTED_PROCESSORS"])
 
+    def test_interpreted_fixture_uses_same_runtime_without_compile_or_test_tree_copy(self):
+        interpreter = self.runtime/'gsi/gsi';interpreter.parent.mkdir()
+        interpreter.write_bytes(b'synthetic interpreter identity, not native acceptance')
+        self.args.update(mode='gsi', processorTopology='host-managed')
+        native.validate_executable_test(self.args, ['fixture.scm'])
+        with patch.object(self.ctx, 'require', wraps=self.ctx.require) as require:
+            result = self.execute(capacity=7)
+        self.assertEqual(1, require.call_count)
+        self.assertEqual('run-executable', require.call_args.args[0])
+        self.assertEqual(interpreter, require.call_args.args[1][0])
+        self.assertEqual(self.directory/'fixture.scm', require.call_args.args[1][-1])
+        self.assertEqual(6, result['executionProcessors'])
+        self.assertFalse(result['compilationLaunched'])
+        self.assertNotIn('compileProcessors', result)
+        self.assertFalse((self.directory/'runtime').exists())
+        self.assertFalse((self.directory/'fixture').exists())
+        self.assertFalse(result['runtimeAdmitted'])
+
+    def test_unknown_standalone_mode_is_rejected(self):
+        self.args['mode'] = 'unknown'
+        with self.assertRaisesRegex(ValueError, 'standalone fixture mode'):
+            native.validate_executable_test(self.args, ['fixture.scm'])
+
     def test_unknown_topology_cannot_silently_use_one_processor(self):
         self.args["processorTopology"] = "unknown"
         with self.assertRaisesRegex(ValueError, "processor topology"):

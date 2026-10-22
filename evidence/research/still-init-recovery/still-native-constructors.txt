@@ -1,0 +1,89 @@
+___EXP_FUNC(___SCMOBJ,___release_scmobj)
+   ___P((___SCMOBJ obj),
+        (obj)
+___SCMOBJ obj;)
+{
+  if (___MEM_ALLOCATED(obj) &&
+      ___HD_TYP(___HEADER(obj)) == ___STILL)
+    ___still_obj_refcount_dec (obj);
+  return obj;
+}
+
+
+/*
+ * '___make_pair (___ps, car, cdr)' creates a Scheme pair having the
+ * values 'car' and 'cdr' in its CAR and CDR fields.  The 'car' and
+ * 'cdr' arguments must not be movable objects and any still object
+ * must be reachable some other way or have a nonzero refcount.  A
+ * permanent or still object is allocated, depending on '___ps'.  When
+ * '___ps' is NULL, a permanent object is allocated, and when '___ps'
+ * is not NULL, a still object is allocated in the heap of that
+ * processor.  The 'refcount' field of still objects is initially 1.
+ * A fixnum error code is returned when there is an error.
+ */
+
+___EXP_FUNC(___WORD,___make_pair)
+   ___P((___processor_state ___ps,
+         ___WORD car,
+         ___WORD cdr),
+        (___ps,
+         car,
+         cdr)
+___processor_state ___ps;
+___WORD car;
+___WORD cdr;)
+{
+  ___WORD obj = ___alloc_scmobj (___ps, ___sPAIR, ___PAIR_SIZE<<___LWS);
+
+  if (!___FIXNUMP(obj))
+    {
+      ___CAR_FIELD(obj) = car;
+      ___CDR_FIELD(obj) = cdr;
+    }
+
+  return obj;
+}
+
+
+/*
+ * '___make_vector (___ps, length, init)' creates a Scheme vector of
+ * length 'length' and initialized with the value 'init'.  The 'init'
+ * argument must not be a movable object and if it is a still object
+ * it must be reachable some other way or have a nonzero refcount.  A
+ * permanent or still object is allocated, depending on '___ps'.  When
+ * '___ps' is NULL, a permanent object is allocated, and when '___ps'
+ * is not NULL, a still object is allocated in the heap of that
+ * processor.  The 'refcount' field of still objects is initially 1.
+ * A fixnum error code is returned when there is an error.
+ */
+
+___EXP_FUNC(___WORD,___make_vector)
+   ___P((___processor_state ___ps,
+         ___SIZE_TS length,
+         ___WORD init),
+        (___ps,
+         length,
+         init)
+___processor_state ___ps;
+___SIZE_TS length;
+___WORD init;)
+{
+  if (length > ___CAST(___WORD,___LMASK >> (___LF+___LWS)))
+    return ___FIX(___HEAP_OVERFLOW_ERR);
+  else
+    {
+      ___WORD obj = ___alloc_scmobj (___ps, ___sVECTOR, length<<___LWS);
+
+      if (!___FIXNUMP(obj))
+        {
+          int i;
+          for (i=0; i<length; i++)
+            ___VECTORELEM(obj, i) = init;
+        }
+
+      return obj;
+    }
+}
+
+
+/*---------------------------------------------------------------------------*/

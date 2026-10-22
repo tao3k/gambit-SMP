@@ -27,6 +27,8 @@ class RootSignalEvidenceTests(unittest.TestCase):
                           "root-signal-direct-owner-quiescence"):
                 self.assertIn((claim,), result["unclosed"])
             for witness, claim, contract, _ in facts["receipt"]:
+                if witness != "root-signal-formal":
+                    continue
                 target = (claim, witness)
                 self.assertIn(target, result["applicable"])
                 self.assertNotIn((claim,), result["unclosed"])
@@ -40,36 +42,28 @@ class RootSignalEvidenceTests(unittest.TestCase):
                     self.assertNotIn(target, after["applicable"], name)
                     self.assertEqual(changed["receipt"], facts["receipt"])
 
-    def test_native_receipt_retains_typed_failure_and_unchanged_checkpoint(self):
-        directory = ROOT / "evidence/source-results/root-signal-retirement/comparison"
-        receipt = json.loads((directory / "receipt.json").read_text())
-        self.assertEqual(receipt["status"], "PASS")
-        self.assertTrue(receipt["originalCheckpointUnchanged"])
-        self.assertFalse(receipt["bootstrapRepeated"])
-        self.assertFalse(receipt["runtimeAdmitted"])
-        stages = {row["stage"]: row for row in receipt["commands"]}
-        self.assertEqual(stages["baseline-execute"]["exit"], 75)
-        self.assertEqual((directory / "baseline-execute.log").read_text(),
-                         "ROOT-SIGNAL-CLOSED-TOUCH\n")
-        for name in ("repaired-execute", "external-producers-execute"):
-            self.assertEqual(stages[name]["exit"], 0)
-        for row in receipt["commands"]:
-            self.assertFalse(row["timeout"])
-            self.assertTrue(row["processGroupQuiescent"])
-            self.assertEqual(digest(directory / row["log"]), row["logSha256"])
-        for name in ("model", "program", "patch"):
-            path = {"model": "models/gambit/root_signal_retirement.qnt",
-                    "program": "models/gambit/native/root_signal_retirement.scm",
-                    "patch": "patches/candidates/root-signal-retirement.patch"}[name]
-            self.assertEqual(receipt["inputs"][path], digest(ROOT / path))
-        constructor_dir = directory.parent / "constructor"
-        constructor = json.loads((constructor_dir / "receipt.json").read_text())
-        self.assertEqual(constructor["status"], "PASS")
-        self.assertEqual(constructor["priorReceiptSha256"], digest(directory / "receipt.json"))
-        self.assertEqual(constructor["programSha256"], digest(
-            ROOT / "models/gambit/native/constructor_same_storage_emfile.scm"))
-        self.assertEqual((constructor_dir / "execute.log").read_text(),
-                         "CONSTRUCTOR-SAME-STORAGE-EMFILE:PASS\n")
+    def test_historical_assertions_do_not_become_current_native_support(self):
+        document, facts, catalog, _ = load(ROOT,
+            "evidence/scenarios/runtime-lifecycle/root-signal-retirement.view.json")
+        native = {"root-signal-native", "root-signal-constructor"}
+        self.assertTrue(native.isdisjoint(row[0] for row in facts["verified"]))
+        self.assertTrue({"native-result", "constructor-result"}.isdisjoint(
+            row["id"] for row in document["references"]))
+        self.assertEqual({row[2] for row in facts["binding"] if row[1] == "native-result"},
+                         {"d01375c77a7289c99548cc5d718f7b96aea41f7e28ece41bc7a8a1a0f95c47cd"})
+        self.assertEqual({row[2] for row in facts["binding"] if row[1] == "constructor-result"},
+                         {"ee696740c867119d5a248fc566255ff8b30893891591527ae7ba9e0499dd07da"})
+        queries = dict(document["queries"], applicable="applicable")
+        with engine_api() as (engine, _):
+            answers, _ = evaluate(engine, facts, catalog, queries)
+            for claim in ("root-signal-native-comparison", "root-signal-constructor-requalification"):
+                self.assertIn((claim,), answers["unclosed"])
+                self.assertFalse(any(row[0] == claim for row in answers["applicable"]))
+            # Merely reinstating a verified boolean cannot manufacture the raw
+            # binding, withdrawal review and runtime observation obligations.
+            forged = dict(facts, verified=facts["verified"] + [(n,) for n in native])
+            after, _ = evaluate(engine, forged, catalog, queries)
+            self.assertEqual(answers["applicable"], after["applicable"])
 
     def test_checkpoint_exposes_comparison_and_keeps_join_open(self):
         bindings = (("entity", "lifecycle"),

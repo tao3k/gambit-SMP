@@ -1,0 +1,141 @@
+#+TITLE: Roots, Blocking and VM Ownership Evidence
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: runtime
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Roots, Blocking and VM Ownership Evidence :runtime:
+:PROPERTIES:
+:ID: 207c9847-4a62-5151-9f0f-4166628614a9
+:CUSTOM_ID: roots-blocking-and-vm-ownership-evidence
+:SOURCE_PATH: docs/experimental/zig/runtime-root-participation-evidence.md
+:SOURCE_SHA256: 6052df72eb90c8ad71805b719af318ff31a978c5c6c6c5ce4cb3f0917a89512d
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Research HEAD ~b67da6262a973a0ae898002d5c7f5be2d8b5a90d~;
+Gambit HEAD ~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~. Local working-copy
+bindings are distinct from overlays, installed SDKs and historical native receipts.
+No runtime edit, implementation, configuration query, model/native test or timing.
+
+*** 1. Gambit Direct Reads and Bounded Findings
+:PROPERTIES:
+:ID: b1cdeeda-d881-5ace-b805-a67b18f010a0
+:CUSTOM_ID: 1-gambit-direct-reads-and-bounded-findings
+:END:
+
+| ID | Source anchor | Finding / limit |
+|-
+| RG01 | [[file:../../../../../vendor/gambit/gsc/_back.scm][_back.scm]]:17-145; [[file:../../ffi/studies/foreign-plan-contract.org][ForeignPlan]]:sections 1-3 | Existing target negotiation and proposed semantic capture provide issuer boundaries. Complete native root/effect export is not implemented or proved by this reading. |
+| RG02 | [[file:../../../../../vendor/gambit/lib/_kernel.scm][_kernel.scm]]:4505-4524; [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:6580-6587,6802-6803; [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:6511-6538 | Existing RA store, W_ALL, select, R_ALL, RA fetch and register/saved scanning are real mechanisms to preserve. Source branch does not prove every host/profile or wait closure. |
+| RG03 | [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:278-306,674-827,3969-3986 | RC storage has refcount/data, list registration/removal and marking of the header data slot. List head is pstate-associated; arbitrary payload bytes are not registered roots. Plain native RC operations are not a cross-thread scanner/mutation protocol. |
+| RG04 | [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:3490-3600,6667-6755,6839-6863 | Moving mark updates root cells; configured parallel scanning exists. Inspected strong phase calls mark_rc in processor-zero branch. This creates an actual applicability audit, not proof that all RC callers are broken or admitted. |
+| RG05 | [[file:../../../../../vendor/gambit/lib/os_io.c][os_io.c]]:11493-11584 | Current baseline select body stores C arrays, unlocks device queue around device_select, then relocks. No direct collective-GC service call in this body; full transitive/OS/callback reachability remains unresolved. Earlier overlay line ranges are not these baseline ranges. |
+| RG06 | [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:65-91,770-801,1012-1150 | Interrupt sets stack trip and aborts select; synchronous loop executes GC/resize and acknowledges requested operations. Terminating processor execution still services future collective operations. This is not generic native-wait deactivation support. |
+| RG07 | [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:8622-8627,8690-8734,6755-6772 | PSTATE getter/setter/binding and erased/explicit arguments depend on configuration. Single-threaded VM selection uses VM0/P0; multi-VM global cells use owning VM glos. Template possibilities are not installed ABI qualification. |
+| RG08 | [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:4665-4705,4773-4865 | Pstate VM association and VM/P0 setup/cleanup exist. Allocation/setup and resize are not arbitrary host attach, parallel eval/load or lifecycle exclusion proof. |
+| RG09 | [[file:../../../../../vendor/gambit/lib/c_intf.c][c_intf.c]]:6511-6562; [[file:../../../../../vendor/gambit/lib/setup.c][setup.c]]:3276-3424; [[file:../../../../../vendor/gambit/include/gambit.h.in][header]]:10041-10063 | Marker construction/invalidating native return, ___call frames and configured trampoline/nonlocal control are explicit. Source TODO about protecting proc_or_false across allocation is an unresolved effect/root obligation, not a newly reproduced defect. |
+| RG10 | [[file:../../../../../vendor/gambit/lib/mem.c][mem.c]]:1730-1817; [[file:../../../../../vendor/gambit/lib/c_intf.c][c_intf.c]]:1683-1710 | Still/permanent allocation and refcount lifetime restrictions exist; foreign release clears fields before callback and error. Stable address and error return do not imply immortal storage, current aliases or rollback. |
+| RG11 | [[file:../../../../refactoring/zig/studies/njs-executor-storage-cleanup.org][NJS refinement]]:sections 2-6 | Native-only result/custody and Scheme gateway are prior design premises. Worker isolation does not establish runtime ownership or parent wait progress. |
+| RG12 | [[file:../../../../../docs/ffi-gc-frame-protocol.md][frame/GC boundary]], [[file:../../../../../docs/experimental/host-root-registration.md][host roots]], [[file:../../../../../docs/experimental/runtime-entry-contracts.md][entry contracts]], [[file:../../../../../docs/experimental/participant-exit-publication.md][participant exit]], [[file:../../../../../docs/experimental/vm-cell-ownership-contract.md][VM cells]] | Prior conditional mechanisms/models and source/candidate distinctions constrain composition. Their native/refinement exclusions remain. No historical success/failure or current candidate flag is reissued here. |
+
+The RC registration/scan finding requires a complete profile/caller/transfer
+argument. The marker TODO requires tracing actual allocation/effect behavior;
+make_vector is a still/permanent constructor with its own restrictions. Neither
+finding justifies an immediate patch, current native failure claim or blind
+application of an old fix already present in the wrapper.
+
+*** 2. Pinned OCaml 5 Source Comparison
+:PROPERTIES:
+:ID: c5aa4ec3-4622-5eaa-a34a-56bf84738496
+:CUSTOM_ID: 2-pinned-ocaml-5-source-comparison
+:END:
+
+Vendor OCaml HEAD ~46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91~; its VERSION file
+reads 5.5.1. This local source snapshot and the separately read 5.3 manual below
+are different identities, not a claimed installed/coherent reference binary.
+
+| ID | Source | Transferable obligation / boundary |
+|-
+| OC01 | [[file:../../../../../vendor/ocaml/otherlibs/systhreads/caml/threads.h][threads.h]]:31-73 | Registration is distinct from execution lock ownership; selected register-in-domain requires a running domain and does not return holding its lock. Switching domain after unregister is unsupported in this source contract. Gambit receives no attachment API by analogy. |
+| OC02 | [[file:../../../../../vendor/ocaml/runtime/globroots.c][globroots.c]]:28-60,64-100,116-178; [[file:../../../../../vendor/ocaml/runtime/caml/platform.h][platform.h]]:80-108 | Root list/classification and mutation coordinate, and root mutex deliberately requires a lock helper safe when domain release is forbidden. No universal release-on-every-lock rule follows. Gambit root/barrier/member algorithms remain separate. |
+| OC03 | [[file:../../../../../vendor/ocaml/runtime/callback.c][callback.c]]:387-431 | Named registration roots inputs, discards pre-wait string address, reloads from rooted value and updates/registers the stored root. Stable returned slot is not a stable unprotected heap-object pointer or Gambit VM-private cell. |
+
+*** 3. Papers and Published Interface Premises
+:PROPERTIES:
+:ID: cedf6e1c-eaf8-595d-b54d-d6aa60a45d14
+:CUSTOM_ID: 3-papers-and-published-interface-premises
+:END:
+
+These are upstream reading identities, not pinned downloaded bytes. No published
+benchmark or API example was executed or transferred to Gambit.
+
+*RP01.* [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][Retrofitting Parallelism onto OCaml, ICFP 2020]],
+sections 1.1-1.4 and 4.4, makes unified-runtime/sequential/latency objectives and
+C API/collector coupling explicit. Our inference is to compare protocol choices
+and full costs before choosing a new collector or native language. Historical
+prototype choices/results do not qualify current OCaml/Gambit or prescribe BW2.
+
+*RP02.* [[https://ocaml.org/manual/5.3/intfc.html][OCaml 5.3 C interface]],
+sections 5 and 12, distinguishes rooted mutable slots, root update rules,
+thread registration and runtime execution access. Release/reacquire can run
+pending callbacks; released code has managed-access restrictions. The design
+deduction is separate root/ownership/control states, not an equivalent Gambit
+API. Several mechanisms predate OCaml 5.
+
+*RP03.* [[https://ocaml.org/manual/5.3/parallelism.html][OCaml 5.3 parallelism]],
+sections 3-4, describes domain-local allocation, parallel minor/concurrent major
+collection and a memory model. This distinguishes real runtime modernization
+from NJS worker concurrency. No collector, memory model or throughput guarantee
+is imported into Gambit.
+
+*RP04.* [[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Feeley/Miller PVM paper]],
+section 2, supports negotiated semantic/backend object/frame/call boundaries.
+V/E/R/S/P, the proposed facade and cost/migration matrices are our architecture,
+not a historical ABI specification or a paper endorsement of Zig.
+
+*RP05.* [[https://ziglang.org/documentation/0.15.1/][Zig 0.15.1 reference]],
+error/cleanup, C interoperation and lifetime/ownership sections, supplies private
+construction/propagation mechanisms while leaving pointer lifetime to the
+programmer. Our inference is bounded adapter/helper value; no affine/root,
+collector-participation or nonlocal-control proof follows.
+
+The 2018 native/C interoperability PDF could not be reopened after two attempts
+this turn. Earlier paper notes remain historical context; no additional algorithm,
+ABI or benchmark claim is based on the failed fetch. No repeated native probe was
+used to substitute for missing paper or runtime evidence.
+
+*** 4. Evidence-to-Decision and Open Gates
+:PROPERTIES:
+:ID: 782b42e8-292d-5b59-be9b-d12896539f54
+:CUSTOM_ID: 4-evidence-to-decision-and-open-gates
+:END:
+
+RT01-RT07, BW0-BW3, VE01-VE08, RB01-RB14, KC01-KC08, RR01-RR07 and RM00-RM08
+are explicit proposed obligations/accounting units, not implementation counts or
+native coverage. Five independent conditions are logical distinctions, not five
+implemented locks, allocations or mandatory new token ABIs.
+
+Open: actual configured/profile/caller census; RC owner/scan coverage; root slot
+storage/update/withdrawal; full wait/lock/signal/service reachability; marker and
+transitive converter effects; legal nonlocal control; host/VM execution and
+binding; detached-member/root-carrier refinement; teardown/readers/last return;
+mixed backend ABI/frame/GC; and bounded incremental engineering costs. Existing
+finite/formal/historical native results are not recomposed by assertion. No
+retirement, theory gate, runtime acceptance or performance benefit is issued.
+
+*** 5. Focused Owned-Entry Follow-Up
+:PROPERTIES:
+:ID: 6f9a4955-1e77-5ada-bad2-e29b4e8eea9d
+:CUSTOM_ID: 5-focused-owned-entry-follow-up
+:END:
+
+The [[file:../../ffi/studies/owned-callback-wait-evidence.org][OW01-OW14 / OO01-OO06 ledger]] traces the RG03/RG04/RG05/RG07/RG09 gaps further. Actual dynamic closure allocation uses the implicit current processor and managed RC data; marker still allocation reaches GC; global closure identity and conditional TLS/binding require independent treatment. Actual wait callers and interrupt/sync service are now distinguished, with virtual-method/lock/checkpoint/OS closure still unresolved. This strengthens the source obligations without reproducing a defect or upgrading any old native receipt.

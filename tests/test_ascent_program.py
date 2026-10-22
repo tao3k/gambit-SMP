@@ -238,6 +238,19 @@ class NativeAuditTests(unittest.TestCase):
         self.assertTrue(retained["nativeResultReused"])
         self.assertEqual(metrics["sessionOwner"], retained["sessionOwner"])
 
+    def test_runtime_storage_observation_is_available_to_configurable_scheme_without_admission(self):
+        from gambit_smp.evidence_capabilities import facts
+        step = dict(id='runtime', capability='gambit.runtime-import', dependsOn=['source'], arguments={},
+                    outcome='PASS', commands=[], runtimeAdmitted=False,
+                    workspaceReuse=dict(sourceContentId='verified-content', mode='same-producer-workspace', copiedFiles=0))
+        catalog = load_evidence_catalog(ROOT/'evidence/research/incremental-builds/runtime-storage.ss',
+                                        constructor='make-runtime-storage-observations', trusted=True)
+        result, _ = evaluate(self.engine, facts({'steps':[step]}), catalog,
+                             {'storage':'recorded_runtime_storage'})
+        self.assertEqual([('runtime', 'same-producer-workspace', 'verified-content', 0)], result['storage'])
+        with self.assertRaisesRegex(ValueError, 'declared native ASCENT relations'):
+            evaluate(self.engine, facts({'steps':[step]}), catalog, {'admitted':'runtime_admitted'})
+
     def test_decoded_rules_cannot_select_a_python_execution_fallback(self):
         catalog = self.engine.read_rules("(ascent-fragment (relation input ((value symbol?))))")
         with self.assertRaisesRegex(ValueError, "decoded rule dictionaries"):

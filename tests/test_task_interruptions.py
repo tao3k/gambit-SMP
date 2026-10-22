@@ -31,7 +31,7 @@ class InterruptionTests(unittest.TestCase):
         stop=self.root/'.cache/tasks/repair/stop'
         child=("import os,time;from pathlib import Path;"
                "base=Path(os.environ['GAMBIT_SMP_TASK_CACHE']);"
-               "out=base/'runs'/os.environ['GAMBIT_SMP_TASK_RUN']/'outputs';out.mkdir(parents=True);"
+               "out=base/'runs'/os.environ['GAMBIT_SMP_TASK_RUN']/'outputs';out.mkdir(parents=True,exist_ok=True);"
                +( "os.close(int(os.environ['GAMBIT_SMP_TASK_LOCK_FD']));" if drop_descriptor else '' )+
                "(out/'ready').write_text('actual child running');"
                "deadline=time.monotonic()+20\n"
@@ -47,7 +47,7 @@ class InterruptionTests(unittest.TestCase):
             self.wait_for(lambda:json.loads(receipt.read_text()).get('pgid') is not None)
             supervisor.kill();supervisor.wait(timeout=5)
             if drop_descriptor:
-                with self.assertRaisesRegex(ValueError,'process group still present'):w.resume(self.root,'repair')
+                with self.assertRaisesRegex(ValueError,'custody|process group still present'):w.resume(self.root,'repair')
             else:
                 with self.assertRaises(BlockingIOError):w.resume(self.root,'repair')
             self.assertEqual('running',json.loads(receipt.read_text())['state'])

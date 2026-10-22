@@ -5,6 +5,8 @@ runtime. Native adapters and Evidence rules must authorize any consumption.
 """
 import hashlib
 import json
+import math
+import time
 from pathlib import Path
 from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
 
@@ -70,7 +72,8 @@ def _support_inventories(root, records):
     return inventories
 
 
-def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, quiescent, support, inventories, declaration=None):
+def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, quiescent, support, inventories, declaration=None,
+                          execution=None):
     """Transport verified observations to the registered Scheme policy."""
     from gambit_smp.ascent_program import load_component_catalog, query
     from gambit_smp.framework import ROOT
@@ -80,7 +83,10 @@ def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, qu
         "binding", "required_binding", "current_binding", "command", "command_observation",
         "prerequisite", "quiescent", "material", "available", "withdrawn",
         "required_step", "recorded_failure", "receipt_checked", "campaign_pass",
-        "output_retained", "execution_quiescent", "campaign_required", "campaign_enumerated")}
+        "output_retained", "execution_quiescent", "campaign_required", "campaign_enumerated",
+        "execution_location", "execution_process", "execution_end", "execution_sample", "execution_custody")}
+    for name, values in (execution or {}).items():
+        facts[name].extend(values)
     facts["required_step"] = [(name,) for name in names]
     facts["requirement"] = [(name,) for name in names]
     if declaration is not None:
@@ -153,7 +159,9 @@ def _resumption_relations(rows, names, inspection, *, checked, campaign_pass, qu
     queries = {key: key for key in ("historical_complete", "reusable", "satisfied",
         "artifact_unavailable", "historical_only", "unresolved", "invalidated", "failed", "campaign_reusable",
         "consumable", "binding_gap", "invalidated_by", "enumeration_gap",
-        "support_declaration", "support_witness", "closed_support")}
+        "support_declaration", "support_witness", "closed_support",
+        "execution_pending", "execution_frontier", "execution_unattributed", "execution_detached",
+        "failed_attempt_history")}
     answers = query(facts, catalog, queries)
     if any(digest(Path(path)) != sha for path, sha in catalog["sourceInputs"].items()):
         raise ValueError("checkpoint rules changed during resumption inspection")
@@ -281,6 +289,7 @@ def interrupted_resumption(root, run):
                                        for ref in references.values()):
         raise ValueError("journal changed during resumption inspection")
     state = {"schema": "research-resumption-state.v1", "scope": "recipe-stages-not-cumulative-milestone-count",
+             "run": run.relative_to(root).as_posix(),
              "recordedRecipe": header["recipe"], "recordedEngineId": header["engineId"],
              "recordedInputIdentity": content_id(header["inputs"]),
              "headerSha256": expected["sha256"], "historyStatus": "COMMITTED_PREFIX",
@@ -291,6 +300,89 @@ def interrupted_resumption(root, run):
     return {"recipe": header["recipe"], "engineId": header["engineId"], "outcome": "INCOMPLETE",
             "recordedOutcome": None, "identityStatus": "INCOMPLETE", **inspection,
             "resumption": state, "runtimeAdmitted": False, "sourceRefinementAdmitted": False}
+
+
+def execution_observations(run, records, names):
+    """Observe committed process records and the kernel; Scheme projects state."""
+    from gambit_smp.research_kernel import clock_epoch
+    from gambit_smp.process_identity import process, same_birth
+    from gambit_smp.process_observation import probe_group
+    import time
+    facts = {name: [] for name in ('execution_location', 'execution_process', 'execution_end', 'execution_sample',
+                                   'execution_custody')}
+    observations, by_token = [], {}
+    epoch = clock_epoch()
+    for entry in records:
+        value = entry['payload']
+        if value.get('schema') != 'research-process-observation.v1':
+            continue
+        by_token.setdefault(value['token'], []).append((value, entry))
+    for token, entries in by_token.items():
+        events = {value['event']: value for value, _ in entries}
+        planned, started = events.get('planned', {}), events.get('started', {})
+        cwd = Path(planned.get('cwd', ''))
+        if cwd.is_absolute() and cwd.is_relative_to(run / 'run'):
+            parts = cwd.relative_to(run / 'run').parts
+            if parts and parts[0] in names:
+                facts['execution_location'].append((token, parts[0]))
+        if 'finished' in events or 'spawn-failed' in events:
+            facts['execution_end'].append((token,))
+        pid = started.get('pid')
+        if type(pid) is int and pid > 1:
+            state = 'unknown'
+            if epoch is not None and started.get('clockEpoch') == epoch:
+                try:
+                    quiet, _ = probe_group(pid, time.monotonic() + .05)
+                    state = 'absent' if quiet is True else 'present-unattributed' if quiet is False else 'unknown'
+                    birth = started.get('birth', {}).get('process')
+                    if not quiet and birth and same_birth(birth, process(pid)):
+                        state = 'present'
+                except OSError:
+                    state = 'unknown'
+            facts['execution_process'].append((token, pid, state))
+        for value, entry in entries:
+            if value['event'] != 'progress':
+                continue
+            count, at = value.get('count'), value.get('observedMonotonic')
+            if type(count) is not int or count <= 0 or type(at) not in (int, float) or not math.isfinite(at):
+                raise ValueError('invalid committed completed-work observation')
+            reference = entry['observation']
+            # Clue catalog scalars use integral time units, not floating tags.
+            facts['execution_sample'].append((token, count, round(at * 1_000_000_000), reference))
+            observations.append(dict(reference=reference, token=token, count=count, monotonic=at,
+                clockEpoch=value.get('clockEpoch'), clockContinuous=epoch is not None and value.get('clockEpoch') == epoch,
+                witness=value.get('witness'), path=entry['path']))
+    return facts, observations
+
+
+def execution_owner(root, run):
+    """Read the existing task-run custody record; return status is not AI success."""
+    from gambit_smp.workspace import bounded
+    try:
+        parts = run.relative_to(root / '.cache/tasks').parts
+    except ValueError:
+        return None
+    if len(parts) < 3:
+        return None
+    task = parts[0]
+    if parts[1] == 'runs':
+        owner = bounded(root, f'.state/task-runs/{task}/{parts[2]}.json')
+        output = root / '.cache/tasks' / task / 'runs' / parts[2]
+    elif len(parts) >= 5 and parts[1] == 'processes' and parts[3] == 'runs':
+        owner = bounded(root, f'.state/work-process-runs/{task}/{parts[2]}/{parts[4]}.json')
+        output = root / '.cache/tasks' / task / 'processes' / parts[2] / 'runs' / parts[4]
+    else:
+        return None
+    if not owner.is_file():
+        return None
+    raw = owner.read_bytes()
+    value = json.loads(raw)
+    if value.get('task') != task or Path(value.get('output', '')) != output:
+        return dict(provider='unknown', recordedTaskState='unknown', bindingStatus='MISMATCH',
+                    reference=hashlib.sha256(raw).hexdigest(), path=str(owner), sessionCompletionObserved=False)
+    return dict(provider=value['provider'], recordedTaskState=value['state'],
+                reference=hashlib.sha256(raw).hexdigest(), path=str(owner), bindingStatus='CURRENT',
+                sessionCompletionObserved=False)
 
 
 def recovered_resumption(root, run, *, require_current_prefix=True):
@@ -345,7 +437,6 @@ def recovered_resumption(root, run, *, require_current_prefix=True):
     if not parent_complete and processes:
         from gambit_smp.research_kernel import clock_epoch
         from gambit_smp.process_observation import probe_group
-        import time
         epoch = clock_epoch()
         absent = True
         for events in processes.values():
@@ -365,9 +456,14 @@ def recovered_resumption(root, run, *, require_current_prefix=True):
                 break
         quiescence = {"observed": absent, "basis": "recorded-births-reobserved"}
     names = list(header.get("stepBudgets", {})) or [row["id"] for row in rows]
+    execution, progress_observations = execution_observations(run, records, names)
+    owner = execution_owner(root, run)
+    if owner is not None and owner.get('bindingStatus', 'CURRENT') == 'CURRENT':
+        execution['execution_custody'] = [(owner['provider'], owner['recordedTaskState'], owner['reference'])]
     relations, rules = _resumption_relations(rows, names, inspection, checked=True,
         campaign_pass=terminal is not None and terminal.get("outcome") == "PASS", quiescent=quiescence["observed"],
-        support=support, inventories=_support_inventories(root, records), declaration=header.get("declaration"))
+        support=support, inventories=_support_inventories(root, records), declaration=header.get("declaration"),
+        execution=execution)
     current = not relations["binding_gap"]
     inspection["evidenceBindingStatus"] = "CURRENT" if current else "STALE"
     observed_head = execution_checkpoint_head(root, run)
@@ -379,9 +475,16 @@ def recovered_resumption(root, run, *, require_current_prefix=True):
              "recordedInputIdentity": content_id(header["inputs"]), "historyStatus": "COMMITTED_PREFIX",
              "recordedInputs": dict(header["inputs"]),
              "prefixIdentity": prefix["prefixIdentity"], "requiredSteps": names, "relations": relations,
+             "run": run.relative_to(root).as_posix(),
              "observedHeadIdentity": observed_head, "prefixStillHead": prefix_is_head,
              "rules": rules, "parentCompletionObserved": parent_complete, "executionQuiescence": quiescence,
-             "executionAuthorized": False, "runtimeAdmitted": False}
+             "executionAuthorized": False, "runtimeAdmitted": False,
+             "executionObservation": {"processes": execution['execution_process'],
+                 "owner": owner,
+                 "progress": [row for row in progress_observations if row['reference'] in
+                              {entry[4] for entry in relations['execution_frontier']}],
+                 "completionCountsArePasses": False, "deadlockEstablished": False,
+                 "observedMonotonic": time.monotonic()}}
     return {"recipe": header["recipe"], "engineId": header["engineId"],
             "outcome": terminal["outcome"] if terminal else "INCOMPLETE",
             "recordedOutcome": terminal["outcome"] if terminal else None,
@@ -463,9 +566,10 @@ def journal_closure(root, run, outer, header, observations, target):
                 or record.get("runId") != header["runId"] or record.get("header") != reference
                 or record.get("step", {}).get("id") != name):
             raise ValueError("journal stage belongs to another producer")
+        expected_queries = normalized({"run_record": [record]})
         candidates = [identity for identity, body in observations.items()
                       if body.get("scope") == reference["scope"] and
-                      body.get("queries") == normalized({"run_record": [record]})]
+                      body.get("queries") == expected_queries]
         if len(candidates) != 1:
             raise ValueError("journal stage lacks one immutable observation binding")
         actual = {"path": str(path), "sha256": sha, "observation": candidates[0],
@@ -515,6 +619,56 @@ def journal_closure(root, run, outer, header, observations, target):
 
     read(target)
     return ancestry(list(rows.values()), target), references
+
+
+def observe_stage_record(root, path, engine):
+    """Consume a committed phase, not an absent or failed aggregate receipt."""
+    from gambit_smp.reasoning_history import read_execution_checkpoint, read_journal, execution_checkpoint_head
+    from gambit_smp.recipes import read_json
+    root, path = Path(root).resolve(strict=True), Path(path)
+    if path.is_symlink() or path.parent.name != "run" or not path.name.endswith(".observation.json"):
+        raise ValueError("bounded stage observation path required")
+    run = path.parent.parent.resolve(strict=True)
+    observation_root(root, run)
+    prefix = read_execution_checkpoint(root, run)
+    records = prefix["records"]
+    if not records or records[0]["payload"].get("schema") != "research-run-header.v1":
+        raise ValueError("committed producer header required")
+    header = records[0]["payload"]
+    selected = [entry for entry in records if entry["path"] == str(path)]
+    if len(selected) != 1 or selected[0]["payload"] != read_json(path):
+        raise ValueError("stage differs from its committed observation")
+    record = selected[0]["payload"]
+    if record.get("schema") != "research-step-observation.v1" or header["engineId"] != engine["engineId"]:
+        raise ValueError("stage producer generation differs from pinned seal")
+    reference = record["header"]
+    header_path = run / "run-header.json"
+    if (reference["path"] != str(header_path) or header_path.is_symlink()
+            or digest(header_path) != reference["sha256"] or read_json(header_path) != header):
+        raise ValueError("stage header identity changed")
+    history = read_journal(root, reference["scope"])["observations"]
+    context = {"journal": reference, "inputs": header["inputs"]}
+    target = record["step"]["id"]
+    closure, references = journal_closure(root, run, context, header, history, target)
+    if not set(row["id"] for row in closure) <= set(_support_inventories(root, records)):
+        raise ValueError("stage support enumeration witness incomplete")
+    state = recovered_resumption(root, run)["resumption"]
+    if (state["prefixIdentity"] != prefix["prefixIdentity"]
+            or not any(row[0] == target for row in state["relations"]["consumable"])):
+        raise ValueError("Scheme checkpoint does not admit this phase for consumption")
+    if execution_checkpoint_head(root, run) != prefix["prefixIdentity"]:
+        raise ValueError("stage producer changed during consumption")
+    terminal = [entry['payload']['outer'] for entry in records
+                if entry['payload'].get('schema') == 'research-terminal-observation.v1']
+    proof = {"schema": "committed-stage-checkpoint.v1", "run": fixture_name(root, run),
+             "step": target, "engineId": engine["engineId"], "prefixIdentity": prefix["prefixIdentity"],
+             "stageReferences": {name: {**ref, "path": Path(ref["path"]).relative_to(root).as_posix()}
+                                 for name, ref in references.items()},
+             "parentCompletionObserved": state["parentCompletionObserved"],
+             "campaignOutcome": terminal[-1]['outcome'] if terminal else "INCOMPLETE",
+             "runtimeAdmitted": False, "resumptionAuthorized": False,
+             "missingChildReceiptReconstructed": False}
+    return proof, header, closure, run
 
 
 def observe_journal(root, run, target, *, historical=False):

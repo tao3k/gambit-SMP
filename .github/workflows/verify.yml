@@ -24,9 +24,18 @@ jobs:
           java-version: '21'
       - name: Install the pinned Lean compiler for the proof controls
         run: |
-          curl --fail --location --silent --show-error https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-all-errors --silent --show-error https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
-          "$HOME/.elan/bin/elan" toolchain install "$(cat models/library/lean/lean-toolchain)"
+          toolchain="$(cat models/library/lean/lean-toolchain)"
+          for attempt in 1 2 3; do
+            if "$HOME/.elan/bin/elan" toolchain install "$toolchain"; then
+              break
+            fi
+            test "$attempt" -lt 3
+            sleep "$attempt"
+          done
+          "$HOME/.elan/bin/elan" run "$toolchain" lean --version
       - name: Install fixed formal verification tools into local cache
         run: |
           mkdir -p .cache/tasks/repair-9-12/ci/formal/apalache
@@ -41,12 +50,12 @@ jobs:
           echo "QUINT_HOME=$GITHUB_WORKSPACE/.cache/tasks/repair-9-12/ci/formal/quint-home" >> "$GITHUB_ENV"
           echo "QUINT_TLC_JAR=$GITHUB_WORKSPACE/.cache/tasks/repair-9-12/ci/formal/apalache/lib/apalache.jar" >> "$GITHUB_ENV"
       - name: Seal the fixed framework and installed Library
-        run: uv run --no-sync gambit-smp research --seal .cache/tasks/repair-9-12/ci/engine --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
+        run: uv run --no-sync gambit-smp --task repair-9-12 research --seal .cache/tasks/repair-9-12/ci/engine --gcc "$(command -v gcc)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib import Path; print(Path(ascent.__file__).parent)')"
       - name: Validate the complete framework including declared sealed domains
         env:
           GAMBIT_SMP_TEST_ENGINE: ${{ github.workspace }}/.cache/tasks/repair-9-12/ci/engine
-        run: uv run --no-sync python -m gambit_smp.review_validation --profile full --out .cache/tasks/repair-9-12/ci/framework-validation
-      - run: uv run --no-sync gambit-smp evidence --validate
+        run: uv run --no-sync gambit-smp --task repair-9-12 validate-review --profile full --out .cache/tasks/repair-9-12/ci/framework-validation
+      - run: uv run --no-sync gambit-smp --task repair-9-12 evidence --validate
       - uses: actions/upload-artifact@v4
         if: ${{ always() && hashFiles('.cache/tasks/repair-9-12/ci/framework-validation/**') != '' }}
         with:

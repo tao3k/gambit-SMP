@@ -69,7 +69,7 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
                         self.assertLessEqual({name.strip() for name in names},
                                              {"propext", "Classical.choice", "Quot.sound"})
 
-    def test_quint_safety_and_eight_decoded_counterexamples(self):
+    def test_quint_safety_and_decoded_counterexamples(self):
         quint = shutil.which("quint")
         self.assertIsNotNone(quint, "actual Quint required; no skip")
         jar = Path(os.environ.get("QUINT_TLC_JAR", str(ROOT / ".data/tools/apalache-0.62.1/lib/apalache.jar")))
@@ -77,7 +77,7 @@ class ResearchFunnelProtocolTests(unittest.TestCase):
         self.inputs.update({str(Path(quint).resolve()): digest(Path(quint).resolve()),
                             str(jar): digest(jar)})
         variants = ("Checked", "Early", "Model", "Bootstrap", "Stale", "Launch", "History",
-                    "Unknown", "Authorization")
+                    "Unknown", "Authorization", "Projection", "Hypothesis", "Forget")
 
         def verify(variant):
             out = self.out / variant

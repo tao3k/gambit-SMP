@@ -1,0 +1,26 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "owner-close-phase-controls",
+  "scope": "Existing finalization model: executable traces, exhaustive completed-close safety and the obsolete review-clock counterexample. Model/host protocol only, no Gambit source materialization, native execution or acceptance.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": ["models/gambit/execution_finalization_custody.qnt", "evidence/research/execution/entry.json", "evidence/dsl/execution.ss"],
+  "steps": [
+    {"id": "parse", "capability": "quint.parse", "dependsOn": [], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt", "parsed": "parse"}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt", "parsed": "parse",
+       "main": "execution_finalization_custody", "seed": "0x1510", "maxSamples": 1,
+       "expectedTests": ["completedOverrunTest", "completedReviewDoesNotExpireOwnerTest", "falsePassControlTest", "oldReviewClockRejectsReapedOwnerTest", "stalledOwnerRemainsRejectedTest", "unfinishedTimeoutTest", "wallKillControlTest"]}},
+    {"id": "obsolete-review-clock", "capability": "quint.verify", "dependsOn": ["parse", "typecheck", "trajectories"], "budgetSeconds": 60,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt", "parsed": "parse",
+       "initializer": "initReviewClock", "step": "step", "invariant": "safe", "negative": true}},
+    {"id": "phase-correct", "capability": "quint.verify", "dependsOn": ["parse", "typecheck", "trajectories"], "budgetSeconds": 60,
+     "arguments": {"source": "models/gambit/execution_finalization_custody.qnt", "parsed": "parse",
+       "initializer": "init", "step": "step", "invariant": "safe", "negative": false}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["parse", "typecheck", "trajectories", "obsolete-review-clock", "phase-correct"], "budgetSeconds": 10,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+       "queries": {"missing": "missing_step"}, "expected": {"missing": []}}}
+  ]
+}

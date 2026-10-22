@@ -3,6 +3,22 @@ import json
 from pathlib import Path
 
 
+def build_recovery_links(root, product):
+    """Read a product's explicit generated-link cleanup boundary, not source policy."""
+    import os
+    task=os.environ.get('GAMBIT_SMP_TASK_ID')
+    if not task:raise ValueError('build recovery requires task custody')
+    links=admit(root,task,os.environ.get('GAMBIT_SMP_TASK_PROCESS')).get(
+        'buildProducts',{}).get(product,{}).get('recoveryLinks',{})
+    if not isinstance(links,dict):raise ValueError('registered recovery link map required')
+    from gambit_smp.source_capabilities import source_name
+    for name,target in links.items():
+        source_name(name)
+        if type(target) is not str or not target or '\0' in target or Path(target).is_absolute():
+            raise ValueError('relative registered recovery link target required')
+    return links
+
+
 def admit(root,task,process=None):
     from gambit_smp.workspace import bounded,identifier
     root=Path(root).resolve();identifier(task)

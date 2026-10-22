@@ -8,7 +8,7 @@ from contextlib import nullcontext
 from contextvars import ContextVar
 from functools import wraps
 
-from gambit_smp.task_entry import _dispatch
+from gambit_smp.task_entry import _dispatch, _observation_address, _observation_presenter
 
 
 COMMANDS = {
@@ -59,6 +59,20 @@ HISTORICAL_PRODUCERS = frozenset({"source-unit", "ffi-source-unit", "sync-schedu
                                  "gc-queue-binding", "allocator-acquire", "allocator-object", "bootstrap"})
 
 
+def observation_evidence(result, root):
+    """Present registered references without changing native receipt admission."""
+    recipe = result.get('recipe')
+    if not isinstance(recipe, str) or not recipe:
+        return result
+    from gambit_smp.trajectory_exploration import repository_clues
+    enriched = dict(result)
+    try:
+        enriched['evidence'] = repository_clues(root, bindings=[['recipe', recipe]])
+    except (OSError, ValueError, RuntimeError) as error:
+        enriched['evidenceError'] = str(error)
+    return enriched
+
+
 def main(argv=None, *, _callback=None):
     parser = argparse.ArgumentParser(description=__doc__, epilog=
         "trajectory clues: Scheme requests over registered Evidence and caller-owned DSL; "
@@ -85,8 +99,13 @@ def main(argv=None, *, _callback=None):
     target = _callback or adapter.main
     def invoke():
         token=_dispatch.set(True)
+        address=_observation_address.set((selected_root, args.task or os.environ.get('GAMBIT_SMP_TASK_ID')))
+        presenter=_observation_presenter.set(lambda result: observation_evidence(result, selected_root))
         try:return target()
-        finally:_dispatch.reset(token)
+        finally:
+            _observation_presenter.reset(presenter)
+            _observation_address.reset(address)
+            _dispatch.reset(token)
     previous = sys.argv
     try:
         sys.argv = ["gambit-smp " + args.command, *args.arguments]
@@ -101,7 +120,7 @@ def main(argv=None, *, _callback=None):
             parser.error("workspace maintenance has its own task arguments")
         policy = getattr(adapter, "execution_policy", None)
         if not maintenance and "--help" not in args.arguments and policy is not None:
-            if policy(args.arguments) == "read":
+            if policy(args.arguments) in {"read", "journal"}:
                 return invoke()
         task = args.task or os.environ.get("GAMBIT_SMP_TASK_ID") or default_task(selected_root)
         if args.command=='tool' and args.arguments[:1]==['grok-event-wait']:

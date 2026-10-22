@@ -32,8 +32,8 @@ class Context:
         return max(0.001, self.deadline - time.monotonic())
     def publish(self, name, kind, path):
         return {name: {"type": kind, "path": str(path)}}
-    def run(self, name, argv, cwd, cap):
-        result = capture([str(arg) for arg in argv], cwd, min(cap, self.remaining()), self.env)
+    def run(self, name, argv, cwd, cap, **options):
+        result = capture([str(arg) for arg in argv], cwd, min(cap, self.remaining()), self.env, **options)
         self.commands.append({"stage": name, "argv": list(map(str, argv)),
             "exit": result.exit, "timeout": result.timeout,
             "parentReaped": True, "processGroupQuiescent": result.group_quiescent})
@@ -72,6 +72,25 @@ class UpstreamTestContracts(unittest.TestCase):
 
     def makefile(self, body):
         (self.root / "runtime/tests/makefile").write_text(body)
+
+    def test_import_preflight_uses_the_existing_scope_dsl_without_make_or_fixture_copy(self):
+        from gambit_smp.upstream_tests import preflight_import
+        self.makefile('test1:\n\t@true\ntest5:\n\t@true\n')
+        ctx = Context(self.root)
+        ctx.planned_steps = [dict(id='runtime', capability='gambit.runtime-import',
+            arguments=dict(source=dict(step='output', output='source'))),
+            dict(id='official', capability='gambit.upstream-tests', arguments=self.args)]
+        result = preflight_import(ctx, self.root/'runtime')
+        self.assertEqual(['official'], [row['step'] for row in result])
+        self.assertEqual(['test1', 'test5'], result[0]['operations'])
+        self.assertFalse(result[0]['fixtureInventoryChecked'])
+        self.assertFalse(result[0]['runtimeAdmitted'])
+        self.assertEqual([], ctx.commands)
+        self.assertFalse((ctx.directory/'source').exists())
+        self.contract_mock.side_effect = ValueError('configured/source target headers differ')
+        with self.assertRaisesRegex(ValueError, 'configured/source target headers'):
+            preflight_import(ctx, self.root/'runtime')
+        self.assertEqual([], ctx.commands)
 
     def observations(self, ctx):
         return json.loads((ctx.directory / "upstream-observations.json").read_text())
@@ -201,7 +220,12 @@ class UpstreamTestContracts(unittest.TestCase):
             execute(self.args, ctx)
         row = self.observations(ctx)
         self.assertIs(row["timeout"], True)
-        self.assertEqual(-9, row["exit"])
+        # Make may observe its killed recipe and return 2 before the group
+        # kill reaches Make itself. Preserve that actual exit, not a synthetic
+        # -9; timeout and the real teardown observation are separate facts.
+        self.assertNotEqual(0, row["exit"])
+        self.assertEqual(ctx.commands[-1]["exit"], row["exit"])
+        self.assertIs(row["processGroupQuiescent"], True)
         self.assertEqual(ctx.commands[-1]["processGroupQuiescent"], row["processGroupQuiescent"])
 
     def test_undeclared_target_and_shadowing_file_never_launch_make(self):
@@ -224,6 +248,46 @@ class UpstreamTestContracts(unittest.TestCase):
         self.assertIsNone(row["executionStarted"])
         self.assertNotIn("exit", row)
 
+    def test_real_make_target_processor_override_does_not_reach_sibling(self):
+        self.contract['unitModes'] = {}
+        self.makefile('test1:\n\t@printf "%s" "$$GAMBOPT" > first.env\ntest5:\n\t@printf "%s" "$${GAMBOPT-unset}" > sibling.env\n')
+        gsi = self.root/'runtime/gsi/gsi'; gsi.parent.mkdir()
+        gsi.write_text('#!/bin/sh\nvalue=${GAMBOPT:-p1}\nprintf "%s" "${value#p}"\n')
+        gsi.chmod(0o755)
+        ctx = Context(self.root)
+        ctx.env.pop('GAMBOPT',None)
+        execute({**self.args,'targetProcessors':{'test1':1}},ctx)
+        self.assertEqual('p1',(self.root/'runtime/tests/first.env').read_text())
+        self.assertEqual('unset',(self.root/'runtime/tests/sibling.env').read_text())
+        self.assertNotIn('GAMBOPT',ctx.env)
+        row = json.loads((ctx.directory/'upstream-observations.json').read_text())
+        self.assertEqual({'test1':1},row['processorConfiguration']['targets'])
+
+    def test_make_adopts_and_measures_the_same_producer_environment_population(self):
+        self.makefile('test1:\n\t@printf "%s" "$$GAMBOPT" > first.env\ntest5:\n\t@printf "%s" "$$GAMBOPT" > sibling.env\n')
+        gsi = self.root/'runtime/gsi/gsi'; gsi.parent.mkdir()
+        gsi.write_text('#!/bin/sh\nvalue=${GAMBOPT:-p6}\nprintf "%s" "${value#p}"\n')
+        gsi.chmod(0o755)
+        observation = self.root/'environment.json'
+        observation.write_text(json.dumps({'processors':1}))
+        ctx = Context(self.root)
+        original = ctx.artifact
+        ctx.artifact = lambda ref,kind: observation if kind == 'current-producer-observation' else original(ref,kind)
+        execute({**self.args,'environmentProbe':{'step':'environment','output':'observation'}},ctx)
+        self.assertEqual('p1',(self.root/'runtime/tests/first.env').read_text())
+        self.assertEqual('p1',(self.root/'runtime/tests/sibling.env').read_text())
+        row=json.loads((ctx.directory/'upstream-observations.json').read_text())
+        self.assertEqual([{'target':'default','processors':1}],row['processorConfiguration']['observed'])
+
+    def test_processor_override_cannot_narrow_unit_suite_or_dependency_closure(self):
+        from gambit_smp.upstream_tests import validate_target_processors
+        with self.assertRaisesRegex(ValueError,'non-unit'):
+            validate_target_processors({'targetProcessors':{'test1':1}},self.contract,['test1'])
+        self.contract['unitModes'] = {}
+        self.contract['targets']['test1']['dependencies'] = ['test5']
+        with self.assertRaisesRegex(ValueError,'non-unit'):
+            validate_target_processors({'targetProcessors':{'test1':1}},self.contract,['test1','test5'])
+
     def test_source_headers_and_scope_policy_are_actually_bound(self):
         self.contract_mock.stop()
         for name in POLICIES:
@@ -236,17 +300,20 @@ class UpstreamTestContracts(unittest.TestCase):
         ctx = Context(self.root)
         manifest = {"files": {sealed: digest(self.root / name) for name, sealed in POLICIES.items()}}
         with patch("gambit_smp.research_kernel.manifest_paths", return_value=manifest):
-            contract, _ = scope_contract(ctx, self.root / "runtime")
+            with self.assertRaisesRegex(ValueError, 'headers'):
+                scope_contract(ctx, self.root / 'runtime')
+            declaration = 'evidence/research/incremental-builds/qualified-upstream-tests.json'
+            contract, _ = scope_contract(ctx, self.root / "runtime", declaration=declaration)
             self.assertEqual(["test7"], contract["targets"]["test9"]["dependencies"])
             self.makefile(template.read_text().replace("test9: test7", "test9:"))
             with self.assertRaisesRegex(ValueError, "headers"):
-                scope_contract(ctx, self.root / "runtime")
+                scope_contract(ctx, self.root / "runtime", declaration=declaration)
             self.makefile(template.read_text())
             data = json.loads((self.root / CONTRACT).read_text())
             data["targets"]["test11"]["unitSelections"] = []
             (self.root / CONTRACT).write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError, "sealed"):
-                scope_contract(ctx, self.root / "runtime")
+                scope_contract(ctx, self.root / "runtime", declaration=declaration)
 
     def test_official_check_unit_mode_has_source_witness(self):
         source = (ROOT / "vendor/gambit/tests/makefile.in").read_text()
@@ -421,8 +488,43 @@ class UpstreamTestContracts(unittest.TestCase):
         self.assertEqual(source.read_bytes(),
                          (call.args[5] / "12-os/process_spawn.scm").read_bytes())
         self.assertFalse((self.root / "runtime/tests/unit-tests/12-os/process_spawn.scm").exists())
-        self.assertNotEqual(call.args[2], self.root / "runtime")
+        self.assertEqual(call.args[2], self.root / "runtime")
+        self.assertFalse((ctx.directory / "source").exists())
         official_runtime = self.root / "official-runtime"
         shutil.copytree(self.root / "runtime", official_runtime)
         native_capabilities.additional_fixtures(target_args, ctx, official_runtime / "tests/unit-tests")
-        self.assertEqual(recipes.tree_identity(call.args[2]), recipes.tree_identity(official_runtime))
+        from gambit_smp.native_review import campaign_tree_identity
+        self.assertEqual(campaign_tree_identity(call.args[2], call.args[5]),
+                         recipes.tree_identity(official_runtime))
+        (call.args[5] / "12-os/process_spawn.scm").write_text("drift")
+        self.assertNotEqual(campaign_tree_identity(call.args[2], call.args[5]),
+                            recipes.tree_identity(official_runtime))
+
+
+class ActualFileBudgetTransportTests(unittest.TestCase):
+    def observe(self, body, cap):
+        import sys
+        from gambit_smp.upstream_tests import FileBudgetGuard
+        guard = FileBudgetGuard({'13-modules/prim_port.scm': cap})
+        with tempfile.TemporaryDirectory() as directory:
+            result = capture([sys.executable, '-c', body], Path(directory), 2,
+                             dict(os.environ), boundary=guard)
+        return result, guard
+
+    def test_actual_hanging_file_is_killed_before_whole_deadline(self):
+        result, guard = self.observe(
+            'import time; print("[  0|  0] 0% ... 0.0s 13-modules/prim_port.scm",flush=True); time.sleep(10)', .15)
+        self.assertTrue(result.timeout)
+        self.assertLess(result.seconds, 1)
+        self.assertIsNotNone(result.exit)
+        self.assertTrue(result.group_quiescent)
+        self.assertEqual('TIMEOUT', guard.rows[0]['outcome'])
+
+    def test_actual_completed_interval_and_missing_protocol_are_distinct(self):
+        result, guard = self.observe(
+            'import time; print("[  0|  0] 0% ... 0.0s 13-modules/prim_port.scm",flush=True); time.sleep(.1); print("[  1|  0] 100% ... 0.1s",flush=True)', .5)
+        self.assertFalse(result.timeout); self.assertEqual(0, result.exit)
+        guard.complete()
+        result, missing = self.observe('print("no file frame")', .15)
+        self.assertEqual(0, result.exit)
+        with self.assertRaisesRegex(ValueError, 'every required real file interval'):missing.complete()

@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "promotion-residual:152265e13d297b324a9d261acde108689cf3637fc79d6024a72c89a6c66c909c" "promotion-residual:152265e13d297b324a9d261acde108689cf3637fc79d6024a72c89a6c66c909c" "support" "dev/architecture/runtime/gc/models/sysml/promotion-residual.sysml"))
+ (fact (factor "promotion-residual:152265e13d297b324a9d261acde108689cf3637fc79d6024a72c89a6c66c909c" "target-model-bundle-sha256" "152265e13d297b324a9d261acde108689cf3637fc79d6024a72c89a6c66c909c"))
+ (fact (factor "promotion-residual:152265e13d297b324a9d261acde108689cf3637fc79d6024a72c89a6c66c909c" "native-output-sha256" "d1c4a5ab5663351a355073b43584d23875606a5e780350d61b7c19fecdd35ecb"))
+ (fact (factor "promotion-residual:152265e13d297b324a9d261acde108689cf3637fc79d6024a72c89a6c66c909c" "planner-dsl-sha256" "57c18cc4c22af0c076728a1c9aad485cec3d13237788b4b624c1109d8f33c703"))
+)

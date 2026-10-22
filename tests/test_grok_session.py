@@ -1,5 +1,6 @@
 """Launcher controls, never native/model acceptance or an external API test."""
 import json
+import fnmatch
 import os
 import sys
 import tempfile
@@ -9,12 +10,27 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from gambit_smp.grok_session import Launch, run
+from gambit_smp.grok_session import Launch, run, terminal_deliveries
 from gambit_smp.workspace import start
 import subprocess
 import shlex
+import shutil
 from dataclasses import replace
 from gambit_smp import task_migration as migration, workspace as w
+
+
+def provider_path(root):
+    """Fake providers must not fall through to a real CLI on the host PATH."""
+    tools = root / 'host-tools'
+    tools.mkdir(exist_ok=True)
+    for name in ('git', 'lsof', 'ps'):
+        target = shutil.which(name)
+        if target is None:
+            raise FileNotFoundError(name)
+        link = tools / name
+        if not link.exists():
+            link.symlink_to(target)
+    return os.pathsep.join((str(root), str(tools)))
 
 
 class GrokSessionTests(unittest.TestCase):
@@ -57,11 +73,14 @@ class GrokSessionTests(unittest.TestCase):
             self.assertEqual(result["reasoningEffort"], "high")
             argv = result["argv"]
             self.assertEqual(argv[argv.index("--reasoning-effort") + 1], "high")
-            grant=next(arg for arg in argv if arg.startswith('run_terminal_command('))
+            grant=next(arg for arg in argv if arg.startswith('Bash('))
             self.assertIn('run-script --provider grok repair '+entry['key'],grant)
             self.assertNotIn('work.py)',grant)
             self.assertNotIn("authorized diagnostic", json.dumps(result))
             self.assertFalse(result["executed"])
+            self.assertIn('Read(' + str(Path.home() / '.grok') + '/**)', argv)
+            self.assertIn('Read(' + str(Path.home() / '.codex') + '/**)', argv)
+            self.assertIn('Edit(' + str(root / '.cache/tasks/repair/agents/diagnostic/grok-runs') + '/**)', argv)
 
     def test_evidence_read_is_a_separate_literal_grant_not_an_editable_script(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -72,14 +91,160 @@ class GrokSessionTests(unittest.TestCase):
             self.assertEqual(Path(read["request"]).parent,
                              root / ".cache/tasks/repair/agents/diagnostic")
             self.assertIn("trajectory clues < ", read["command"])
-            self.assertIn("run_terminal_command(" + read["command"] + ")", result["argv"])
+            tools = result["argv"][result["argv"].index("--tools") + 1].split(",")
+            self.assertIn("run_terminal_cmd", tools)
+            self.assertIn("list_dir", tools)
+            self.assertNotIn("run_terminal_command", tools)
+            self.assertNotIn("<", read["permission"])
+            self.assertEqual(read["command"], read["permission"] + " < " + shlex.quote(read["request"]))
+            self.assertIn("Bash(" + read["permission"] + ")", result["argv"])
             self.assertFalse(Path(read["request"]).exists())
-            self.assertEqual([a for a in result["argv"] if a.startswith("run_terminal_command(")],
-                             ["run_terminal_command(" + read["command"] + ")"])
-            self.assertIsNone(run(replace(launch, query_request=None))["evidenceRead"])
+            self.assertEqual([a for a in result["argv"] if a.startswith("Bash(")],
+                             ["Bash(" + p + ")" for p in read['permissions']])
+            interface = result['argv'][result['argv'].index('--rules') + 1]
+            self.assertEqual(interface,
+                'Available project Evidence CLI (read-only): ' + read['command']
+                + '\nCaller-authored Scheme request data: ' + read['request']
+                + '\nWritable scratch directory: ' + str(Path(read['request']).parent)
+                + '\nEvidence wire window: ' + str(read['wireBytes'])
+                + ' UTF-8 bytes; deferred references remain expandable. This does not bound query scope.'
+                + '\nInterface help: ' + read['permission'] + ' --help'
+                + '\nQuery output: Scheme data on stdout. Shell output redirection and mixed command chains'
+                + ' are outside the read grant; owner-local writes use the edit tools.'
+                + '\nRegistered task commands: none'
+                + '\nTerminal permission covers those dispatcher commands and read/help routes, not general shell.'
+                + " Execution remains subject to the framework's source and evidence checks.")
+            disabled = run(replace(launch, query_request=None))
+            self.assertIsNone(disabled['evidenceRead'])
+            self.assertNotIn('--rules', disabled['argv'])
+            configured = run(replace(launch, read_window_bytes=4096))['evidenceRead']
+            self.assertEqual(configured['wireBytes'], 4096)
+            self.assertEqual(configured['permissions'], read['permissions'])
+            for invalid in (0, -1, True, '4096'):
+                with self.assertRaisesRegex(ValueError, 'wire window'):
+                    run(replace(launch, read_window_bytes=invalid))
             for bad in ("../outside.ss", "query.ss; echo unsafe", "request.py"):
                 with self.subTest(name=bad), self.assertRaisesRegex(ValueError, "basename"):
                     run(replace(launch, query_request=bad))
+
+    def test_documented_console_aliases_receive_only_read_and_help_grants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            launch = self.make_launch(root)
+            (root/'docs').mkdir()
+            (root/'docs/work-items.json').write_text(json.dumps({'schema': 'gambit-work-items.v1',
+                'items': {'repair': {'scope': 'repair', 'agent': {'commands': ['actions']}}}}))
+            binary = root / '.venv/bin/gambit-smp'
+            binary.parent.mkdir(parents=True)
+            binary.write_text('console entry fixture')
+            with patch('gambit_smp.grok_session.sys.executable', str(binary.with_name('python3'))):
+                read = run(launch)['evidenceRead']
+            canonical = shlex.join([str(binary), '--task', launch.task, 'trajectory', 'clues'])
+            self.assertEqual(canonical, read['permission'])
+            self.assertTrue(read['command'].startswith(canonical + ' < '))
+            self.assertIn(canonical, read['permissions'])
+            for executable in (str(binary), '.venv/bin/gambit-smp'):
+                self.assertIn(shlex.join([executable, 'trajectory', 'clues']), read['permissions'])
+                self.assertIn(shlex.join([executable, 'research', '--help']), read['permissions'])
+                self.assertIn(shlex.join([executable, 'trajectory', '--help']), read['permissions'])
+                for route in (['--help'], ['trajectory', 'clues'], ['research', '--help']):
+                    self.assertIn(shlex.join([executable, '--task', launch.task, *route]),
+                                  read['permissions'])
+                self.assertNotIn(shlex.join([executable, '--task', launch.task, 'research']),
+                                 read['permissions'])
+                self.assertIn(shlex.join([executable, '--task', launch.task, 'actions', 'discover', '--help']),
+                              read['permissions'])
+                nested=shlex.join([executable,'workspace','process-resume','--help'])
+                self.assertTrue(any(fnmatch.fnmatch(nested,p) for p in read['permissions']))
+                execution=shlex.join([executable,'workspace','resume','repair'])
+                self.assertFalse(any(fnmatch.fnmatch(execution,p) for p in read['permissions']))
+            metadata = {p for p in read['permissions'] if ' -c ' in p}
+            for executable in (str(binary.with_name('python3')), '.venv/bin/python3'):
+                command = ' '.join([executable, '-c',
+                    'from gambit_smp import repository_clues; help(repository_clues)'])
+                matches = [p for p in metadata if fnmatch.fnmatchcase(command, p)]
+                self.assertEqual(len(matches), 1)
+                self.assertFalse(command.startswith(matches[0]))
+                self.assertFalse(fnmatch.fnmatchcase(command + '; print("extra")', matches[0]))
+                self.assertFalse(fnmatch.fnmatchcase(command.replace('help(repository_clues)',
+                    'print("other code")'), matches[0]))
+            self.assertTrue(metadata <= set(read['permissions']))
+            self.assertTrue(all(p.endswith(('trajectory clues', 'trajectory catalog', '--help'))
+                                or p in metadata for p in read['permissions']))
+            binary.unlink()
+            with patch('gambit_smp.grok_session.sys.executable', str(binary.with_name('python3'))):
+                without_console = run(launch)['evidenceRead']['permissions']
+                self.assertFalse(any(shlex.join([executable, 'trajectory', 'clues']) in without_console
+                                     for executable in (str(binary), '.venv/bin/gambit-smp')))
+            self.assertFalse(any(p.endswith(('submit', 'record', 'inspect', 'context', 'research'))
+                                 for p in read['permissions']))
+
+    def test_registered_profile_owns_grants_without_unrestricted_shell_or_reads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            launch = self.make_launch(root)
+            (root/'docs').mkdir()
+            plan = {'schema': 'gambit-work-items.v1', 'items': {'repair': {
+                'scope': 'repair', 'processes': {}, 'agent': {
+                    'read': ['src/**', '.cache/tasks/{task}/build/**'],
+                    'edit': ['patches/{owner}-*.patch'], 'commands': ['research', 'trajectory']}}}}
+            (root/'docs/work-items.json').write_text(json.dumps(plan))
+            record = run(launch)
+            self.assertIn('grep', record['argv'][record['argv'].index('--tools')+1].split(','))
+            self.assertNotIn('read_file', [record['argv'][i+1] for i, v in enumerate(record['argv'][:-1]) if v=='--allow'])
+            self.assertIn('Bash(.venv/bin/gambit-smp --task repair research *)', record['argv'])
+            self.assertNotIn('Bash(cp *)', record['argv'])
+            self.assertIn('Read('+str(root)+'/src/**)', record['argv'])
+            self.assertIn('Edit('+str(root)+'/patches/diagnostic-*.patch)', record['argv'])
+            self.assertIsNotNone(record['agentRegistrationSha256'])
+            for key, value in [('read', ['../private/**']), ('commands', ['invented-command'])]:
+                plan['items']['repair']['agent'][key] = value
+                (root/'docs/work-items.json').write_text(json.dumps(plan))
+                with self.assertRaises(ValueError):
+                    run(launch)
+
+    def test_repair_profile_allows_new_hypothesis_artifacts_not_producer_edits(self):
+        from gambit_smp.framework import ROOT
+        registration=json.loads((ROOT/'docs/work-items.json').read_text())
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();launch=self.make_launch(root)
+            (root/'docs').mkdir()
+            (root/'docs/work-items.json').write_text(json.dumps({
+                'schema':registration['schema'],
+                'items':{'repair':registration['items']['repair-9-12']}}))
+            owned=root/'.cache/tasks/repair/agents/diagnostic'
+            profile=launch.profile(root,owned)
+            def editable(name):
+                return any(fnmatch.fnmatch(str(root/name),rule) for rule in profile['edit'])
+            for name in ('evidence/research/alternative-cause/repair.patch',
+                         'models/gambit/alternative_cause.qnt',
+                         'patches/fixtures/alternative-cause.patch'):
+                self.assertTrue(editable(name),name)
+            self.assertFalse(editable('vendor/gambit/lib/_thread.scm'))
+            self.assertFalse(editable('.cache/tasks/repair/build/gambit-core/source/lib/_thread.scm'))
+            self.assertNotIn('workspace',profile['commands'])
+
+    def test_replay_evidence_root_reuses_cli_without_changing_execution_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            launch = self.make_launch(root)
+            data = root / '.cache/tasks/repair/agents/diagnostic/data'
+            data.mkdir()
+            result = run(replace(launch, query_root=data))
+            self.assertEqual(result['argv'][result['argv'].index('--cwd') + 1], str(root))
+            self.assertEqual(result['evidenceRead']['root'], str(data))
+            self.assertIn('Edit(' + str(data) + '/**)', result['argv'])
+            self.assertIn('--root ' + str(data) + ' trajectory clues', result['evidenceRead']['command'])
+            self.assertFalse(any(p.endswith('-m gambit_smp trajectory clues')
+                                 for p in result['evidenceRead']['permissions']))
+            with self.assertRaises(ValueError):
+                run(replace(launch, query_root=root.parent))
+            with self.assertRaisesRegex(ValueError, 'mutable request'):
+                run(replace(launch, query_root=data.parent))
+            alias = data.with_name('alias')
+            alias.symlink_to(data, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'aliases'):
+                run(replace(launch, query_root=alias))
 
     def test_provider_executes_real_evidence_cli_without_native_program_or_cleanup(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -120,11 +285,11 @@ class GrokSessionTests(unittest.TestCase):
             Path(read["request"]).write_text('((questions ("unknown-native-cause")))')
             binary = root / "grok"
             binary.write_text("#!" + sys.executable + "\nimport json,subprocess,sys\n"
-                "grant=next(a for a in sys.argv if a.startswith('run_terminal_command('))\n"
-                "subprocess.run(grant[len('run_terminal_command('):-1],shell=True,check=True)\n"
+                "grant=next(a for a in sys.argv if a == " + repr('Bash(' + read['permission'] + ')') + ")\n"
+                "subprocess.run(grant[len('Bash('):-1],stdin=open(" + repr(read['request']) + "),shell=True,check=True)\n"
                 "print(json.dumps({'type':'end','stopReason':'end_turn','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a'}))\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
+            with patch.dict(os.environ, PATH=provider_path(root)):
                 result = run(launch, execute=True, wall_seconds=20)
             self.assertTrue(result["sessionCompleted"],
                             (Path(result["attempt"]) / "stderr.private.log").read_text())
@@ -133,6 +298,17 @@ class GrokSessionTests(unittest.TestCase):
             self.assertIn("unknown-native-cause", output)
             self.assertIn("clue-read:", output)
             self.assertFalse(list((root / ".cache/tasks/repair/programs").glob("*.py")))
+
+    def test_terminal_delivery_observation_is_distinct_from_provider_completion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            events = Path(tmp) / 'events.jsonl'
+            row = dict(type='tool_call_update', status='completed', toolCallId='read',
+                       rawOutput=dict(type='Bash', total_bytes=56233, truncated=True))
+            events.write_text('\n'.join(json.dumps(event) for event in (
+                dict(type='thought', data='not inspected'), row, row,
+                dict(type='end', stopReason='end_turn'))))
+            self.assertEqual(terminal_deliveries(events),
+                             [dict(toolCallId='read', bytes=56233, truncated=True)])
 
     def test_private_events_and_repeated_runs_keep_separate_receipts(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -145,7 +321,7 @@ class GrokSessionTests(unittest.TestCase):
                               "print(json.dumps({'type':'tool_call_update','text':'raw-scene-test-payload'}))\n" +
                               "print(json.dumps({'type':'end','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a','stopReason':'end_turn','num_turns':1}))\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
+            with patch.dict(os.environ, PATH=provider_path(root)):
                 first = run(launch, execute=True, wall_seconds=5)
                 second = run(replace(launch,resume=first["completion"]["sessionId"]), execute=True, wall_seconds=5)
             self.assertEqual(first["exit"], 0)
@@ -170,11 +346,11 @@ class GrokSessionTests(unittest.TestCase):
             binary=root/'grok'
             binary.write_text('#!'+sys.executable+'\nimport os,sys,subprocess,json,shlex\n'
                 'for fd in range(3,256):\n try:os.close(fd)\n except OSError:pass\n'
-                "grant=next(arg for arg in sys.argv if arg.startswith('run_terminal_command('))\n"
-                "subprocess.run(shlex.split(grant[len('run_terminal_command('):-1]),check=True)\n"
+                "grant=next(arg for arg in sys.argv if arg.startswith('Bash('))\n"
+                "subprocess.run(shlex.split(grant[len('Bash('):-1]),check=True)\n"
                 "print(json.dumps({'type':'end','stopReason':'end_turn','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a'}))\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH']):
+            with patch.dict(os.environ,PATH=provider_path(root)):
                 result=run(launch,execute=True,wall_seconds=10)
             self.assertTrue(result['sessionCompleted'])
             self.assertEqual(1,len(list((root/'.cache/tasks/repair/runs').glob('*/outputs/actual-tool'))))
@@ -194,7 +370,7 @@ class GrokSessionTests(unittest.TestCase):
                 'case "$*" in *--resume*) ;; *) /bin/sleep 20 ;; esac\n'
                 "printf '%s\\n' '{\"type\":\"end\",\"sessionId\":\"01a15562-916b-7da0-b55e-5d85db65485a\",\"stopReason\":\"end_turn\"}'\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH']):
+            with patch.dict(os.environ,PATH=provider_path(root)):
                 from gambit_smp.grok_session import write_record
 
                 def initialized(path, record):
@@ -213,9 +389,18 @@ class GrokSessionTests(unittest.TestCase):
                 self.assertTrue(failed['timedOut']);self.assertFalse(failed['sessionCompleted'])
                 self.assertTrue((root/'.state/provider-sessions/repair/diagnostic.json').exists())
                 with self.assertRaisesRegex(ValueError,'explicit workspace resume'):run(launch,execute=True)
-                w.resume(root,'repair')
+                state=w.paths(root,'repair')[0]
+                interrupted_state=state.read_bytes()
+                with self.assertRaisesRegex(ValueError,'not bound'):
+                    run(replace(launch,resume='01a15562-916b-7da0-b55e-5d85db65485b'),execute=True)
+                self.assertEqual(interrupted_state,state.read_bytes())
                 done=run(replace(launch,resume='01a15562-916b-7da0-b55e-5d85db65485a'),execute=True,wall_seconds=5)
             self.assertTrue(done['sessionCompleted']);self.assertFalse(done['nativeAdmitted'])
+            interrupted=[json.loads(path.read_text()) for path in (root/'.state/task-runs/repair').glob('*.json')
+                         if json.loads(path.read_text())['state']=='interrupted']
+            self.assertEqual(len(interrupted), 1)
+            self.assertFalse(interrupted[0]['reconciliation']['nativeAdmitted'])
+            self.assertTrue(json.loads((Path(failed['attempt'])/'receipt.json').read_text())['timedOut'])
 
     def test_interruption_before_initialization_does_not_invent_a_resumable_session(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -224,7 +409,7 @@ class GrokSessionTests(unittest.TestCase):
             binary = root / "grok"
             binary.write_text("#!/bin/sh\n/bin/sleep 20\n")
             binary.chmod(0o700)
-            with patch.dict(os.environ, PATH=str(root) + os.pathsep + os.environ["PATH"]):
+            with patch.dict(os.environ, PATH=provider_path(root)):
                 failed = run(launch, execute=True, wall_seconds=1)
                 self.assertTrue(failed["timedOut"])
                 self.assertFalse(failed["sessionCompleted"])
@@ -256,7 +441,7 @@ class GrokSessionTests(unittest.TestCase):
             binary=root/'grok';binary.write_text('#!'+sys.executable+'\nimport json\n'
                 "print(json.dumps({'type':'end','sessionId':'01a15562-916b-7da0-b55e-5d85db65485a','stopReason':'end_turn'}))\n")
             binary.chmod(0o700)
-            env=dict(os.environ,PATH=str(root)+os.pathsep+os.environ['PATH'])
+            env=dict(os.environ,PATH=provider_path(root))
             command=[sys.executable,'-m','gambit_smp','--root',str(root),'--task','repair','agent',
                      '--owner','diagnostic','--prompt-file',str(launch.prompt),'--authorization',launch.authorization,'--execute']
             result=subprocess.run(command,env=env,capture_output=True,text=True,timeout=15)
@@ -264,6 +449,15 @@ class GrokSessionTests(unittest.TestCase):
             body=json.loads(result.stdout);self.assertEqual('high',body['reasoningEffort']);self.assertTrue(body['sessionCompleted'])
             rows=[json.loads(p.read_text()) for p in (root/'.state/task-runs/repair').glob('*.json')]
             self.assertEqual(1,len(rows));self.assertEqual(3,rows[0]['custodyProtocol']);self.assertEqual('grok',rows[0]['provider'])
+
+    def test_api_rejects_a_provider_session_inside_a_maintenance_role_before_spawn(self):
+        from gambit_smp import work_process
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();launch=self.make_launch(root);path=provider_path(root)
+            with work_process.scope(root,'repair','audit'), patch.dict(os.environ,PATH=path):
+                with self.assertRaisesRegex(ValueError,'maintenance processes run bounded tools'):
+                    run(launch,execute=True,wall_seconds=5)
+            self.assertFalse((launch.prompt.parent/'grok-runs').exists())
 
 
 if __name__ == "__main__":

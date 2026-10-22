@@ -402,3 +402,14 @@ oracle; resource/check negotiation termination; profile-bound frame realization;
 C/native required-tail edges; materialization/failure/capture lifetime. Static
 research settles the ownership and required artifacts, not these future
 qualification results. See [replacement gates and measures](hostgraph-retirement-plan.md).
+
+## Mainline Ownership Refinement
+
+The [modern generated-C contract](generated-c-native-contract.md) now selects
+Scheme semantic completion and common native planning, Scheme-generated C
+products and C policy bodies as the mainline. Its
+[generator stages](scheme-native-generator-design.md) retain the source-based
+G3 root/control extraction, FrameSpec/PointId and bounded amendment obligations.
+The earlier mandatory Zig placement for common planning/rendering is an
+alternative realization, not a dependency of the current mainline. No frame,
+tail-call, collector or native acceptance result changes with that choice.

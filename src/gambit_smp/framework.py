@@ -97,10 +97,11 @@ def parallel_jobs(items, worker, jobs, timeout):
 
 
 def apply_untracked_patch(root, data, allowed):
+    from gambit_smp.task_processes import run
     if not data:
         raise ValueError("empty patch")
     command = ["git", "--git-dir=/dev/null", "apply"]
-    stats = subprocess.run(command + ["--numstat", "-z"], input=data,
+    stats = run(command + ["--numstat", "-z"], input=data,
                            cwd=root, capture_output=True, check=True, timeout=10).stdout
     names = []
     for row in stats.decode().split("\0"):
@@ -116,7 +117,7 @@ def apply_untracked_patch(root, data, allowed):
     if not names:
         raise ValueError("empty patch")
     for arguments in (("--check",), ()):
-        subprocess.run(command + ["--whitespace=error", *arguments], input=data,
+        run(command + ["--whitespace=error", *arguments], input=data,
                        cwd=root, capture_output=True, check=True, timeout=10)
     if any(not (root / name).is_file() for name in names):
         raise ValueError("patch cannot remove a file")
@@ -156,13 +157,19 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
         def process_recorder(event,token,fields):
             task_record(event,token,fields)
             if original_recorder:original_recorder(event,token,fields)
+        process_recorder.root=task_record.root
+        process_recorder.spawn_root=task_record.spawn_root
     start = time.monotonic()
     token = os.urandom(16).hex()
-    if process_recorder is not None:
-        process_recorder("planned", token, {"argv": [str(arg) for arg in argv], "cwd": str(cwd)})
+    from gambit_smp.artifact_storage import workspace_custody
     try:
-        process = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, start_new_session=True, env=env, pass_fds=inherited)
+        with workspace_custody(env) as (workspace_fds, child_environment):
+            import json
+            from gambit_smp.spawn_protocol import launch
+            process = launch(argv,record=process_recorder,token=token,birth_budget=min(10,timeout),launch_deadline=start+timeout,planned=dict(
+                workspaces=[row['source'] for row in json.loads(child_environment.get('GAMBIT_SMP_WORKSPACE_LEASES','[]'))]),
+                cwd=cwd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,start_new_session=True,
+                env=child_environment,pass_fds=tuple(set(inherited)|set(workspace_fds)))
     except OSError:
         if process_recorder is not None:
             process_recorder("spawn-failed", token, {})
@@ -171,12 +178,10 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
         metadata.update(pid=process.pid, startedAt=datetime.now(timezone.utc).isoformat())
     timed_out = False
     try:
-        if process_recorder is not None:
-            process_recorder("started", token, {"pid": process.pid})
         if on_spawn is not None:
             on_spawn(process.pid)
         if progress_check is None:
-            output, _ = process.communicate(timeout=timeout)
+            output, _ = process.communicate(timeout=max(.001,start+timeout-time.monotonic()))
         else:
             from gambit_smp.process_observation import communicate_progress
             output, _ = communicate_progress(process, timeout, progress_check,
@@ -220,14 +225,10 @@ def execute(argv, cwd, timeout, env=None, metadata=None, *, completion_check=Non
     if metadata is not None:
         metadata["endedAt"] = datetime.now(timezone.utc).isoformat()
         metadata["parentReaped"] = process.returncode is not None
-        try:
-            os.killpg(process.pid, 0)
-        except ProcessLookupError:
-            metadata["processGroupQuiescent"] = True
-        except PermissionError:
-            metadata["processGroupQuiescent"] = None
-        else:
-            metadata["processGroupQuiescent"] = False
+        from gambit_smp.process_observation import probe_group
+        quiet, probes = probe_group(process.pid, start + timeout)
+        metadata['processGroupQuiescent'] = quiet
+        metadata['processGroupProbes'] = list(probes)
     if task_record:
         task_record("finished",token,dict(exit=process.returncode,parentReaped=process.returncode is not None,timedOut=timed_out))
     return process.returncode, output, timed_out, time.monotonic() - start

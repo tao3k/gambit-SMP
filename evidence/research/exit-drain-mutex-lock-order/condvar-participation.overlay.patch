@@ -1,0 +1,16 @@
+--- a/lib/_thread#.scm
++++ b/lib/_thread#.scm
+@@ -1035,7 +1035,12 @@
+ (##define-macro (macro-trylock-mutex! mutex) `(macro-trylock-btq! ,mutex))
+ (##define-macro (macro-unlock-mutex! mutex)  `(macro-unlock-btq! ,mutex))
+ 
+-(##define-macro (macro-lock-condvar! condvar)    `(macro-lock-btq! ,condvar))
++(##define-macro (macro-lock-condvar! condvar)
++  ;; Contended wait must enter the collective. Uncontended trylock stays immediate.
++  `(let ((condvar ,condvar))
++     (if (macro-trylock-condvar! condvar)
++         (##void)
++         (##lock-scheduler-object-with-sync-participation! condvar))))
+ (##define-macro (macro-trylock-condvar! condvar) `(macro-trylock-btq! ,condvar))
+ (##define-macro (macro-unlock-condvar! condvar)  `(macro-unlock-btq! ,condvar))
+ 

@@ -392,6 +392,13 @@ class CompletedProducerTests(unittest.TestCase):
         ctx = self.duplicate_context()
         self.assertIsNone(producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx))
 
+    def test_missing_completed_runtime_does_not_block_configure(self):
+        self.save("evidence/research/completed.json", self.reference())
+        shutil.rmtree(self.run)
+        ctx = self.duplicate_context()
+        producer.prevent_duplicate_configuration(ctx.receipt["steps"][1]["arguments"], ctx)
+        self.assertNotIn("buildReuseDecisions", ctx.receipt)
+
     def test_explicit_completed_producer_requires_its_runtime(self):
         selected = "evidence/research/completed.json"
         self.save(selected, self.reference())

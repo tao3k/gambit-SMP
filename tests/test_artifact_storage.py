@@ -332,6 +332,25 @@ class ArtifactStorageTests(unittest.TestCase):
                 with self.subTest(target=target), self.assertRaises(ValueError):
                     transfer_tree(source, target, dirs_exist_ok=True)
 
+    @unittest.skipUnless(__import__('sys').platform == 'darwin', 'real APFS clone')
+    def test_native_clone_preserves_modes_times_and_independent_mutation(self):
+        import os
+        with tempfile.TemporaryDirectory() as directory:
+            source, target = Path(directory) / 'source', Path(directory) / 'target'
+            source.write_bytes(b'original'); source.chmod(0o751)
+            os.utime(source, ns=(1_700_000_000_123_456_789, 1_700_000_000_987_654_321))
+            expected = source.stat()
+            with patch('gambit_smp.artifact_storage.shutil.copystat', wraps=__import__('shutil').copystat) as metadata:
+                mode = clone_file(source, target)
+                if mode == 'copy-on-write':metadata.assert_not_called()
+            actual = target.stat()
+            self.assertEqual(expected.st_mode, actual.st_mode)
+            self.assertEqual(expected.st_mtime_ns, actual.st_mtime_ns)
+            self.assertEqual(expected.st_atime_ns, actual.st_atime_ns)
+            self.assertNotEqual(expected.st_ino, actual.st_ino)
+            target.write_bytes(b'changed')
+            self.assertEqual(b'original', source.read_bytes())
+
     def test_cross_device_fallback_is_reported(self):
         with tempfile.TemporaryDirectory() as directory:
             source, target = Path(directory) / "a", Path(directory) / "b"

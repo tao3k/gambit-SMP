@@ -1,0 +1,29 @@
+direction: down
+classes: {
+  compute: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  native: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  gate: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  runtime: {style.fill: "#E7F4E8"; style.stroke: "#397344"}
+}
+logical: "Gambit logical control\nTail call preserves incoming continuation\nNon-tail call builds Scheme return frame\nScheme return selects saved runtime RA" {class: compute}
+ready: "Transfer-ready writeback\npc / args / arity / SELF / R0 / fp / hp / GVM state\nNo departing host-local continuation dependency\nNoncollecting bridge; not automatically scanner-ready" {class: gate}
+logical -> ready
+d0: "D0: host returns\nExisting H0 trampoline\nDispatches LABEL_HOST_GET(pc)" {class: native}
+d1: "D1-H: required host tail transfer\nExact uniform C ABI in both directions\nNo pending returning thunk" {class: native}
+ready -> d0
+ready -> d1
+entry: "Destination C or native host\nDecode runtime point / reload current state\nEntry, return and internal points stay distinct\nLocal CFG branches inside this host" {class: compute}
+d0 -> entry
+d1 -> entry
+safe: "Only at an admitted collecting boundary\nComplete frame / RA / descriptor / roots\nInternal handlers save registers and resume RA\nExisting GC participation and overlay rules" {class: gate}
+entry -> safe: "allocation / check / capture / callback"
+gc: "One Gambit runtime / collector\nScan actual roots and RETN / RETI maps\nCapture preserves frames + dynamic environment\nCode and descriptors outlive all consumers" {class: runtime}
+safe -> gc
+resume: "Actual resumed point\nReload relocated values and allocator/control state\nDiscard old managed SSA / derived pointers\nMay resume after original host has returned" {class: gate}
+gc -> resume
+resume -> entry
+foreign: "Foreign-entry episode\nExisting call/run/SFUN marker + catcher\nFinal C return uses supported unwind\nExpired return remains an error" {class: runtime}
+gc -> foreign: "foreign return / nonlocal exit"
+reject: "Reject mixed modes or missing bridge/root capability\nHost return is not Scheme return\nTransfer-ready is not a new safepoint\nTail hint or one tail edge cannot prove a whole cycle" {class: gate}
+ready -> reject: "missing mode / ABI proof"
+safe -> reject: "incomplete scanner state"

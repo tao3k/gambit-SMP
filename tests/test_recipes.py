@@ -138,6 +138,7 @@ class RecipeTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.recipe))
 
     def simulated_execute(self, argv, root, timeout, **kwargs):
+        kwargs.get('metadata', {}).update(parentReaped=True, processGroupQuiescent=True)
         output = Path(argv[argv.index("--out") + 1])
         if "parse" in argv:
             result = {"stage": "parsing", "errors": [], "modules": [{"name": "control", "declarations": [
@@ -148,6 +149,18 @@ class RecipeTests(unittest.TestCase):
             result = {"stage": "testing", "errors": [], "passed": ["controlTest"], "failed": [], "ignored": []}
         output.write_text(json.dumps(result))
         return 0, "unit-test executor only\n", False, 0.1
+
+    def test_quint_commands_publish_the_shared_completion_observation(self):
+        receipt = self.run_simulated('quint-observations')
+        self.assertEqual('PASS', receipt['outcome'])
+        for name in ('parse', 'test'):
+            row = recipes.read_json(self.root / 'quint-observations' / name / 'raw.process.json')
+            self.assertEqual('OBSERVED', row['state'])
+            self.assertTrue(row['completionObserved'])
+            self.assertTrue(row['parentReaped'])
+            self.assertTrue(row['processGroupQuiescent'])
+            self.assertFalse(row['runtimeAdmitted'])
+        self.assertTrue(all(len(step['commands']) == 1 for step in receipt['steps']))
 
     def run_simulated(self, name, side_effect=None, prior=None):
         with patch.object(recipes, "tool_files", return_value=[self.node, self.quint]), \

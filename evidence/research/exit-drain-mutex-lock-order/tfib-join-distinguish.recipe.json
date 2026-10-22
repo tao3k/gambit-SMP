@@ -1,0 +1,34 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "tfib-join-distinguish",
+  "scope": "Reuse the completed condvar-participation source-core in place. One short gsi fixture stages an uncontended join, one overlapping join, two small waves, one ##gc, and one tfib(15). Host-derived topology. Not the four-file 3600-second inventory, not (go 15 5000), not a configure, seed, source-core, or bootstrap, and not original TFIB acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation.patch",
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation-runtime.local.json",
+    "models/gambit/native/tfib_join_distinguish.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 120,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/condvar-participation.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 120,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/condvar-participation-runtime.local.json"}},
+    {"id": "distinguish", "capability": "gambit.executable-test", "dependsOn": ["runtime"], "budgetSeconds": 150,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/tfib_join_distinguish.scm",
+                   "mode": "gsi", "processorTopology": "host-managed", "executionBudgetSeconds": 90,
+                   "stdout": "STAGE leaf\n1\nSTAGE overlap\n1\nSTAGE wave-4x8\nSTAGE gc\nSTAGE wave-6x20\nSTAGE tfib-15\nDISTINGUISH-JOIN-DONE\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate",
+     "dependsOn": ["candidate", "runtime", "distinguish"],
+     "budgetSeconds": 30,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

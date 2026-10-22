@@ -1,0 +1,49 @@
+#+TITLE: EBNF Reader Sharing, Custody and Net Work
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+
+* RESEARCH Native projection
+:PROPERTIES:
+:CUSTOM_ID: ebnf-reader-custody-matrix
+:AUTHORITY: EbnfReaderCustody
+:STATUS: source-refinement-open
+:END:
+
+Derived from [[file:models/sysml/ebnf-reader-custody.sysml][SysML]]; see [[file:ebnf-reader-custody-design.org][source and proof study]]. Candidates are not freeze receipts.
+
+| Region | Ownership | Source | Rule |
+|---+---+---+---|
+| entry | definition | expander/module.ss:275-318; ebnf/lang.ss:5-18 | Preserve selected phase export and original instance; same spelling is insufficient |
+| grammar | candidate | ebnf/deflexer.ss:73-93; lang-reader.ss:267-351 | Reuse already-loaded grammar definitions; freezing requires no mutable aliases to lists, structs, tables or callbacks |
+| derivatives | candidate | ebnf/rlang.ss:35-44,78-115 | Deriv/delta read existing nodes and allocate results; reachable charset hash tables are mutable representations, not intrinsically frozen |
+| reductions | callback | ebnf/lexer.ss:120-206; deflexer.ss:51-67 | Callbacks receive lexeme and location; lex1 E also captures stream, accepted chars, languages and reductions |
+| invocation | session | ebnf/lang-reader.ss:20-126,131-264 | Port, accumulated ASTs/rules and K/E are per invocation; action syntax is read as data here, not evaluated here |
+| streams | owner | ebnf/stream.ss:19-72; lexer.ss:20-22,54-97 | One resource domain owns all aliases; per-character port mutex does not serialize the full multi-layer reader protocol |
+| parserK_E | borrow | ebnf/defparser.ss:17-40,445-475; lang-reader.ss:204-216 | Preserve stack-tail eq used by rewind, stream aliases and callback order; these procedures are not themselves captured call/cc continuations |
+| readtable | dynamic | runtime/syntax.ss:255-276; vendor/gambit/lib/_io.scm:12694-12699,13300-13323 | Transitive handler/refill effects require a capability cut; extension callbacks are not made pure by a constant reader procedure |
+| result | output | ebnf/lang-reader.ss:59-86,131-139; parser/base.ss:7-24,72-79 | Syntax locations use port name/container; tokens and exceptions may retain locations that still reference ports |
+| errors | custody | ebnf/lang-reader.ss:59-71; parser/base.ss:28-69; _io.scm:10003-10014 | Retain original non-ParseError exception and diagnostic state; ordinary call-with-input-file shown closes after normal return, not via dynamic-wind |
+| continuation | dynamic | vendor/gambit/lib/_thread.scm:8302-8320,8555-8584 | Preserve dynamic extent and current mutable state; continuation restoration is not rollback of streams or effects |
+| handoff | unresolved | ebnf/lang-reader.ss:165-170,237-245; lexer.ss:163-189; stream.ss:59-65 | Old char buffer is distinct from port cursor; prove observationally harmless buffered prefix or retain legacy/refuse managed handoff |
+
+** Admission gates
+
+| Gate | Qualified | Obligation |
+|---+---+---|
+| captureAliases | false | All aliases/writers for grammar, reductions, stream and outputs are classified |
+| callbackEffects | false | Reader handlers, native refill and diagnostic effects are qualified |
+| cursorHandoff | false | Buffered-prefix/direct-port handoff preserves source observations |
+| continuationExtent | false | Reentry, nonlocal exit, closed-port results and dynamic bindings are source-equivalent |
+| outputFreeze | false | Returned output and failure evidence have an admitted identity and lifetime cut |
+
+** Work and added cost
+
+| Family | Avoided work boundary | Mechanism | Added cost / limit |
+|---+---+---+---|
+| grammar | Only additional cross-session reinitialization/decode can be removed; current module reuse is baseline | Immutable qualified grammar definitions with original singleton identity | Alias audit and publication; derivative result allocation is still required unless separately optimized |
+| streams | False serialization between independent ports can be removed | Resource domains with per-invocation buffers and callbacks | For normal section/action paths T = sections + embedded actions: T char-stream and T token-stream constructor calls remain baseline; also pins, owner stack and callback tracking |
+| readerResults | Repeated reads/parses only if exact consumer observation is equivalent | Qualified result/effect snapshot with input/readtable/identity evidence | Locations, exceptions, callbacks and cursor state can invalidate reuse; data-only AST equality is insufficient |
+| continuations | Avoid holding physical locks while control leaves a reader | Retain logical resource lease and roots across suspension; reenter with original dynamic bindings | Lifetime retention, closed-port observations and multi-shot semantics; no replay/rollback saving credited |
+
+Actual reader admission: false. Existing module/grammar reuse is baseline. Net work must subtract ownership, identity, root retention and capability validation; independent-port parallel span is separate from work reduction.
+

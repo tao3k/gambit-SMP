@@ -22,16 +22,27 @@ def registry(root, task):
     return bounded(root, '.state/task-dependencies/' + task + '.json')
 
 
-def dependencies(root, task):
+def dependencies(root, task, *, observations=None):
+    """Resolve custody paths; observations never authenticate replacement bytes."""
     path = registry(root, task)
     if not path.exists():
         return []
     result = []
     for row in json.loads(path.read_text())['paths']:
         source = bounded(root, row['path'])
-        st = source.stat()
-        if [st.st_dev, st.st_ino] != row['identity']:
-            raise ValueError('registered dependency identity changed: ' + row['path'])
+        try:
+            st = source.stat()
+            identity = [st.st_dev, st.st_ino]
+        except FileNotFoundError:
+            identity = None
+        if observations is None:
+            if identity != row['identity']:
+                raise ValueError('registered dependency identity changed: ' + row['path'])
+        else:
+            observations.append(dict(path=row['path'], registeredIdentity=row['identity'],
+                                     observedIdentity=identity,
+                                     identityMatches=identity == row['identity'],
+                                     reuseAdmitted=False))
         result.append(source)
     return result
 

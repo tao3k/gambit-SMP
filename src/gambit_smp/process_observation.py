@@ -125,16 +125,30 @@ def communicate_progress(process, window, progress, *, recorder=None, token=None
             observe(error.output, error.stderr)
 
 
-def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, recorder=None):
+def communicate_boundary(process, budget, boundary, started):
+    """Observe phase deadlines without renewing the enclosing wall deadline."""
+    def observe(stdout, stderr):
+        text = lambda value: value.decode(errors="replace") if isinstance(value, bytes) else value or ""
+        boundary(text(stdout), text(stderr))
+    while True:
+        remaining = started + budget - time.monotonic()
+        if remaining <= 0:raise subprocess.TimeoutExpired(process.args, budget)
+        try:
+            stdout, stderr = process.communicate(timeout=min(0.05, remaining))
+            observe(stdout, stderr)
+            return stdout, stderr
+        except subprocess.TimeoutExpired as error:
+            observe(error.output, error.stderr)
+
+
+def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, recorder=None, boundary=None):
     if isinstance(budget, bool) or not math.isfinite(budget) or budget <= 0:
         raise ValueError("positive finite process budget required")
     started = time.monotonic()
     timestamp = datetime.now(timezone.utc).isoformat()
     token = os.urandom(16).hex()
-    if recorder is not None:
-        recorder("planned", token, {"argv": [str(arg) for arg in argv], "cwd": str(cwd)})
     try:
-        process = _task_spawn(argv, cwd=cwd, env=environment, stdin=subprocess.DEVNULL,
+        process = _task_spawn(argv,observer=recorder,spawn_token=token,birth_budget=min(10,budget),launch_deadline=started+budget,cwd=cwd,env=environment,stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    text=True, start_new_session=True)
     except OSError:
@@ -143,9 +157,11 @@ def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, r
         raise
     timeout = False
     try:
-        if recorder is not None:
-            recorder("started", token, {"pid": process.pid})
-        if progress is not None:
+        if boundary is not None:
+            if progress is not None or diagnostic is not None:
+                raise ValueError("file boundaries require a fixed wall-clock transport")
+            stdout, stderr = communicate_boundary(process, budget, boundary, started)
+        elif progress is not None:
             if diagnostic is not None:
                 raise ValueError("progress and stack-sampling transports must be selected separately")
             stdout, stderr = communicate_progress(process, budget, progress,
@@ -163,7 +179,7 @@ def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, r
                     raise subprocess.TimeoutExpired(argv, budget)
                 stdout, stderr = process.communicate(timeout=remaining)
         else:
-            stdout, stderr = process.communicate(timeout=budget)
+            stdout, stderr = process.communicate(timeout=max(.001,started+budget-time.monotonic()))
     except subprocess.TimeoutExpired:
         timeout = True
         try:

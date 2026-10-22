@@ -7,6 +7,7 @@ responsible for their own process groups and unchanged acceptance budgets.
 """
 
 import argparse
+import glob
 import hashlib
 import json
 import os
@@ -25,6 +26,19 @@ MODEL = "grok-4.7"
 REASONING_EFFORT = "high"
 
 
+def metadata_routes(parser, prefix):
+    """Read-only help forms from the real parser, not a parallel CLI inventory."""
+    yield (*prefix, '--help')
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for name, child in action.choices.items():
+                yield from metadata_routes(child, (*prefix, name))
+        elif not action.option_strings and action.choices is not None:
+            for name in action.choices:
+                if type(name) is str:
+                    yield (*prefix, name, '--help')
+
+
 @dataclass(frozen=True)
 class Launch:
     workspace: Path
@@ -36,6 +50,41 @@ class Launch:
     max_turns: int = 45
     task: str | None = None
     query_request: str | None = "query.ss"
+    query_root: Path | None = None
+    read_window_bytes: int | None = None
+
+    def profile(self, root, owned):
+        """Transport the work-item's reviewed capability boundary; never infer permissions."""
+        from gambit_smp.work_items import admit
+        from gambit_smp.workspace import bounded
+        from gambit_smp.cli import COMMANDS
+        item = admit(root, self.task)
+        profile = item.get('agent', {})
+        if (not isinstance(profile, dict) or set(profile) - {'read', 'edit', 'commands'}
+                or any(not isinstance(value, list) or any(type(v) is not str for v in value)
+                       for value in profile.values())):
+            raise ValueError('registered Agent read/edit/commands lists required')
+        result = {'read': [], 'edit': [], 'commands': profile.get('commands', [])}
+        for mode in ('read', 'edit'):
+            for pattern in profile.get(mode, []):
+                path = pattern.format(task=self.task, owner=self.owner)
+                if (not path or Path(path).is_absolute() or '..' in Path(path).parts
+                        or any(p in {'.git', '.ssh', '.aws', '.codex', '.grok', '.claude', '.cursor'}
+                               for p in Path(path).parts)):
+                    raise ValueError('project-relative Agent profile path required')
+                stem = re.split(r'[*?\[]', path, maxsplit=1)[0].rstrip('/')
+                if not stem:
+                    raise ValueError('Agent profile cannot grant the whole checkout')
+                bounded(root, stem)
+                result[mode].append(str(root) + '/' + path)
+        if any(name not in COMMANDS for name in result['commands']):
+            raise ValueError('Agent command must name the existing dispatcher registry')
+        if not profile:
+            result['read'] = [str(root/'AGENTS.md'), str(root/'docs')+'/**',
+                              str(root/'evidence')+'/**', str(root/'models')+'/**']
+        result['read'].append(str(owned)+'/**')
+        result['edit'].append(str(owned)+'/**')
+        return result
 
     def evidence_read(self, root, owned):
         """One literal read command; the request is inert Scheme, not a script."""
@@ -45,9 +94,74 @@ class Launch:
             raise ValueError("query request must be an owner-local Scheme basename")
         from gambit_smp.workspace import bounded
         request = bounded(root, (owned / self.query_request).relative_to(root))
-        command = shlex.join([sys.executable, "-m", "gambit_smp", "--root", str(root),
-                              "trajectory", "clues"]) + " < " + shlex.quote(str(request))
-        return dict(request=str(request), command=command)
+        query_root = root
+        if self.query_root is not None:
+            selected = Path(self.query_root)
+            relative = selected.relative_to(root) if selected.is_absolute() else selected
+            query_root = bounded(root, relative)
+            if not query_root.is_dir():
+                raise ValueError('existing evidence root required')
+            if query_root != root and request.is_relative_to(query_root):
+                raise ValueError('evidence data must not contain the mutable request')
+        base = [sys.executable, "-m", "gambit_smp", "--root", str(query_root)]
+        preferred = base
+        # The project documents the installed dispatcher; grant only equivalent
+        # read routes, not the interpreter or the whole dispatcher.
+        bases = [base]
+        if query_root == root:
+            bases.append([sys.executable, "-m", "gambit_smp"])
+        console = Path(sys.executable).parent / "gambit-smp"
+        if console.is_file() and console.parent == root / ".venv/bin":
+            preferred = [str(console)]
+            if query_root != root:
+                preferred += ['--root', str(query_root)]
+            elif self.task:
+                preferred += ['--task', self.task]
+            for executable in (str(console), ".venv/bin/gambit-smp"):
+                bases.append([executable] if query_root == root else
+                             [executable, '--root', str(query_root)])
+        if self.task:
+            bases += [[*entry, '--task', self.task] for entry in list(bases)]
+        program = shlex.join([*preferred, "trajectory", "clues"])
+        command = program + " < " + shlex.quote(str(request))
+        from gambit_smp.trajectory_exploration import argument_parser, DEFAULT_CLUE_DISPLAY_BYTES
+        window = self.read_window_bytes
+        if window is None:
+            window = DEFAULT_CLUE_DISPLAY_BYTES
+        if type(window) is not int or window <= 0:
+            raise ValueError('positive Evidence wire window required')
+        parser = argument_parser()
+        routes = [("trajectory", name) for action in parser._actions
+                  if isinstance(action, argparse._SubParsersAction)
+                  for name, operation in action.choices.items()
+                  if operation.get_default('execution_policy') == 'read']
+        from gambit_smp.cli import COMMANDS
+        from importlib import import_module
+        configured = set(self.profile(root, owned)['commands'])
+        for name, module_name in COMMANDS.items():
+            factory = (getattr(import_module('gambit_smp.'+module_name), 'argument_parser', None)
+                       if name in configured else None)
+            routes += list(metadata_routes(factory(), (name,))) if callable(factory) else [(name, '--help')]
+        routes += [("--help",)]
+        routes = sorted(set(routes))
+        permissions = [shlex.join([*entry, *route]) for entry in bases for route in routes]
+        # Dispatcher help is read-only even for lazily registered subcommands.
+        # Whole-command glob matching covers future metadata routes, not execution.
+        permissions += [shlex.join([*entry, name]) + ' * --help'
+                        for entry in bases for name in COMMANDS]
+        # Public introspection is not a grant for arbitrary interpreter code.
+        help_code = "from gambit_smp import repository_clues; help(repository_clues)"
+        interpreters = [sys.executable]
+        if Path(sys.executable).parent == root / '.venv/bin':
+            interpreters.append('.venv/bin/' + Path(sys.executable).name)
+        for executable in interpreters:
+            # Grok matches parsed words without quotes. Force whole-command
+            # glob matching, not its otherwise permissive string-prefix rule.
+            literal = ' '.join([executable, '-c', help_code])
+            permissions.append('[' + literal[0] + ']' + glob.escape(literal[1:]))
+        return dict(root=str(query_root), wireBytes=window,
+                    request=str(request), command=command, permission=program,
+                    permissions=permissions)
 
     def prepare(self):
         root = self.workspace.resolve(strict=True)
@@ -76,11 +190,22 @@ class Launch:
         if self.resume:
             argv += ["--resume", str(uuid.UUID(self.resume))]
         read = self.evidence_read(root, owned)
-        tools = "read_file,write,search_replace"
-        if self.scripts or read:
-            tools += ",run_terminal_command"
-        argv += ["--tools", tools, "--allow", "read_file",
-                 "--allow", f"Edit({owned}/**)"]
+        profile = self.profile(root, owned)
+        tools = "read_file,list_dir,grep,write,search_replace"
+        if self.scripts or read or profile['commands']:
+            tools += ",run_terminal_cmd"
+        argv += ["--tools", tools, "--deny", f"Edit({owned}/grok-runs/**)"]
+        for mode, rule in (('read', 'Read'), ('edit', 'Edit')):
+            for path in profile[mode]:
+                argv += ['--allow', rule+'('+path+')']
+        executables = [str(root/'.venv/bin/gambit-smp'), '.venv/bin/gambit-smp']
+        for executable in executables:
+            for command in profile['commands']:
+                argv += ['--allow', 'Bash('+shlex.join([executable, '--task', self.task, command])+' *)']
+        if read and read['root'] != str(root):
+            argv += ['--deny', 'Edit(' + read['root'] + '/**)']
+        for directory in (".grok", ".codex", ".claude", ".cursor", ".ssh", ".aws"):
+            argv += ["--deny", "Read(" + str(Path.home() / directory) + "/**)"]
         for key in self.scripts:
             if not re.fullmatch(r"[a-f0-9]{64}",key):raise ValueError("terminal grants require a literal sealed program key")
             from gambit_smp.task_migration import script_record
@@ -92,9 +217,21 @@ class Launch:
             if not script.is_relative_to(cache/'programs') or hashlib.sha256(script.read_bytes()).hexdigest()!=entry['sha256']:
                 raise ValueError('terminal task program source changed')
             command=[sys.executable,'-m','gambit_smp','workspace','--root',str(root),'run-script','--provider','grok',self.task,key]
-            argv += ['--allow','run_terminal_command('+shlex.join(command)+')']
+            argv += ['--allow','Bash('+shlex.join(command)+')']
         if read:
-            argv += ["--allow", "run_terminal_command(" + read["command"] + ")"]
+            for permission in read["permissions"]:
+                argv += ["--allow", "Bash(" + permission + ")"]
+            argv += ["--rules", "Available project Evidence CLI (read-only): " + read["command"]
+                     + "\nCaller-authored Scheme request data: " + read["request"]
+                     + "\nWritable scratch directory: " + str(owned)
+                     + "\nEvidence wire window: " + str(read['wireBytes'])
+                     + " UTF-8 bytes; deferred references remain expandable. This does not bound query scope."
+                     + "\nInterface help: " + read["permission"] + " --help"
+                     + "\nQuery output: Scheme data on stdout. Shell output redirection and mixed command chains"
+                     + " are outside the read grant; owner-local writes use the edit tools."
+                     + "\nRegistered task commands: " + (', '.join(profile['commands']) or 'none')
+                     + "\nTerminal permission covers those dispatcher commands and read/help routes, not general shell."
+                     + " Execution remains subject to the framework's source and evidence checks."]
         if self.resume:
             session=bounded(root,'.state/provider-sessions/'+self.task+'/'+self.owner+'.json')
             prior=json.loads(session.read_text()) if session.exists() else {}
@@ -131,11 +268,41 @@ def write_record(path, value):
     temporary.replace(path)
 
 
+def terminal_deliveries(path):
+    """Observe public terminal delivery, not private reasoning or query intent."""
+    completed = {}
+    with path.open() as stream:
+        for line in stream:
+            try:
+                event = json.loads(line)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(event, dict) or event.get('type') != 'tool_call_update' or event.get('status') != 'completed':
+                continue
+            output = event.get('rawOutput') or {}
+            if isinstance(output, dict) and output.get('type') == 'Bash':
+                completed[event['toolCallId']] = dict(
+                    toolCallId=event['toolCallId'], bytes=output.get('total_bytes'),
+                    truncated=output.get('truncated'))
+    return list(completed.values())
+
+
 def run(launch, *, execute=False, wall_seconds=1800):
     if execute:
-        from gambit_smp.workspace import execution_scope
+        if os.environ.get('GAMBIT_SMP_TASK_PROCESS'):
+            raise ValueError('provider sessions require the work-item execution owner; maintenance processes run bounded tools')
+        from gambit_smp.workspace import execution_scope, paths, inherited_lease, resume
         if not launch.task:
             raise ValueError("--task is required")
+        root = launch.workspace.resolve(strict=True)
+        if launch.resume and inherited_lease(root, launch.task) is None:
+            state_path, _, _ = paths(root, launch.task)
+            state = json.loads(state_path.read_text())
+            if state.get('execution') in {'running', 'interrupted'} and state.get('lastProvider') == 'grok':
+                # Authentication precedes reconciliation; the existing reconciler
+                # rejects live/unknown custody and never reruns a native action.
+                launch.prepare()
+                resume(root, launch.task)
         with execution_scope(launch.workspace, launch.task, "grok") as (value, _, common):
             from gambit_smp.task_broker import serve
             broker=nullcontext() if os.environ.get("GAMBIT_SMP_TASK_SOCKET") else serve(launch.workspace,launch.task,os.environ["GAMBIT_SMP_TASK_RUN"],int(os.environ["GAMBIT_SMP_TASK_LOCK_FD"]))
@@ -150,6 +317,8 @@ def run(launch, *, execute=False, wall_seconds=1800):
 def _run(launch, *, execute=False, wall_seconds=1800):
     if wall_seconds <= 0:
         raise ValueError("positive Grok supervisor budget required")
+    registration = launch.workspace.resolve()/'docs/work-items.json'
+    registration_sha = hashlib.sha256(registration.read_bytes()).hexdigest() if registration.is_file() else None
     root, owned, argv, digest = launch.prepare()
     public_argv = argv[:-1] + [f"<prompt sha256={digest}>"]
     record = dict(argv=public_argv, promptSha256=digest,
@@ -159,6 +328,12 @@ def _run(launch, *, execute=False, wall_seconds=1800):
                   reasoningEffort=REASONING_EFFORT, model=MODEL,
                   nativeAcceptanceBudgetChanged=False, executed=False)
     record["evidenceRead"] = launch.evidence_read(root, owned)
+    record['agentProfile'] = launch.profile(root, owned)
+    record['agentRegistrationSha256'] = registration_sha
+    def registration_current():
+        return (hashlib.sha256(registration.read_bytes()).hexdigest() if registration.is_file() else None) == registration_sha
+    if not registration_current():
+        raise ValueError('Agent registration changed during launch preparation')
     if not execute:
         return record
     attempts = owned / "grok-runs"
@@ -181,21 +356,27 @@ def _run(launch, *, execute=False, wall_seconds=1800):
     raw = attempt / "events.private.jsonl"
     from gambit_smp.task_processes import recorder
     child_record=recorder();child_token=uuid.uuid4().hex
-    child_record("planned",child_token,dict(argv=argv,cwd=root))
     with raw.open("xb") as output, (attempt / "stderr.private.log").open("xb") as error:
+        environment = dict(os.environ, GAMBIT_SMP_TASK_ID=launch.task,
+                           GAMBIT_SMP_TASK_ROOT=str(root), GAMBIT_SMP_TASK_CACHE=str(owned.parent.parent))
+        if record['evidenceRead']:
+            environment['GAMBIT_SMP_CLUE_WIRE_BYTES'] = str(record['evidenceRead']['wireBytes'])
+            environment['PYTHONIOENCODING'] = 'utf-8'
+        else:
+            environment.pop('GAMBIT_SMP_CLUE_WIRE_BYTES', None)
         try:
-            process = subprocess.Popen(argv, cwd=root, stdout=output, stderr=error,
+            if not registration_current():
+                raise ValueError('Agent registration changed before launch')
+            from gambit_smp.spawn_protocol import launch as launch_process
+            process = launch_process(argv,record=child_record,token=child_token,birth_budget=min(10,wall_seconds),launch_deadline=started+wall_seconds,cwd=root,stdout=output,stderr=error,
                                        stdin=subprocess.DEVNULL, start_new_session=True,
                                        pass_fds=(int(os.environ["GAMBIT_SMP_TASK_LOCK_FD"]),),
-                                       env=dict(os.environ, GAMBIT_SMP_TASK_ID=launch.task,
-                                                GAMBIT_SMP_TASK_ROOT=str(root),
-                                                GAMBIT_SMP_TASK_CACHE=str(owned.parent.parent)))
+                                       env=environment)
         except OSError as exc:
             child_record("spawn-failed",child_token,{})
             record.update(spawnError=type(exc).__name__, detail=str(exc), nativeAdmitted=False)
             write_record(receipt, record)
             raise
-        child_record("started",child_token,dict(pid=process.pid))
         from gambit_smp.workspace import bounded, write
         common = bounded(root, ".state/task-runs/" + launch.task + "/" + os.environ["GAMBIT_SMP_TASK_RUN"] + ".json")
         common_record = json.loads(common.read_text())
@@ -205,7 +386,7 @@ def _run(launch, *, execute=False, wall_seconds=1800):
         write_record(receipt, record)
         timed_out = False
         try:
-            process.wait(timeout=wall_seconds)
+            process.wait(timeout=max(.001,started+wall_seconds-time.monotonic()))
         except subprocess.TimeoutExpired:
             timed_out = True
             try:
@@ -235,6 +416,7 @@ def _run(launch, *, execute=False, wall_seconds=1800):
                   seconds=time.monotonic() - started, parentReaped=True,
                   completion=ending, sessionCompleted=completed,
                   nativeDescendantQuiescence="not-inferred",
+                  terminalDeliveries=terminal_deliveries(raw),
                   nativeAdmitted=False)
     write_record(receipt, record)
     observed_session=None
@@ -271,7 +453,12 @@ def main():
     launch = Launch(args.workspace, args.owner, args.prompt_file, args.authorization,
                     args.resume, tuple(args.script), args.max_turns, args.task)
     result = run(launch, execute=args.execute, wall_seconds=args.wall_seconds)
-    print(json.dumps(result, indent=2))
+    public = result
+    if args.execute:
+        public = {key: result.get(key) for key in ('task', 'attempt', 'exit', 'seconds', 'completion',
+            'sessionCompleted', 'nativeAdmitted', 'agentRegistrationSha256', 'model', 'reasoningEffort')}
+        public['receipt'] = str(Path(result['attempt'])/'receipt.json')
+    print(json.dumps(public, indent=2))
     return int(args.execute and not result.get("sessionCompleted"))
 
 

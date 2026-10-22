@@ -77,6 +77,38 @@ class SourceMaterializeTests(unittest.TestCase):
     def test_fresh_source_reproduces_exact_slice_not_runtime(self):
         self.run_fixture("pass")
 
+    def test_overlay_export_reuses_candidate_bytes_without_mutating_or_copying_its_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            checkout,candidate,git=self.fixture(root)
+            (candidate/'unselected.bin').write_bytes(b'not a source input')
+            overlay=root/'delta.patch'
+            overlay.write_text('--- a/lib/mem.c\n+++ b/lib/mem.c\n@@ -1 +1 @@\n-candidate\n+repaired\n')
+            before={name:digest(candidate/name) for name in source.FILES}
+            lock_path,patch_path=root/'lock.json',root/'snapshot.patch'
+            with patch.object(source,'ROOT',root), \
+                 patch.object(source,'revision',return_value='a'*40), \
+                 patch.object(source.subprocess,'check_output',side_effect=git):
+                record=source.export(checkout,candidate,lock_path,patch_path,source.FILES,overlay=overlay)
+                source.materialize(lock_path,root/'restored')
+            self.assertEqual((root/'restored/lib/mem.c').read_bytes(),b'repaired\n')
+            self.assertFalse((root/'restored/unselected.bin').exists())
+            self.assertEqual(before,{name:digest(candidate/name) for name in source.FILES})
+            self.assertFalse(record['runtimeAdmitted'])
+            self.assertEqual(set(record['files']),set(source.FILES))
+
+    def test_overlay_export_rejects_delta_outside_explicit_inventory_without_publishing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            checkout,candidate,git=self.fixture(root)
+            overlay=root/'delta.patch'
+            overlay.write_text('--- a/other.c\n+++ b/other.c\n@@ -1 +1 @@\n-before\n+after\n')
+            with patch.object(source,'ROOT',root), patch.object(source,'revision',return_value='a'*40):
+                with self.assertRaises(ValueError):
+                    source.export(checkout,candidate,root/'lock.json',root/'snapshot.patch',source.FILES,overlay=overlay)
+            self.assertFalse((root/'lock.json').exists())
+            self.assertFalse((root/'snapshot.patch').exists())
+
     def test_patch_drift_fails_before_publishing_output(self):
         self.run_fixture("patch-drift")
 

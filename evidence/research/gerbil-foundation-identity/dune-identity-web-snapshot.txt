@@ -1,0 +1,446 @@
+dune/src/memo/memo.ml at main · ocaml/dune · GitHub (https://github.com/ocaml/dune/blob/main/src/memo/memo.ml)
+citeturn11view0 [wordlim: 200] Crawled: last month; Content type: text/html; Source: find({"ref_id":"https://github.com/ocaml/dune/blob/main/src/memo/memo.ml","pattern":"cutoff creep"}); Total lines: 2138
+L1682: ~handle_error_no_raise:(fun _exn -> Fiber.return ())
+L1683: 
+L1684: | false -> t
+L1685: 
+L1686: ;;
+L1687: 
+L1688: module With_implicit_output = struct
+L1689: 
+L1690: type ('i, 'o) t = 'i -> 'o Fiber.t
+L1691: 
+L1692: let create name ~input ~implicit_output impl =
+L1693: 
+L1694: let memo =
+L1695: 
+L1696: create name ~input (fun i ->
+L1697: 
+L1698: Implicit_output.collect implicit_output (fun () -> impl i))
+L1699: 
+L1700: in
+L1701: 
+L1702: fun input ->
+L1703: 
+L1704: let* res, output = exec memo input in
+L1705: 
+L1719: let input (t : (_, _) t) = t.input
+L1720: 
+L1721: let read = Exec.exec_dep_node
+L1722: 
+L1723: let invalidate = Invalidation.invalidate_node
+L1724: 
+L1725: module Packed = struct
+L1726: 
+L1727: type 'o t = T : (_, 'o) Dep_node.t -> 'o t [@@unboxed]
+L1728: 
+L1729: let read (T node) = read node
+L1730: 
+L1731: end
+L1732: 
+L1733: let pack node = Packed.T node
+L1734: 
+L1735: end
+L1736: 
+L1737: let node = dep_node
+L1738: 
+L1739: module Implicit_output = Implicit_output
+L1740: 
+L1741: let lazy_node ~name ?cutoff ?human_readable_description ?on_event f =
+L1742: 
+L1743: let on_event = Option.map on_event ~f:(fun on_event () event -> on_event event) in
+L1744: let human_readable_description =
+L1745: 
+L1746: Option.map human_readable_description ~f:(fun f () -> Some (f ()))
+L1747: 
+L1748: in
+L1749: 
+L1750: let spec =
+L1751: 
+L1752: Spec.create
+L1753: 
+L1754: ~name:(Some name)
+L1755: 
+L1756: ~input:(module Unit)
+L1757: 
+L1758: ~cutoff
+L1759: 
+L1760: ~human_readable_description
+L1761: 
+L1762: ?on_event
+L1763: 
+L1764: f
+L1765: 
+L1766: in
+L1767: 
+L1768: make_dep_node ~spec ~input:()
+L1769: 
+L1770: ;;
+L1771: 
+L1772: let push_stack_frame ~human_readable_description f =
+L1773: 
+L1774: Node.read (lazy_node ~name:"stack-frame" ~human_readable_description f)
+L1775: 
+L1776: ;;
+L1777: 
+L1778: module Lazy = struct
+L1779: 
+L1780: type 'a t = unit -> 'a Fiber.t
+L1781: 
+L1782: let of_val a () = Fiber.return a
+L1783: 
+L1784: module Expert = struct
+L1785: let create ~name ?cutoff ?human_readable_description ?on_event f =
+L1786: 
+L1787: let node = lazy_node ~name ?cutoff ?human_readable_description ?on_event f in
+L1788: 
+L1789: node, fun () -> Node.read node
+L1790: 
+L1791: ;;
+L1792: 
+L1793: end
+L1794: 
+L1795: let create ~name ?cutoff ?human_readable_description ?on_event f =
+L1796: 
+L1797: let node = lazy_node ~name ?cutoff ?human_readable_description ?on_event f in
+L1798: 
+L1799: fun () -> Node.read node
+L1800: 
+L1801: ;;
+L1802: 
+L1803: let force f = f ()
+L1804: 
+L1805: let map ~name t ~f = create ~name (fun () -> Fiber.map ~f (t ()))
+L1806: 
+L1807: end
+L1808: 
+L1809: let lazy_ = Lazy.create
+L1810: 
+L1811: module Poly (Function : sig
+L1812: type 'a input
+L1813: 
+L1814: type 'a output
+L1815: 
+L1816: val name : string
+L1817: 
+L1818: val id : 'a input -> 'a Type_eq.Id.t
+L1819: 
+L1820: val to_dyn : _ input -> Dyn.t
+L1821: 
+L1822: val eval : 'a input -> 'a output Fiber.t
+L1823: 
+L1824: end) =
+L1825: 
+L1826: struct
+L1827: 
+L1828: open Function
+L1829: 
+L1830: module Key = struct
+L1831: 
+L1832: type t = T : _ input -> t
+L1833: 
+L1834: let to_dyn (T t) = to_dyn t
+L1835: 
+L1836: let hash (T t) = Type_eq.Id.hash (id t)
+L1837: 
+L1838: let equal (T x) (T y) = Type_eq.Id.equal (id x) (id y)
+L1839: 
+L1840: end
+L1841: 
+L1842: module Value = struct
+L1843: 
+L1844: type t = T : ('a Type_eq.Id.t * 'a output) -> t
+L1845: let get (type a) ~(input_with_matching_id : a input) value : a output =
+L1846: 
+L1847: match value with
+L1848: 
+L1849: | T (id_v, res) ->
+L1850: 
+L1851: (match Type_eq.Id.same id_v (id input_with_matching_id) with
+L1852: 
+L1853: | None ->
+L1854: 
+L1855: Code_error.raise
+L1856: 
+L1857: "Type_eq.Id.t mismatch in Memo.Poly: the likely reason is that the provided \
+L1858: 
+L1859: Function.id returns different ids for the same input."
+L1860: 
+L1861: [ "Function.name", Dyn.String name ]
+L1862: 
+L1863: | Some Type_eq.T -> res)
+L1864: 
+L1865: ;;
+L1866: 
+L1867: end
+L1868: 
+L1869: let memo =
+L1870: 
+L1871: create
+L1872: 
+L1873: name
+L1874: 
+L1875: ~input:(module Key)
+L1876: (function Key.T input -> eval input >>| fun v -> Value.T (id input, v))
+L1877: 
+L1878: ;;
+L1879: 
+L1880: let eval x = exec memo (Key.T x) >>| Value.get ~input_with_matching_id:x
+L1881: 
+L1882: end
+L1883: 
+L1884: let reset invalidation =
+L1885: 
+L1886: (* We rely on [invalidation] to list the actual reasons for the reset, which
+L1887: 
+L1888: justifies the [~reason:Unknown] below. *)
+L1889: 
+L1890: let invalidate_current_run = Current_run.invalidate ~reason:Unknown in
+L1891: 
+L1892: Invalidation.execute (Invalidation.combine invalidation invalidate_current_run);
+L1893: 
+L1894: Call_stack.reset_cycle_error_in_the_current_run ();
+L1895: Run.restart ()
+L1896: 
+L1897: ;;
+L1898: 
+L1899: (* Like [reset], but a no-op when nothing can have changed: the [invalidation] is empty and
+L1900: 
+L1901: no non-reproducible error was computed in the current run. This lets a caller (e.g. a
+L1902: 
+L1903: file-watcher waking up with no relevant changes) avoid advancing the run and discarding
+L1904: 
+L1905: the whole cache. *)
+L1906: 
+L1907: let reset_if_necessary invalidation =
+L1908: 
+L1909: if
+L1910: 
+L1911: (not (Invalidation.is_empty invalidation))
+L1912: 
+L1913: || Run.is_current !Exec.last_saw_non_reproducible_exn_at
+L1914: 
+L1915: then reset invalidation
+L1916: 
+L1917: ;;
+L1918: 
+L1919: module For_tests = struct
+L1920: let get_deps (type i o) (t : (i, o) Table.t) inp =
+L1921: 
+L1922: match Store.find t.cache inp with
+L1923: 
+L1924: | None -> None
+L1925: 
+L1926: | Some dep_node ->
+L1927: 
+L1928: (match get_cached_deps_in_current_run dep_node with
+L1929: 
+L1930: | None -> None
+L1931: 
+L1932: | Some deps ->
+L1933: 
+L1934: Some
+L1935: 
+L1936: (Deps.For_debugging.to_list deps
+L1937: 
+L1938: |> List.map ~f:(fun (Dep_node.T dep) ->
+L1939: 
+L1940: dep.spec.name, Dep_node.input_to_dyn dep)))
+L1941: 
+L1942: ;;
+L1943: 
+L1944: let get_deps_structured (node : (_, _) Node.t) =
+L1945: 
+L1946: match get_cached_deps_in_current_run node with
+L1947: 
+L1948: | None -> None
+L1949: 
+L1950: | Some deps ->
+L1951: 
+L1952: Some
+L1953: 
+L1954: (Deps.For_debugging.to_dyn
+L1955: (fun (Dep_node.T dep) ->
+L1956: 
+L1957: Dyn.Tuple [ Dyn.option Dyn.string dep.spec.name; Dep_node.input_to_dyn dep ])
+L1958: 
+L1959: deps)
+L1960: 
+L1961: ;;
+L1962: 
+L1963: let clear_memoization_caches () = Caches.clear ()
+L1964: 
+L1965: end
+L1966: 
+L1967: module Store = Store_intf
+L1968: 
+L1969: module Run = struct
+L1970: 
+L1971: type t = Run.t
+L1972: 
+L1973: module For_tests = struct
+L1974: 
+L1975: let compare = Run.compare
+L1976: 
+L1977: let current = Run.current
+L1978: 
+L1979: let of_int = Run.For_testing.of_int
+L1980: 
+L1981: let to_int = Run.For_testing.to_int
+L1982: 
+L1983: module Pair = Run.Pair
+L1984: 
+L1985: end
+L1986: 
+L1987: end
+L1988: 
+L1989: module type S = sig
+L1990: 
+L1991: type 'a memo = 'a t
+L1992: 
+L1993: include Monad.S
+L1994: module List : Monad.List with type 'a t := 'a t
+L1995: 
+L1996: val of_memo : 'a memo -> 'a t
+L1997: 
+L1998: end
+L1999: 
+L2000: with type 'a memo := 'a t
+L2001: 
+L2002: let of_memo = Fun.id
+L2003: 
+L2004: module List = struct
+L2005: 
+L2006: include Monad.List (Fiber)
+L2007: 
+L2008: let map = parallel_map
+L2009: 
+L2010: let concat_map l ~f = map l ~f >>| List.concat
+L2011: 
+L2012: end
+L2013: 
+L2014: module Option = Monad.Option (Fiber)
+L2015: 
+L2016: module Result = Monad.Result (Fiber)
+L2017: 
+L2018: module Var = struct
+L2019: 
+L2020: (* CR-soon amokhov: Simplify this to [type 'a t = (unit, 'a) Node.t].
+L2021: [Node.t]s already store all the information we need, and the only change that needs
+L2022: 
+L2023: to happen is making [Node.invalidate] smart enough to return [Invalidation.empty]
+L2024: 
+L2025: when the [cutoff] fires.
+L2026: 
+L2027: Once we have that, we should also be able to implement [Fs_memo] on top of [Var.t]s
+L2028: 
+L2029: instead of hand-written "variable tables".
+L2030: 
+L2031: *)
+L2032: 
+L2033: type 'a t =
+L2034: 
+L2035: { node : (unit, 'a) Node.t
+L2036: 
+L2037: ; value : 'a ref
+L2038: 
+L2039: (* We manually cutoff instead of depending on [Node.t] cutoff mechanism, so that
+L2040: we don't pay for invalidation when the value doesn't change. *)
+L2041: 
+L2042: ; cutoff : ('a -> 'a -> bool) option
+L2043: 
+L2044: }
+L2045: 
+L2046: let create (type a) ?cutoff value ~name : a t =
+L2047: 
+L2048: let value = ref value in
+L2049: 
+L2050: let spec =
+L2051: 
+L2052: Spec.create
+L2053: 
+L2054: ~name:(Some name)
+L2055: 
+L2056: ~input:(module Stdune.Unit)
+L2057: 
+L2058: ~human_readable_description:None
+L2059: 
+L2060: ~cutoff:None
+L2061: 
+L2062: (fun () -> return !value)
+L2063: 
+L2064: in
+L2065: 
+L2066: let node = make_dep_node ~spec ~input:() in
+L2067: 
+L2068: { node; value; cutoff }
+L2069: 
+L2070: ;;
+L2071: 
+L2072: let set t v =
+L2073: 
+L2074: match t.cutoff with
+L2075: 
+L2076: | Some cutoff when cutoff !(t.value) v ->
+L2077: (* Note: We do *not* set [t.value := v] when the change is insignificant according
+L2078: 
+L2079: to the [cutoff]. This is consistent with how cutoffs work in the rest of Memo,
+L2080: 
+L2081: e.g., see the [compute] and [update_value] functions.
+L2082: 
+L2083: This prevents the "cutoff creep" where, e.g., the [cutoff] returns [true] for
+L2084: 
+L2085: changes within 1% of the current [float] value and a sequence of smaller changes
+L2086: 
+L2087: goes unnoticed, even when the aggregate change far exceeds the 1% threshold. *)
+L2088: 
+L2089: Invalidation.empty
+L2090: 
+L2091: | Some _ | None ->
+L2092: t.value := v;
+L2093: 
+L2094: Node.invalidate
+L2095: 
+L2096: t.node
+L2097: 
+L2098: ~reason:(Variable_changed (Stdune.Option.value_exn t.node.spec.name))
+L2099: 
+L2100: ;;
+L2101: 
+L2102: let read t = Node.read t.node
+L2103: 
+L2104: module Unit = struct
+L2105: 
+L2106: type t = (unit, unit) Node.t
+L2107: 
+L2108: (* All [unit]-valued variables share a single spec; they only differ by node identity,
+L2109: 
+L2110: which is what invalidation acts on. *)
+L2111: 
+L2112: let spec =
+L2113: 
+L2114: Spec.create
+L2115: 
+L2116: ~name:(Some "Memo.Var.Unit")
+L2117: 
+L2118: ~input:(module Stdune.Unit)
+L2119: 
+L2120: ~human_readable_description:None
+L2121: 
+L2122: ~cutoff:None
+L2123: 
+L2124: (fun () -> return ())
+L2125: 
+L2126: ;;
+L2127: let create () : t = make_dep_node ~spec ~input:()
+L2128: 
+L2129: let invalidate t ~reason = Node.invalidate t ~reason
+L2130: 
+L2131: let read t = Node.read t
+L2132: 
+L2133: end
+L2134: 
+L2135: end
+L2136: 
+L2137: You can’t perform that action at this time.
+

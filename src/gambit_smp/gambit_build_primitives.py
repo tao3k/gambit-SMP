@@ -136,7 +136,7 @@ def regenerate_module(stages, source, name, budget):
                 "runtimeAdmitted": False}
 
 
-def rebuild_source_core(stages, source, budget):
+def rebuild_source_core(stages, source, budget, *, incremental=False, retained_generation=None, checkpoint=None):
     deadline = time.monotonic() + budget
     progress_timed = getattr(stages, "progress_mode", False)
     plan = build_capacity(available_processors())
@@ -144,15 +144,21 @@ def rebuild_source_core(stages, source, budget):
               for folder in ("lib", "gsi", "gsc") for path in (source / folder).glob("*.scm")}
     generated = sorted(name[:-4] + ".c" for name in scheme
                        if Path(name).name.startswith("_") and (source / (name[:-4] + ".c")).is_file())
+    if incremental and retained_generation:
+        generated = retained_generation['generatedSources']
     if not generated:
         raise ValueError("seed source must have an explicit generated-C inventory")
     compiler = source / "gsc/gsc"
     seed_hash = digest(compiler)
-    shutil.copy2(compiler, source / "gsc-boot")
-    code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
-    retained = [name for name in generated if (source / name).exists()]
-    if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
-        return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
+    if not incremental:
+        shutil.copy2(compiler, source / "gsc-boot")
+        code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
+        retained = [name for name in generated if (source / name).exists()]
+        if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
+            return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
+        if checkpoint is not None:
+            checkpoint(dict(generatedSources=generated, bootstrapCompilerSha256=seed_hash,
+                            schemeInputs=scheme))
     remaining = budget if progress_timed else deadline - time.monotonic()
     if remaining <= 0:
         return False, {"scmRegenerationEstablished": False, "wholeBudgetExhausted": True}
@@ -168,6 +174,8 @@ def rebuild_source_core(stages, source, budget):
     errors = build_errors(log)
     ok = code == 0 and not timeout and not missing and stable and not errors and len(artifacts) == 3
     return ok, {"capacity": plan, "seedCompilerSha256": seed_hash, "schemeInputs": scheme, "schemeInputsStable": stable,
+        'generationMode': 'incremental' if incremental else 'cold-bootclean',
+        'bootstrapCompilerSha256': digest(source / 'gsc-boot'),
         "generatedSources": generated, "missingGeneratedSources": missing,
         "generatedHashes": {name: digest(source / name) for name in generated if (source / name).is_file()},
         "recursiveBuildErrors": errors, "artifacts": artifacts,

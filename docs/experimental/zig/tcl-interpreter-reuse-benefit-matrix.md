@@ -1,0 +1,104 @@
+# Interpreter Reuse: Modern C and Zig Net-Benefit Matrix
+
+Compare the same [declared contract](tcl-interpreter-reuse-design.md) and supported
+Scheme/Tcl control domain. Source identity is stronger now; native admission and
+positive incremental Zig value remain distinct. No person-days or fabricated
+performance coefficients are used.
+
+UV01. Modernization replaces pointer/return-code conventions with an explicit
+native plan: real owner, cancellation epoch, request authority, route, durable
+outcome and qualified reset receipt. Scheme generates the plan and modern typed
+C is the mainline provider. Zig can consume it but does not make private Tcl
+state public, cancel noncooperative C, or remove Scheme GC/control semantics.
+
+| Necessary support | Modern generated C | Optional Zig | Saving candidate / continuing maintenance |
+| --- | --- | --- | --- |
+| Try/Eval route facts: UR02–UR06 | Shared source-bound capability metadata; Tcl compiler executes its own layouts | Same metadata and Tcl library | No reason to reimplement Try in either emitter; qualify source changes once |
+| Epoch/lease seal: UR08/UR10 | Shared lifecycle records and mutex protocol | Same data/order; tagged representation can help expression | Per-adapter stale-request policy can consolidate; semantic proof remains |
+| Owner/control scope closure: UR09/UR11 | Shared scope/ancestor/event/async registration | Same registration and native owner | No reduction from a different language's thread or defer syntax |
+| Pending async drain: UR09 | Reuse existing AsyncInvoke under a qualified handler domain | Same service and domain | No second async executor required; global rescan/callback work remains |
+| Reset facade: UR07 | One isolated C provider for internal/stable supported capability | Consume same facade; direct private imports create another mapping | Private headers/stub/link/load/source upgrade obligation remains; 0 demonstrated removal by Zig |
+| Outcome/root/image custody: UR09/UR13 | Existing common custody services plus durable result/options | Same GC/root and recipient obligations | Borrowed-result adapters may retire after full caller migration; bytes/roots still required |
+| Fresh publication/failure: UR10/UR13 | Shared typed receipts and synchronized next descriptor | Same receipt graph and failure ownership | Reject/reset/retire decisions can share one implementation; no fabricated success |
+| Backend/toolchain support: UR14 | One generator/native contract and C control island | Additional provider unless necessary C responsibility actually retires | Zig benefit must exceed extra provider/ABI/library qualification, under identical behavior |
+
+UV02. Quantified results supported by this study:
+
+| Measure | Current result | Meaning |
+| --- | --- | --- |
+| Coherent pinned Tcl files / reproduced blob hashes | 20 / 20 | Static provenance closure for captured files, not installed correspondence |
+| Actual Try compiler selections | 4 | Body-only, handlers-only, finally-only, combined |
+| Reuse admission predicates | 12 | Only selected source identity is closed; host/provider/native conditions are not passed |
+| Conditional arguments / inert cases | 8 / 20 | Documentary derivations, not test passes or checked proofs |
+| Existing code paths retired | 0 | Design-only study |
+| Necessary protocol families removed solely by Zig | 0 established | Positive incremental Zig lower bound remains unproved |
+| Reset opportunities per final closed barrier | I retained affected interpreters | One final reset each only after complete pending closure; extra phases must be charged |
+| Async service overhead | O(H*(Q+1)) plus callbacks per finite drain | Existing source rescans; no constant latency claim |
+| Native speedup or saved bytes percentage | Unknown | No native tests/measurements |
+
+UV03. Reuse can eliminate real work only against an equivalent alternative.
+For U admitted successful reuses, let W_recreate(j) include actual interpreter
+creation, library initialization and restoration of the required application
+state. It is eligible saved work only if recreation/restoration preserves the
+same declared observable state and capabilities. Otherwise rebuilding an empty
+interpreter is not a comparable baseline.
+
+```text
+common reuse gain(H) = sum_j W_recreate(j) actually avoided
+                     + removed duplicate adapter decisions(H)
+                     - epoch/lease/control-scope work(H)
+                     - snapshot/root/delivery work(H)
+                     - async drain + derived closure + reset facade work(H)
+                     - retained-state and final grace costs(H)
+```
+
+The direct path without a valid barrier is not a correct cheaper baseline.
+Ordinary useful evaluation, existing Tcl cleanup, managed wind/roots and necessary
+result conversions occur on both sides and cancel. If U is zero, no recreation
+saving occurs. If a workload seldom reuses state or has expensive/unbounded
+handlers, barrier overhead can dominate or make completion impossible. No positive
+universal percentage or lower bound is established.
+
+UV04. Work/space ledger: use actual handler scans and callbacks, not just a count
+of CancelEval submissions. With I interpreter generations, R retained request
+receipts, L live scopes, O outcomes and D charged descendants, native metadata
+is O(I+R+L+O+D) plus owned snapshot bytes and the union of live managed payloads.
+Archives may retain roots after reuse only without old cancellation/evaluation
+authority. Batching requests does not erase acknowledgment storage or late-writer
+proof. A native freeProc, legacy variable action or failed delivery can add work
+and retention; charge it to the owning epoch.
+
+UV05. Maintenance units are distinct policies, route mappings, representations
+and ABI/source upgrade dependencies. The common generator can centralize epoch,
+owner, reset postcondition and outcome policy for both providers. One isolated
+Tcl integration may avoid several private-header copies; modern C can provide it
+already. Zig does not eliminate the source-bound library facility or its private
+stub qualification. Its incremental value requires actual retirement of necessary
+C support or a separately qualified capability gain, less any new provider/control
+boundary. LLVM/MLIR remains a consumer of the common native plan, not owner of
+Tcl reset or Scheme roots. [UE01, US11, UD01]
+
+UV06. Real replacement order: migrate actual Tcl_Eval/error/result callers to
+route-aware native requests; add complete owner/scope/cancel authority; isolate
+and qualify reset access; move every caller onto one barrier/outcome policy;
+remove old ad hoc “return/reset,” global pending status and pointer-only targeting
+only after caller/failure closure. Keep the previous API domain explicit: choosing
+a result-boundary profile does not transparently modernize arbitrary foreign
+continuation behavior. Tcl VM cleanup and native marker validity remain.
+
+UV07. Falsifiers: a single ungated ancestor sender invalidates isolation; a
+nonzero-level OK invalidates reset certification; untracked async reentry
+invalidates owner-idle closure; silently dropped finally/trace effects invalidate
+semantic parity. Zig fails the incremental-value criterion if it retains the
+same C facade and common services while adding a maintained provider mapping
+without a compensating qualified gain. Tagged unions/defer are expression tools,
+not evidence that any obligation disappeared.
+
+UV08. Decision: retain modern generated C and one common native contract as the
+modernization mainline. Reuse is theoretically expressible with a source-bound,
+owner-only, postcondition-bearing reset service and UP03–UP05 isolation premises.
+The selected compiler/direct-reset source gaps are now substantially narrowed;
+private-facade linkage, full producer/handler closure, installed source identity,
+finite progress and incremental Zig value remain unresolved. A public-only
+cancelled direct-interpreter profile must keep reuse unadmitted rather than infer
+it from an ordinary return. [UR12, UP01–UP08]

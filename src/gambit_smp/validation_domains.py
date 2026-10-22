@@ -360,13 +360,14 @@ from contextlib import contextmanager as _contextmanager
 def isolated_test_context():
     """Tests keep real fixture custody rather than borrowing a production task."""
     from gambit_smp.storage_policy import _scope
-    names={key:value for key,value in os.environ.items() if key.startswith('GAMBIT_SMP_TASK_')}
+    names={key:value for key,value in os.environ.items()
+           if key.startswith(('GAMBIT_SMP_TASK_', 'GAMBIT_SMP_WORKSPACE_'))}
     for key in names:os.environ.pop(key,None)
     token=_scope.set(None)
     try:yield
     finally:
         for key in list(os.environ):
-            if key.startswith('GAMBIT_SMP_TASK_'):os.environ.pop(key,None)
+            if key.startswith(('GAMBIT_SMP_TASK_', 'GAMBIT_SMP_WORKSPACE_')):os.environ.pop(key,None)
         os.environ.update(names);_scope.reset(token)
 
 if __name__ == "__main__":

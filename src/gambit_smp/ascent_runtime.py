@@ -57,23 +57,29 @@ def inventory(*, sealed_root=None, verify=True):
         raise ValueError("Rust ASCENT with Rayon and compiled source identities required")
     if not build.get("sourceInputs") or not build.get("runtimeInputs"):
         raise ValueError("complete compiled ASCENT inputs required")
+    package_name_root = Path(importlib.import_module('ascent').__file__).parent
     files = {name: Path(importlib.import_module(name).__file__).resolve(strict=True)
              for name in ("ascent", "ascent._core")}
     distribution = importlib.metadata.distribution("gerbil-ascent")
+    from gambit_smp.ascent_program import _check_inventory_paths
+    distribution_root = Path(distribution.locate_file('')).resolve(strict=True)
+    path_checks = set()
+    def checked(path):
+        _check_inventory_paths([path], checked=path_checks)
+        return path
     extension_sha = None
     installed_inputs = {}
     for entry in distribution.files or ():
         if str(entry) == "ascent/" + files["ascent._core"].name and entry.hash and entry.hash.mode == "sha256":
             extension_sha = base64.urlsafe_b64decode(entry.hash.value + "===").hex()
         if ".dist-info" in str(entry):
-            files["distribution:" + entry.name] = Path(distribution.locate_file(entry)).resolve(strict=True)
+            files["distribution:" + entry.name] = checked(distribution_root / Path(entry))
         elif entry.hash and entry.hash.mode == "sha256":
             relative = Path(entry)
             if relative.is_absolute() or ".." in relative.parts:
                 raise ValueError("invalid installed ASCENT wheel resource path")
-            path = Path(distribution.locate_file(entry))
-            canonical = path.resolve(strict=True)
-            if path.is_symlink() or not canonical.is_relative_to(files["ascent"].parent.parent):
+            path = canonical = checked(distribution_root / relative)
+            if not canonical.is_relative_to(files["ascent"].parent.parent):
                 raise ValueError("installed ASCENT wheel resource escaped its distribution")
             expected = base64.urlsafe_b64decode(entry.hash.value + "===").hex()
             if verify and digest(path) != expected:
@@ -97,8 +103,9 @@ def inventory(*, sealed_root=None, verify=True):
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("invalid compiled ASCENT source path")
         path = source_root / relative
-        if path.is_symlink() or not path.resolve(strict=True).is_relative_to(source_root):
-            raise ValueError("ASCENT source alias escaped its source root")
+        try:checked(path)
+        except ValueError as error:
+            raise ValueError('ASCENT source alias escaped its source root') from error
         if verify and digest(path) != expected:
             raise ValueError("compiled ASCENT source mismatch: " + name)
         files["source:" + name] = path
@@ -108,14 +115,27 @@ def inventory(*, sealed_root=None, verify=True):
         path = Path(name)
         if not path.is_absolute() or ".." in path.parts:
             raise ValueError("invalid compiled ASCENT runtime path")
+        if path.is_symlink():raise ValueError('compiled ASCENT runtime mismatch: '+name)
+        if sealed_root is None:
+            # Canonicalize the common installed prefix once, including host
+            # aliases such as /var -> /private/var; reject aliases below it.
+            if path.is_relative_to(package_name_root):
+                path = files['ascent'].parent / path.relative_to(package_name_root)
+            else:path = path.resolve(strict=True)
         if sealed_root is not None:
             # The seal maps each original resource path without collapsing it.
-            path = Path(sealed_root) / mapping[name]
-            if not path.resolve(strict=True).is_relative_to(Path(sealed_root)):
-                raise ValueError("ASCENT runtime escaped its seal")
-        if path.is_symlink() or (verify and digest(path) != expected):
+            base = Path(sealed_root).resolve(strict=True)
+            relative = Path(mapping[name])
+            if relative.is_absolute() or '..' in relative.parts:
+                raise ValueError('ASCENT runtime escaped its seal')
+            path = base / relative
+        checked(path)
+        if verify and digest(path) != expected:
             raise ValueError("compiled ASCENT runtime mismatch: " + name)
         files["runtime:" + name] = path
+    # Recheck all actual path components at exit; this is call-local metadata
+    # reuse, and verify=True still hashes every original byte inventory.
+    _check_inventory_paths(files.values())
     return files, dict(build, extensionSha256=extension_sha,
                        sourceRoot=str(source_root),
                        installedInputs=installed_inputs)

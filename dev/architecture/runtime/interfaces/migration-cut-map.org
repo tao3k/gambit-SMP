@@ -1,0 +1,76 @@
+#+TITLE: Migration Cuts, Restore State and Atomic Steps
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned migration refinement map
+:PROPERTIES:
+:CUSTOM_ID: migration-cut-map
+:AUTHORITY: GambitCopyHandoff
+:EVIDENCE_CLASS: derived-migration-design
+:END:
+
+Candidate admission is not native qualification. Atomic steps are specifications, not implemented QNT or C primitives. Status remains in the shared obligation ledger.
+
+** Candidate cut admission
+#+BEGIN: sysml-view :kind migration-cuts :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: migration-cut-cuts
+| Cut | Source boundary | Admission | Guard | Restore boundary | Obligation |
+|---+---+---+---+---+---|
+| MarkReturn | mark_array returned; alloc_heap_ptr flushed | candidate-awaiting-refinement | Retain caller scan ptr/return phase; return is not complete scan or phase drain | Allocation locals ended; caller continuation and unfinished Body remain | WC-MIGRATION-STATE |
+| AfterObjectAdvance | scan_and_advance completed ptr increment | candidate-awaiting-refinement | Exact next ptr and scan mode exported; no live nested scan/Tail; no lock/publish | PSTATE scan_ptr alone can lag this frontier | WC-MIGRATION-FRONTIER |
+| ClaimedChunk | FIFO head advanced and lock released, before scan_complete | candidate-awaiting-refinement | Explicit claimed chunk/next-header and return-to-drain/steal continuation; immutable queue origin | Queue no longer owns claim; caller ptr/claim must remain represented | WC-MIGRATION-FRONTIER |
+| PreparedTail | After initialized copy and known threshold publication, before goto again | adapter-required | Complete mark_array plus caller role stack, pending cell/start/n, current context and scan frontier | No native migratable C stack or role continuation established | WC-MIGRATION-STATE |
+| StillInFlight | still_objs_to_scan popped, scan not returned | adapter-required | Popped base/body and specialized scan-role continuation remain roots/tasks | List head snapshot cannot recover a detached in-flight object | WC-MIGRATION-FRONTIER |
+| PublishCritical | Inside link/barrier/tail/lock protocol or unknown publish | excluded-while-in-flight | Finish/reconcile publication under old counted custodian before freeze; never carry held FIFO lock | Revision mismatch cannot undo already visible links | WC-MIGRATION-SERIAL |
+| PhaseDrainBoundary | Local scan returned before idle accounting | candidate-awaiting-refinement | No private/Tail/transit work; claimed chunks settled/transferred; membership stable | PSTATE/FIFO may still have users; not a storage reclaim permit | WC-MIGRATION-RESTORE |
+#+END:
+
+** Restore inventory
+#+BEGIN: sysml-view :kind migration-fields :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: migration-cut-fields
+| State family | Content | Invariant | Scope | Obligation |
+|---+---+---+---+---|
+| Identity | Collection/phase, ContextId, owner generation, TransferId, snapshot digest/revision | No address/index-only authentication | All cuts | WC-MIGRATION-STATE |
+| AllocationContext | Original allocation/scan context and origin PSTATE binding, heap msection and resource references | ExecutionWorkerId is distinct; never overwrite a busy destination PSTATE | All cuts | WC-MIGRATION-RESTORE |
+| AllocationFrontier | Private alloc/limit, public alloc_heap_ptr, chunk start/limit and initialized bounds | Preserve public/private difference and the same containment predicate in end_heap_chunk | Private and local cuts | WC-MIGRATION-FRONTIER |
+| ScanFrontier | Local ptr/head mode, complete-chunk ptr or local scan ptr, next unscanned header, marker/link state | PSTATE scan_ptr is not a full progress checkpoint | All scanning cuts | WC-MIGRATION-FRONTIER |
+| CallerContinuation | Resume tag and complete caller role stack, return targets, pending scan increments/loop indices | No double advance or repeated side effect; special adapters need full inventoried state | Inside nested calls | WC-MIGRATION-STATE |
+| ClaimedWork | Dequeued chunk identity/start/next position, queue origin, popped still base/body if admitted | Do not look only in queue/list to rediscover already removed work | Claimed and in-flight cuts | WC-MIGRATION-FRONTIER |
+| TailFrame | cell, remaining start/n or equivalent, role/slot and descendant obligations | Store address plus progress/identity; first field is delegated independently of Body | Tail-bearing cuts | WC-MIGRATION-STATE |
+| PublicationState | Operation ID, immutable exact manifest, context revision and committed/unknown effect class | Already committed FIFO remains a live external service; never restore old head/tail snapshot | Publication-adjacent cuts | WC-MIGRATION-SERIAL |
+| RightsAndAccounting | Unfinished TaskIds, Copy settlement rights/receipts, exclusive execution grant, counted participant mapping | Move rights without reissuing tasks; source has no execution while outcome unknown | All cuts | WC-MIGRATION-DECISION |
+| LifetimeAndPhase | Region/queue/lock pins, destination capacity/context lease, phase/barrier epoch and special-role references | Restoration grants no implicit region reuse or GC phase membership change | All cuts | WC-MIGRATION-RESTORE |
+#+END:
+
+** Proposed QNT atomic steps
+#+BEGIN: sysml-view :kind migration-steps :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: migration-cut-steps
+| Step | Guard | Updates | Frame | Source mapping / gap | Obligation |
+|---+---+---+---+---+---|
+| beginPublish | Running matching context owner/revision; initialized prefix; no freeze or other publish | PublicationInFlight(opId,immutable manifest); pin context; execution owner retained | No fragment settles; abstract stutter until accepted visibility | Old mark_array/end_heap_chunk has no operation registry; proposed serialization | WC-MIGRATION-SERIAL |
+| commitPublish | Actual marker/link/tail visibility and destination acceptance established; same opId | Move included Body IDs to queue/local scanner; record actual Committed; retain publisher observation/lease separately | Tail/parent and task identities unchanged; source may still observe Unknown and retain publication lease | FIFO effects refine atomic Body transfer only with profile proof | WC-MIGRATION-SERIAL |
+| freezeContext | Running owner revision matches; admitted full cut; no publish-in-flight or external lock | Freeze source execution; advance freeze revision; pin immutable restore state | Source remains counted; committed queue remains live, not snapshotted for rollback | Logical stop after source cut; no native asynchronous stack extraction | WC-MIGRATION-STATE |
+| prepareDestination | Frozen exact TransferId; compatible free context lease and enough capacity; current phase | Destination Prepared with counted coverage; no execution grant | Source still counted; acceptance preparation does not move canonical task ownership | Proposed service action; destination resources cannot alias another live context | WC-MIGRATION-RESTORE |
+| rejectTransfer | Decision Pending; target cannot commit after durable Rejected decision | Record terminal Rejected and fence late accept/commit for same TransferId | No task movement; source frozen until known rejection observed | Timeout or local prepare error alone is not fenced rejection | WC-MIGRATION-DECISION |
+| commitMigration | Pending decision; matching immutable snapshot/context revision; prepared counted destination; no publish | Atomically decide Committed and give destination sole execution grant for exact unfinished domain | No task issue/settle; source remains frozen/pinned until reconciliation | Proposed linearization specification, not a demonstrated multi-field atomic C implementation | WC-MIGRATION-DECISION |
+| reconcileOutcome | Query same durable TransferId/generation; source cannot infer outcome from timeout | Observe Committed or Rejected, or keep Unknown and retained counted custody | Lost/replayed reply does not duplicate execution, commit or Copy settlement | Unknown is knowledge state; actual decision may already be committed | WC-MIGRATION-DECISION |
+| resumeSource | Known terminal Rejected; late commit fenced; no unknown publication; exact frozen context retained | Restore source sole execution grant and fresh running revision | Same tasks/frontier; prepared destination resources drained separately | Never resume source merely because a commit reply was lost | WC-MIGRATION-RESTORE |
+| releaseSource | Known Committed; current accepted successor or settled task receipts; no other private source work | Release source support/count only when own obligations permit; retain container users/pins independently | Historical finishCopy remains settled; no copy reissue; task sets unchanged | Destination can finish before reply; settled evidence substitutes for forcing it active again | WC-MIGRATION-RESTORE |
+| observePublish | Valid same-opId exact committed publication receipt or qualified settled successor evidence | Source observes Committed; advance context revision; clear publisher lease and allow later freeze | No repeated Body transfer or scan; observation does not change actual publication decision | Actual remote readability may precede publisher acknowledgement; never delay abstract commit past acquisition | WC-MIGRATION-SERIAL |
+#+END:
+
+** Unexecuted race histories
+#+BEGIN: sysml-view :kind migration-races :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: migration-cut-races
+| History | Class | Steps | Failure | Required guard | Obligation |
+|---+---+---+---+---+---|
+| ScanPtrOnly | design-negative | scan ptr advances locally -> PSTATE scan_ptr lags -> restore from PSTATE only | Duplicate scan/side effect or skipped pending return | Export exact next slot and pending return tag | WC-MIGRATION-FRONTIER |
+| DetachedChunkLost | design-negative | dequeue advances head -> freeze only FIFO -> target sees empty queue | Claimed chunk no longer represented | Carry claim/task and complete-chunk cursor | WC-MIGRATION-FRONTIER |
+| PoppedStillLost | design-negative | pop still head -> migrate list head only before scan returns | Detached object and role work lost | Admit specialized popped-object/caller adapter or exclude cut | WC-MIGRATION-FRONTIER |
+| WrongContext | design-negative | restore allocation pointers into destination unrelated scan_ptr -> end_heap_chunk | Current-scan bypass becomes queue publication or vice versa | Preserve ContextId and original containment meaning | WC-MIGRATION-RESTORE |
+| PublishAfterSnapshot | design-negative | snapshot private Body -> source publishes -> target restores snapshot Body | Duplicate queue/private rights and stale manifest | Freeze publication authority and revision before snapshot acceptance | WC-MIGRATION-SERIAL |
+| HalfPublishedFreeze | design-negative | FIFO link visible -> freeze -> revision validation rejects -> rollback assumed | External readers retain changed links despite failed migration | No freeze in publish protocol; unknown outcome pins source/op state | WC-MIGRATION-SERIAL |
+| LateCommitAfterReject | design-negative | destination reports rejection -> source resumes -> delayed accept commits | Both execute same Tail | Terminal decision fence serialized with commit | WC-MIGRATION-DECISION |
+| UnknownAckResume | design-negative | commit grants target -> reply lost -> source assumes failure and resumes | Twin executors and duplicate settlement | Unknown retains frozen source; query same decision | WC-MIGRATION-DECISION |
+| BusyDestinationOverwrite | design-negative | target accepts by replacing its live alloc/scan PSTATE | Unrelated context tasks/frontier erased | Separate destination context lease and preserved original bindings | WC-MIGRATION-RESTORE |
+| RejectDropsSource | design-negative | source stops counting on send -> target refuses state -> no receiver | Zero-count gap hides private/Tail work | Source counted until known accepted or tasks settled | WC-MIGRATION-DECISION |
+#+END:

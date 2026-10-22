@@ -1,0 +1,482 @@
+dune/src/memo/memo.ml at main · ocaml/dune · GitHub (https://github.com/ocaml/dune/blob/main/src/memo/memo.ml)
+citeturn10view0 [wordlim: 200] Crawled: last month; Content type: text/html; Source: open({"ref_id":"https://github.com/ocaml/dune/blob/main/src/memo/memo.ml","lineno":1490}); Total lines: 2138
+L1295: match x with
+L1296: 
+L1297: | true -> y ()
+L1298: 
+L1299: | false -> return ()
+L1300: 
+L1301: ;;
+L1302: 
+L1303: let of_reproducible_fiber = Fun.id
+L1304: 
+L1305: module type Input = sig
+L1306: 
+L1307: type t
+L1308: 
+L1309: include Stdune.Table.Key with type t := t
+L1310: 
+L1311: end
+L1312: 
+L1313: (* We can get rid of this once we use the memoization system more pervasively
+L1314: 
+L1315: and all the dependencies are properly specified *)
+L1316: 
+L1317: exception Non_reproducible = Exec.Non_reproducible
+L1318: 
+L1319: open Node
+L1320: 
+L1321: module Error = Node.Error
+L1322: 
+L1323: module Cycle_error = Node.Cycle_error
+L1324: 
+L1325: let () =
+L1326: 
+L1327: Printexc.register_printer (fun exn ->
+L1328: 
+L1329: let dyn =
+L1330: 
+L1331: let open Dyn in
+L1332: match exn with
+L1333: 
+L1334: | Error.E err -> Some (variant "Memo.Error.E" [ Error.to_dyn err ])
+L1335: 
+L1336: | Cycle_error.E frames ->
+L1337: 
+L1338: Some (variant "Cycle_error.E" [ Cycle_error.to_dyn frames ])
+L1339: 
+L1340: | Non_reproducible exn -> Some (variant "Memo.Non_reproducible" [ Exn.to_dyn exn ])
+L1341: 
+L1342: | _ -> None
+L1343: 
+L1344: in
+L1345: 
+L1346: Option.map dyn ~f:Dyn.to_string)
+L1347: 
+L1348: ;;
+L1349: 
+L1350: module To_open = struct
+L1351: 
+L1352: module Stack_frame = Stack_frame_with_state
+L1353: 
+L1354: end
+L1355: 
+L1356: open To_open
+L1357: 
+L1358: include Parallel
+L1359: 
+L1360: module Map (M : Map.S) = struct
+L1361: 
+L1362: include Make_parallel_map (M)
+L1363: let parallel_iter t ~f = parallel_iter (M.to_list t) ~f:(fun (key, data) -> f key data)
+L1364: 
+L1365: end
+L1366: 
+L1367: let pp_stack () =
+L1368: 
+L1369: let open Pp.O in
+L1370: 
+L1371: let+ stack = Call_stack.get_call_stack () in
+L1372: 
+L1373: Pp.vbox
+L1374: 
+L1375: (Pp.box (Pp.text "Memoized function stack:")
+L1376: 
+L1377: ++ Pp.cut
+L1378: 
+L1379: ++ Pp.chain stack ~f:(fun frame -> Dyn.pp (Stack_frame.to_dyn frame)))
+L1380: 
+L1381: ;;
+L1382: 
+L1383: let dump_stack () =
+L1384: 
+L1385: let+ pp = pp_stack () in
+L1386: 
+L1387: Console.print [ pp ]
+L1388: 
+L1389: ;;
+L1390: 
+L1391: module Stack_frame = struct
+L1392: 
+L1393: include Dep_node.Packed
+L1394: 
+L1395: let name (Dep_node.T t) = t.spec.name
+L1396: let input (Dep_node.T t) = Dep_node.input_to_dyn t
+L1397: 
+L1398: let to_dyn = Dep_node.Packed.to_dyn_without_state
+L1399: 
+L1400: let as_instance_of stack_frame ~(of_ : _ Spec.t) =
+L1401: 
+L1402: match of_.witness with
+L1403: 
+L1404: | None -> None
+L1405: 
+L1406: | Some witness -> Dep_node.Packed.as_instance_of stack_frame witness
+L1407: 
+L1408: ;;
+L1409: 
+L1410: end
+L1411: 
+L1412: let create_with_cache
+L1413: 
+L1414: (type i o)
+L1415: 
+L1416: name
+L1417: 
+L1418: ~cache
+L1419: 
+L1420: ~input
+L1421: 
+L1422: ~cutoff
+L1423: 
+L1424: ~human_readable_description
+L1425: 
+L1426: ~on_event
+L1427: 
+L1428: (f : i -> o Fiber.t)
+L1429: 
+L1430: : (i, o) Table.t
+L1431: 
+L1432: =
+L1433: 
+L1434: let spec =
+L1435: 
+L1436: Spec.create
+L1437: 
+L1438: ~name:(Some name)
+L1439: 
+L1440: ~witness:true
+L1441: 
+L1442: ~input
+L1443: 
+L1444: ~cutoff
+L1445: ~human_readable_description
+L1446: 
+L1447: ?on_event
+L1448: 
+L1449: f
+L1450: 
+L1451: in
+L1452: 
+L1453: Caches.register ~clear:(fun () ->
+L1454: 
+L1455: Invalidation.invalidate_store cache;
+L1456: 
+L1457: Store.clear cache);
+L1458: 
+L1459: { cache; spec }
+L1460: 
+L1461: ;;
+L1462: 
+L1463: let create_with_store
+L1464: 
+L1465: (type i)
+L1466: 
+L1467: name
+L1468: 
+L1469: ~store:(module S : Store_intf.S with type key = i)
+L1470: 
+L1471: ~input
+L1472: 
+L1473: ?cutoff
+L1474: 
+L1475: ?human_readable_description
+L1476: 
+L1477: ?on_event
+L1478: 
+L1479: f
+L1480: 
+L1481: =
+L1482: 
+L1483: let cache = Store.make (module S) in
+L1484: 
+L1485: create_with_cache name ~cache ~input ~cutoff ~human_readable_description ~on_event f
+L1486: 
+L1487: ;;
+L1488: 
+L1489: let create
+L1490: 
+L1491: (type i)
+L1492: 
+L1493: name
+L1494: ~input:(module Input : Input with type t = i)
+L1495: 
+L1496: ?(initial_store_size = 2)
+L1497: 
+L1498: ?cutoff
+L1499: 
+L1500: ?human_readable_description
+L1501: 
+L1502: ?on_event
+L1503: 
+L1504: f
+L1505: 
+L1506: =
+L1507: 
+L1508: (* This mutable table is safe: the implementation tracks all dependencies. *)
+L1509: 
+L1510: let cache = Store.of_table (Stdune.Table.create (module Input) initial_store_size) in
+L1511: 
+L1512: let input = (module Input : Store_intf.Input with type t = i) in
+L1513: 
+L1514: create_with_cache name ~cache ~input ~cutoff ~human_readable_description ~on_event f
+L1515: 
+L1516: ;;
+L1517: 
+L1518: let make_dep_node ~spec ~input : _ Dep_node.t =
+L1519: { id = Id.gen ()
+L1520: 
+L1521: ; input
+L1522: 
+L1523: ; spec
+L1524: 
+L1525: ; state = Not_cached
+L1526: 
+L1527: ; value = Uninitialized
+L1528: 
+L1529: ; runs = Run.Pair.invalid
+L1530: 
+L1531: ; deps = Deps.empty
+L1532: 
+L1533: }
+L1534: 
+L1535: ;;
+L1536: 
+L1537: let dep_node (t : (_, _) Table.t) input =
+L1538: 
+L1539: match Store.find t.cache input with
+L1540: 
+L1541: | Some node -> node
+L1542: 
+L1543: | None ->
+L1544: 
+L1545: let node = make_dep_node ~spec:t.spec ~input in
+L1546: 
+L1547: Store.set t.cache input node;
+L1548: 
+L1549: node
+L1550: 
+L1551: ;;
+L1552: 
+L1553: let check_point = Exec.check_point
+L1554: 
+L1555: let set_incremental = Deps_collector.set_enabled
+L1556: 
+L1557: let exec (type i o) (t : (i, o) Table.t) i = Exec.exec_dep_node (dep_node t i)
+L1558: let create_rec
+L1559: 
+L1560: name
+L1561: 
+L1562: ~input
+L1563: 
+L1564: ?initial_store_size
+L1565: 
+L1566: ?cutoff
+L1567: 
+L1568: ?human_readable_description
+L1569: 
+L1570: ?on_event
+L1571: 
+L1572: f
+L1573: 
+L1574: =
+L1575: 
+L1576: let rec table =
+L1577: 
+L1578: lazy
+L1579: 
+L1580: (create
+L1581: 
+L1582: name
+L1583: 
+L1584: ~input
+L1585: 
+L1586: ?initial_store_size
+L1587: 
+L1588: ?cutoff
+L1589: 
+L1590: ?human_readable_description
+L1591: 
+L1592: ?on_event
+L1593: 
+L1594: (fun input ->
+L1595: 
+L1596: let table = Stdlib.Lazy.force table in
+L1597: 
+L1598: f (exec table) input))
+L1599: 
+L1600: in
+L1601: 
+L1602: Stdlib.Lazy.force table
+L1603: 
+L1604: ;;
+L1605: 
+L1606: let get_call_stack = Call_stack.get_call_stack_without_state
+L1607: 
+L1608: module Invalidation = Invalidation
+L1609: 
+L1610: module Current_run = struct
+L1611: 
+L1612: let f () = Run.current () |> return
+L1613: let memo = create "current-run" ~input:(module Unit) f
+L1614: 
+L1615: let exec () = exec memo ()
+L1616: 
+L1617: let invalidate ~reason = Invalidation.invalidate_node ~reason (dep_node memo ())
+L1618: 
+L1619: end
+L1620: 
+L1621: let current_run () = Current_run.exec ()
+L1622: 
+L1623: let of_non_reproducible_fiber fiber =
+L1624: 
+L1625: let* (_ : Run.t) = current_run () in
+L1626: 
+L1627: fiber
+L1628: 
+L1629: ;;
+L1630: 
+L1631: let is_top_level =
+L1632: 
+L1633: let+ is_set = Error_handler.is_set in
+L1634: 
+L1635: not is_set
+L1636: 
+L1637: ;;
+L1638: 
+L1639: let run_with_error_handler t ~handle_error_no_raise =
+L1640: 
+L1641: Error_handler.with_error_handler handle_error_no_raise (fun () ->
+L1642: let* res = Exec.report_and_collect_errors t in
+L1643: 
+L1644: match res with
+L1645: 
+L1646: | Ok ok -> Fiber.return ok
+L1647: 
+L1648: | Error ({ exns; reproducible = _ } : Collect_errors_monoid.t) ->
+L1649: 
+L1650: Fiber.reraise_all (Exn_set.to_list exns))
+L1651: 
+L1652: ;;
+L1653: 
+L1654: let run t =
+L1655: 
+L1656: let* is_top_level = is_top_level in
+L1657: 
+L1658: (* CR-someday aalekseyev: I think this automagical detection of toplevel calls
+L1659: 
+L1660: is weird. My hunch is that having separate functions for toplevel and
+L1661: 
+L1662: non-toplevel [run] would be better. *)
+L1663: 
+L1664: match is_top_level with
+L1665: 
+L1666: | true ->
+L1667: (* Start each top-level run with a clean cycle-detection state so that a cycle hit in
+L1668: 
+L1669: one run does not leak into independent later runs. In production Memo performs a
+L1670: 
+L1671: single run per build with a [reset] in between, so this matches resetting in
+L1672: 
+L1673: [reset]. (Concurrent top-level runs do not occur in Dune; if that ever changes,
+L1674: 
+L1675: this reset would need to be scoped to the individual run rather than shared.) *)
+L1676: 
+L1677: Call_stack.reset_cycle_error_in_the_current_run ();
+L1678: 
+L1679: run_with_error_handler
+L1680: 
+L1681: (fun () -> t)
+L1682: ~handle_error_no_raise:(fun _exn -> Fiber.return ())
+L1683: 
+L1684: | false -> t
+L1685: 
+L1686: ;;
+L1687: 
+L1688: module With_implicit_output = struct
+L1689: 
+L1690: type ('i, 'o) t = 'i -> 'o Fiber.t
+L1691: 
+L1692: let create name ~input ~implicit_output impl =
+L1693: 
+L1694: let memo =
+L1695: 
+L1696: create name ~input (fun i ->
+L1697: 
+L1698: Implicit_output.collect implicit_output (fun () -> impl i))
+L1699: 
+L1700: in
+L1701: 
+L1702: fun input ->
+L1703: 
+L1704: let* res, output = exec memo input in
+L1705: 
+L1706: let+ () = Implicit_output.produce_opt implicit_output output in
+L1707: 
+L1708: res
+L1709: 
+L1710: ;;
+L1711: 
+L1712: let exec t = t
+L1713: 
+L1714: end
+L1715: 
+L1716: module Node = struct
+L1717: 
+L1718: type ('i, 'o) t = ('i, 'o) Dep_node.t
+L1719: let input (t : (_, _) t) = t.input
+L1720: 
+L1721: let read = Exec.exec_dep_node
+L1722: 
+L1723: let invalidate = Invalidation.invalidate_node
+L1724: 
+L1725: module Packed = struct
+L1726: 
+L1727: type 'o t = T : (_, 'o) Dep_node.t -> 'o t [@@unboxed]
+L1728: 
+L1729: let read (T node) = read node
+L1730: 
+L1731: end
+L1732: 
+L1733: let pack node = Packed.T node
+L1734: 
+L1735: end
+L1736: 
+L1737: let node = dep_node
+L1738: 
+L1739: module Implicit_output = Implicit_output
+L1740: 
+L1741: let lazy_node ~name ?cutoff ?human_readable_description ?on_event f =
+L1742: 
+L1743: let on_event = Option.map on_event ~f:(fun on_event () event -> on_event event) in
+L1744: let human_readable_description =
+L1745: 
+L1746: Option.map human_readable_description ~f:(fun f () -> Some (f ()))
+L1747: 
+L1748: in
+L1749: 
+L1750: let spec =
+L1751: 
+L1752: Spec.create
+L1753: 
+L1754: ~name:(Some name)
+L1755: 
+L1756: ~input:(module Unit)
+L1757: 
+L1758: ~cutoff
+L1759: 
+L1760: ~human_readable_description
+L1761: 
+L1762: ?on_event
+L1763: 
+L1764: f
+L1765: 
+L1766: in
+L1767: 
+L1768: make_dep_node ~spec ~input:()
+L1769: 
+L1770: ;;
+L1771: 
+L1772: let push_stack_frame ~human_readable_description f =
+L1773: 
+

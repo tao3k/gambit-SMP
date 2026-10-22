@@ -136,6 +136,108 @@ theorem sameBoundaryNotSameSignature :
 theorem earlyRejectionAvoidsRemainingCost (early remaining : Nat)
     (positive : 0 < remaining) : early < early + remaining := by omega
 
+-- The runner publishes good+failed counts. Without the split, PASS is unknown.
+theorem aggregateCompletionCannotDeterminePasses (n : Nat) (positive : 0 < n) :
+    ∃ good₁ failed₁ good₂ failed₂ : Nat,
+      good₁ + failed₁ = n ∧ good₂ + failed₂ = n ∧ good₁ ≠ good₂ := by
+  exact ⟨n, 0, 0, n, by omega, by omega, by omega⟩
+
+structure ExecutionObservation where
+  providerReturned : Bool
+  nativePresent : Bool
+  completed : Nat
+
+-- Observation updates neither native receipts nor their source/product identity.
+def observeExecution (s : State) (_observation : ExecutionObservation) : State := s
+
+theorem executionProjectionCannotAdvance (s : State) (o : ExecutionObservation) (gates : List Nat) :
+    acceptedCount (observeExecution s o) gates = acceptedCount s gates := rfl
+
+structure Investigation where
+  retained : List Nat
+  shown : List Nat
+
+def restoreInvestigation (j : Investigation) : Investigation := { j with shown := j.retained }
+def clearReadHint (j : Investigation) : Investigation := { j with shown := [] }
+
+theorem restoreRetainsConclusions (j : Investigation) :
+    (restoreInvestigation j).retained = j.retained := rfl
+
+theorem clearHintRetainsConclusions (j : Investigation) :
+    (clearReadHint j).retained = j.retained := rfl
+
+-- Conclusions remain separate from the source-bound native receipt inventory.
+def restoreWithState (s : State) (j : Investigation) : State × Investigation :=
+  (s, restoreInvestigation j)
+
+theorem investigationRestoreCannotGrantNativeCredit (s : State) (j : Investigation) (gates : List Nat) :
+    acceptedCount (restoreWithState s j).1 gates = acceptedCount s gates := rfl
+
+structure FailedPrefixPremises where
+  allRecorded : Prop
+  failed : Prop
+  quiescent : Prop
+  changed : Prop
+  sameGraph : Prop
+  budgetsPreserved : Prop
+
+def FreshRetryAllowed (p : FailedPrefixPremises) : Prop :=
+  p.allRecorded ∧ p.failed ∧ p.quiescent ∧ p.changed ∧ p.sameGraph ∧ p.budgetsPreserved
+
+theorem freshRetryRequiresQuiescence (p : FailedPrefixPremises) (h : FreshRetryAllowed p) :
+    p.quiescent := h.2.2.1
+
+theorem freshRetryPreservesBudgetContract (p : FailedPrefixPremises) (h : FreshRetryAllowed p) :
+    p.budgetsPreserved := h.2.2.2.2.2
+
+theorem unchangedFailureCannotRetry (p : FailedPrefixPremises) (h : ¬ p.changed) :
+    ¬ FreshRetryAllowed p := fun allowed => h allowed.2.2.2.1
+
+-- A discriminating observation is weaker than a causal/native repair proof.
+-- The host owns the authenticated meaning of these identity tokens.
+structure MechanismObservation where
+  source : Nat
+  observedSource : Nat
+  product : Nat
+  observedProduct : Nat
+  hypothesis : Nat
+  alternative : Nat
+  fixture : Nat
+  observedFixture : Nat
+  configuration : Nat
+  observedConfiguration : Nat
+  generation : Nat
+  observedGeneration : Nat
+  prediction : Nat
+  alternativePrediction : Nat
+  outcome : Nat
+  complete : Bool
+
+def Distinguishes (o : MechanismObservation) : Prop :=
+  o.hypothesis ≠ o.alternative ∧ o.prediction ≠ o.alternativePrediction ∧
+  o.source = o.observedSource ∧ o.product = o.observedProduct ∧
+  o.fixture = o.observedFixture ∧ o.configuration = o.observedConfiguration ∧
+  o.generation = o.observedGeneration ∧ o.complete = true ∧
+  (o.outcome = o.prediction ∨ o.outcome = o.alternativePrediction)
+
+theorem equalPredictionsCannotDiscriminate (o : MechanismObservation)
+    (same : o.prediction = o.alternativePrediction) : ¬ Distinguishes o :=
+  fun h => h.2.1 same
+
+theorem staleObservationCannotDiscriminate (o : MechanismObservation)
+    (stale : o.generation ≠ o.observedGeneration) : ¬ Distinguishes o :=
+  fun h => stale h.2.2.2.2.2.2.1
+
+theorem discriminationStillCannotAdvance (s : State) (r : Receipt) (gate : Nat)
+    (_o : MechanismObservation) (_checked : Distinguishes _o)
+    (diagnostic : r.kind = .diagnostic) :
+    Accepted (append s r) gate ↔ Accepted s gate := by
+  apply nonNativeCannotAdvance
+  simp [diagnostic]
+
+#print axioms equalPredictionsCannotDiscriminate
+#print axioms staleObservationCannotDiscriminate
+#print axioms discriminationStillCannotAdvance
 #print axioms nonNativeCannotAdvance
 #print axioms nonNativeCannotChangeCount
 #print axioms duplicateGateCannotInflateCount
@@ -149,5 +251,13 @@ theorem earlyRejectionAvoidsRemainingCost (early remaining : Nat)
 #print axioms bootstrapCreditCounterexample
 #print axioms sameBoundaryNotSameSignature
 #print axioms earlyRejectionAvoidsRemainingCost
+#print axioms aggregateCompletionCannotDeterminePasses
+#print axioms executionProjectionCannotAdvance
+#print axioms restoreRetainsConclusions
+#print axioms clearHintRetainsConclusions
+#print axioms investigationRestoreCannotGrantNativeCredit
+#print axioms freshRetryRequiresQuiescence
+#print axioms freshRetryPreservesBudgetContract
+#print axioms unchangedFailureCannotRetry
 
 end ResearchFunnel

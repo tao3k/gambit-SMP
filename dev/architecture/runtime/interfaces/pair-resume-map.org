@@ -1,0 +1,63 @@
+#+TITLE: PAIR Scan Resume Labels, Steps and Counterexamples
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned PAIR scan continuation map
+:PROPERTIES:
+:CUSTOM_ID: pair-resume-map
+:AUTHORITY: GambitCopyHandoff
+:EVIDENCE_CLASS: derived-pair-design
+:END:
+
+Names denote proposed resume tags over real source cuts. Only again is an existing C label here; no native migration support or new model execution is asserted. Shared ledger owns dispositions.
+
+** Source-grounded resume labels
+#+BEGIN: sysml-view :kind pair-labels :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: pair-resume-labels
+| Label | Established local state | Next action | Retained responsibility | Obligation |
+|---+---+---+---+---|
+| [[file:../../../../vendor/gambit/lib/mem.c::6717][ClaimedChunkStart 6717-6725]] | Origin FIFO head removed claim; lock released; start = node+1 | Enter complete scanner with same ClaimId; keep origin queue/node and execution allocation context separate | Chunk scan obligation stays counted; node may remain origin FIFO sentinel | WC-PAIR-CLAIM |
+| [[file:../../../../vendor/gambit/lib/mem.c::4268][PairHeader 4268-4270]] | Complete scanner ptr=H; exact PAIR fast header selected via scan_and_advance | Dispatch mark_array(H+2,1), retain pending H+3 advance | Parent P CDR remains delegated to its winner; CAR not yet resolved | WC-PAIR-PARTITION |
+| [[file:../../../../vendor/gambit/lib/mem.c::3502][MarkArrayEntry 3502-3513]] | alloc/limit loaded; input start=H+2,n=1; outer scanner H unchanged | Execute outer condition/select cell exactly once for CAR | One pending array input and one caller advance; no CDR task reminted | WC-PAIR-RESUME |
+| [[file:../../../../vendor/gambit/lib/mem.c::3511][MarkCurrent 3511-3517]] | At again entry before reading cell; after selection remaining=0,startNext=H+3; no active partial copy/publication | Resolve current cell; use existing claim/reserve/init/publish subprotocol for winning copy | Pending caller advance and active cell work; logical array state separate from native terminal decrement | WC-PAIR-RESUME |
+| [[file:../../../../vendor/gambit/lib/mem.c::3600][TailAgainReady 3600-3624]] | Eligible winner selected/reserved Tail before copy; bytes and any threshold publication now known | Resume at again on current cell without repeating n-- or start++ | Reserved Tail grant and private cursor live; parent P CDR and Q CDR are separate identities | WC-PAIR-RESUME |
+| [[file:../../../../vendor/gambit/lib/mem.c::3659][MarkExitFlush 3659-3664]] | No pending again; outer condition exited; private alloc may exceed public cursor | Write alloc_heap_ptr=alloc then return to pending PAIR increment | Loop-exited tag forbids replaying the native failed postdecrement | WC-PAIR-ADVANCE |
+| [[file:../../../../vendor/gambit/lib/mem.c::4200][PairAdvancePending 4200-4201]] | mark_array returned and flushed; ptr still H; increment not performed | Consume one PairVisit advance right: ptr=H+3 | CAR invocation closed; descendant Body/Tail tasks can remain elsewhere | WC-PAIR-ADVANCE |
+| [[file:../../../../vendor/gambit/lib/mem.c::4268][PairNextHeader 4268-4271]] | ptr=H+3; previous visit advance consumed | Read next header or marker; never replay prior mark_array | Next item is a new visit; previous descendants and parent CDR retain their debts | WC-PAIR-ADVANCE |
+| [[file:../../../../vendor/gambit/lib/mem.c::4268][ChunkMarker 4268-4275]] | Valid terminating FORW marker reached; no pending local PAIR/mark continuation | Close claimed scan region with descendant receipts; retain container references | No inferred task for marker bytes and no region reclaim permission | WC-PAIR-CLAIM |
+| [[file:../../../../vendor/gambit/lib/mem.c::6725][ChunkCallerReturn 6725-6727]] | scan_complete returned to the actual thief caller | Remote mode goto continue_local_scan; local mode separately reacquires origin FIFO lock | Caller mode immutable; other roots/queues/region users remain live | WC-PAIR-CLAIM |
+#+END:
+
+** Proposed QNT atomic steps
+#+BEGIN: sysml-view :kind pair-steps :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: pair-resume-steps
+| Step | Guard | Updates | Frame | Obligation |
+|---+---+---+---+---|
+| claimChunk | Eligible committed batch; counted thief; origin FIFO lock protocol; unique claim | Move FIFO scan work to same ClaimId plus pinned node/start, scanner mode and RemoteContinueLocal return tag | No task settlement; head node remains a possible live sentinel | WC-PAIR-CLAIM |
+| enterPair | Claimed complete scan cursor H matches native exact PAIR header; parent CDR inventory known | Create phase/claim/header/generation PairVisitId and pending advance; MarkArrayEntry start=H+2,n=1 | No CDR issue; input PairVisit remains under same chunk claim | WC-PAIR-PARTITION |
+| selectCarCell | MarkArrayEntry; one pending array input; no replay | cell=H+2,startNext=H+3,remainingInputs=0; MarkCurrent; retain alloc/limit | Logical selection exactly once; native failed terminal postdecrement not a fresh input | WC-PAIR-RESUME |
+| resolveKnownCell | MarkCurrent known immediate/permanent/forwarded or CAS loser; canonical dependent work has custody | Resolve current edge; go to MarkExitFlush when no again; retain winner tasks for forwarded/loser | No winner-copy or Tail task created by loser; no parent advance yet | WC-PAIR-RESUME |
+| armReservedTail | Winner claim/reserveFragments/initializeCopy and known publication path already represented; current Tail eligible | Select TailAgainReady for the already reserved exact destination first field | No late reservation or duplicate issue; copied bytes may be published while source Tail remains | WC-PAIR-RESUME |
+| resumeAgain | TailAgainReady; exclusive current execution grant; complete pair-role restore frame | MarkCurrent using current Tail cell; outer array selection/start and pending caller advance unchanged | Tail-ready right transitions once; repeat traversal requires a new exact cell/task, not reply replay | WC-PAIR-RESUME |
+| flushMarkReturn | MarkExitFlush; no active again; all derived work accepted; private cursor valid | Commit alloc_heap_ptr and close mark invocation; PairAdvancePending | Descendants and parent CDR stay accounted; no whole-object completion inferred | WC-PAIR-ADVANCE |
+| advancePair | PairAdvancePending; exact cursor H; mark closed; advanceCount=0 | ptr=H+3; advanceCount=1; PairNextHeader | Consume only this visit advance; do not settle unrelated tasks or reuse same visit | WC-PAIR-ADVANCE |
+| finishClaimedChunk | Valid marker in pinned published range; all claimed visit/mark/advance work discharged | Record claimed scan-region completion; ChunkCallerReturn; descendants stay live or settled by receipts | Does not free origin head/sentinel or require all descendants completed | WC-PAIR-CLAIM |
+| returnCaller | ChunkCallerReturn with immutable actual caller mode and no unknown handoff | RemoteContinueLocal goes to local still/movable scan; LocalReacquire uses fresh origin FIFO lock state | Do not replay dequeue or restore stale FIFO head/tail | WC-PAIR-CLAIM |
+#+END:
+
+** Unexecuted counterexamples
+#+BEGIN: sysml-view :kind pair-races :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: pair-resume-races
+| History | Class | Steps | Failure | Required guard | Obligation |
+|---+---+---+---+---+---|
+| ReplayCarAtHeader | design-negative | CAR returned -> restore at PairHeader -> call mark_array again | Repeated visit/side effect and duplicate logical settlement | Resume at PairAdvancePending and consume its unique advance | WC-PAIR-ADVANCE |
+| AdvanceBeforeCar | design-negative | ptr advances to H+3 while CAR or derived Tail still lacks custody | Required edge/work becomes unreachable from scan frontier | No pending mark/advance release before accepted work | WC-PAIR-ADVANCE |
+| DoubleAdvance | design-negative | advance H+3 -> restore pending tag -> advance another three words | Next object/header skipped | Same PairVisitId has exactly one advance right | WC-PAIR-ADVANCE |
+| AgainReentersArray | design-negative | TailAgainReady -> replay while(n-- >0) and start++ instead of goto again | Tail missed or invalid next source input consumed | Preserve outer selection state and use again-only resume | WC-PAIR-RESUME |
+| LoserArmsTail | design-negative | CAS loser redirects -> creates/resumes winner Q CDR Tail | Two executors traverse one canonical delegated Tail | Only winner-reserved Tail can be armed; loser keeps winner dependency | WC-PAIR-RESUME |
+| ParentTailErased | design-negative | CAR Q copied and Q CDR resolved -> declare original P CDR complete | Original first-field obligation lost although Body scanner skipped it | Separate P CDR, P CAR and Q CDR task identities | WC-PAIR-PARTITION |
+| ClaimMissingInFifo | design-negative | thief removes chunk -> freezes without ClaimId -> target sees empty queue | Chunk scan work lost outside FIFO | Retain counted claimed start/cursor/return mode | WC-PAIR-CLAIM |
+| ReturnFreesSentinel | design-negative | scan_complete returns -> free node still referenced by origin queue head | Queue/thief raw pointer use outlives scan task | Keep container/region pins beyond task completion | WC-PAIR-CLAIM |
+| WrongCallerMode | design-negative | remote scan return -> restore LocalReacquire mode on unrelated PSTATE | Wrong queue lock/frontier or repeated dequeue | Immutable origin and actual return tag | WC-PAIR-FRAME |
+| ReplayTailAfterTransfer | design-negative | migration grants target -> source resumes same Tail after lost reply | Duplicate Tail execution despite preserved total task count | Use existing terminal decision and exclusive execution grant | WC-PAIR-FRAME |
+| PartialCopyRewindsDispatch | design-negative | Winner forwarding visible but payload incomplete -> discard copy subframe -> restore MarkCurrent | Forwarded branch or uninitialized Tail slot bypasses the original initializer and loses required debt | MarkCurrent cut is before cell read; partial copy/publication must retain its own complete substate or exclude migration | WC-PAIR-FRAME |
+#+END:

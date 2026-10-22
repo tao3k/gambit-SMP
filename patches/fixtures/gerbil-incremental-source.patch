@@ -1,0 +1,78 @@
+diff --git a/src/gerbil/compiler/base.ss b/src/gerbil/compiler/base.ss
+index 19c7a967..8637fd28 100644
+--- a/src/gerbil/compiler/base.ss
++++ b/src/gerbil/compiler/base.ss
+@@ -152,7 +152,10 @@ namespace: gxc
+                (ht (symbol-table-bindings (current-compile-symbol-table))))
+            (cond
+             ((interned-symbol? eid) eid)
+-            ((hash-get ht eid))
++            ((let (gid (hash-get ht eid))
++               (and gid
++                    (or (symbol? gid) (string? gid))
++                    (if (string? gid) (string->symbol gid) gid))))
+             ((local-binding? bind)
+              (let (gid (generate-runtime-gensym-reference eid))
+                (hash-put! ht eid gid)
+@@ -237,9 +240,23 @@ namespace: gxc
+   (eq? (symbol-e id1) (symbol-e id2)))
+ 
+ (def (identifier-symbol stx)
+-  (if (syntax-quote? stx)
+-    (generate-runtime-binding-id stx)
+-    (stx-e stx)))
++  (let* ((direct (stx-e stx))
++         (id (if (syntax-quote? stx)
++               (generate-runtime-binding-id stx)
++               direct)))
++    ;; A non-symbol must not be emitted as an identifier. Returning the
++    ;; raw stx-e value made the code generator write that object, which
++    ;; the printer dumped as a huge f64/u8 vector and then overflowed the heap.
++    (cond
++     ((symbol? id) id)
++     ((string? id) (string->symbol id))
++     ((symbol? direct) direct)
++     ;; #f is an absent identifier, as in a missing metaclass. A vector or
++     ;; other object must not be emitted; the printer expands it until the
++     ;; heap overflows.
++     ((not id) #f)
++     (else
++      (raise-compile-error "identifier is not a symbol" stx id)))))
+ 
+ (def (runtime-identifier-properties id)
+   (let* ((bind (resolve-identifier id))
+diff --git a/src/gerbil/compiler/optimize-base.ss b/src/gerbil/compiler/optimize-base.ss
+index e1665675..0c660e97 100644
+--- a/src/gerbil/compiler/optimize-base.ss
++++ b/src/gerbil/compiler/optimize-base.ss
+@@ -436,13 +436,18 @@ namespace: gxc
+ 
+ ;; utilities
+ (def (optimizer-declare-type! sym type (local? #f))
++  (set! sym (cond
++             ((symbol? sym) sym)
++             ((string? sym) (string->symbol sym))
++             (else #f)))
++  (when sym
+   (unless (!type? type)
+     (error "bad declaration: expected !type" sym type))
+   (verbose "declare-type " sym " " type)
+   (let (table (if local?
+                 (current-compile-local-type)
+                 (optimizer-info-type (current-compile-optimizer-info))))
+-    (hash-put! table sym type)))
++    (hash-put! table sym type))))
+ 
+ (def (optimizer-declare-class! sym type)
+   (unless (!class? type)
+@@ -597,6 +602,10 @@ namespace: gxc
+                        (tr (type-e t)))
+                   (set-cdr! p tr)))
+               result)
++    (for-each (lambda (p)
++                (when (string? (car p))
++                  (set-car! p (string->symbol (car p)))))
++              result)
+     (list-sort (lambda (a b)
+                  (string<? (symbol->string (car a))
+                            (symbol->string (car b))))

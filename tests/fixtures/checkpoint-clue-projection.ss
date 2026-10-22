@@ -5,9 +5,11 @@
            binding required_binding current_binding command command_observation
            prerequisite quiescent material available withdrawn
            required_step recorded_failure campaign_pass receipt_checked
-           output_retained execution_quiescent campaign_required campaign_enumerated)
+           output_retained execution_quiescent campaign_required campaign_enumerated
+           execution_location execution_process execution_end execution_sample execution_custody)
   (outputs clue factor link)
   (include evidence-checkpoint-fragment)
+  (include execution-observation-fragment)
   (fact (completed_outcome (lit "PASS")))
   (relation required_step (step))
   (relation recorded_failure (step outcome))
@@ -25,6 +27,10 @@
   ((clue E E R (lit "counter") (lit "observation") E) <--
     (receipt E R C _) (enumeration_gap E Reason))
   ((factor E C (lit "requirement") R) <-- (clue E C R _ _ _))
+  ((clue Ref Ref S (lit "support") (lit "observation") Ref) <--
+    (execution_frontier S _ _ _ Ref))
+  ((factor Ref Ref (lit "observation-kind") (lit "completed-work-not-native-PASS")) <--
+    (execution_frontier _ _ _ _ Ref))
   ((link R D (lit "declaration") E E) <--
     (receipt E R C _) (clue E _ R _ _ _) (support_declaration R C _ D _ _ _ _)))
 

@@ -9,6 +9,37 @@ from gambit_smp.workspace import bounded, paths, lease, write, now, active_paths
 from gambit_smp.task_dependencies import registry
 
 
+def rewrite_process_calls(raw):
+    """Direct source migration of subprocess calls, including import aliases."""
+    tree=ast.parse(raw);modules=set();direct={};changed=[]
+    names={'Popen':'spawn','run':'run','check_output':'check_output','call':'run','check_call':'run'}
+    for node in ast.walk(tree):
+        if isinstance(node,ast.Import):
+            modules.update(a.asname or a.name for a in node.names if a.name=='subprocess')
+        elif isinstance(node,ast.ImportFrom) and node.module=='subprocess':
+            direct.update({a.asname or a.name:a.name for a in node.names if a.name in names})
+    class Rewrite(ast.NodeTransformer):
+        def visit_Call(self,node):
+            node=self.generic_visit(node);f=node.func
+            name=(f.attr if isinstance(f,ast.Attribute) and isinstance(f.value,ast.Name) and f.value.id in modules
+                  else direct.get(f.id) if isinstance(f,ast.Name) else None)
+            if name not in names:return node
+            changed.append(dict(line=node.lineno,call=name))
+            node.func=ast.Name('_birth_exec_'+names[name],ast.Load())
+            if name=='check_call':node.keywords.append(ast.keyword('check',ast.Constant(True)))
+            return ast.copy_location(ast.Attribute(node,'returncode',ast.Load()),node) if name in {'call','check_call'} else node
+    tree=Rewrite().visit(tree)
+    if not changed:return raw,[]
+    prelude=ast.parse('from gambit_smp.task_processes import spawn as _birth_exec_spawn, run as _birth_exec_run, check_output as _birth_exec_check_output').body
+    position=0
+    if tree.body and isinstance(tree.body[0],ast.Expr) and isinstance(tree.body[0].value,ast.Constant) and isinstance(tree.body[0].value.value,str):position=1
+    while position<len(tree.body) and isinstance(tree.body[position],ast.ImportFrom) and tree.body[position].module=='__future__':position+=1
+    tree.body[position:position]=prelude
+    result=(ast.unparse(ast.fix_missing_locations(tree))+'\n').encode()
+    compile(result,'<birth-exec-source-migration>','exec')
+    return result,changed
+
+
 def script_record(root, task, key):
     from gambit_smp.workspace import identifier
     return bounded(root, '.state/task-scripts/' + identifier(task) + '/' + identifier(key) + '.json')
@@ -57,15 +88,15 @@ def _migrate_locked(root,task,script,*,enabled,opened,resume):
         return commit(root,task,script,manifest,entry)
     original = script.read_bytes()
     identity=script.stat()
-    raw = original
-    source_sha = hashlib.sha256(raw).hexdigest()
+    raw,process_calls = rewrite_process_calls(original)
+    source_sha = hashlib.sha256(original).hexdigest()
     archive = bounded(root, '.state/storage/script-sources/' + source_sha + '.py')
     archive.parent.mkdir(parents=True, exist_ok=True)
-    if archive.exists() and archive.read_bytes() != raw:
+    if archive.exists() and archive.read_bytes() != original:
         raise ValueError('source archive differs')
     if not archive.exists():
         with archive.open('xb') as stream:
-            stream.write(raw);stream.flush();os.fsync(stream.fileno())
+            stream.write(original);stream.flush();os.fsync(stream.fileno())
     relocations = bounded(root, '.state/storage/task-relocations.json')
     mappings = json.loads(relocations.read_text())['relocations'] if relocations.exists() else []
 
@@ -116,6 +147,7 @@ def _migrate_locked(root,task,script,*,enabled,opened,resume):
     with destination.open('xb') as stream:
         stream.write(migrated);stream.flush();os.fsync(stream.fileno())
     entry=dict(task=task,key=key,path=str(destination),sha256=hashlib.sha256(migrated).hexdigest(),
+               processCallMigration=process_calls,
                original=str(script.relative_to(root)),originalSha256=source_sha,archive=str(archive.relative_to(root)),
                enabled=enabled,state='prepared',at=now().isoformat(),nativeAdmitted=False,
                originalEntrySha256=hashlib.sha256(original).hexdigest(),
@@ -143,6 +175,53 @@ def commit(root,task,script,manifest,entry):
     script.unlink(missing_ok=True)
     entry['state']='migrated';write(manifest,entry)
     return entry
+
+
+def upgrade_process_calls(root,task):
+    """Migrate registered sources in place under the existing work-item owner.
+
+    A prepared checkpoint binds both byte generations; interrupted replacement
+    resumes from either exact generation. No compatibility execution or hash fix.
+    """
+    from gambit_smp.workspace import inherited_lease
+    from gambit_smp.source_identity import retain_sources,read_source
+    root=Path(root).resolve(strict=True)
+    if os.environ.get('GAMBIT_SMP_TASK_PROCESS') or inherited_lease(root,task) is None:
+        raise ValueError('program migration requires exclusive work-item execution custody')
+    result=[]
+    with lease(root,'storage-retention'):
+        occupied=active_paths()
+        for manifest in sorted(bounded(root,'.state/task-scripts/'+task).glob('*.json')):
+            row=json.loads(manifest.read_text());script=bounded(root,Path(row['path']).relative_to(root))
+            if row['state']!='migrated':raise ValueError('complete original source migration first')
+            if referenced(script,occupied):raise ValueError('program occupied; source migration deferred')
+            raw=script.read_bytes();previous=row.get('processMigration',{})
+            if previous.get('state')=='prepared':
+                before=read_source(root,previous['before']);after=read_source(root,previous['after'])
+                if raw not in (before,after):raise ValueError('program changed during birth/exec migration')
+            else:
+                if hashlib.sha256(raw).hexdigest()!=row['sha256']:raise ValueError('program source seal changed')
+                after,calls=rewrite_process_calls(raw)
+                if not calls:continue
+                sources=retain_sources(root,{'before':raw,'after':after})
+                previous=dict(state='prepared',before=sources['before'],after=sources['after'],calls=calls,
+                              previousSha256=row['sha256'],preparedAt=now().isoformat())
+                row['processMigration']=previous;write(manifest,row)
+            if raw!=after:
+                temporary=script.with_name(script.name+'.birth-exec-tmp')
+                try:
+                    with temporary.open('xb') as stream:
+                        stream.write(after);stream.flush();os.fsync(stream.fileno())
+                    temporary.replace(script)
+                    fd=os.open(script.parent,os.O_RDONLY)
+                    try:os.fsync(fd)
+                    finally:os.close(fd)
+                finally:temporary.unlink(missing_ok=True)
+            if script.read_bytes()!=after:raise ValueError('program source migration did not persist')
+            row.update(sha256=hashlib.sha256(after).hexdigest())
+            previous.update(state='migrated',completedAt=now().isoformat())
+            write(manifest,row);result.append(dict(key=row['key'],calls=len(previous['calls']),path=row['path']))
+    return result
 
 
 def normalize_programs(root,task):

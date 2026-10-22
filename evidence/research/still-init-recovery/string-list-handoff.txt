@@ -1,0 +1,72 @@
+
+___EXP_FUNC(___SCMOBJ,___NONNULLSTRINGLIST_to_SCMOBJ)
+   ___P((___processor_state ___ps,
+         void *x,
+         ___SCMOBJ *obj,
+         int arg_num,
+         int char_encoding),
+        (___ps,
+         x,
+         obj,
+         arg_num,
+         char_encoding)
+___processor_state ___ps;
+void *x;
+___SCMOBJ *obj;
+int arg_num;
+int char_encoding;)
+{
+  ___SCMOBJ lst;
+  void **string_list = ___CAST(void**,x);
+  int i;
+
+  if (string_list == 0)
+    {
+      *obj = ___FAL;
+      return ___FIX(___NO_ERR);
+    }
+
+  i = 0;
+
+  while (string_list[i] != 0)
+    i++;
+
+  lst = ___NUL;
+
+  while (i-- > 0)
+    {
+      ___SCMOBJ e;
+      ___SCMOBJ str;
+      ___SCMOBJ pair;
+
+      if ((e = ___NONNULLSTRING_to_SCMOBJ
+                 (___ps,
+                  string_list[i],
+                  &str,
+                  arg_num,
+                  char_encoding))
+          != ___FIX(___NO_ERR))
+        {
+          ___release_scmobj (lst);
+          *obj = ___FAL;
+          if (e == err_code_from_char_encoding (char_encoding, 1, 1, arg_num))
+            e = err_code_from_char_encoding (char_encoding, 1, 2, arg_num);
+          return e;
+        }
+
+      pair = ___make_pair (___ps, str, lst);
+
+      ___release_scmobj (str);
+      ___release_scmobj (lst);
+
+      if (___FIXNUMP(pair))
+        {
+          *obj = ___FAL;
+          return ___FIX(___CTOS_HEAP_OVERFLOW_ERR+arg_num);
+        }
+
+      lst = pair;
+    }
+
+  *obj = lst;
+

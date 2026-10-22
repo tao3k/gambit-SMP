@@ -70,3 +70,9 @@ The architecture now has a concrete sequencing and failure specification. It
 still establishes no positive total or Zig-only net bound; all five full
 architecture requirements remain unresolved. No native experiment is authorized
 or performed by this study.
+
+The [target-adapter cost refinement](target-root-adapter-cost-matrix.md) expands
+RTM01/03/04/06/07 into concrete carrier routing, collector-context extraction,
+seed/operation scopes and completion publication. It credits existing C support
+and separates shared modernization from Zig-specific support removal; its costs
+refine these rows rather than adding another independent support layer.

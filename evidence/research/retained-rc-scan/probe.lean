@@ -1,0 +1,13 @@
+import RetainedRcScan
+open GambitSMP.RetainedRcScan
+#check retainedEnrollmentCoverage
+#check pinPreserves
+#check preparePreserves
+#check commitPreserves
+#check releasePreserves
+#check stepPreserves
+#check tracePreserves
+#check pinnedSnapshotStable
+#check readerExcludesTransfer
+#check fullPhaseClosure
+#check committedOwnerSurvivesLostAck

@@ -1,0 +1,162 @@
+#+TITLE: Native Argv Equivalence and M2-M8 Retirement
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Native Argv Equivalence and M2-M8 Retirement :toolchain:
+:PROPERTIES:
+:ID: f14c9b3e-be6e-5995-8fad-66dcec56b496
+:CUSTOM_ID: native-argv-equivalence-and-m2-m8-retirement
+:SOURCE_PATH: docs/experimental/zig/native-argv-equivalence-matrix.md
+:SOURCE_SHA256: 6db2c726fb8d23ebdaa1f55fa2df51fa876590ccb46dfefe4235c4bb79592018
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Date: 2026-10-20. Proposed acceptance matrix, *not executed tests*.
+Companion [[file:single-source-native-profile.org][single-source model and requests]];
+S1-S8 refer to its [[file:single-source-profile-evidence.org][source evidence]].
+
+*** 1. What Equivalence Must Compare
+:PROPERTIES:
+:ID: 25896150-1098-5b8e-8c69-a937cdddae6c
+:CUSTOM_ID: 1-what-equivalence-must-compare
+:END:
+
+Each future case needs an exact source/profile pair and immutable inputs.
+Legacy and managed arms must receive matching child environment, tools, cwd,
+source/output spellings and metadata; foreign frozen-driver receipts cannot
+stand in for a different configured tree. Observe the old arm at the final
+process boundary, not by asking a new renderer to predict both expected and
+actual argv. A capture adapter alone tests command construction; it does not
+qualify actual compiler/linker/runtime behavior.
+
+For supported input, compare program and prefix, every argv element and order,
+child env presence/values, cwd, resolution actions and their order, selected
+metadata/diagnostics, output roles/paths, and delivered success/failure status.
+Account for query/tool/version/helper invocation effects: remove a helper only
+when it is an implementation detail with no required observable effect.
+Unsupported-input rejection is *restricted admission*, not an equivalence pass.
+Structured errors versus ~/dev/tty~ warnings require a declared transport/status
+contract; arbitrary stderr masking cannot establish parity.
+
+Native artifacts need independent format/symbol/relocation/runtime checks under
+the existing qualification rules. Object byte identity can be useful where
+reproducible, but is neither universally necessary nor sufficient for semantics.
+Do not erase source/path/debug differences to force a comparison to pass.
+The matrix's oracle is the pinned old producer/driver route plus independent
+expected invariants; the shared new renderer cannot serve as its sole oracle.
+No case below has been run in this study.
+
+The [[file:independent-equivalence-evidence-plan.org][independent evidence design]]
+now specifies B0-B6 boundaries, L0-L3 evidence lanes, fixtures and negative
+controls for every E row. The [[file:../../../refactoring/modern-c/studies/native-caller-retirement-plan.org][caller plan]]
+identifies actual upstream paths and M2-M8 capability dependencies.
+
+*** 2. Field and Mode Acceptance Matrix
+:PROPERTIES:
+:ID: 0865ca26-9e0f-5e90-affb-e006e32eab1d
+:CUSTOM_ID: 2-field-and-mode-acceptance-matrix
+:END:
+
+All rows have state *OPEN / design only*. “Equal” specifies a required future
+observation for admitted inputs; “reject” specifies a profile restriction.
+
+| ID | Old route / case | Required new argv or behavior | Acceptance boundary / source |
+|-
+| E01 | Configure GCC program and preprocessor string | Distinct tool IDs: GCC program, preprocessor prefix -E; no compiler duplication in argv | Bind real tool/specs dependencies, not path/version alone; S1/S4 |
+| E02 | C/LD capture absent | Select exact configured default words at the same segment position | Equal env presence and argv; preserve captured origins; S1/S5 |
+| E03 | C/LD capture present-empty | Suppress only that capture; common/mode flags remain | Empty vector differs from absent; S1/S4/S5 |
+| E04 | Nonempty admitted C/LD captures | Ordered words replace capture contribution only | No sorting/dedup; rejected shell features separately recorded; S1/S5 |
+| E05 | Ordinary obj with no metadata | Program + O, FO, DO, joined include, -c -o Out, CC, In | Exactly one generated C/output per request; O is -O1 in S4; S1/S4/S5 |
+| E06 | Runtime-only object template | If later admitted, OR replaces O (-O3 in S4) | Mapped only; ordinary installed obj dispatcher cannot select it implicitly; S1/S4 |
+| E07 | Darwin dyn on source or object | O, FD, DD, joined include, -o Out, CC, LP, In, LT | Preserve -bundle and dynamic definitions; distinguish bundle role; S1/S4/S6 |
+| E08 | Generic Gambit exe | FE, DE, joined include, RL, -o Out, CC, LP, In, RK, Lib, LT | No standalone O; preserve repeated common block and absolute runtime library segment; S1/S4 |
+| E09 | Gerbil dependency direct exe | -w -o Out, dependency objects, bin/stub/link objects, libgerbil objects, requested LD, selected rpath, -L libdir -lgambit, libgerbil LD | No generic FE/O or package scan injected; distinct linker tool; S6 |
+| E10 | Gerbil stub direct exe | -w -o Out, stub/link objects, requested LD, selected rpath, -L libdir -lgambit, defaults | Darwin source defaults -ldl -lm; retain source policy pending SDK admission; S6 |
+| E11 | Nonempty legacy CC override | Reject initial managed profile | Old compiler replacement clears FLAGS only; raw override is not clean tool reselection; S5 |
+| E12 | Build-lib/archive/dylib request | Reject unsupported modes, retain explicit legacy availability where meaningful | BUILD_LIB placeholder is not a valid native output; FLAGS_LIB make placeholders do not prove support; S1/S4 |
+| E13 | Duplicate flags or libraries | Equal repetition and position, including -fPIC and sibling-call duplicates | Never infer idempotence or library commutativity; S1/S4/S6 |
+| E14 | Simple string or LF-joined option list | Decode admitted fragments, then emit exact native words | A list element can encode multiple words; compare boundary, not original Scheme list length; S5 |
+| E15 | Legacy empty element, LF/control byte or whitespace/glob-bearing filename | Reject initial legacy importer when boundaries cannot be proven | New typed richer path/empty-argument support is a declared extension; S5 and configured-input audit |
+| E16 | Raw expansion, glob, shell command or @response-file dependency | Reject initial managed profile | Never execute to determine argv; response-file capability needs content/cwd/dependency contract; S5 |
+| E17 | Gerbil gcc-ld-options string | Preserve literal-space split and empty-token removal for admitted simple input | Quotes/backslashes are literal here; reject ambiguous intended shell quoting; S6 |
+| E18 | Canonical metadata literal and and/or/not/when | Equal selected/suppressed payload and order under exact configured features | unix/gcc true in S4; Darwin label not recognized; S4/S5 |
+| E19 | Unknown/malformed metadata | Reject managed admission with source/field/location | Old warn/ignore is not equal to new rejection; keep restriction explicit; S5 |
+| E20 | Source-bound CC/LP/LT metadata | CC package then metadata then explicit; LP metadata then explicit; LT package then metadata then explicit | Preserve per-file field processing and diagnostic order, not only final vectors; S5 |
+| E21 | Package-path additions | Ambient baseline, then metadata, then explicit additions, each prepended | Last added priority; preserve path spelling and separators; S5 |
+| E22 | Package queries, including obj | For each ordered request cflags then libs, status/diagnostic before compiler | S4 empty resolver fails if requested; do not PATH-discover replacement or erase unused --libs; S4/S5 |
+| E23 | Multi-file package metadata scan | Reject initial legacy-compatible ingress; one metadata source or none | Old first grep receives one quoted filename; typed multi-source behavior needs separate capability; S5 |
+| E24 | Patched Darwin static object and dynamic bundle | Object gets ordered filtered CC plus dynamic/PIC; bundle input static object, metadata runtime C, alias last in explicit LD tail | Preserve module-ref/linker encoding and bundle existence error; S6 |
+| E25 | Paths and cwd, generated-C copy | Equal spelling/relative paths/cwd for admitted input and output | Preserve __FILE__, debug/name/metadata behavior; no unproved copy removal; S5/S6 |
+| E26 | Configure SH encoding stages | CaptureRef expands at binding stage; RequestRef survives until recipe expansion | Validate both legacy renderer and typed semantics; no ${...} reinterpretation as arbitrary eval; S2/S5 |
+| E27 | Unsupported raw configure fragment | Legacy output preserved; dependent managed mode unavailable with reason | Do not publish complete support with dropped opaque flags; S1/S2 |
+| E28 | Partial/mismatched generated outputs or changed tools | Reject before native effects; same model generation and actual digests required | New publication contract; not existing config.status atomicity; S3/S4 |
+| E29 | Failure/status/process delivery | Equal declared resolution/tool failure and child ownership; no hidden legacy retry | Diagnostic transport change explicitly admitted; Gambit API retained; S5/S7 |
+| E30 | Semantic/native acceptance and upgrades | Retain language/module/FFI/GC/control gates; bind changed header/runtime/decoder/provider at consuming stages | Matching argv alone cannot retire runtime gates or qualify this profile; S7/S8 |
+| E31 | Gerbil phase/debug filtering | phi CC produces only debug -g when enabled, otherwise empty; phi GSC LD is empty; non-phi debug -g precedes user CC; semantic link debug-source/track-scheme stays in GSC options | Compare all phi/debug combinations and exact positions; do not move semantic options into native argv; S6 |
+| E32 | Gerbil static option policy and include fragments | GSC CC keeps exact -Bstatic only for static mode; GSC LD keeps exact -static only for static mode; direct gcc-ld-options retains its separate split policy; static include paths preserve order | Compare static/non-static and multiple option occurrences, two joined legacy -I fragments and admitted path restrictions; no universal flag filter; S6 |
+
+Full mode algebra and source-specific decoding remain defined by the
+[[file:effective-configuration-darwin-gcc.org][effective configuration]] and
+[[file:darwin-configured-input-design.org][configured-input design]]. Rows E09-E10 are
+Gerbil extension recipes; they do not assert Gambit configure owns those lists.
+Mode conditions/configured origins and Gerbil extension identities join in one
+resolver, with explicit schema compatibility.
+
+*** 3. Actual Retirement Gates
+:PROPERTIES:
+:ID: 258683a7-73ec-5642-8d30-d279cc347edf
+:CUSTOM_ID: 3-actual-retirement-gates
+:END:
+
+“Retire” below means unreachable from admitted managed callers. Shared legacy
+functions remain while other callers need them. Each gate needs concrete
+implementation evidence and the relevant E rows; *none is closed today*.
+
+| Gate | Retirable responsibility | Must be true before caller retirement | Must remain / whole-file deletion condition |
+|-
+| R2 / M2 | Repeated native string flattening/splitting in Gerbil | Native emitter preserves phase/debug/static filtering; every string ingress tagged/decoded or rejected; E02-E04/E11/E14-E19/E24/E31-E32 | Semantic GSC options stay Gerbil-owned; delete helper only after all native/other callers accounted for |
+| R3 / M3 | Native gsc -obj delegation and direct-GCC dispatch duplication | Every selected object/exe call issues typed intent to the same executor; E05/E07-E10/E13/E25/E29-E30 and semantic-link barrier pass | GSC -c/-link semantic generation remains; no executor nesting gsc -obj or runtime bypass |
+| R4 / M4 | Darwin env BUILD_DYN_* bundle protocol | Separate object/bundle intents, source-bound metadata and producer-bound aliases; E07/E20/E24-E25/E29-E30 pass | Static path/copy and symbol encoding retained until independent parity evidence; bundle errors preserved |
+| R5 / M5 | ##gambuild-params LF/env transport on managed route | Direct structured request emission preserves presence/encoding/cwd; E02-E05/E14-E16/E20-E25 pass | Gambit semantic operation selection and portable legacy dispatch stay; no all-callers deletion claim |
+| R6 / M6 | Shell native metadata/package resolver | Producer side records and one resolver cover canonical subset, order, diagnostics and query effects; E18-E23/E27/E29 pass | Semantic linker metadata composition remains; new rejection is a scope restriction, not warn/ignore parity |
+| R7 / M7 | Portable/Darwin literal substitutions and final eval | One typed recipe source generates both outputs; managed program/argv/env/cwd runs directly; E01-E17/E24-E29 pass; call graph has no gambuild/eval fallback | Legacy renderer/script may stay for explicit unsupported/portable callers; literal substitution alone does not satisfy gate |
+| R8 / M8 | Separate hand-written mode/flag policy in legacy and typed outputs | ConfiguredNativeModel authoritative; configure probes feed it; E01-E08/E12-E13/E26-E28/E30; coherent model/header/script/profile publication and actual artifact identities | Configure/header generation and legacy output stay; no copied Zig flag table; remove old policy literals once both renderers derive from model |
+
+Dependencies are not a simple sequence of file deletion. R8's shared model and
+R6's metadata coverage support R7; R2/R5 establish correct ingress for R3/R4.
+Migration can qualify an object profile first, but that does not close the bundle
+or either direct-exe gate. A gate record must enumerate callers/modes/input
+subset/platform/identities, covered E rows, rejection policy and native receipts.
+Any unqualified caller remains explicitly legacy, not silently counted migrated.
+
+*** 4. No-Wrapper Completion Record
+:PROPERTIES:
+:ID: ad1a387c-3b50-5093-87a1-26640112d9b1
+:CUSTOM_ID: 4-no-wrapper-completion-record
+:END:
+
+A future retirement receipt must contain:
+
+- Pinned old and new source/toolchain/model/profile/decoder/extension identities;
+  accepted modes and input subset, plus explicit rejection cases.
+- E-row observations from independently captured old/new process boundaries;
+  query/diagnostic/failure evidence, source/path/alias invariants and native gates.
+- A source call-path inventory proving no migrated request uses GAMBUILD/BUILD_*
+  env transport, native gsc -obj, gambuild-C, template eval or hidden legacy retry.
+- A rule-ownership audit: the old literal rule has moved into the shared model,
+  rather than being copied and still independently edited in two places.
+- Required outer platform/build/test gates, retained failure history and exact
+  scope. Performance admission is separate; no speedup follows from E-row passes.
+
+This is a definition of required evidence. No source call graph, test suite,
+profile generator or native gate was changed or executed in this document work.

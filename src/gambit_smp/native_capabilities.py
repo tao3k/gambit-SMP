@@ -1,5 +1,6 @@
 """Typed native capability family; experiment choices remain Evidence data."""
 import json
+import hashlib
 import math
 import os
 from pathlib import Path
@@ -14,6 +15,8 @@ from gambit_smp.framework import available_processors, digest, gnu_build_driver,
 
 
 TREE_TYPES = {"source-tree", "configured-tree", "seed-runtime", "source-runtime"}
+CONFIGURATION_OUTPUTS = ('makefile', 'include/gambit.h', 'include/config.h',
+                         'lib/makefile', 'gsi/makefile', 'gsc/makefile', 'config.status', 'configure', 'aclocal.m4')
 
 
 def fields(value, required, optional=()):
@@ -30,6 +33,8 @@ def reference(value):
 def graph(step, by_id, registry):
     contracts = {
         "gambit.configure": {"source": {"source-tree"}},
+        'gerbil.build': {'runtime': {'source-runtime'}, 'identity': {'runtime-identity'}},
+        'gerbil.test': {'build': {'gerbil-build-observations'}},
         "gambit.completed-runtime": {"source": {"source-tree"}},
         "gambit.seed-checkpoint": {"source": {"source-tree"}},
         "gambit.object": {"source": {"configured-tree", "source-runtime"}},
@@ -121,7 +126,10 @@ def graph(step, by_id, registry):
 
 
 def validate_materialize(args, inputs):
-    fields(args, ("sourceLock",), ("workspace", "cacheReceipt", "workspaceState"))
+    fields(args, ("sourceLock",), ("workspace", "cacheReceipt", "workspaceState", "buildWorkspace"))
+    if 'buildWorkspace' in args:
+        if args['buildWorkspace'] != 'gambit-core' or set(args) != {'sourceLock', 'buildWorkspace'}:
+            raise ValueError('one maintained gambit-core build workspace required')
     if "workspace" in args:
         name = args["workspace"]
         if (not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts
@@ -207,7 +215,7 @@ def fixture_parameters(args):
 
 def validate_suite(args, inputs):
     fields(args, ("runtime", "identity", "mode", "regime", "selection"),
-           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles", "childProgress"))
+           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles", "numericGrouping", "childProgress"))
     fixture_parameters(args)
     if "childProgress" in args:
         from gambit_smp.suite_progress import validate
@@ -270,6 +278,9 @@ def validate_suite(args, inputs):
             or phase_files and (args["mode"] != "gsc" or args["regime"] == "atomic-coverage"
                                 or "observationFiles" in args)):
         raise ValueError("compiled phase files require disjoint explicit GSC file windows")
+    if "numericGrouping" in args:
+        from gambit_smp.compiler_phase_primitives import validate_numeric_grouping
+        validate_numeric_grouping(args["numericGrouping"], inputs, "03-number/_num.scm" in phase_files)
     groups = args.get("groupBudgetSeconds", {})
     if not isinstance(groups, dict) or groups and args["regime"] == "atomic-coverage":
         raise ValueError("group budgets require a whole campaign")
@@ -298,7 +309,7 @@ def validate_suite(args, inputs):
 
 
 def validate_compiler_observation(args, inputs):
-    fields(args, ("runtime", "identity", "selection", "scheduling", "phaseBudgetSeconds"), ("loader",))
+    fields(args, ("runtime", "identity", "selection", "scheduling", "phaseBudgetSeconds"), ("loader", "numericGrouping"))
     reference(args["runtime"])
     reference(args["identity"])
     name = args["selection"]
@@ -311,6 +322,10 @@ def validate_compiler_observation(args, inputs):
         raise ValueError("explicit known loader contract required")
     if args.get("loader") == "original-gsi" and args["scheduling"] != "default-control":
         raise ValueError("original loader control must retain the configured driver defaults")
+    if "numericGrouping" in args:
+        from gambit_smp.compiler_phase_primitives import validate_numeric_grouping
+        validate_numeric_grouping(args["numericGrouping"], inputs,
+                                  name == "03-number/_num.scm" and args.get("loader") == "original-gsi")
     cap = args["phaseBudgetSeconds"]
     if type(cap) not in (int, float) or not math.isfinite(cap) or not 0 < cap <= 90:
         raise ValueError("compiler phase watchdog must remain within 90 seconds")
@@ -318,7 +333,9 @@ def validate_compiler_observation(args, inputs):
 
 def validate_executable_test(args, inputs):
     fields(args, ("runtime", "identity", "program", "stdout"),
-           ("latency", "stackSampleAfterSeconds", "processorTopology", "executionBudgetSeconds", "stderr", "stdoutTranscript", "parameters", "completedUnits"))
+           ("mode", "latency", "stackSampleAfterSeconds", "processorTopology", "executionBudgetSeconds", "stderr", "stdoutTranscript", "parameters", "completedUnits"))
+    if args.get('mode', 'gsc') not in {'gsi', 'gsc'}:
+        raise ValueError('explicit GSI or GSC standalone fixture mode required')
     fixture_parameters(args)
     if "completedUnits" in args:
         from gambit_smp.completed_units import validate
@@ -405,8 +422,8 @@ def host_tools(gcc, steps, environment):
         tools["darwinSample"] = sample.resolve(strict=True)
     kinds = {step["capability"] for step in steps}
     required = {"as", "ld"}
-    if any(kind.startswith("gambit.") for kind in kinds) or "source.overlay" in kinds:
-        required.update({"git", "make", "sh"})
+    if any(kind.startswith("gambit.") for kind in kinds) or kinds & {'source.overlay', 'gerbil.build', 'gerbil.test'}:
+        required.update({"git", "make", "sh", 'tar'})
     if "gambit.configure" in kinds:
         required.update({"aclocal", "autoconf", "m4"})
     env = dict(environment)
@@ -415,8 +432,27 @@ def host_tools(gcc, steps, environment):
     directories = [str(gcc.absolute().parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin",
                    *environment.get("PATH", "").split(os.pathsep)]
     directories = [directory for directory in directories if directory]
+    # Apple's /usr/bin tools are xcrun dispatchers, not the selected linker,
+    # assembler, make or m4. Bind the real developer tools and let GCC find the
+    # same tools through PATH; hundreds of configure probes otherwise dispatch
+    # through xcrun again and the sealed identities only describe its wrapper.
+    if sys.platform == 'darwin':
+        from gambit_smp.framework import execute
+        developer = {}
+        for name in sorted(required & {'as', 'ld', 'make', 'm4'}):
+            code, output, timed_out, _ = execute(['/usr/bin/xcrun', '--find', name],
+                                                Path.cwd(), 10, env=env)
+            if code != 0 or timed_out:
+                raise ValueError('selected Darwin developer tool unavailable: ' + name)
+            path = Path(output.strip()).resolve(strict=True)
+            if not path.is_file() or not os.access(path, os.X_OK) or path.parent == Path('/usr/bin'):
+                raise ValueError('actual Darwin developer executable required: ' + name)
+            developer[name] = path
+        directories[1:1] = list(dict.fromkeys(str(path.parent) for path in developer.values()))
+    else:
+        developer = {}
     for name in sorted(required):
-        path = shutil.which(name, path=os.pathsep.join(directories)) or (
+        path = developer.get(name) or shutil.which(name, path=os.pathsep.join(directories)) or (
             shutil.which(name) if name in {"aclocal", "autoconf", "m4"} else None)
         if path is None:
             raise ValueError("required native tool missing: " + name)
@@ -446,6 +482,11 @@ def compiler(ctx):
 
 
 def materialize(args, ctx):
+    if 'buildWorkspace' in args:
+        return incremental_materialize(args, ctx)
+    from gambit_smp.runtime_artifact import import_steps
+    if import_steps(ctx):
+        return _materialize(args, ctx)
     if "workspace" in args:
         if ctx.receipt.get("workspacePolicy") != "in-place":
             raise ValueError("workspace adoption requires in-place recipe policy")
@@ -455,7 +496,57 @@ def materialize(args, ctx):
         return _materialize(args, ctx)
 
 
-def _materialize(args, ctx):
+def incremental_materialize(args, ctx):
+    from gambit_smp.workspace import build_output, sync_build_source
+    from gambit_smp.recipes import read_json, source_path, tree_identity
+    if ctx.receipt.get('workspacePolicy') != 'in-place':
+        raise ValueError('incremental native builds require in-place workspace policy')
+    plan = ctx.planned_steps
+    configured = [step for step in plan if step['capability'] == 'gambit.configure'
+                  and step['arguments']['source']['step'] == ctx.directory.name]
+    if len(configured) != 1:
+        raise ValueError('incremental source requires one declared configuration')
+    compiler(ctx)
+    configuration = {key: value for key, value in configured[0]['arguments'].items() if key != 'source'}
+    configuration['compilerInputs'] = dict(ctx.extra_inputs)
+    configuration['proofSchema'] = 'gambit-configure-reuse.v1'
+    if 'buildProfile' in configuration:
+        path = source_path(ctx.root, configuration['buildProfile'])
+        configuration['profileSha256'] = digest(path)
+        ctx.bind([path])
+    lock = read_json(source_path(ctx.root, args['sourceLock']))
+    configuration.update(revision=lock['revision'], tools={name: digest(Path(path)) for name, path in ctx.tools.items()
+        if name in {'gcc', 'as', 'ld', 'make', 'sh', 'aclocal', 'autoconf', 'm4'}})
+    configuration['configureInputs'] = {name: row['candidateSha256'] for name, row in lock['files'].items()
+        if name.endswith(('.in', '.ac', '.m4')) or name in {'configure', 'makefile'}}
+    build = build_output(ctx.root, args['buildWorkspace'], compiler=ctx.tools['gcc'],
+                         flags=[json.dumps(configuration, sort_keys=True)])
+    source = build / 'source'
+    source.mkdir(exist_ok=True)
+    state_path = build / 'source-state.json'
+    previous = read_json(state_path) if state_path.is_file() else {}
+    from gambit_smp.workspace import build_source_links
+    links=build_source_links(ctx.root,build,previous)
+    if links:ctx.bind([ctx.root/'docs/work-items.json'])
+    ctx.lease_workspace(source,tree_identity(source,broken_links=links or None),broken_links=links or None)
+    changed_paths = sorted(set(lock['files']) | set(previous.get('overlayFiles', []))
+                           | set(previous.get('pendingOverlayFiles', [])))
+    from gambit_smp.source_capabilities import source_name
+    for name in changed_paths:source_name(name)
+    partial = bool(previous.get('inputs')) and 'overlayFiles' in previous
+    staged = _materialize(args, ctx, raw_source=True, source_files=changed_paths if partial else None)
+    incoming = dict(previous['inputs'], **tree_identity(staged)) if partial else tree_identity(staged)
+    generated = [name for name in incoming if Path(name).suffix == '.c' and Path(name).name.startswith('_')]
+    generated.extend(name for name in ('configure', 'aclocal.m4') if name in incoming)
+    delta = sync_build_source(ctx.root, build, staged, mutable=generated,
+                              inventory=incoming, overlay_files=sorted(lock['files']), consume_staged=True)
+    shutil.rmtree(staged)
+    ctx.receipt.setdefault('incrementalBuilds', []).append(delta)
+    return {'outputs': ctx.publish('source', 'source-tree', source), 'sourceDelta': delta,
+            'claim': 'owned-incremental-source-not-runtime-admission'}
+
+
+def _materialize(args, ctx, *, raw_source=False, source_files=None):
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.source_capabilities import validate_source_lock, source_file
     lock_path = source_path(ctx.root, args["sourceLock"])
@@ -483,13 +574,17 @@ def _materialize(args, ctx):
         ref = gitdir / value[5:]
         ctx.bind([ref if ref.is_file() else gitdir / "packed-refs"])
     from gambit_smp.completed_producer import reuse_materialized_source
-    reused = reuse_materialized_source(lock_path, ctx)
+    from gambit_smp.runtime_artifact import reuse_import_source
+    reused = None if raw_source else reuse_import_source(args, ctx)
+    if reused is None and not raw_source:
+        reused = reuse_materialized_source(lock_path, ctx)
     if reused is not None:
         if ctx.require("revision-after", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
             raise ValueError("source revision changed during reuse")
         return reused
     archive = ctx.directory / "source.tar"
-    ctx.require("archive", [git, "-C", checkout, "archive", "--output=" + str(archive), lock["revision"]], ctx.root, 30)
+    ctx.require("archive", [git, "-C", checkout, "archive", "--output=" + str(archive), lock["revision"],
+                           '--', *(source_files or [])], ctx.root, 30)
     if "workspace" in args:
         from gambit_smp.artifact_storage import adopt_source_archive
         from gambit_smp.recipes import tree_identity
@@ -536,9 +631,8 @@ def _materialize(args, ctx):
         return {"outputs": ctx.publish("source", "source-tree", source),
                 "claim": "locked-source-in-place-adoption-not-runtime-admission"}
     source = ctx.directory / "source"
-    source.mkdir()
-    with tarfile.open(archive) as tree:
-        tree.extractall(source, filter="data")
+    from gambit_smp.artifact_storage import extract_archive
+    extract_archive(archive,source,ctx,stage='source-extract',preserve_modes=False)
     archive.unlink()
     for name, row in lock["files"].items():
         if digest(source_file(source, name)) != row["baseSha256"]:
@@ -562,6 +656,8 @@ def _materialize(args, ctx):
             raise ValueError("materialized candidate differs from lock")
     if ctx.require("revision-after", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
         raise ValueError("source revision changed during materialization")
+    if raw_source:
+        return source
     return {"outputs": ctx.publish("source", "source-tree", source), "claim": "locked-source-slice-only"}
 
 
@@ -584,11 +680,12 @@ def clone(ctx, ref, kind):
 def configure(args, ctx):
     from gambit_smp.recipes import source_path
     from gambit_smp.completed_producer import prevent_duplicate_configuration
-    prevent_duplicate_configuration(args, ctx)
+    producer = next(step for step in ctx.receipt['steps'] if step['id'] == args['source']['step'])
+    managed = 'buildWorkspace' in producer['arguments']
+    if not managed:
+        prevent_duplicate_configuration(args, ctx)
     source = clone(ctx, args["source"], "source-tree")
     gcc = compiler(ctx)
-    ctx.require("aclocal", [ctx.tools["aclocal"]], source, min(30, ctx.remaining()))
-    ctx.require("autoconf", [ctx.tools["autoconf"], "-o", "configure", "configure.ac"], source, 30)
     profile = None
     if "buildProfile" in args:
         from gambit_smp.build_profile import read_profile
@@ -603,12 +700,47 @@ def configure(args, ctx):
                  "--enable-c-opt-rts=-O" + str(args["rtsOptimization"])]
     from gambit_smp.gambit_build_primitives import ConfigureProbeProgress
     progress_timed = getattr(ctx, "progress_mode", False)
-    ctx.require("configure", [ctx.tools["sh"], "./configure", *flags], source,
-                min(90, ctx.remaining()),
-                **({"progress": ConfigureProbeProgress()} if progress_timed else {}))
+    proof_path = source.parent / 'configure-proof.json'
+    proof = json.loads(proof_path.read_text()) if managed and proof_path.is_file() else None
+    if proof is not None:
+        raw = proof.get('receiptBytes', '')
+        observed = json.loads(raw) if raw else {}
+        if (hashlib.sha256(raw.encode()).hexdigest() != proof.get('receiptSha256')
+                or observed.get('state') != 'OBSERVED' or observed.get('stage') != 'configure'
+                or observed.get('exit') != 0 or observed.get('timeout') is not False
+                or observed.get('parentReaped') is not True or observed.get('processGroupQuiescent') is not True):
+            raise ValueError('actual completed configure receipt required for reuse')
+        commands = proof.get('commands', [])
+        if len(commands) != 1 or any(observed.get(key) != item for key,item in commands[0].items()):
+            raise ValueError('configure command differs from its actual process observation')
+    if proof is not None and any((source / name).is_file() and digest(source / name) != sha
+                                for name, sha in proof.get('files', {}).items()):
+        raise ValueError('retained generated configuration bytes changed')
+    reusable = (proof is not None and proof.get('schema') == 'gambit-configure-reuse.v1'
+        and proof.get('flags') == flags and all(
+        (source / name).is_file() and digest(source / name) == sha for name, sha in proof.get('files', {}).items())
+        and set(proof.get('files', {})) == set(CONFIGURATION_OUTPUTS))
+    if reusable:
+        ctx.bind([proof_path])
+    else:
+        ctx.require('aclocal', [ctx.tools['aclocal']], source, min(30, ctx.remaining()))
+        ctx.require('autoconf', [ctx.tools['autoconf'], '-o', 'configure', 'configure.ac'], source, 30)
+        ctx.require('configure', [ctx.tools['sh'], './configure', *flags], source,
+                    min(90, ctx.remaining()), **({'progress': ConfigureProbeProgress()} if progress_timed else {}))
     effective = effective_configuration(ctx, source, gcc)
+    if managed:
+        from gambit_smp.workspace import write, checkpoint_build_source
+        if not reusable:
+            raw = (ctx.directory / 'configure.process.json').read_text()
+            proof = dict(schema='gambit-configure-reuse.v1', flags=flags,
+                         files={name:digest(source / name) for name in CONFIGURATION_OUTPUTS},
+                         receiptBytes=raw, receiptSha256=hashlib.sha256(raw.encode()).hexdigest(),
+                         commands=[row for row in ctx.commands if row['stage'] == 'configure'])
+            write(proof_path, proof)
+        checkpoint_build_source(source)
     return {"outputs": ctx.publish("source", "configured-tree", source), "claim": "configuration-only",
-            "buildProfile": profile, **effective}
+            "buildProfile": profile, **effective,
+            **({'configurationReuse': proof} if reusable else {})}
 
 
 def effective_configuration(ctx, source, gcc):
@@ -688,10 +820,33 @@ def source_core(args, ctx):
     from gambit_smp.gambit_build_primitives import rebuild_source_core
     source = clone(ctx, args["runtime"], "seed-runtime")
     compiler(ctx)
-    ok, observation = rebuild_source_core(Stages(ctx), source, ctx.remaining())
+    state_path = source.parent / 'source-state.json'
+    state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+    previous = state.get('regeneration', {})
+    boot = source / 'gsc-boot'
+    log_path = source.parent / 'bootclean.log'
+    incremental = (bool(previous.get('generatedSources')) and boot.is_file()
+        and digest(boot) == previous.get('bootstrapCompilerSha256') and log_path.is_file()
+        and digest(log_path) == previous.get('bootcleanLogSha256'))
+    if previous and not incremental:
+        raise ValueError('retained regeneration checkpoint bytes changed; no silent bootclean retry')
+    def checkpoint(regeneration):
+        from gambit_smp.workspace import checkpoint_build_source
+        command = ctx.commands[-1]
+        if (command['stage'] != 'bootclean' or command['exit'] != 0 or command['timeout']
+                or command.get('parentReaped') is not True or command.get('processGroupQuiescent') is not True):
+            raise ValueError('actual completed bootclean command required')
+        shutil.copyfile(ctx.directory / command['log'], log_path)
+        regeneration.update(bootcleanCommand=command, bootcleanLogSha256=digest(log_path))
+        checkpoint_build_source(source, regeneration=regeneration)
+    ok, observation = rebuild_source_core(Stages(ctx), source, ctx.remaining(), incremental=incremental,
+        retained_generation=previous, checkpoint=checkpoint if state else None)
     (ctx.directory / "observation.json").write_text(json.dumps(observation, indent=2) + "\n")
     if not ok:
         raise ValueError("source-regenerated core was not established")
+    if state:
+        from gambit_smp.workspace import checkpoint_build_source
+        checkpoint_build_source(source, sourceCore=observation, phase='ready')
     return {"observation": observation, **effective_configuration(ctx, source, ctx.tools["gcc"]), "outputs": {
         **ctx.publish("runtime", "source-runtime", source), **identity(ctx, source)},
         "claim": "source-regenerated-core-not-full-two-pass-bootstrap"}
@@ -952,18 +1107,22 @@ def bind_review(args, ctx):
         target_args = {**target_args, "mode": "bootstrap", "regime": "build-step", "operation": "from-scratch"}
     elif target["capability"] == "gambit.upstream-tests":
         from gambit_smp.upstream_tests import infer_scope, scope_contract
-        if target_args.get("additionalFixtures"):
-            copied = ctx.directory / "source"
-            storage = transfer_tree(runtime, copied)
-            ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-runtime", **storage})
-            runtime = copied
-            additional_fixtures(target_args, ctx, runtime / "tests/unit-tests")
-        contract, makefile = scope_contract(ctx, runtime)
+        contract, makefile = (scope_contract(ctx, runtime, declaration=target_args['scopeContract'])
+                              if 'scopeContract' in target_args else scope_contract(ctx, runtime))
         tested_unit = makefile.parent / "unit-tests"
+        if target_args.get("additionalFixtures"):
+            copied = ctx.directory / "test-fixtures"
+            storage = transfer_tree(runtime / "tests", copied)
+            ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-fixtures", **storage})
+            tested_unit = copied / "unit-tests"
+            additional_fixtures(target_args, ctx, tested_unit, origin_runtime=runtime)
         _, operations, selection, modes, _ = infer_scope(
             ctx, contract, makefile, target_args["targets"], unit_root=tested_unit)
         if args["mode"] not in modes:
             raise ValueError("review mode absent from source-bound official test closure")
+        from gambit_smp.upstream_tests import file_budget_guard, validate_target_processors
+        validate_target_processors(target_args,contract,operations)
+        file_budget_guard(target_args, ctx, runtime, selection)
         target_args = {**target_args, "mode": args["mode"], "regime": "upstream-make",
                        "operation": " ".join(target_args["targets"]), "operations": operations,
                        "requestedOperations": target_args["targets"], "unitModes": modes,
@@ -975,7 +1134,7 @@ def bind_review(args, ctx):
             storage = transfer_tree(runtime / "tests", copied)
             ctx.receipt.setdefault("storageTransfers", []).append({"purpose": "review-fixtures", **storage})
             tested_unit = copied / "unit-tests"
-            additional_fixtures(target_args, ctx, tested_unit)
+            additional_fixtures(target_args, ctx, tested_unit, origin_runtime=runtime)
         selection = selected_files(tested_unit, target_args["selection"], inventory=target_args.get("inventory", "unit"))
         if sorted(map(str, selection)) != sorted(expected_suite_inventory(target_args, ctx)):
             raise ValueError("review target exact fixture inventory mismatch")
@@ -997,17 +1156,41 @@ def bind_review(args, ctx):
             "outputs": ctx.publish("review", "bound-native-review", output)}
 
 
-def additional_fixtures(args, ctx, unit):
-    from gambit_smp.recipes import source_path
+def additional_fixtures(args, ctx, unit, *, origin_runtime=None):
+    from gambit_smp.recipes import source_path, read_json
+    from gambit_smp.workspace import checkpoint_build_source
+    runtime = origin_runtime or unit.parent.parent
+    state_path = runtime.parent / "source-state.json"
+    managed = runtime.resolve() in getattr(ctx, "leased_workspaces", set()) and state_path.is_file()
+    state = read_json(state_path) if managed else {}
+    owned = dict(state.get("additionalFixtures", {}))
     for name, item in args.get("additionalFixtures", {}).items():
         target = relative(unit, name)
         source = source_path(ctx.root, item["source"])
-        if target.exists() or digest(source) != item["sha256"]:
+        key = "tests/unit-tests/" + name
+        if digest(source) != item["sha256"] or key in state.get("inputs", {}):
             raise ValueError("additional fixture cannot replace upstream bytes or drift")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, target)
-        if digest(target) != item["sha256"]:
-            raise ValueError("additional fixture changed during transport")
+        if target.exists() or target.is_symlink():
+            if (target.is_symlink() or not managed or owned.get(key) != item["sha256"]
+                    or digest(target) != item["sha256"]):
+                raise ValueError("additional fixture cannot replace upstream bytes or drift")
+        else:
+            if key in owned and owned[key] != item["sha256"]:
+                raise ValueError("additional fixture differs from retained transfer")
+            if managed and unit.parent.parent == runtime:
+                owned[key] = item["sha256"]
+                checkpoint_build_source(runtime, additionalFixtures=owned)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_name(target.name + ".pending")
+            if temporary.exists() or temporary.is_symlink():
+                raise ValueError("additional fixture has an unresolved pending transfer")
+            with source.open("rb") as origin, temporary.open("xb") as destination:
+                shutil.copyfileobj(origin, destination)
+                destination.flush()
+                os.fsync(destination.fileno())
+            if digest(temporary) != item["sha256"]:
+                raise ValueError("additional fixture changed during transport")
+            temporary.replace(target)
         ctx.bind([source])
 
 
@@ -1151,7 +1334,9 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
                     raise ValueError("compiled phases require GSC inactivity semantics")
                 from gambit_smp.compiler_phase_primitives import run_suite_phases
                 phase_started = time.monotonic()
-                phases = run_suite_phases(ctx, runtime, work, group[0], name, cap)
+                grouping = args.get("numericGrouping") if str(group[0]) == "03-number/_num.scm" else None
+                phases = run_suite_phases(ctx, runtime, work, group[0], name, cap,
+                                          **({"grouping": grouping} if grouping is not None else {}))
                 code, timeout = phases[-1]["exit"], any(row["timeout"] for row in phases)
                 seconds = time.monotonic() - phase_started
                 command_accepted = len(phases) == 3 and all(row["accepted"] for row in phases)
@@ -1246,7 +1431,10 @@ def compiler_observation(args, ctx):
     started = time.monotonic()
     phases = []
     original_loader = args.get("loader") == "original-gsi"
-    plan = suite_phase_commands(selected[0], work) if original_loader else phase_commands(selected[0], work)
+    from gambit_smp.compiler_phase_primitives import bind_numeric_grouping, numeric_group_observation
+    grouping = args.get("numericGrouping")
+    grouped_driver = bind_numeric_grouping(ctx, work, grouping) if grouping is not None else None
+    plan = suite_phase_commands(selected[0], work, grouped_driver) if original_loader else phase_commands(selected[0], work)
     if any(artifact is not None and artifact.exists() for _, _, _, artifact in plan):
         raise ValueError("compiler phase outputs must not preexist")
     stage_timed = getattr(ctx, "receipt", {}).get("timeoutPolicy", {}).get("mode") in {"per-stage", "progress"}
@@ -1263,7 +1451,9 @@ def compiler_observation(args, ctx):
         if not stage_accepted(row["exit"], row["timeout"], output, artifact,
                               EXECUTION_WITNESS if name == "compiled-execution" and not original_loader else None):
             raise ValueError("compiler phase lacks successful artifact or execution witness")
-        phases.append({"phase": name, "seconds": row["seconds"],
+        grouped = numeric_group_observation(work) if grouping is not None and name == "scheme-to-c" else None
+        phases.append({**({"sourceGrouping": grouped} if grouped is not None else {}),
+                       "phase": name, "seconds": row["seconds"],
                        "artifactSha256": digest(artifact) if artifact else None})
     check_runtime(runtime, candidate)
     if any(digest(Path(name)) != sha for name, sha in inputs.items()) or gnu_build_driver(runtime, gcc) != driver:
@@ -1279,7 +1469,7 @@ def compiler_observation(args, ctx):
 
 
 def executable_test(args, ctx):
-    """Compile and execute a standalone fixture against the same current runtime."""
+    """Run a declared standalone fixture in the same VM or compiled against it."""
     # Per-fixture parameters must not become undeclared inputs to later stages.
     ctx.env = dict(ctx.env)
     from gambit_smp.recipes import read_json, source_path
@@ -1288,8 +1478,10 @@ def executable_test(args, ctx):
     identity = ctx.artifact(args["identity"], "runtime-identity")
     candidate = read_json(identity)
     check_runtime(runtime, candidate)
-    gcc = compiler(ctx)
-    driver = gnu_build_driver(runtime, gcc)
+    mode = args.get('mode', 'gsc')
+    if mode == 'gsc':
+        gcc = compiler(ctx)
+        driver = gnu_build_driver(runtime, gcc)
     source = source_path(ctx.root, args["program"])
     source_sha = digest(source)
     ctx.bind([source])
@@ -1300,8 +1492,11 @@ def executable_test(args, ctx):
     population, _ = capacity(cpu, 1, False)
     paths = f",~~lib={runtime / 'lib'},~~bin={runtime / 'bin'},~~include={runtime / 'include'}"
     ctx.env.update(GAMBOPT=f"p{population}" + paths)
-    ctx.require("compile-executable", [runtime / "gsc/gsc", "-exe", "-o", output,
-                "-cc-options", "-pthread", "-ld-options", "-pthread", copied], ctx.directory, ctx.remaining())
+    if mode == 'gsc':
+        ctx.require("compile-executable", [runtime / "gsc/gsc", "-exe", "-o", output,
+                    "-cc-options", "-pthread", "-ld-options", "-pthread", copied], ctx.directory, ctx.remaining())
+    else:
+        output = runtime / 'gsi/gsi'
     if not output.is_file() or digest(source) != source_sha or digest(copied) != source_sha:
         raise ValueError("Scheme executable source or output changed")
     executable_sha = digest(output)
@@ -1327,7 +1522,8 @@ def executable_test(args, ctx):
         if not getattr(ctx, "progress_mode", False):
             raise ValueError("completed units require the declared inactivity watchdog policy")
         units = CompletedUnits(args["completedUnits"])
-    log = ctx.require("run-executable", [output], ctx.directory, execution_cap,
+    argv = [output] if mode == 'gsc' else [output, '-:debug-settings=-,io-settings=lu', copied]
+    log = ctx.require("run-executable", argv, ctx.directory, execution_cap,
                       **({"diagnostic": diagnostic} if diagnostic is not None else {}),
                       **({"progress": units} if units is not None else {}))
     execution_command = ctx.commands[-1]
@@ -1350,7 +1546,7 @@ def executable_test(args, ctx):
     if (not stdout_matches or not stderr_matches
             or digest(output) != executable_sha or digest(source) != source_sha
             or digest(copied) != source_sha or available_processors() != cpu
-            or gnu_build_driver(runtime, gcc) != driver):
+            or (mode == 'gsc' and gnu_build_driver(runtime, gcc) != driver)):
         raise ValueError("Scheme executable observation, identity or host capacity changed")
     check_runtime(runtime, candidate)
     latency = {}
@@ -1360,7 +1556,8 @@ def executable_test(args, ctx):
                                                     execution_command["seconds"])
     return {"program": args["program"], "programSha256": source_sha,
             "executableSha256": executable_sha, "candidateReceiptSha256": digest(identity),
-            "hostCpuCapacity": cpu, "compileProcessors": population,
+            "hostCpuCapacity": cpu, 'mode': mode, 'compilationLaunched': mode == 'gsc',
+            **({'compileProcessors': population} if mode == 'gsc' else {}),
             "processorTopology": topology, "executionProcessors": execution_population,
             "runtimeAdmitted": False, "nativeGcPassed": False,
             "claim": "same-producer-standalone-fixture-only", **latency, **transcript, **completed}
@@ -1467,7 +1664,11 @@ def capabilities(Capability):
     from gambit_smp.step_checkpoint import validate_seed_arguments, import_seed
     from gambit_smp.runtime_artifact import validate_import, consume
     from gambit_smp.upstream_tests import validate as validate_upstream, execute as execute_upstream
+    from gambit_smp.gerbil_build import validate as validate_gerbil, build as build_gerbil
+    from gambit_smp.gerbil_build import validate_test as validate_gerbil_test, test as test_gerbil
     entries = {
+        'gerbil.build': (validate_gerbil, build_gerbil, (('observations', 'gerbil-build-observations'),)),
+        'gerbil.test': (validate_gerbil_test, test_gerbil, (('observations','gerbil-test-observations'),)),
         "gambit.materialize": (validate_materialize, materialize, (("source", "source-tree"),)),
         "gambit.configure": (validate_configure, configure, (("source", "configured-tree"),)),
         "gambit.object": (validate_object, object_build, (("object", "native-object"),)),
@@ -1476,7 +1677,8 @@ def capabilities(Capability):
         "gambit.regenerate-module": (validate_regenerate, regenerate, (("generated", "c-source"),)),
         "gambit.source-core": (validate_runtime, source_core, (("runtime", "source-runtime"), ("identity", "runtime-identity"))),
         "gambit.runtime-import": (validate_import, consume, (("runtime", "source-runtime"), ("identity", "runtime-identity"))),
-        "gambit.upstream-tests": (validate_upstream, execute_upstream, (("observations", "upstream-test-observations"),)),
+        "gambit.upstream-tests": (validate_upstream, execute_upstream, (("observations", "upstream-test-observations"),
+            ('runtime','source-runtime'),('identity','runtime-identity'))),
         "gambit.bootstrap": (validate_bootstrap, bootstrap, (("runtime", "source-runtime"), ("identity", "runtime-identity"))),
         "gambit.completed-runtime": (validate_completed, reuse_completed, (("runtime", "source-runtime"), ("identity", "runtime-identity"))),
         "gambit.suite": (validate_suite, suite, (("observations", "suite-observations"),)),

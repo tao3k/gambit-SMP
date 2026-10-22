@@ -30,8 +30,7 @@ c-end
         (display "LIFECYCLE-JOIN:OS-JOIN-ERROR ")
         (display errno)
         (newline)
-        (display "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n")
-        (display "LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS\n"))
+        (display "LIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n"))
       (begin
         (display "LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR\n")
         (write (list before first mid reopen after errno))

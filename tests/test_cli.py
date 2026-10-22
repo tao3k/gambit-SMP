@@ -14,6 +14,24 @@ from gambit_smp.framework import ROOT, project_root
 
 
 class CommandTests(unittest.TestCase):
+    def test_read_presentation_is_dispatcher_owned_and_does_not_leak_to_workers(self):
+        from gambit_smp.task_entry import present_observation
+        value = {'recipe': 'declared-recipe', 'outcome': 'DENY'}
+        packet = {'brief': {'families': []}, 'checkpoint': 'source-bound-token'}
+        seen = []
+        adapter = SimpleNamespace(main=lambda: seen.append(present_observation(value)) or 0,
+                                  execution_policy=lambda argv: 'read')
+        with patch.object(cli, 'import_module', return_value=adapter), \
+                patch('gambit_smp.trajectory_exploration.repository_clues', return_value=packet) as query, \
+                patch('gambit_smp.workspace.execution_scope') as native:
+            self.assertEqual(0, cli.main(['research', '--read', 'retained-run']))
+        native.assert_not_called()
+        self.assertEqual(query.call_args.kwargs['bindings'], [['recipe', 'declared-recipe']])
+        self.assertEqual(seen[0]['evidence'], packet)
+        self.assertEqual(seen[0]['outcome'], 'DENY')
+        self.assertIs(present_observation(value), value)
+        self.assertNotIn('evidence', value)
+
     def setUp(self):
         # Dispatcher mocks run in their own real campaign, never production state.
         from gambit_smp import workspace
@@ -60,7 +78,8 @@ class CommandTests(unittest.TestCase):
         from gambit_smp.trajectory_exploration import execution_policy
         self.assertEqual("read", execution_policy(["clues", "() "]))
         self.assertEqual("read", execution_policy(["catalog"]))
-        self.assertEqual("task", execution_policy(["submit", "--request", "hypothesis.json"]))
+        self.assertEqual("journal", execution_policy(["submit", "--request", "hypothesis.json"]))
+        self.assertEqual("journal", execution_policy(["submit", "hypothesis.ss"]))
         self.assertEqual("task", execution_policy(["record", "--request", "observation.json"]))
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             execution_policy(["clues", "()", "--execute"])
@@ -68,6 +87,15 @@ class CommandTests(unittest.TestCase):
         self.assertEqual("read", research_policy(["--read", "retained-run", "--step", "core"]))
         self.assertEqual("task", research_policy(["--run", "recipe"]))
         self.assertEqual("task", research_policy(["--read", "retained-run", "--out", "outputs"]))
+
+    def test_hypothesis_journal_does_not_take_execution_custody(self):
+        adapter = SimpleNamespace(main=lambda: 0, execution_policy=lambda argv: "journal")
+        with patch.object(cli, "import_module", return_value=adapter), \
+                patch("gambit_smp.workspace.execution_scope") as scope, \
+                patch("gambit_smp.workspace.collect") as collect:
+            self.assertEqual(0, cli.main(["trajectory", "submit", "hypothesis.ss"]))
+        scope.assert_not_called()
+        collect.assert_not_called()
 
     def test_unknown_command_and_invalid_root_do_not_import_an_adapter(self):
         with tempfile.TemporaryDirectory() as temporary:

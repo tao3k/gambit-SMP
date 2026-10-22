@@ -439,6 +439,10 @@ def prevent_duplicate_configuration(args, ctx, *, stage="configure"):
         if proof.get("sourceLockSha256") != lock_sha or proof.get("gccSha256") != gcc_sha:
             continue
         run = fixture_path(ctx.root, proof["run"])
+        # A registered reference whose tree is gone is not a completed runtime.
+        # Fresh configure stays allowed, matching missing-cache materialization.
+        if not run.exists():
+            continue
         actual, _, step, _ = completed(ctx.root, run, proof["step"],
                                       input_archive=proof.get("inputArchive", {}).get("path"))
         if actual != proof:

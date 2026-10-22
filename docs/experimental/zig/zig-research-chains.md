@@ -5,6 +5,10 @@ requested a queryable research/reasoning/feasibility/evidence chain in addition
 to prose. This adds a downstream evidence scenario using the installed Library;
 it does not modify Python inference, ASCENT runtime, Gambit or toolchains.
 
+## Current Foundation and Language Interpretation
+
+The [Gambit modernization foundation](gambit-modernization-foundation.md) makes modern C mandatory and evaluates C-to-Zig only as a named implementation evolution preserving C capabilities. Existing C-G/C-ZT/Zig or C-full/Z-full comparisons are research controls, not a decision to maintain duplicate runtimes. The [matrix](gambit-modernization-foundation-matrix.md) separates total multicore/GC/control/FFI modernization from Zig-specific replacement value. Detailed Tcl findings are FFI stress cases, not the complete modernization program.
+
 ## 1. Assets and Authority
 
 - [research.ss](../../../evidence/scenarios/zig-native/research.ss): caller-owned
@@ -896,3 +900,393 @@ binds seven conditional arguments, sixteen logical countermodels, three new D2
 views and the corrected earlier payload view. No engine/model/prover/native
 execution, registered claim/witness/relation, retired path or positive net bound
 is added. All five full architecture questions remain unresolved.
+
+## Target Roots, Collector Entry and Commit Publication
+
+The [adapter/entry design](target-root-adapter-design.md),
+[source/paper ledger](target-root-adapter-evidence.md),
+[matched matrix](target-root-adapter-cost-matrix.md),
+[source reference inventory](target-root-caller-inventory.json) and
+[trace map](target-root-adapter-traceability.json) deepen PA02--PA08 and
+RTO06--08/RFS02--05. TRA/TGC/TAD/TPB/TFL/TAP/TAX and TCM/TCE/TCN are
+document units. The source census retains weak-table/bignum allocation, saved C
+mirrors, sync/resize body calls, teardown and late-bound ABI routes. Target cells
+have one writer/discovery route; workers remain active through root seeds and
+published derived work. A release/acquire completion edge precedes G publication;
+already enrolled commits can finalize during ClosingTransfers.
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-23.json)
+binds seven handwritten conditional arguments, sixteen countermodels and three
+D2 views. Textual closure is not dynamic/native closure. No engine/model/prover/
+native execution, registered claim/witness/relation, worker profile, actual
+retirement or positive net-benefit bound is added; all five full questions remain
+unresolved. The next gaps are collector-context/combined-request refinement and
+bounded post-reuse support economics.
+
+## Collector Work Context and Request Participation
+
+The [context/selection design](collector-work-context-design.md),
+[source/paper ledger](collector-work-context-evidence.md),
+[field inventory](collector-work-context-fields.json),
+[net-benefit matrix](collector-work-context-cost-matrix.md) and
+[trace map](collector-work-context-traceability.json) refine TRA04--07,
+TAD02--06 and PA02--PA08. CWI/CWB/CWR/CQM/CWS/CWP/CWX and CWM/CWC/CWN
+are document units. The source-backed field split separates copy arenas,
+context resume areas, persistent shards, root owners and phase work. Frozen
+GC RequestId membership and noncombined resize preserve selection/consumption
+obligations; child GC does not silently consume queued GC. A short T authority
+orders root-ready, publication, claims, activation and stable phase closure.
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-24.json)
+binds eight handwritten conditional arguments, twenty countermodels and three
+D2 views. One concurrent research-view change predates this study and is recorded
+without evaluation/adoption. No engine/model/prover/native execution, new
+registered witness/relation, qualified worker, retired runtime path or positive
+net-benefit bound is added. All five full architecture questions stay unresolved.
+
+## GC Capacity Publication, Resize Stages and Placement
+
+The [public capacity design](gc-capacity-result-design.md),
+[source/paper ledger](gc-capacity-result-evidence.md),
+[matched net-benefit matrix](gc-capacity-result-cost-matrix.md) and
+[trace map](gc-capacity-result-traceability.json) refine CWR07/CQM03/06/08/09,
+CWB02--04/12, CWS09 and PA02--PA08. GCU/GCR/GCO/GRB/GCM/GCA/GAL/GCP/GCX
+and GCV/GCE/GCN identify document units. Provisional budget, terminal GC outcome,
+per-request credit, native allocation and initialization have distinct cuts.
+Resize advances on matching stage/role action settlement; an error after topology
+commit need not mean unchanged state. Physical sections, active halves, managed
+charge and outstanding quota are separately accounted, with existing C headroom
+and partial-growth behavior credited.
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-25.json)
+binds eight handwritten conditional arguments, twenty-two logical countermodels
+and three D2 views. No engine/model/prover/native execution, registered
+claim/witness/relation, qualified worker, retired path or positive net bound is
+added. All five full architecture questions remain unresolved.
+
+## Still Construction and Interval Handoff
+
+The [still/tail design](still-construction-tail-design.md),
+[evidence](still-construction-tail-evidence.md),
+[net-benefit matrix](still-construction-tail-cost-matrix.md) and
+[document trace map](still-construction-tail-traceability.json) refine the
+capacity study's GCM04--08/GAL01--08 and PA02--PA08.
+SCU/SCR/SCO/SCI/SCA/STL/STH/SCP/SCX and SCV/SCE/SCN are document identifiers,
+not new registered Scheme/ASCENT claims or checked proof results. The map
+separates selected real constructor paths, native allocation charge, scan/root
+publication, semantic visibility, actual free, carried credit and interval
+resume authority. Unknown effects retain real owners instead of permitting
+refund/reuse by timeout.
+
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-26.json)
+binds eight handwritten implications, twenty-two counterexamples and three D2
+views, with the previous immutable record retained. Static trace/link/hash/span
+review and diagram rendering do not run the registered research engine, parser,
+model, solver, prover or native program. No registered declarations/views are
+changed or adopted; all five full questions and positive economics stay open.
+
+## InitSpec Producers, Layout Consumers and Check Bounds
+
+The [InitSpec/SegmentLayout study](init-spec-segment-layout-design.md),
+[evidence](init-spec-segment-layout-evidence.md),
+[constructor inventory](init-spec-constructor-inventory.json),
+[report matrix](init-spec-segment-layout-cost-matrix.md) and
+[trace map](init-spec-segment-layout-traceability.json) continue the still/tail
+source chain and PA02--PA08. ICE/IOP/NGC/SLM/ACH/SAC/ISP/ISX and ISV/ISE/ISN
+are document identifiers. They do not register new Scheme/ASCENT claims, issue
+runtime completion receipts or prove full constructor/build/FFI admission.
+The map connects actual body/semantic endpoints, roots, source/destination
+epochs, incomplete copy work, sparse/overrun layout, interval check spans and
+physical/live/policy/allocation statistics to their selected source premises.
+
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-27.json)
+retains the preceding immutable record and binds eight handwritten implications,
+twenty-four logical counterexamples and three D2 views. JSON/hash/link/span/
+metadata-DAG review and diagram rendering are static document work; no registered
+research parser/engine, model/solver/prover or native program is executed.
+Registered declarations/views and historical results are unchanged/not adopted.
+All five full questions, full producer/check domain and net-benefit gates remain
+unresolved.
+
+## Ordered Allocation Footprints and Scheme-to-Zig Product Authority
+
+The [actual bound/metadata study](allocation-check-bound-design.md),
+[backend position](scheme-to-zig-architecture.md),
+[evidence](allocation-check-bound-evidence.md),
+[conditional source cases](allocation-check-bound-cases.json),
+[report matrix](allocation-check-bound-cost-matrix.md) and
+[trace map](allocation-check-bound-traceability.json) continue the InitSpec/layout
+chain. ZBD/ABR/ABC/ABO/ABM/ABS/ABP/ABX and ABV/ABE/ABN identify document
+units, not new registered Scheme/ASCENT claims or runtime certificates. They
+connect target interfaces, actual ordered pre/post-check boxing, write/address
+high-water, dynamic probe/body endpoints, remaining helper work and static versus
+actual sparse metadata to their selected source and paper premises.
+
+The [design-artifact record](../../../evidence/research/zig-native/theory-design-update-28.json)
+binds the affirmative architecture recommendation without converting it into
+native feasibility or positive economics. Eight handwritten implications and
+twenty-four counterexamples remain conditional. Static JSON/metadata-DAG/hash/
+link/span review and D2 rendering do not execute a compiler, bound analyzer,
+registered research parser/engine, model/solver/prover or native program.
+Three registered views changed after study entry; their observed hashes and
+entry baseline are retained separately without engine execution or adoption.
+This study does not modify registered declarations/views or historical records;
+all five full questions remain unresolved.
+
+## Real Function Refinement and Language-Independent Direction
+
+The [public reverse study](scheme-function-zig-design.md) and
+[local trace map](scheme-function-zig-traceability.json) add a handwritten
+semantic-to-native path, conditional root/allocation/dispatch/module arguments,
+logical falsifiers and [equal-capability matrix](scheme-function-zig-cost-matrix.md).
+These are document research units, not newly registered ASCENT claims, relations
+or witnesses. The registered engine/views are not evaluated or adopted here;
+entry-versus-observed drift is recorded separately in the
+[design record](../../../evidence/research/zig-native/theory-design-update-29.json).
+All five full requirements remain unresolved. A failed Zig increment comparison
+changes carrier selection, not the Gambit semantic/runtime modernization goal.
+
+## Higher-Order Map and Actual Candidate Costs
+
+The [map path](map-scheme-zig-design.md) and
+[trace map](map-scheme-zig-traceability.json) refine closure/call/frame/root
+contracts, replay and multi-list effects. The [matrix](map-scheme-zig-cost-matrix.md)
+explicitly funds both modern C reconstruction and direct Zig reconstruction
+from the current source. These are document research units and unevaluated
+review cases, not new ASCENT claims/relations/witnesses or engine results.
+All full architecture requirements remain unresolved. The
+[design record](../../../evidence/research/zig-native/theory-design-update-30.json)
+preserves entry/observed identities without adopting concurrent evidence.
+
+## Native Runtime and GC Scope
+
+The [native reconstruction study](zig-native-layer-reconstruction.md) and
+[trace map](zig-native-layer-traceability.json) add full implementation scope,
+C-facing surface and explicit managed-GC versus native-allocation boundaries.
+These are unevaluated document research dependencies; no new ASCENT relations,
+witnesses or admitted collector/runtime/economic result is added.
+
+## Source-Verified GC Mechanisms and Full Runtime Candidate
+
+The [GC audit](gc-current-mechanism-audit.md) answers the selected source
+mechanism question without equating generation constants or source SMP
+branches with an enabled loaded profile. The
+[local GC trace](gc-native-runtime-traceability.json) connects 114 audit/design/
+argument/economic rows with source and paper references. The
+[architecture](gc-native-runtime-design.md) and
+[matrix](gc-native-runtime-cost-matrix.md) keep algorithm modernization, whole
+reconstruction cost and Zig-specific increment distinct. These are handwritten
+document dependencies, not new evaluated ASCENT relations or native witnesses;
+all five full-runtime/semantic/retirement/economic requirements remain open.
+
+## Quantitative Work and Language-Cost Thresholds
+
+The [conditional benefit study](modernization-quantified-benefit.md) and
+[trace](modernization-benefit-traceability.json) add aligned-cohort copy-work
+accounting, additive-time sensitivity and separate language-cost break-even
+conditions. The [direction](gambit-modernization-direction.md) allows modernization
+to continue if Zig does not win the fair full-cost comparison. Arithmetic is
+document reasoning, not an evaluated ASCENT claim/model or native witness.
+
+## Three-Service Support Estimates and Retirement
+
+The [source-informed WBS](native-service-support-costs.md) and
+[trace](native-service-support-traceability.json) price known necessary service
+work after actual C reuse, with paired language differences and event-count
+break-even thresholds. Modern generated C is the current reference for this
+scoped decision, not an already-existing free implementation. Estimate ranges
+are human judgments; unknown caller/target/program work remains explicit. No
+registered proof/native claim or positive whole-runtime net is added.
+
+## Scheme Contract Producer and Modern C Mainline
+
+The [generated-C contract study](generated-c-native-contract.md) and
+[trace](generated-c-contract-traceability.json) place semantic completion and
+common product planning in Scheme, native policies in C, and LLVM/MLIR in
+independent qualified providers. This supersedes a mandatory Zig planning layer
+while preserving the earlier source-derived frame/role/FFI obligations. The
+[cost matrix](generated-c-contract-cost-matrix.md) maps existing service budgets
+and explicitly unpriced wider scopes. No registered/native/economic gate is
+accepted by the document dependency graph or inert samples.
+
+## Capability-Driven Map-to-C Research
+
+Continue with the [real map path](map-generated-c-design.md) and
+[trace](map-generated-c-traceability.json). Semantic authority, complete
+normal/internal frames, check/resume ordering, code/module lifetime and
+modern collector/FFI participation form the research dependency chain. The
+[report matrix](map-generated-c-modernization-matrix.md) supersedes estimated
+human effort as this phase's decision criterion: assess preserved Scheme
+meaning, new runtime capabilities, actual work eliminated and ongoing runtime
+costs. Document correspondence and conditional arguments do not close the
+registered full-runtime/provider/retirement/net-value gates.
+
+## Captured Map: Root, Writer and Benefit Closure
+
+The [continuation GC study](map-continuation-gc-design.md) and
+[trace](map-continuation-gc-traceability.json) refine the Scheme/generated-C
+mainline with source-backed lazy capture, shared mutable frame and real
+serializer-writer obligations. [Learning/reflection](map-continuation-gc-learning.md)
+uses OCaml as mechanism evidence rather than a copied success template. The
+[benefit matrix](map-continuation-gc-benefit-matrix.md) distinguishes repeated
+mature copying/minor traversal from new promotion, root, barrier, access,
+major and restoration costs. Full caller/weak/FFI/progress/value gates remain
+unresolved; the document chain does not evaluate registered claims.
+
+## Mature Continuation Scan-Elision Conditions
+
+Continue through the [real writer/caller study](continuation-writer-closure-design.md)
+and [trace](continuation-writer-traceability.json). The
+[minor edge-cut argument](continuation-minor-scan-proof.md) requires all roots,
+region references, generic/denv/frame/native writes and source lifetimes to be
+covered; a mature k or root registration does not certify that property.
+The [benefit matrix](continuation-writer-benefit-matrix.md) adds cache/parameter,
+scheduler, root classification and fallback costs. Conditional source-chain
+arguments and lexical counts do not close registered full-runtime/native gates.
+
+
+### Native Callback Custody and Modernization Value
+
+Continue through the [native callback design](native-callback-continuation-design.md)
+and [trace](native-callback-traceability.json). Ask separately whether every
+root survives relocation, every mature-to-young edge is covered, and a native
+return capability is still valid. The real Tcl create/invoke/delete chain and
+Gambit's documented captured-continuation C-return example expose those
+different lifetimes. [Memory order and exit custody](native-callback-custody-contract.md)
+choose serialized root locations plus explicit relocation admission.
+[Counterexamples](native-callback-arguments.md) distinguish bounded region
+scanning from unregistered roots/races. The
+[benefit matrix](native-callback-benefit-matrix.md) compares saved graph/root
+visits with gate/barrier/reload/cleanup cost and isolates the unresolved Zig
+increment. No generator, runtime, native test or proof engine is executed.
+
+
+### Tcl Adoption, Revocation and Library-Aware Exit
+
+The [Tcl lifecycle continuation](tcl-command-custody-design.md) and
+[trace](tcl-command-custody-traceability.json) refine the callback chain. Ask
+who owns a candidate before adoption, what the delete callback actually ends,
+which selected-but-not-entered dispatch still holds client data, and which Tcl
+cleanups a native jump bypasses. The
+[argument/counterexample ledger](tcl-command-custody-arguments.md) separates
+closed-return safety from finite drain and general control equivalence.
+The [benefit matrix](tcl-command-custody-benefit-matrix.md) credits existing
+RC/still/string support, prices conservative scope retention and keeps Zig's
+increment separate. Remote branch/manual readings are not installed binary
+identities. No human-day score, implementation, test or gate promotion.
+
+
+### Observable Control Equivalence Across Tcl
+
+Continue through the [control semantics](tcl-control-boundary-design.md) and
+[trace](tcl-control-boundary-traceability.json). Ask whether the original
+handler returns, which dynamic-wind activation/context runs next, which Tcl
+catch/finally action observes a translation, and which synchronous or event
+recipient actually owns the outcome.
+[Arguments and counterexamples](tcl-control-boundary-arguments.md) define
+conditional local-control preservation and refute universal delayed-result
+equivalence. [Value accounting](tcl-control-boundary-benefit-matrix.md) excludes
+skipped semantics from saved work. Tcl cancel-unwind can aid a declared
+cooperative shutdown; request acceptance is not quiescence, flag reset or
+Scheme continuation delivery. Full transfer-producer closure, installed
+library identity and finite progress remain unresolved.
+
+## Tcl Cancel-Unwind Propagation
+
+[Source-led propagation and shutdown contract](tcl-cancel-propagation-design.md)
+continues the control-boundary chain. Acceptance, async installation, actual scope
+return, flag reset, result custody and recipient settlement have distinct receipts.
+[Arguments/counterexamples](tcl-cancel-propagation-arguments.md) preserve the
+bytecode versus direct/NRE and catch/finally gaps;
+[value matrix](tcl-cancel-propagation-benefit-matrix.md) counts real work and
+separates common modernization from the unresolved Zig increment.
+The [trace](tcl-cancel-propagation-traceability.json) is documentary navigation,
+not a registered claim, native witness or gate promotion.
+
+## Compiled Try and Reuse Isolation
+
+[Interpreter reuse](tcl-interpreter-reuse-design.md) continues the cancellation
+chain with coherent pinned Try/compiler/evaluator/async/reset source. It separates
+selected-source derivation from [conditional protocol proof](tcl-interpreter-reuse-arguments.md)
+and installed qualification. The [paired matrix](tcl-interpreter-reuse-benefit-matrix.md)
+counts reuse work and library ABI obligations independently of Zig.
+The [trace](tcl-interpreter-reuse-traceability.json) preserves documentary navigation;
+it grants no execution authority and promotes no registered/native/value gate.
+
+## TclReuseService Binding and Source Producers
+
+[The service contract](tcl-reuse-service-design.md) extends reuse through actual
+stub bootstrap and cancellation/async lifecycle producers and consumers.
+[Proofs/counterexamples](tcl-reuse-service-arguments.md) distinguish real native
+return from a flag/count, and raw idle cancellation from an explicit job-specific
+settlement policy. The [value matrix](tcl-reuse-service-benefit-matrix.md) charges
+private ABI, callback closure and any targeted Tcl integration in both providers.
+[Trace navigation](tcl-reuse-service-traceability.json) is documentary; it promotes
+no registered/native/full gate and authorizes no execution.
+
+## Targeted Cancellation Commitment
+
+[Targeted settlement](tcl-targeted-cancel-design.md) refines the Tcl-owned option
+with generation identity, explicit managed/raw provenance, physical owner return,
+one remaining-ready scan and a C-locked reset/publication interval.
+[Arguments/cases](tcl-targeted-cancel-arguments.md) identify concurrent-mark,
+already-selected-callback and raw idle counterexamples; full mixed histories
+remain unresolved rather than silently weakened. The
+[value matrix](tcl-targeted-cancel-benefit-matrix.md) separates barrier callback
+exposure from total work and charges all twelve support families in modern C
+and Zig. [Trace](tcl-targeted-cancel-traceability.json) is documentary navigation,
+not a registered/runtime/native/value admission.
+
+## Mixed Raw and Managed Cancellation Histories
+
+[The history contract](tcl-mixed-cancel-design.md) refines permanent raw taint
+through source-owned accept/install/check/reset/return records and a generation-
+bound RawHistoryDischargeReceipt. It separates source residual neutrality from
+confirmed cancellation and actual idle-next-evaluation consumption.
+[Arguments/counterexamples](tcl-mixed-cancel-arguments.md) keep early/empty entry
+paths, destructive filtered checks and late reinstalls open;
+[the value matrix](tcl-mixed-cancel-benefit-matrix.md) charges the same native
+history obligations in modern C and Zig.
+[Trace navigation](tcl-mixed-cancel-traceability.json) promotes no registered,
+full, native or positive-value gate and authorizes no execution.
+
+## Actual Next Evaluation and Receipt Predicates
+
+[The identity study](tcl-next-evaluation-design.md) refines next application
+evaluation into the actual first eligible target entry, with explicit entry kinds,
+forwarding roles, natural callback order and NRE/native/logical completion.
+[Arguments/cases](tcl-next-evaluation-arguments.md) separate observed ERROR,
+first-attempt consumption and neutral raw state;
+[the matrix](tcl-next-evaluation-benefit-matrix.md) compares equal-domain modern C
+and Zig support. [Trace](tcl-next-evaluation-traceability.json) preserves
+documentary navigation; normalized gates/guards, installed closure and all
+full/native/positive-value requirements remain unresolved.
+
+## Entry Gate, Control Policy and Guard Ownership
+
+[The gate/guard study](tcl-entry-cancel-design.md) requires explicit handler
+context/priority, prepare-publish-retire custody, final body decision cuts and
+all-route logical guards. Active async service and actual owner-safe completion
+are distinct. [Arguments](tcl-entry-cancel-arguments.md) retain newer raw requests
+and require every admitted reset writer to migrate.
+[The matrix](tcl-entry-cancel-benefit-matrix.md) compares equal-policy modern C
+and Zig support; [trace](tcl-entry-cancel-traceability.json) grants no execution
+or full/native/value admission. Normalized changes remain separate from literal
+source preservation.
+
+## Cancellation Writers and Source-Point Reset Authority
+
+Continue through [writer closure](tcl-cancel-writer-design.md), [conditional arguments](tcl-cancel-writer-arguments.md), [net-benefit matrix](tcl-cancel-writer-benefit-matrix.md), [evidence](tcl-cancel-writer-evidence.md) and [trace](tcl-cancel-writer-traceability.json). The 350-file word search is broadened by whole-flag audit; TraceExecutionProc can erase or resurrect cancellation across arbitrary callback evaluation. Guard takeover must preserve source-point effects or explicitly admit normalized behavior. Immutable payloads need independent pending/claim/diagnostic/output/retirement holders. All full requirements remain unresolved; zero runtime paths retired.
+
+## Trace Snapshot Domain and Guard Dependencies
+
+Continue through [trace state separation](tcl-trace-cancel-design.md), [conditional proofs/cases](tcl-trace-cancel-arguments.md), [matrix](tcl-trace-cancel-benefit-matrix.md), [evidence](tcl-trace-cancel-evidence.md) and [trace](tcl-trace-cancel-traceability.json). Removing cancellation from trace snapshots preserves only the declared non-cancellation projection and explicitly changes erasure/replay histories. Nested per-record guards, interpreter suppression, real result/record cleanup and parent guard dependencies remain necessary. Full theory/native/value gates remain unresolved.
+
+## Record Reentry and Qualified UNWIND Paths
+
+Continue through [same-command/private-entry reachability](tcl-trace-reachability-design.md), [conditional arguments](tcl-trace-reachability-arguments.md), [net-benefit matrix](tcl-trace-reachability-benefit-matrix.md), [evidence](tcl-trace-reachability-evidence.md) and [trace](tcl-trace-reachability-traceability.json). Public fixed-record reentry is source-constructed; U resurrection is excluded only in a stated positive-depth core domain. A concrete zero-depth private-body path and native force-hook candidates still need real supported callers. Guard custody and thirteen shared support families remain necessary in modern C and Zig.
+
+## Private Entry and Coroutine Admission
+
+The [private-entry/coroutine study](tcl-private-coro-design.md) distinguishes unsupported private table access from actual caller admission, derives coroutine depth/cleanup phases, and refines completion custody. See its [arguments](tcl-private-coro-arguments.md), [evidence](tcl-private-coro-evidence.md), [matrix](tcl-private-coro-benefit-matrix.md) and [trace](tcl-private-coro-traceability.json). Private depth-zero dispatch and legal force-reset-hook producer closure remain unresolved; no implementation or native tests.
+
+## Coroutine Debt, Environment Pairing and Reuse
+
+The [coroutine-invariant study](tcl-coro-invariants-design.md) separates credited/deferred depth, root debt, affine aux updates, two yieldto emitters and direct rewind without ordinary command credit. Its [arguments](tcl-coro-invariants-arguments.md), [source evidence](tcl-coro-invariants-evidence.md), [matrix](tcl-coro-invariants-benefit-matrix.md) and [trace](tcl-coro-invariants-traceability.json) define conditional reuse receipts while retaining all-history producer, pairing and liveness gaps. Design/source research only; no implementation or native tests.

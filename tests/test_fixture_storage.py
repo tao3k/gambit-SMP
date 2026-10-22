@@ -1,4 +1,6 @@
 from pathlib import Path
+import json
+import os
 import fcntl
 import hashlib
 import tempfile
@@ -108,6 +110,40 @@ class FixtureStorageTests(unittest.TestCase):
                 transfer_tree(source, root / "extra")
             self.assertFalse((root / "extra").exists())
 
+    def test_task_and_process_attempts_cannot_hide_complete_source_copies(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = self.tree(root / '.cache/fixtures/original/source')
+            for relative in ('.cache/tasks/repair/fixtures/inventory-3/source',
+                             '.cache/tasks/repair/runs/another/source',
+                             '.cache/tasks/repair/processes/audit/runs/another/source'):
+                target = root / relative
+                with self.assertRaisesRegex(ValueError, 'maintained build product'):
+                    transfer_tree(source, target)
+                self.assertFalse(target.exists())
+
+    def test_maintained_product_and_explicit_transient_delta_do_not_need_another_fixture(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            product = root / '.cache/tasks/repair/build/gambit-core' / ('a' * 64) / 'source'
+            with source_capacity(product):
+                self.tree(product)
+            delta = root / '.cache/tasks/repair/runs/one/candidate/source'
+            with source_capacity(delta, staging=True):
+                self.tree(delta)
+            with self.assertRaisesRegex(ValueError, 'maintained build product'):
+                with source_capacity(delta):
+                    self.fail('transient delta became an unmanaged reusable source')
+
+    def test_nested_task_namespace_cannot_masquerade_as_another_managed_product(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            forged = project/'.cache/tasks/repair/agents/owner/.cache/tasks/another/build/core'/('a'*64)/'source'
+            with patch.dict(os.environ, {'GAMBIT_SMP_TASK_ROOT': str(project)}):
+                with self.assertRaisesRegex(ValueError, 'nested task stores'):
+                    with source_capacity(forged):
+                        self.fail('a nested task namespace escaped product ownership')
+
     def test_git_checkout_is_protected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / ".data/fixtures"
@@ -129,3 +165,66 @@ class FixtureStorageTests(unittest.TestCase):
             self.assertEqual(["active"], record["activeProtected"])
             self.assertEqual([], record["removed"])
             self.assertTrue(active.is_dir())
+
+    def test_task_duplicate_cleanup_checks_archive_bytes_and_keeps_failure_records(self):
+        from tests.test_runtime_artifact import fixture, pack
+        from gambit_smp.fixture_storage import discard_bindings
+        from gambit_smp.framework import digest
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary)
+            original, value = fixture(project)
+            archive = project / 'runtime.tar'; pack(archive, original, value)
+            root = project / '.cache/tasks/repair/fixtures'
+            duplicate = root / 'inventory-1/run/runtime/generation/runtime'
+            # This deliberately creates the pre-migration historical layout.
+            import shutil
+            shutil.copytree(original, duplicate, symlinks=True)
+            (duplicate/'failure.json').write_text('{"outcome":"DENY"}')
+            declaration = dict(schema='artifact-backed-source-discard.v1', archive=str(archive),
+                sha256=digest(archive), trees={str(duplicate.relative_to(root)):'runtime'})
+            discard = discard_bindings(root, declaration, [duplicate])
+            self.assertIn(str((duplicate/'program').relative_to(root)), discard)
+            with patch('gambit_smp.fixture_storage.subprocess.run',
+                       return_value=SimpleNamespace(returncode=0, stdout='n/unrelated\n')):
+                result = prune(root, [], project/'retained', targets=[duplicate], discard=discard, apply=True)
+            self.assertFalse(duplicate.exists())
+            self.assertTrue((original/'program').is_file())
+            self.assertEqual(1, len(result['removed']))
+            retained = project/'retained/evidence'/duplicate.relative_to(root)
+            self.assertEqual({'outcome':'DENY'}, json.loads((retained/'failure.json').read_text()))
+            self.assertFalse((retained/'program').exists())
+            declaration['sha256'] = '0' * 64
+            with self.assertRaisesRegex(ValueError, 'archive changed'):
+                discard_bindings(root, declaration, [])
+
+    def test_maintenance_cleanup_cannot_gain_general_parent_task_write_authority(self):
+        from gambit_smp.storage_policy import enforce, retiring_fixture, StoragePolicyError
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary).resolve()
+            root = project/'.cache/tasks/repair/fixtures'
+            target = self.tree(root/'old/source')
+            (target/'nested').mkdir()
+            (target/'nested/failure.log').write_text('retain descriptor-relative failure log')
+            product = self.tree(project/'.cache/tasks/repair/build/gambit-core'/('a'*64)/'source')
+            archive = project/'.cache/tasks/repair/processes/audit/runs/one/cleanup'
+            archive.parent.mkdir(parents=True)
+            with patch.dict(os.environ, {'GAMBIT_SMP_TASK_PROCESS':'audit'}), enforce(project, 'repair'):
+                with self.assertRaises(StoragePolicyError):
+                    (target/'lib/setup.c').unlink()
+                with self.assertRaises(StoragePolicyError):
+                    with retiring_fixture(product):
+                        self.fail('build product was admitted for cleanup')
+                with patch('gambit_smp.fixture_storage.subprocess.run',
+                           return_value=SimpleNamespace(returncode=0, stdout='n/unrelated\n')):
+                    record = prune(root, [], archive, targets=[target], apply=True)
+                self.assertEqual(1, len(record['removed']))
+                self.assertTrue((archive/'evidence/old/source/nested/failure.log').is_file())
+                self.assertTrue((product/'lib/setup.c').exists())
+                with self.assertRaises(StoragePolicyError):
+                    (product/'lib/setup.c').unlink()
+                descriptor = os.open(product/'lib', os.O_RDONLY)
+                try:
+                    with self.assertRaises(StoragePolicyError):
+                        os.unlink('setup.c', dir_fd=descriptor)
+                finally:
+                    os.close(descriptor)

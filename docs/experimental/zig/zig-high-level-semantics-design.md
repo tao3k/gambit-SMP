@@ -316,3 +316,14 @@ commitment than C-ABI companions.
 Use the [quantitative ledger](zig-high-level-semantics-evidence.md) to decide whether
 that commitment is justified for the intended workloads. No prototype is required
 or authorized by this document.
+
+## Decoupled Compiler Service With Modern C Mainline
+
+The [current provider design](generated-c-provider-retirement.md) removes Zig
+as a mandatory engineering intermediary. Its early export still precedes
+normalization and still requires structured FFI and explicit evaluation-order
+handoff/profile. A Scheme common contract/planner and modern generated C runtime
+are the mainline; an MLIR compiler service must lower to that same admitted
+control/root/runtime contract. The earlier selected order profile is not silently
+reclassified as exact reproduction of current compiler scheduling. MLIR generic
+effect interfaces do not establish Scheme nonlocal-control semantics.

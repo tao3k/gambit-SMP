@@ -1,0 +1,81 @@
+# When Mature Continuation Traversal Can Be Omitted
+
+Conditional source-grounded reasoning, not a checked proof or executed GC.
+The [writer/caller design](continuation-writer-closure-design.md) and
+[evidence](continuation-writer-evidence.md) define the selected domain. Local
+source-chain coverage is distinct from full primitive/native caller closure.
+
+CP01. At a minor cut let Y be reclaimable/moving young storage, N all admitted
+non-young managed storage, and R the actual root/structural-frontier locations.
+Let D contain stable typed source locations conservatively covering every
+relevant strong edge from N into Y. A stack-backed capture is a separately
+decoded region dependency, not an immediate value to discard. It must be
+stabilized or enumerated through its admitted owner before source reuse.
+For mature k, its frame/denv/binding descendants can be in N or Y. Age of k
+alone does not classify the graph. [CW02, CW07, WE01, WE04–WE07, WE13]
+
+CP02. Necessary conditions for the selected ordinary strong-tracing scheme:
+
+| Condition | Required property | What source makes it necessary |
+| --- | --- | --- |
+| P-root | Every live external/native/active/capture reference is in R or a separately accounted owned producer | Native RC/marker/callback and scheduler root transfer, WE07, WE09–WE12 |
+| P-cut | All relevant producers/readers acknowledge the same collection epoch; no write is lost during reset | Multiple writers/aliases/contexts and current coordinated phase structure, WE07, WE13–WE14 |
+| P-repr | Frame kinds, maps, denv slots, strong/weak/control fields and region references are decoded correctly | Direct frame/control setters, normal/internal readers and shared denv, WE01–WE07 |
+| P-init | New/materialized/reconstructed objects are trace-safe, and every initially young edge is enqueued/remembered or scanned before readiness | Actual make-frame/implode loop, pending stack capture and shell copies, WE01–WE03 |
+| P-writer | All admitted writes which can create N-to-Y edges are in D or an explicitly scanned fallback region | Parameter/cache stores, generic vector/pair access, native and frame setters, WE01, WE04–WE12 |
+| P-life | Source locations, dynamic identities, code/maps, root cells and relocation destinations remain valid for every reader | Shared shells, saved/active frame copies and RC/marker release, WE01, WE07, WE09–WE13 |
+| P-close | All discovered young/capture work is traced/fixed, including in-flight producer/worker debt, before source reclamation | Existing forwarding/readers are reference mechanisms, not a new completion certificate, WE13–WE14 |
+
+These conditions are necessary for this declared strategy; an alternative
+read-barrier, handle or conservative scanning design can satisfy reachability
+differently and needs its own argument. There is no claim that this exact
+remembered-set organization is necessary for every possible collector.
+
+CP03. **Sufficiency for strong young reachability, under P-root through P-close.**
+Take any reachable young object y. On a root-to-y strong path, either the path
+starts with a young/region root handled by R, or the first edge entering Y
+comes from N and its source is covered by D or the admitted fallback. Trace
+that young portion recursively; any further departure into N and reentry into
+Y is again independently covered at its N source. Stack-backed captures add
+their owned frame roots/work before they can disappear. Thus every live young
+object is discovered without recursively traversing every mature frame/denv
+descendant. P-repr/P-init/P-life/P-close additionally ensure valid updates and
+no reclaimed source address remains in admitted strong carriers.
+
+CP04. This implication does not prove young liveness completeness from a
+self-produced map. The proof's missing global premise is actual producer and
+writer completeness. Static text inventory, a mature colour, an empty work
+queue or root registration alone does not establish it. Weak edges require
+their typed policy; root/cache/table weak semantics cannot silently become
+strong merely to satisfy the argument. Major liveness, mutator data-race
+behavior and finite progress remain separate proofs. [CW11–CW13]
+
+## Source-Composed Counterexamples
+
+| ID | Missing premise / possible history | Consequence |
+| --- | --- | --- |
+| X01 | k and denv are mature; `##dynamic-set!` puts a young value in an aliased binding pair without remembering it | Scanning only k/frame fields misses the young object |
+| X02 | `##dynamic-ref` takes a cache2/cache3/lookup update path, but its “read” classification emits no managed stores | A new thread-cache edge or major overwrite obligation is omitted |
+| X03 | Mature shared frame is changed through `##continuation-set!`, while only direct `##frame-set!` is instrumented | Both shell aliases still reach the same missed young field |
+| X04 | Reconstructed frame uses a mature/native allocation; the fill loop is assumed barrier-free because the object is new | Young fields become invisible at a later minor cut |
+| X05 | THREAD_RESTORE clears the saved frame field before the new active frontier is protected | The sole root is lost during handoff; user-continuation multi-shot guarantees do not fix it |
+| X06 | Capture's stack pointer is treated as an immediate fixnum, or its segment is recycled before stabilization | Its live frames/values are omitted or dangling |
+| X07 | Raw native code overwrites a classified root without re-enrolling its new young value | A young-root subset misses it; enumerating that root would avoid this particular omission only with synchronized custody |
+| X08 | Native callback target or explicit proc is rooted only after stack-marker allocation | Earlier collection can already invalidate the input |
+| X09 | RC cell/remembered frame location is freed while a queued reader still owns it | Stable source metadata becomes a dangling address |
+| X10 | A writer publishes after dirty drain but before reset and the reset erases it | Next minor lacks the new edge despite a barrier being called |
+| X11 | Unknown foreign code writes an external mature object; fallback scans only k's known graph | The missing boundary source lies outside the fallback; full heap tracing still cannot recover an unregistered native root |
+| X12 | SMP reader-commented env mutation is counted as active, or active non-SMP mutation is discarded using the SMP assumption | The caller domain or runtime-cost model is wrong |
+| X13 | Generic vector/list/closure deserializer fixups are all attributed to frame reconstruction | A claimed caller/proof edge was invented; actual deferred writers may remain unclassified elsewhere |
+
+These are inert adverse histories grounded in real operation families. They
+were not executed and do not assert each source path is currently faulty under
+the existing full collector. New generational assumptions create the relevant
+obligations. [WE01–WE14]
+
+CP05. **Admission decision:** omit mature recursive minor traversal only when
+the global profile and selected region/object states satisfy these conditions.
+Otherwise explicitly enumerate a sufficient fallback domain or leave the
+profile unresolved. Never hide the missing writer/root under a runtime “clean
+continuation” flag. Full current-caller, extension/FFI, memory-order and
+capacity/progress closure is not established by this design.

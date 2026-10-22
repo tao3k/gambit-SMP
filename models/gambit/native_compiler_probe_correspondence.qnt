@@ -59,6 +59,42 @@ module native_compiler_probe_correspondence {
   pure def universeUnits(groups: Set[Set[a]]): int =
     groups.fold(Set(), (allNodes, group) => allNodes.union(group)).size()
   pure def projectedUnits(group: Set[a]): int = group.size()
+  // Source-reader indices are unique original form identities, not test values.
+  // This checks ordered coverage; it does not prove continuation equivalence.
+  pure def orderedFormPartition(original: List[int], parts: List[List[int]]): bool =
+    parts.foldl(List(), (seen, part) => seen.concat(part)) == original
+  run formPartitionNegativeControlsTest = init.then(all {
+    assert(orderedFormPartition(List(0,1,2,3),List(List(0,1),List(2),List(3)))),
+    assert(not(orderedFormPartition(List(0,1,2,3),List(List(0,2),List(1,3))))),
+    assert(not(orderedFormPartition(List(0,1,2,3),List(List(0,1),List(1,2,3))))),
+    assert(not(orderedFormPartition(List(0,1,2,3),List(List(0,1),List(3))))), s' = s })
+  type RecoveredSource = { expected: str, observed: str, expectedBytes: int,
+    bytes: int, exit: int, timeout: bool }
+  pure def sourceRecovered(r: RecoveredSource): bool = r.exit == 0 and not(r.timeout) and
+    r.bytes > 0 and r.bytes == r.expectedBytes and r.observed == r.expected
+  type AliasSolution = { section: bool, closed: bool, malformed: int, partial: bool,
+    rows: int, memberships: int, targets: int }
+  pure def solutionKnown(p: AliasSolution): bool = p.section and p.closed and
+    p.malformed == 0 and not(p.partial)
+  pure def solutionEmpty(p: AliasSolution): bool = solutionKnown(p) and p.memberships == 0
+  run partialAliasIsNotEmptyTest = init.then(all {
+    assert(not(solutionEmpty({section: false, closed: false, malformed: 0,
+      partial: false, rows: 0, memberships: 0, targets: 0}))),
+    assert(not(solutionKnown({section: true, closed: false, malformed: 0,
+      partial: false, rows: 1, memberships: 2, targets: 2}))),
+    assert(sourceRecovered({expected: "original", observed: "original", expectedBytes: 5,
+      bytes: 5, exit: 0, timeout: false})),
+    assert(not(sourceRecovered({expected: "original", observed: "library", expectedBytes: 5,
+      bytes: 5, exit: 0, timeout: false}))), s' = s })
+  // For PHIs sharing the SAME predecessor set, representation repeats once
+  // per live variable. This is not a points-to relation or a CPU-time model.
+  pure def sharedJoinOperandUnits(variables: int, incomingEdges: int): int =
+    variables * incomingEdges
+  run sharedJoinRepresentationTest = init.then(all {
+    assert(sharedJoinOperandUnits(8, 3) == 24),
+    assert(sharedJoinOperandUnits(8, 3) != 3),
+    assert(sharedJoinOperandUnits(1, 3) == 3),
+    assert(sharedJoinOperandUnits(0, 3) == 0), s' = s })
   pure val passControls = Set(passSample, { ...passSample, dumps: Set() },
     { ...passSample, functions: 0 }, { ...passSample, warnings: true },
     { ...passSample, dumpSource: 2 }, { ...passSample, dumpCompiler: 2 },

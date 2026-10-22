@@ -9,6 +9,69 @@ VIEW = "evidence/scenarios/concurrent-gc/modeling-024.view.json"
 
 
 class ModelingGuidanceTests(unittest.TestCase):
+    def test_registered_research_is_a_first_hit_unknown_and_resumes_without_repeats(self):
+        from gambit_smp.trajectory_exploration import repository_clues
+        bindings = [["recipe", "join-condvar-participation-stress"]]
+        packet = repository_clues(ROOT, bindings=bindings)
+        seen = set()
+        while True:
+            self.assertFalse(packet["brief"]["runtimeAdmitted"])
+            self.assertTrue(packet["brief"]["explorationOpen"])
+            for family in packet["brief"]["families"]:
+                self.assertNotIn(family["claim"], seen)
+                seen.add(family["claim"])
+                self.assertTrue(any("unreviewed" in row["factors"].get("coverage-status", [])
+                                    for row in family["observations"]))
+            if packet["brief"]["presentationComplete"]:
+                break
+            self.assertTrue(packet["brief"]["families"])
+            packet = repository_clues(ROOT, bindings=bindings, checkpoint=packet["checkpoint"])
+        self.assertEqual(seen, {"tfib-retirement-applicability", "tfib-last-consumer-correspondence"})
+        resumed = repository_clues(ROOT, bindings=bindings, checkpoint=packet["checkpoint"])
+        self.assertEqual(resumed["brief"]["families"], [])
+        self.assertTrue(resumed["brief"]["explorationOpen"])
+
+    def test_unassessed_observation_exposes_unknown_without_inventing_a_model(self):
+        facts, catalog, _ = self.scope_fixture()
+        facts.update(obligation=[["candidate", "original-stress", "native-correspondence"]],
+            signal=[["candidate", "original-stress", "evidence-underdetermined", "review"]],
+            signal_witness=[["native-window", "candidate", "original-stress",
+                             "evidence-underdetermined", "review"]],
+            proposal_attribute=[["original-stress", "recipe", "original-stress-recipe"]],
+            assessment=[])
+        queries = {name: name for name in ("coverage_gaps", "model_gaps", "factor", "applicable")}
+        with engine_api() as (engine, _):
+            state, _ = evaluate(engine, facts, catalog, queries)
+            self.assertEqual(state["coverage_gaps"], [("native-window", "candidate",
+                "original-stress", "unreviewed", "scope-review", "review-v1")])
+            self.assertIn(("native-window", "review-v1", "coverage-status", "unreviewed"), state["factor"])
+            self.assertIn(("native-window", "review-v1", "recipe", "original-stress-recipe"), state["factor"])
+            self.assertEqual(state["model_gaps"], [])
+            self.assertEqual(state["applicable"], [])
+            # A registered PASS identity alone is not an applicability review.
+            empty_models = dict(facts, model=[], model_revision=[], model_assumption=[])
+            empty, _ = evaluate(engine, empty_models, catalog, queries)
+            self.assertEqual(empty["coverage_gaps"], state["coverage_gaps"])
+            unrelated = dict(facts, assessment=[
+                ["candidate", "another-obligation", "snapshot", "covered", "review"]])
+            other, _ = evaluate(engine, unrelated, catalog, queries)
+            self.assertEqual(other["coverage_gaps"], state["coverage_gaps"])
+            reviewed = dict(facts, assessment=[
+                ["candidate", "original-stress", "snapshot", "unmapped", "review"]])
+            known, _ = evaluate(engine, reviewed, catalog, queries)
+            self.assertEqual(known["coverage_gaps"], [])
+            self.assertEqual(known["model_gaps"][0][3], "unmapped")
+            self.assertEqual(known["applicable"], [])
+            withdrawn = dict(reviewed, source=[row for row in facts["source"] if row[0] != "model-source"])
+            unknown, _ = evaluate(engine, withdrawn, catalog, queries)
+            self.assertEqual(unknown["coverage_gaps"], state["coverage_gaps"])
+            stale = dict(facts, focus=[["candidate", "candidate-source", "other-source"]])
+            absent, _ = evaluate(engine, stale, catalog, queries)
+            self.assertEqual(absent["coverage_gaps"], [])
+            # No observation is a legitimate empty window, not a rejected list.
+            absent, _ = evaluate(engine, dict(facts, signal_witness=[]), catalog, queries)
+            self.assertEqual(absent["coverage_gaps"], [])
+
     def test_current_collective_candidate_keeps_native_gap_and_report_review_distinct(self):
         path = "evidence/scenarios/concurrent-gc/processor-interrupt-collective.view.json"
         _, facts, catalog, _ = load(ROOT, path)
@@ -246,6 +309,33 @@ class ModelingGuidanceTests(unittest.TestCase):
                 "callback-retirement-races", "continuation-vm-transfer", "covered", "audit"]])
             answers, _ = evaluate(engine, covered, catalog, document["queries"])
             self.assertEqual(answers["recommendations"], [])
+
+    def test_investigation_signals_reach_clue_without_actions_or_invented_cause(self):
+        facts, catalog, _ = self.scope_fixture()
+        facts.update(obligation=[["candidate", "interrupt-wait", "native-source-correspondence"]],
+            signal=[["candidate", "interrupt-wait", "non-discriminating-inspection", "review"],
+                    ["candidate", "interrupt-wait", "evidence-underdetermined", "review"]],
+            signal_witness=[["inspection-window", "candidate", "interrupt-wait", "non-discriminating-inspection", "review"],
+                            ["causal-window", "candidate", "interrupt-wait", "evidence-underdetermined", "review"]])
+        queries = {name: name for name in ("clue", "factor", "link", "applicable")}
+        with engine_api() as (engine, _):
+            result, _ = evaluate(engine, facts, catalog, queries)
+            windows = [r for r in result['clue'] if r[2] == 'interrupt-wait']
+            self.assertEqual(len(windows), 2)
+            self.assertEqual(len({r[0] for r in windows}), 2)
+            self.assertTrue(all(r[3:5] == ('support', 'observation') for r in windows))
+            self.assertEqual(result['applicable'], [])
+            self.assertFalse(any(r[2] in {'next', 'action', 'cause'} for r in result['factor']))
+            withdrawn = dict(facts, source=[r for r in facts['source'] if r[0] != 'review'])
+            missing, _ = evaluate(engine, withdrawn, catalog, queries)
+            self.assertFalse(any(r[2] == 'interrupt-wait' for r in missing['clue']))
+            stale = dict(facts, focus=[['candidate', 'candidate-source', 'different-sha']])
+            missing, _ = evaluate(engine, stale, catalog, queries)
+            self.assertFalse(any(r[2] == 'interrupt-wait' for r in missing['clue']))
+            mixed = dict(facts, signal_witness=[facts['signal_witness'][0],
+                ['inspection-window', 'candidate', 'other-obligation', 'evidence-underdetermined', 'review']])
+            rejected, _ = evaluate(engine, mixed, catalog, queries)
+            self.assertFalse(any(r[0] == 'inspection-window' for r in rejected['clue']))
 
     def test_actions_discover_and_select_the_real_view(self):
         import uuid

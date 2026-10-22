@@ -44,9 +44,13 @@ class BindingClosureTests(unittest.TestCase):
 
     def test_real_dirty_git_import_reproduces_source_and_runs_queries(self):
         target,source,original=self.declaration(external=True)
+        w.start(self.root,'repair',adopt=True)
+        w.write(self.root/'.state/task-policy.json',{'defaultTask':'repair'})
         result=views.materialize(self.root,'evidence/sample.view.source.json',expected_view_sha=sha(target))
         self.assertTrue(result['engineEvaluated']);self.assertEqual({'checked':1},result['queryRows'])
-        self.assertEqual(source.read_bytes(),(self.root/result['imports'][0]['snapshot']).read_bytes())
+        from gambit_smp.source_identity import read_source
+        self.assertEqual(source.read_bytes(),read_source(self.root,result['imports'][0]['identity']))
+        self.assertFalse((self.root/'evidence/source-snapshots').exists())
         old=self.root/'.state/evidence-views/archive'/hashlib.sha256(original).hexdigest()
         self.assertEqual(original,old.read_bytes());self.assertFalse(result['runtimeAdmitted'])
         second=views.materialize(self.root,'evidence/sample.view.source.json',expected_view_sha=sha(target))
@@ -131,14 +135,17 @@ class BindingClosureTests(unittest.TestCase):
         finally:child.terminate();child.wait(timeout=5)
 
     def test_source_review_reproduces_exact_delta_before_updating_declaration(self):
-        import difflib
+        from gambit_smp.source_identity import retain_sources, git_source
         target,source,original=self.declaration()
         declaration=self.root/'evidence/sample.view.source.json'
-        baseline=self.root/'evidence/baseline.ss';baseline.write_bytes(source.read_bytes())
+        w.git(self.root,'add','evidence/observed.ss')
+        w.git(self.root,'-c','user.name=Test','-c','user.email=test@example.invalid','commit','-qm','baseline')
+        before=git_source(self.root,'.',w.git(self.root,'rev-parse','HEAD'),'evidence/observed.ss')
         source.write_text('reviewed expanded source\n')
-        delta=''.join(difflib.unified_diff(baseline.read_text().splitlines(True),source.read_text().splitlines(True),fromfile='a/evidence/observed.ss',tofile='b/evidence/observed.ss'))
-        (self.root/'evidence/source.patch').write_text(delta)
-        review=dict(schema='ascent.source-binding-review.v1',declaration='evidence/sample.view.source.json',declarationSha256=sha(declaration),changes=[dict(reference='source',baseline='evidence/baseline.ss',patch='evidence/source.patch',citationIds=[],reason='Reviewed source-only extension',retainedScope='Static fixture, no runtime admission')])
+        w.start(self.root,'repair',adopt=True)
+        with w.execution_scope(self.root,'repair'):
+            after=retain_sources(self.root,{'source':source.read_bytes()})['source']
+        review=dict(schema='ascent.source-binding-review.v2',declaration='evidence/sample.view.source.json',declarationSha256=sha(declaration),changes=[dict(reference='source',before=before,after=after,citationIds=[],reason='Reviewed source-only extension',retainedScope='Static fixture, no runtime admission')])
         w.write(self.root/'evidence/review.json',review)
         receipt=views.review_sources(self.root,'evidence/review.json')
         self.assertEqual(sha(source),receipt['changes'][0]['newSha256'])

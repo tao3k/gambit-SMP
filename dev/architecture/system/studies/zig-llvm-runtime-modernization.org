@@ -1,0 +1,302 @@
+#+TITLE: Zig, LLVM and Gambit: Runtime Modernization Architecture
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: architecture
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Zig, LLVM and Gambit: Runtime Modernization Architecture :architecture:
+:PROPERTIES:
+:ID: 7ed2e11c-29ef-50f2-b7a1-a9b83bfbc2af
+:CUSTOM_ID: zig-llvm-and-gambit-runtime-modernization-architecture
+:SOURCE_PATH: docs/experimental/zig/zig-llvm-runtime-modernization.md
+:SOURCE_SHA256: 7fca07365916ff6b2531aed16b0174f980c7cd24f399dc585611addcea0921ac
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Date: 2026-10-20. Design only; no implementation, prototype, model/native run or
+performance validation. [[file:zig-runtime-modernization-evidence.org][Source and literature evidence]].
+[[file:../../../refactoring/zig/studies/zig-modernization-benefit-ledger.org][Quantitative benefit/cost ledger]].
+The [[file:../../toolchain/studies/darwin-local-stack-correspondence.org][local Darwin identity study]] is an
+evidence-adapter workstream, not the central justification for adopting Zig.
+
+The [[file:gambit-centered-backend-redesign.org][Gambit-centered backend redesign]]
+grounds this work in Gambit's PVM/backend papers and current target interfaces.
+It distinguishes compiler implementation memory from generated Scheme memory,
+and adds a runtime-compatible GVM/native route alongside the high-level MLIR
+path. No-GC Zig does not imply no-GC generated Scheme code.
+
+*** 1. The Modernization Thesis
+:PROPERTIES:
+:ID: ebc956a1-6e29-5099-a392-323b6566568c
+:CUSTOM_ID: 1-the-modernization-thesis
+:END:
+
+The objective is to make Gambit's compiler/runtime contracts explicit enough
+that native engineering, compiler infrastructure and selected runtime components
+can evolve without repeatedly rediscovering them in C macros, extensions and
+platform scripts. Zig is a proposed implementation substrate for that work.
+LLVM/MLIR supply reusable compiler mechanisms. The project's own contracts make
+those mechanisms useful to Scheme and multicore execution.
+
+This has three distinct products:
+
+| Product | Responsibility | How Zig can carry it | Acceptance boundary |
+|-
+| R0 native engineering and services | Requests, configuration, artifacts, workers, native resources, diagnostics | Existing selected Zig subsystem and isolated MLIR service | Existing E01-E32, M1-M12 and semantic-backend gates |
+| R1 runtime support components | Native-owned work records, queues, waits, lifecycle state, budgets and allocation ownership | Proposed typed internal components behind narrow interfaces owned by Gambit | Exact protocol, memory ordering, progress and same-runtime source/native closure |
+| R2 collector/compiler co-design | Roots/maps, relocation, barriers, safepoints, continuation/frame ABI and object representation | Future coordinated runtime/compiler revision; Zig may implement parts after the protocol is specified | New private protocol generation and complete compatibility/correctness/performance admission |
+
+R1/R2 are research extensions, not a silent expansion of the existing managed
+profile. Ordinary Zig service code still cannot import GSTATE/VMSTATE/PSTATE or
+borrow a Scheme heap pointer. A future internal runtime component implemented
+in Zig remains part of *Gambit's runtime*, under Gambit's semantic authority.
+Ownership does not require every implementation file to stay C forever.
+
+Do not introduce a second collector, VM registry, interrupt owner or scheduler
+beside the existing one. For each selected R1 replacement, remove the old owner
+only after complete admission; never retain two unsynchronized implementations
+as a compatibility layer. R2 requires coordinated generated-code/runtime changes,
+not an extension library with a competing object model.
+
+*** 2. No-GC Zig and Moving Scheme Heaps
+:PROPERTIES:
+:ID: f2452d69-9c04-59be-a631-c687deeab33c
+:CUSTOM_ID: 2-no-gc-zig-and-moving-scheme-heaps
+:END:
+
+Zig supplies no managed collector that can trace Scheme objects. That is useful
+for native ownership, but does not make copying GC harmless. A collector moves
+an object by updating references it knows about; an unregistered address cached
+in Zig remains stale. Generation, movement, parallelism and concurrency are
+separate collector dimensions.
+
+The inspected Gambit baseline describes movable generation-0 objects, still and
+permanent objects, uses semispace/msection copying, and reserves additional
+generation tags in its header [G1]. Reserved tags alone do not establish a
+currently operating Chez/OCaml-style multi-generation remembered-set policy.
+The precise collector profile must be mapped from the selected source, not
+inferred from the word “GC”. Chez and OCaml likewise have different moving and
+nonmoving regions and foreign-entry rules. Do not label all three as one
+interchangeable generational copying algorithm.
+
+Select four ownership domains, rather than one shared allocator:
+
+| Domain | Allocator/reclaimer and contents | Cross-boundary rule |
+|-
+| Scheme managed heap | Gambit allocation, tracing, relocation, weak/finalization rules | Service code receives values by conversion/copy; no ordinary raw heap pointer escapes |
+| Adapter/root state | Gambit generated bridge, exact frame/root and VM-generation protocol | Roots remain runtime-owned; a native JobId is not a root handle |
+| Zig native resources | Explicit native buffers, queues, files, jobs and service workers | Length, owner, release function, epoch and terminal outcome are explicit |
+| MLIR/LLVM resources | Compiler-service contexts, IR, passes, target machinery and buffers | Private handles stay in the service; only versioned artifacts/results leave |
+
+Existing Gambit C conversions may allocate reference-counted native memory;
+foreign objects have release callbacks [G2]. Preserve their original allocator
+and release protocol. A buffer from Gambit's RC allocator cannot be freed with
+a Zig allocator merely because both are C-addressable. A nonmoving still object
+may still contain moving children; its address stability does not make every
+reachable address safe [G4]. Foreign finalization is a backstop, not a promise
+of timely native resource release.
+
+Choose the boundary by lifetime/effect, not by language:
+
+| Boundary class | Selected behavior | Remaining obligations |
+|-
+| Scalar/value copy | Convert on entry; return plain native values/status | Width, overflow, encoding, conversion failure and multiple values |
+| Owned byte buffer | Copy or transfer native-owned storage with explicit release | Bounds, allocator pairing, mutation/alias policy and cancellation |
+| Short synchronous borrow | Only for a separately proved nonescaping, nonmoving window | No hidden safepoint, callback, yield or retention; whole call graph and other-processor GC participation must agree |
+| Long-running/blocking work | Publish roots/state on Gambit side, copy inputs, execute with native-owned memory, deliver after valid reentry | Exact blocking/GC participation protocol and asynchronous exceptions; no Scheme dereference while released |
+| Retained Scheme reference | Runtime-owned root indirection inside a Gambit adapter, if an existing admitted facility supports it | VM/slot generation, relocation updates, release and teardown; not a new public generic root API |
+| Zero-copy shared object graph | Not admitted by this design | Requires a specific pinning/nonmoving/barrier protocol and bounded retention; rooting alone is not pinning |
+
+The internal root-indirection row describes an obligation, not an implemented
+new interface. Existing still/RC mechanisms may satisfy particular uses only
+under their source-bound contracts. Copying is the default boundary for service
+workers. Batch conversions or transfer native buffers to amortize it; do not
+claim universal zero-copy or zero-overhead FFI.
+
+The blocking sequence is conceptually:
+
+`publish roots + saved continuation state -> establish GC-safe participation ->
+native-owned work -> ordinary-return result -> valid runtime reacquisition ->
+revalidate/reload managed references -> Scheme delivery`.
+
+Every exceptional edge must release native resources without a Scheme nonlocal
+exit crossing Zig frames. Zig defer is not a substitute for Gambit's unwind
+protocol. The existing os-condvar-select wrapper already saves RA, writes cached
+state and reloads it [G3]; rewriting that sequence by reputation is not a fix.
+Actual GC reachability and current candidate correspondence remain separate.
+
+[[file:../../../research/diagrams/zig-gc-ffi-ownership.svg][Heap and FFI ownership]]
+
+*** 3. Refactoring C FFI Into Declared Effects
+:PROPERTIES:
+:ID: 2ba85ed1-db88-5426-8177-30e48bd3a196
+:CUSTOM_ID: 3-refactoring-c-ffi-into-declared-effects
+:END:
+
+Extend the existing primitive/FFI coverage design with a producer-owned manifest
+per foreign call site: identity and C ABI, argument/result representation,
+allocation/root effects, blocking/GC participation, callback/reentry permissions,
+thread/VM owner, retention, allocator/release, error delivery and cancellation.
+An absent effect is unknown, not a leaf-call optimization opportunity.
+
+| Class | Typical call | Gambit work | Zig/native work | Optimization opportunity |
+|-
+| F0 leaf | Bounded scalar computation | Prove no allocation/reentry/retention/safepoint effects | Typed ordinary-return C ABI | Specialize conversion and batch calls when equivalent |
+| F1 allocating conversion | String/foreign-result conversion | Root intermediates, preserve exact conversion/error meaning | Own native allocation result until accepted/released | Generate consistent ownership/error adapters |
+| F2 blocking or long native work | IO, compiler service, native kernels | Publish/reload state and preserve GC participation/reentry | Work on copied/native-owned inputs; explicit completion | Reduce transitions and prevent workers retaining managed addresses |
+| F3 synchronous Scheme callback | Native callback into Scheme | Existing marker, frame, rooting and unwind protocol | Ordinary-return callback envelope only after admission | Keep callback-rich calls separate from F0/F2 specialization |
+| F4 foreign-origin thread entry | External thread invokes Scheme | Establish supported VM/processor selection, exclusive execution owner and lifecycle | No implicit attach or VM0 alias | New capability only after a separate runtime-entry design |
+| F5 retained/asynchronous resource | Job/buffer survives the call | Own Scheme-visible lifecycle and any managed root | Native generation-safe handles, cancellation, close/join | Batch data and explicit release; not arbitrary graph sharing |
+
+These are capability facets, not disjoint classes. Conversion, target, result
+and cleanup stages can contribute different facets. The
+[[file:../../runtime/ffi/studies/foreign-plan-contract.org][ForeignPlan refinement]] makes this distinction
+explicit: a leaf native target does not prove a leaf boundary, and callback
+control containment must cover every live C/Zig frame.
+
+Generate bridge policies from one manifest instead of repeating hand-maintained
+root, thread and cleanup assumptions in every extension. Fast-path F0 only after
+its proof; keep unknown c-code conservative. A provider/library upgrade that
+changes effects invalidates the corresponding adapter even if its symbol ABI
+is unchanged. This is a substantive FFI modernization that can be implemented
+with C or Zig; Zig's incremental value is reusable native ownership and tooling,
+to be compared with the same generated-contract design in C.
+
+*** 4. What Multicore Runtime Work Actually Requires
+:PROPERTIES:
+:ID: 12c71bfc-dfcf-55f8-9a31-63959302064a
+:CUSTOM_ID: 4-what-multicore-runtime-work-actually-requires
+:END:
+
+Gambit's inspected baseline already contains parallel GC worker counts, chunk
+publication/stealing and forwarding CAS [G1]. Existing research has scoped
+native successes and open GC/FFI/lifecycle gates [G4]. Calling the runtime
+“not modernized” should identify those unresolved protocols and integration
+costs; it must not erase implemented parallel machinery or historical repairs.
+
+| Protocol problem | Proposed modernization seam | What remains Gambit-owned |
+|-
+| Forwarding address versus ready payload | Explicit claim/copy/publish/scan states and selected acquire/release rules | Object identity, header/tag meaning and all scan consumers |
+| Queue empty versus global completion | Account private, outbound, inbound and scanning obligations; native work records may carry phase/owner generation | GC phase completion, weak/finalization fixed points and participant membership |
+| Lost wake / blocking participant | One predicate/notification protocol; epoch-bearing waits with defined cancellation | Whether a processor must service GC/interrupts and when frames are safe |
+| VM create/shrink/retire races | Explicit lifecycle state and generation; admission closure, drain, join, reclamation | VM isolation, roots/modules/TLS and safe global teardown |
+| Failed joins / partial initialization | Transactional rollback, retained ownership and quarantine until actual terminal evidence | No freeing live state or converting failed join into successful cleanup |
+| Competing pools and false sharing | One declared concurrency budget; locality/padding and queue topology as measured policies | Correctness must not depend on an assumed core count or scheduling fairness |
+
+Zig can encode tagged states, explicit allocators, atomics and cleanup paths for
+an R1 component. It does not prove happens-before, ABA avoidance, termination,
+fairness, moving-root completeness or cross-VM isolation. Replacing a mutex or
+porting a loop without these contracts preserves the historical architecture.
+For R2, a typed runtime facade can replace macro-dependent internal access only
+as a coordinated private ABI generation, with generated C and a future MLIR
+backend consuming the same definitions. No service may reinterpret a PSTATE.
+
+Total runnable workers must be budgeted across ~VMs * processors_per_VM~, GC
+helpers, Zig work and compiler-service threads. Domain/VM/thread counts are not
+interchangeable; oversubscription can lose throughput and worsen pauses. Track
+independent VMs, threaded execution inside a VM and Scheme scheduler concurrency
+as separate accepted capabilities [G4]. No new global lock may serialize normal
+VM execution merely to simplify ownership.
+
+*** 5. Lessons From OCaml 5 and Chez
+:PROPERTIES:
+:ID: f7f959b4-83fa-5fda-b8cc-76e396214919
+:CUSTOM_ID: 5-lessons-from-ocaml-5-and-chez
+:END:
+
+The OCaml parallelism paper treats C API compatibility, single-thread performance
+and pause latency as design constraints, not cleanup after choosing a collector.
+It explains how direct C heap access constrains read-barrier choices. Its lesson
+for Gambit is to classify the FFI surface before redesigning the heap, and to
+retain sequential and latency acceptance alongside throughput.
+[[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][ICFP 2020 paper, sections 1 and 4]].
+
+The OCaml 5.4 manual describes domain-local minor allocation, parallel STW minor
+collection and concurrent major collection. Its C interface requires copying
+data before releasing runtime access and registering foreign callback threads.
+These are useful contract examples, not drop-in Gambit APIs.
+[[https://ocaml.org/manual/5.4/parallelism.html][Parallelism]],
+[[https://ocaml.org/manual/5.4/intfc.html][C interface]].
+The historical [[https://github.com/ocaml-multicore/docs/blob/main/ocaml_5_design.md][OCaml 5 design review]]
+also exposes domain membership and blocking participation as runtime work.
+We do not infer a ten-year Gambit estimate or import an old experimental minor
+collector as the present OCaml implementation.
+
+Pinned Chez source ties activation/deactivation, code retention, thread roots
+and sweeper completion to concrete protocols [C1]. Inactive is not equivalent to
+unrooted; local emptiness is not global completion. Its owner-routed re-sweeps
+and dirty cards have costs and representation assumptions distinct from Gambit's
+chunk stealing. Preserve those lessons and negative controls without copying the
+algorithm wholesale. Existing finite Chez models are not native Gambit evidence.
+
+*** 6. How LLVM Engineering Becomes Useful Leverage
+:PROPERTIES:
+:ID: e6037826-65ad-56cf-a0a8-091f1d0fcc3c
+:CUSTOM_ID: 6-how-llvm-engineering-becomes-useful-leverage
+:END:
+
+| Layer | Reusable infrastructure | Project work that makes it useful |
+|-
+| C/native construction | Target/object/debug/link tooling and optional LTO | Matched supported compiler/runtime ABI; GNU GCC objects are not automatically LLVM bitcode |
+| Restricted native kernels | MLIR analyses/conversions, vector/loop lowering, target code generation | Extract a proved native domain with explicit memory/effect and ownership contracts |
+| High-level Scheme | IR/pass/analysis infrastructure and extensible dialect interfaces | Binding/closure/control/continuation semantics, evaluation order and guarded optimization |
+| Moving-GC code generation | LLVM statepoint/relocation and stack-map mechanisms | Custom Gambit strategy, root/type maps, safepoints, runtime registration and continuation correspondence |
+| Engineering evolution | One provider protocol and artifact/dependency model | Pin providers, negotiate capabilities, reject unsupported profiles and retire superseded paths |
+
+LLVM explicitly supplies compiler support for GC, not a collector. Its root and
+safepoint interfaces do not supply Gambit VM lifecycle or collector correctness.
+[[https://llvm.org/docs/GarbageCollection.html][GC integration]],
+[[https://llvm.org/docs/Statepoints.html][statepoints]].
+MLIR pass infrastructure and bufferization likewise do not imply Scheme escape
+analysis or region reclamation for captured continuations.
+[[https://mlir.llvm.org/docs/PassManagement/][Pass infrastructure]],
+[[https://mlir.llvm.org/docs/Bufferization/][bufferization]].
+
+The selected export remains the resolved tree before normalize-program, not
+Gambit's generated C. C loses the most useful higher-order structure; a different
+C compiler cannot restore it. Native code regions may use region allocation
+only after escape/control/FFI proof; ordinary Scheme objects stay under Gambit
+GC. A continuation capture or unknown retained callback prevents naive region
+freeing. See the [[file:../../compiler/studies/zig-high-level-semantics-design.org][semantic design]] and
+[[file:../../compiler/studies/mlir-pass-admission.org][pass gates]].
+
+Zig's C interoperation is useful but target/options must match. Its 0.16 release
+also changes C translation machinery and moves toward a different LLVM/Clang
+dependency arrangement. Therefore pin Zig, C compiler, linker, LLVM and MLIR
+separately; “use Zig” does not select or stabilize the complete stack.
+[[https://ziglang.org/documentation/0.16.0/][Zig documentation]],
+[[https://ziglang.org/download/0.16.0/release-notes.html][release notes]].
+MLIR's C API itself offers no stability guarantee; isolate it inside the service
+instead of promising a stable project ABI from upstream headers.
+[[https://mlir.llvm.org/docs/CAPI/][MLIR C API]].
+
+[[file:../diagrams/zig-runtime-modernization.svg][Modernization ownership and leverage]]
+
+*** 7. Selected Research Priorities
+:PROPERTIES:
+:ID: 76eae777-4630-54bf-9827-e89c803db00f
+:CUSTOM_ID: 7-selected-research-priorities
+:END:
+
+First complete the F0-F5 effect/ownership inventory and private runtime protocol
+map against exact baseline/candidate identities. Then choose one R1 component
+whose old implementation and duplicated obligations can actually be retired.
+In parallel, define a restricted native MLIR capability and its benefit/work
+denominator without implementing it. R2 decisions follow a collector/FFI/root
+design and source-model correspondence, rather than an assumption that LLVM
+or no-GC Zig fixes moving references.
+
+The quantitative ledger supplies 18 separate benefit/cost rows. Adoption must
+beat a C implementation of the same contracts as well as the historical path.
+Require semantic and sequential behavior, full native lifecycle acceptance,
+latency, memory and multicore scaling together. No speedup, defect reduction or
+maintenance savings is measured in this study, and the Darwin observer's open
+gates do not postpone this architecture work.

@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 
 _scope = ContextVar('gambit_storage_scope', default=None)
+_retirements = ContextVar('gambit_storage_retirements', default=())
 _roots = set()
 _installed = False
 SHARED = {'fixtures','fixture-archives','fixture-evidence','research','history','reasoning',
@@ -16,7 +17,7 @@ SHARED = {'fixtures','fixture-archives','fixture-evidence','research','history',
           'source-slices','bench','papers','.gerbil-bench.lock'}
 GENERATED_CONTAINERS = {'pro','profile','profiles','prompt','prompts','policy','policies','private','provider-source'}
 SOURCE_AREAS = {'src','vendor','provider','providers','provide','vr','.venv'}
-SOURCE = {'src','tests','docs','models','evidence','patches','.git','.agents','.codex'}
+SOURCE = {'src','tests','docs','dev','models','evidence','patches','.git','.agents','.codex'}
 
 
 class StoragePolicyError(ValueError):
@@ -39,7 +40,16 @@ def validate(root, path, *, task=None, deleting=False):
         if resolved_parts and resolved_parts[0].casefold()=='campaigns' and not deleting:
             raise StoragePolicyError('campaigns/ is forbidden; use the task program/output allocator')
     if relative.parts[0] in {'.cache','.data'} and resolved!=path:
-        raise StoragePolicyError('storage aliases are forbidden')
+        parent=path.parent
+        # Native script links stay in their storage owner. Their resolved target
+        # must also pass task/process policy; an inert-looking link is not custody.
+        owner=relative.parts[:3] if relative.parts[:2] in {('.cache','tasks'),('.data','worktrees')} else relative.parts[:2]
+        internal=(path.is_symlink() and parent.resolve()==parent.absolute()
+                  and resolved.is_relative_to(root.resolve())
+                  and resolved.relative_to(root.resolve()).parts[:len(owner)]==owner)
+        if not internal:
+            raise StoragePolicyError('storage aliases are forbidden')
+        validate(root,resolved,task=task,deleting=deleting)
     first=relative.parts[0]
     if first.casefold()=='campaigns':
         if deleting:return
@@ -53,6 +63,8 @@ def validate(root, path, *, task=None, deleting=False):
         if any(part.casefold() in GENERATED_CONTAINERS for part in parts[1:]):
             raise StoragePolicyError('generated runtime directories require .cache/: '+str(relative))
     if not task:return
+    if deleting and any(path == target or path.is_relative_to(target) for target in _retirements.get()):
+        return
     if first in {'.state','.git','.venv'} or first in SOURCE:return
     if first=='.cache':
         if not task:return  # Historical unscoped readers are not execution custody.
@@ -78,19 +90,62 @@ def validate(root, path, *, task=None, deleting=False):
         raise StoragePolicyError('runtime output must use the task allocator')
 
 
+@contextmanager
+def retiring_fixture(path):
+    """A checked pruner may delete one old task fixture, never build products."""
+    scope = _scope.get()
+    target = Path(path).absolute()
+    if scope:
+        root, task = scope
+        store = root / '.cache/tasks' / task / 'fixtures'
+        if target == store or not target.is_relative_to(store) or target.resolve() != target:
+            raise StoragePolicyError('retirement requires an exact non-alias owned fixture')
+    token = _retirements.set((*_retirements.get(), target))
+    try:
+        yield
+    finally:
+        _retirements.reset(token)
+
+
+def _directory_target(path, descriptor):
+    if not isinstance(path, (str, bytes, os.PathLike)) or descriptor in (None, -1) or Path(os.fsdecode(path)).is_absolute():
+        return path
+    if sys.platform == 'darwin':
+        import fcntl
+        # F_GETPATH from the platform sys/fcntl.h; the FD, not cwd, owns this name.
+        base = Path(os.fsdecode(fcntl.fcntl(descriptor, 50, bytes(1024)).split(b'\0', 1)[0]))
+    else:
+        base = Path(os.readlink('/proc/self/fd/' + str(descriptor)))
+    actual, held = base.stat(), os.fstat(descriptor)
+    if (actual.st_dev, actual.st_ino) != (held.st_dev, held.st_ino):
+        raise StoragePolicyError('directory descriptor identity changed')
+    return base / os.fsdecode(path)
+
+
 def _audit(event,args):
-    targets=[];deleting=False
+    scope=_scope.get()
+    if scope and event in {'subprocess.Popen','os.system','os.posix_spawn','os.fork','os.forkpty','os.exec'}:
+        from gambit_smp.spawn_protocol import _popen_authority,_exec_authority
+        permitted=(event=='subprocess.Popen' and _popen_authority.get()) or (event=='os.exec' and _exec_authority.get())
+        if not permitted:
+            raise StoragePolicyError('child execution must use the durable birth/exec boundary')
+    targets=[];deleting=False;descriptor=None
     if event=='open':
         mode,flags=args[1],args[2]
         if (isinstance(mode,str) and any(c in mode for c in 'wax+')) or (isinstance(flags,int) and flags & (os.O_WRONLY|os.O_RDWR|os.O_CREAT|os.O_TRUNC)):
             targets=[args[0]]
-    elif event in {'os.mkdir','os.chmod','os.utime','os.truncate'}:targets=[args[0]]
-    elif event in {'os.remove','os.rmdir'}:targets=[args[0]];deleting=True
-    elif event in {'os.rename','os.link','os.symlink'}:targets=[args[1]]
+    elif event in {'os.mkdir','os.chmod','os.utime','os.truncate'}:
+        targets=[args[0]]
+        descriptor = args[-1] if event != 'os.truncate' else None
+    elif event in {'os.remove','os.rmdir'}:
+        targets=[args[0]];deleting=True;descriptor=args[1]
+    elif event in {'os.rename','os.link','os.symlink'}:
+        targets=[args[1]];descriptor=args[2] if event == 'os.symlink' else args[3]
     scope=_scope.get()
     if not scope and deleting:return  # Custody-controlled removal never creates a forbidden root.
     for target in targets:
         if not isinstance(target,(str,bytes,os.PathLike)):continue
+        target = _directory_target(target, descriptor)
         if scope:
             validate(scope[0],target,task=scope[1],deleting=deleting)
         else:

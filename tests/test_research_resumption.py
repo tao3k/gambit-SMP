@@ -94,6 +94,21 @@ class ResearchResumptionTests(unittest.TestCase):
         self.assertEqual({row[4] for row in declarations}, {self.outer["engineId"]})
         self.assertTrue(state["relations"]["support_witness"])
 
+    def test_scheme_distinguishes_closed_failed_history_from_live_partial_and_success(self):
+        self.assertEqual(self.state()['relations']['failed_attempt_history'],[()])
+        self.source.write_text('changed candidate; old failure remains history')
+        self.assertEqual(self.state()['relations']['failed_attempt_history'],[()])
+        self.outer['processGroupQuiescent']=False
+        self.save()
+        self.assertEqual(self.state()['relations']['failed_attempt_history'],[])
+        self.outer['processGroupQuiescent']=True
+        removed=self.child['steps'].pop()
+        self.save()
+        self.assertEqual(self.state()['relations']['failed_attempt_history'],[])
+        self.child['steps'].append(removed)
+        self.finish()
+        self.assertEqual(self.state()['relations']['failed_attempt_history'],[])
+
     def test_cleanup_does_not_erase_success_or_make_artifact_executable(self):
         self.inspection["artifactAvailability"]["outputs"][0]["status"] = "MISSING"
         state = self.state()["relations"]
@@ -266,7 +281,8 @@ class ResearchResumptionTests(unittest.TestCase):
                 patch.object(sys, "argv", ["research", "--run", "evidence/recipe.recipe.json",
                                           "--engine", str(self.root / "engine"), "--out", str(self.run)]), \
                 redirect_stdout(output):
-            self.assertEqual(research_kernel.main(), 0)
+            # This checks adapter serialization, not the live workspace dispatcher.
+            self.assertEqual(research_kernel.main.__wrapped__(), 0)
         payload = json.loads(output.getvalue())
         self.assertEqual(payload["resumeStatus"], "REUSED")
         self.assertFalse(payload["executionLaunched"])

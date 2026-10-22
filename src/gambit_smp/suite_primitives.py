@@ -11,9 +11,14 @@ def check_runtime(runtime, identity):
     checks = _leased_tree_checks.get()
     inventory = tree_identity(runtime) if checks is not None and runtime in checks.roots else None
     def sha(name):
+        if inventory is not None:
+            # The held tree checker already resolved every link, checked the
+            # root generation and observed every entry's inode/ctime. Regular
+            # entries need no second deep realpath walk for each source file.
+            row = inventory.get(name, {})
+            if 'sha256' in row:return row['sha256']
         path = relative(runtime, name)
-        if inventory is None:
-            return digest(path)
+        if inventory is None:return digest(path)
         row = inventory.get(path.relative_to(runtime).as_posix(), {})
         if "sha256" not in row:
             raise ValueError("leased runtime file is absent from checked inventory")
@@ -62,12 +67,15 @@ class SuiteCompletionProgress:
     def __init__(self, expected):
         self.expected = expected
         self.completed = 0
+        self.witness = None
 
     def __call__(self, stdout, stderr):
         for good, failed in re.findall(r"^\[\s*(\d+)\|\s*(\d+)\]\s+\d+%", stdout, re.MULTILINE):
             count = int(good) + int(failed)
             if self.completed < count <= self.expected:
                 self.completed = count
+                self.witness = dict(kind='upstream-suite-counter', reportedGood=int(good),
+                                    reportedFailed=int(failed), completed=count, expected=self.expected)
         return self.completed
 
 

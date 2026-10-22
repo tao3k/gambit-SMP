@@ -172,7 +172,8 @@ class ProgressWatchdogTests(unittest.TestCase):
                              for row in records))
         prefix = read_execution_checkpoint(fixture.root, run)["prefixIdentity"]
         for path in run.iterdir():
-            path.unlink()
+            if path.is_dir():__import__('shutil').rmtree(path)
+            else:path.unlink()
         run.rmdir()
         from gambit_smp.task_processes import run as task_run
         code = ("import json,sys; from tests.test_progress_watchdog import resume_retained_progress; "
@@ -275,7 +276,10 @@ class ProgressWatchdogTests(unittest.TestCase):
         self.assertEqual(1, progress("[ 1| 0] 33% done\n", ""))
         self.assertEqual(1, progress("[ 1| 0] 33% repeated\n[999|0] 100% fake\n", ""))
         self.assertEqual(2, progress("[ 1| 1] 66% failed but completed\n", ""))
+        self.assertEqual(dict(kind='upstream-suite-counter', reportedGood=1, reportedFailed=1,
+                              completed=2, expected=3), progress.witness)
         self.assertEqual(2, progress("[ 0| 0] 0% reset\n", ""))
+        self.assertEqual(1, progress.witness['reportedFailed'])
 
     def test_actual_progress_can_exceed_wall_window(self):
         program = "import time\nfor i in range(6):\n print('[%d|0] 10%% complete' % (i+1),flush=True)\n time.sleep(.25)"

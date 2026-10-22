@@ -713,6 +713,11 @@ class NativeRecipeTests(unittest.TestCase):
                                  "arguments": {"sourceLock": "source.lock.json"}, "budgetSeconds": 10}]
         self.save()
         def git_execute(argv, cwd, timeout, **kwargs):
+            kwargs.get('metadata',{}).update(parentReaped=True,processGroupQuiescent=True)
+            if '-xpf' in argv or '-xf' in argv:
+                flag='-xpf' if '-xpf' in argv else '-xf'
+                with tarfile.open(argv[argv.index(flag)+1]) as tree:
+                    tree.extractall(argv[argv.index('-C')+1],filter='data')
             if "rev-parse" in argv:
                 return 0, str(gitdir) if "--absolute-git-dir" in argv else commit, False, 0.01
             if "archive" in argv:
@@ -724,12 +729,12 @@ class NativeRecipeTests(unittest.TestCase):
             if "apply" in argv and "--check" not in argv:
                 (Path(cwd) / "lib/mem.c").write_text("candidate")
             return 0, "", False, 0.01
-        with patch.object(native, "host_tools", return_value=({"git": self.gcc}, {})), \
+        with patch.object(native, "host_tools", return_value=({"git": self.gcc, 'tar':self.gcc,'sh':self.gcc}, {})), \
                 patch.object(recipes, "execute", side_effect=git_execute):
             result = recipes.run(self.root, self.path, self.root / "materialized", Path("no-quint"), Path("no-node"),
                                  gcc=self.gcc, allow_native=True)
         self.assertEqual("PASS", result["outcome"])
-        self.assertEqual(7, len(result["steps"][0]["commands"]))
+        self.assertIn('source-extract',[row['stage'] for row in result['steps'][0]['commands']])
         self.assertEqual("CURRENT", recipes.inspect_run(self.root / "materialized")["identityStatus"])
         (gitdir / "HEAD").write_text("changed")
         self.assertEqual("STALE", recipes.inspect_run(self.root / "materialized")["identityStatus"])

@@ -21,6 +21,55 @@ from gambit_smp.artifact_storage import runtime_output
 class LifecycleTests(unittest.TestCase):
     setUp = fixtures.WorkspaceTests.setUp
     old = fixtures.WorkspaceTests.old
+
+    def test_managed_development_sources_use_the_canonical_dev_owner(self):
+        w.start(self.root,'repair',adopt=True)
+        with w.execution_scope(self.root,'repair'):
+            model=self.root/'dev/research/models/sysml/architecture.sysml'
+            model.parent.mkdir(parents=True)
+            model.write_text('package Research {}\n')
+            self.assertEqual('package Research {}\n',model.read_text())
+            with self.assertRaisesRegex(ValueError,'unregistered top-level'):
+                (self.root/'alternative-dev/generated').mkdir(parents=True)
+
+    def test_direct_process_source_migration_executes_real_aliased_children(self):
+        w.start(self.root,'repair',adopt=True)
+        script=self.root/'.cache/aliased.py';script.parent.mkdir(exist_ok=True)
+        raw=("import subprocess as child,sys\nfrom subprocess import Popen as start\n"
+             "assert child.check_call([sys.executable,'-c','pass'])==0\n"
+             "assert child.call([sys.executable,'-c','pass'])==0\n"
+             "assert child.check_output([sys.executable,'-c',\"print('actual')\"]).strip()==b'actual'\n"
+             "assert start([sys.executable,'-c','pass']).wait()==0\n").encode()
+        script.write_bytes(raw)
+        row=migration.migrate(self.root,'repair','.cache/aliased.py',enabled=True,opened=[])
+        self.assertEqual(raw,(self.root/row['archive']).read_bytes())
+        self.assertEqual(4,len(row['processCallMigration']))
+        self.assertEqual(0,w.run_script(self.root,'repair',row['key']))
+        children=[json.loads(p.read_text()) for p in (self.root/'.state/task-processes/repair').glob('*/*.json')]
+        self.assertEqual(5,len(children))
+        self.assertTrue(all(r.get('birth') and r.get('spawnProtocol') and r['event']=='finished' for r in children))
+
+    def test_registered_old_source_upgrade_resumes_actual_interrupted_replace(self):
+        w.start(self.root,'repair',adopt=True)
+        script=self.root/'.cache/old-launch.py';script.parent.mkdir(exist_ok=True)
+        raw=b'import subprocess,sys\nsubprocess.run([sys.executable,"-c","pass"],check=True)\n'
+        script.write_bytes(raw)
+        # Construct an actual pre-upgrade registry using its original producer.
+        with patch.object(migration,'rewrite_process_calls',side_effect=lambda raw:(raw,[])):
+            row=migration.migrate(self.root,'repair','.cache/old-launch.py',enabled=True,opened=[])
+        original=Path.replace
+        def cut(before,after):
+            result=original(before,after)
+            if str(before).endswith('.birth-exec-tmp'):raise RuntimeError('interrupted after real replacement')
+            return result
+        with self.assertRaisesRegex(RuntimeError,'real replacement'):
+            with w.execution_scope(self.root,'repair'),patch.object(Path,'replace',cut):
+                migration.upgrade_process_calls(self.root,'repair')
+        manifest=migration.script_record(self.root,'repair',row['key'])
+        self.assertEqual('prepared',json.loads(manifest.read_text())['processMigration']['state'])
+        w.resume(self.root,'repair')
+        self.assertEqual(0,w.run_script(self.root,'repair',row['key']))
+        self.assertEqual('migrated',json.loads(manifest.read_text())['processMigration']['state'])
     # Reuse only the Git fixture, not the parent test cases.
     def test_nested_actual_child_reuses_inherited_lock(self):
         w.start(self.root, 'repair', adopt=True)
@@ -118,8 +167,24 @@ class LifecycleTests(unittest.TestCase):
         cache=self.root/'.cache/checkpoint';cache.mkdir()
         legacy.adopt(self.root, 'repair', ['.cache/checkpoint'])
         cache.rename(cache.with_name('original'));cache.mkdir()
-        with self.assertRaisesRegex(ValueError, 'identity changed'):
-            with patch.object(w, 'active_paths', return_value=[]): w.resume(self.root, 'repair')
+        before=legacy.registry(self.root,'repair').read_bytes()
+        with patch.object(w, 'active_paths', return_value=[]):
+            result=w.resume(self.root, 'repair')
+        observation=result['reconciliation']['dependencies'][0]
+        self.assertFalse(observation['identityMatches'])
+        self.assertFalse(observation['reuseAdmitted'])
+        self.assertFalse(result['reconciliation']['nativeAdmitted'])
+        self.assertEqual(before,legacy.registry(self.root,'repair').read_bytes())
+        with self.assertRaisesRegex(ValueError,'identity changed'):
+            legacy.dependencies(self.root,'repair')
+        with patch.object(w,'active_paths',return_value=[cache]), self.assertRaisesRegex(ValueError,'occupied'):
+            w.resume(self.root,'repair')
+        cache.rmdir()
+        with patch.object(w,'active_paths',return_value=[]):
+            missing=w.resume(self.root,'repair')['reconciliation']['dependencies'][0]
+        self.assertIsNone(missing['observedIdentity'])
+        self.assertFalse(missing['reuseAdmitted'])
+        self.assertEqual(before,legacy.registry(self.root,'repair').read_bytes())
 
     def test_open_campaign_expires_only_old_unpinned_completed_runs(self):
         w.start(self.root, 'repair', adopt=True)

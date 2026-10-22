@@ -188,6 +188,26 @@ class ReviewValidationTests(unittest.TestCase):
         self.assertEqual(partial.getvalue(), "test_actual (Fixture) ... ")
         self.assertNotIn("PASS", partial.getvalue())
 
+    def test_failure_traceback_is_retained_before_suite_finalization(self):
+        from gambit_smp.review_validation import Outcomes, ValidationOutput
+        journal = io.StringIO()
+        stream = unittest.runner._WritelnDecorator(ValidationOutput(journal))
+        result = Outcomes(stream, descriptions=True, verbosity=2)
+        class Failing(unittest.TestCase):
+            def runTest(self):
+                with self.subTest(branch='failed-observation'):
+                    self.fail('retained assertion')
+                raise RuntimeError('retained exception')
+        Failing().run(result)
+        # No runner.printErrors()/stopTestRun() has happened yet.
+        text = journal.getvalue()
+        self.assertIn('AssertionError: retained assertion', text)
+        self.assertIn('RuntimeError: retained exception', text)
+        self.assertIn('failed-observation', text)
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(len(result.failures), 1)
+        self.assertFalse(result.wasSuccessful())
+
     def test_new_python_module_invalidates_an_old_test_inventory(self):
         path = self.receipt()
         (self.root / "src/new.py").write_text("new module\n")

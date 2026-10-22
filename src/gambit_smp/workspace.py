@@ -106,8 +106,9 @@ def lease(root, task):
 
 
 def git(root, *arguments):
+    from gambit_smp.task_processes import run
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    return subprocess.run(["git", "-C", str(root), *arguments], check=True,
+    return run(["git", "-C", str(root), *arguments], check=True,
                           capture_output=True, text=True, env=env).stdout.strip()
 
 
@@ -206,7 +207,8 @@ def transition_check(root, value):
     from gambit_smp.task_processes import check
     child_observations=check(root,value["task"])
     occupied = active_paths()
-    watched = [Path(value["cache"]), *dependencies(root, value["task"])]
+    dependency_observations = []
+    watched = [Path(value["cache"]), *dependencies(root, value["task"], observations=dependency_observations)]
     if any(referenced(path, occupied) for path in watched):
         raise ValueError("task dependencies are occupied; transition deferred")
     for run in bounded(root, ".state/task-runs/" + value["task"]).glob("*.json"):
@@ -227,7 +229,8 @@ def transition_check(root, value):
     if pending(root):
         raise ValueError("pending requests require real recovery; replay and completion denied")
     return {"observedAt": now().isoformat(), "pendingRequests": 0,
-            "dependencyCount": len(watched), "childObservations": child_observations, "nativeAdmitted": False}
+            "dependencyCount": len(watched), "dependencies": dependency_observations,
+            "childObservations": child_observations, "nativeAdmitted": False}
 
 
 @contextmanager
@@ -324,25 +327,37 @@ def execute(root, task, command, *, provider="codex", wall_seconds=1800):
     with execution_scope(root, task, provider) as (value, fd, run):
         from gambit_smp.task_broker import serve
         external_agent=Path(str(command[0])).name in {'codex','grok'}
+        if external_agent and os.environ.get('GAMBIT_SMP_TASK_PROCESS'):
+            raise ValueError('provider sessions require the work-item execution owner; maintenance processes run bounded tools')
         broker=serve(Path(root).resolve(),task,os.environ['GAMBIT_SMP_TASK_RUN'],fd) if external_agent and not os.environ.get('GAMBIT_SMP_TASK_SOCKET') else nullcontext()
         with broker:
             from gambit_smp.task_processes import recorder
             record_child=recorder();token=uuid.uuid4().hex
-            record_child('planned',token,dict(argv=[str(a) for a in command],cwd=value['checkout']))
+            launch_deadline=__import__('time').monotonic()+wall_seconds
             try:
-                process = subprocess.Popen(command, cwd=value["checkout"], env=dict(os.environ),
-                                       pass_fds=(fd,), start_new_session=True)
+                from gambit_smp.artifact_storage import workspace_custody
+                with workspace_custody() as (workspace_fds,environment):
+                    from gambit_smp.spawn_protocol import launch
+                    process = launch(command,record=record_child,token=token,birth_budget=min(10,wall_seconds),launch_deadline=launch_deadline,cwd=value['checkout'],env=environment,
+                        pass_fds=tuple({fd,*workspace_fds}),start_new_session=True)
             except OSError:
                 record_child('spawn-failed',token,{})
                 raise
-            record_child('started',token,dict(pid=process.pid))
+            except subprocess.TimeoutExpired:
+                # launch() has reaped any helper it created; target exit is unknown.
+                receipt = json.loads(run.read_text())
+                if receipt.get('supervisorPid') == os.getpid():
+                    receipt.update(exit=None, timedOut=True, parentReaped=True, spawnInterrupted=True)
+                    write(run, receipt)
+                record_child('interrupted',token,dict(exit=None,parentReaped=True,timedOut=True))
+                raise
             receipt = json.loads(run.read_text())
             owns=receipt.get('supervisorPid')==os.getpid()
             if owns:
                 receipt.update(pid=process.pid, pgid=process.pid, argv=[str(arg) for arg in command])
                 write(run, receipt)
             try:
-                code = process.wait(timeout=wall_seconds)
+                code = process.wait(timeout=max(.001,launch_deadline-__import__('time').monotonic()))
             except BaseException as error:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
@@ -533,6 +548,61 @@ def task_output(root, path):
     raise ValueError("runtime output requires its managed task cache")
 
 
+
+def owned_build_reference(root, path, product):
+    """Reference one registered same-work-item build without rerouting outputs.
+
+    This grants neither writes nor quiescence. The consumer still acquires the
+    existing exclusive workspace lease and authenticates every producer byte.
+    """
+    root=Path(root).resolve(strict=True);path=Path(path)
+    task=os.environ.get('GAMBIT_SMP_TASK_ID')
+    if not task:return task_output(root,path)
+    control=Path(os.environ['GAMBIT_SMP_TASK_ROOT']).resolve(strict=True)
+    _,cache,_=paths(control,task)
+    role=os.environ.get('GAMBIT_SMP_TASK_PROCESS')
+    own=cache
+    if role:
+        from gambit_smp.work_process import paths as process_paths
+        own=process_paths(control,task,role)[1]
+    task_output(root,own)  # Existing checkout/open-owner validation.
+    candidate=bounded(control,path.relative_to(control))
+    if candidate.is_relative_to(own):return task_output(root,candidate)
+    if inherited_lease(root,task) is None:
+        raise ValueError('shared build reference requires real current custody')
+    owner=json.loads(context_owner(root,task).read_text())
+    run=os.environ.get('GAMBIT_SMP_TASK_RUN')
+    receipt=json.loads(context_run(root,task,run or '').read_text())
+    if owner.get('run')!=run or owner.get('state')!='open' or receipt.get('state')!='running':
+        raise ValueError('shared build reference requires current running custody')
+    from gambit_smp.work_items import admit
+    item=admit(control,task,role)
+    if item.get('buildProducts',{}).get(product,{}).get('owner')!='task-or-registered-process':
+        raise ValueError('shared build product is not registered for this work item')
+    parts=candidate.relative_to(cache).parts
+    if len(parts)==4 and parts[0]=='build':
+        tail=parts
+    elif len(parts)==6 and parts[0]=='processes' and parts[2]=='build':
+        admit(control,task,identifier(parts[1]))
+        tail=parts[2:]
+    else:raise ValueError('cross-role reference must be a registered build source')
+    key=tail[2]
+    if tail[1]!=product or tail[3]!='source' or len(key)!=64 or any(c not in '0123456789abcdef' for c in key):
+        raise ValueError('cross-role reference identifies another build product')
+    declaration=candidate.parent/'configuration.json'
+    if candidate.resolve()!=candidate or declaration.is_symlink():
+        raise ValueError('shared build reference cannot be an alias')
+    configuration=json.loads(declaration.read_text())
+    if not isinstance(configuration,dict) or set(configuration)!={'compiler','compilerSha256','flags','environment'}:
+        raise ValueError('shared build configuration schema differs')
+    actual=hashlib.sha256(json.dumps(configuration,sort_keys=True).encode()).hexdigest()
+    if actual!=key:raise ValueError('shared build configuration identity changed')
+    compiler=Path(configuration['compiler'])
+    if not compiler.is_file() or hashlib.sha256(compiler.read_bytes()).hexdigest()!=configuration['compilerSha256']:
+        raise ValueError('shared build compiler identity changed')
+    return candidate
+
+
 def build_output(root, name, *, compiler, flags=()):
     """Stable native build work area; attempts/logs still use task_output.
 
@@ -543,6 +613,10 @@ def build_output(root, name, *, compiler, flags=()):
     task=os.environ.get('GAMBIT_SMP_TASK_ID')
     if not task or inherited_lease(root,task) is None:
         raise ValueError('build workspace requires real current task/process custody')
+    from gambit_smp.work_items import admit
+    products = admit(root, task, os.environ.get('GAMBIT_SMP_TASK_PROCESS')).get('buildProducts')
+    if products is not None and name not in products:
+        raise ValueError('build product is not registered for this work item')
     owner=json.loads(context_owner(root,task).read_text());run=os.environ.get('GAMBIT_SMP_TASK_RUN')
     receipt=json.loads(context_run(root,task,run or '').read_text())
     if owner.get('run')!=run or owner.get('state')!='open' or receipt.get('state')!='running':
@@ -568,6 +642,169 @@ def build_output(root, name, *, compiler, flags=()):
     # Retention measures actual owner use, not success or evidence freshness.
     os.utime(target,None)
     return target
+
+
+def build_source_links(root, build, state):
+    """Only declared pending inputs or registered generated aliases may be broken."""
+    if state.get('phase') == 'updating':
+        links={name:row['link'] for name,row in state.get('pending',{}).items()
+               if isinstance(row,dict) and 'link' in row}
+        from gambit_smp.work_items import build_recovery_links
+        registered=build_recovery_links(root,Path(build).parent.name)
+        for name,target in state.get('retiredGeneratedLinks',{}).items():
+            if registered.get(name)!=target:raise ValueError('generated alias recovery policy changed')
+            links[name]=target
+        return links
+    if state.get('phase') == 'building':
+        from gambit_smp.work_items import build_recovery_links
+        return build_recovery_links(root,Path(build).parent.name)
+    return {}
+
+
+def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overlay_files=(), consume_staged=False,
+                      initial_transfer=None):
+    """Apply source deltas under the caller's existing exclusive workspace lease.
+
+    Input and generated bytes are distinct. A killed update can contain either
+    side of its recorded transition, but arbitrary source drift is never fixed
+    by overwriting it. Every subsequent native build still runs its real tool.
+    """
+    from gambit_smp.recipes import tree_identity
+    import shutil
+    root, build, staged = Path(root).resolve(), Path(build), Path(staged)
+    task = os.environ.get('GAMBIT_SMP_TASK_ID')
+    if not task or inherited_lease(root, task) is None:
+        raise ValueError('incremental source update requires real task custody')
+    # Validate the same owner routing as build_output, including process areas.
+    if task_output(root, build) != build or 'build' not in build.relative_to(root).parts:
+        raise ValueError('incremental source requires an owned build area')
+    source, state_path = build / 'source', build / 'source-state.json'
+    staged_inventory = tree_identity(staged)
+    incoming = staged_inventory if inventory is None else inventory
+    if any(incoming.get(name) != entry for name, entry in staged_inventory.items()):
+        raise ValueError('source delta differs from its complete input inventory')
+    previous = json.loads(state_path.read_text()) if state_path.exists() else {}
+    if previous:
+        if (previous.get('schema') != 'incremental-source-state.v1'
+                or previous.get('phase') not in {'ready', 'building', 'updating'}):
+            raise ValueError('unknown incremental source state')
+        receipt = bounded(root, previous['custody'])
+        owner = json.loads(receipt.read_text())
+        if owner.get('run') != previous['run'] or owner.get('task') != task:
+            raise ValueError('incremental build custody changed')
+        if previous['run'] != os.environ['GAMBIT_SMP_TASK_RUN']:
+            if owner.get('state') not in {'returned', 'interrupted'} or (
+                    owner['state'] == 'interrupted' and not owner.get('reconciliation')):
+                raise ValueError('interrupted build requires real owner reconciliation')
+            from gambit_smp.task_processes import check
+            check(root, task, process=owner.get('process'), run=previous['run'])
+    source.mkdir(exist_ok=True)
+    pending = previous.get('pending', {})
+    links = build_source_links(root,build,previous)
+    actual = tree_identity(source, broken_links=links or None)
+    retired_links = (dict(previous.get('retiredGeneratedLinks',{})) if previous.get('phase') == 'updating' else
+                     {name:row['link'] for name,row in actual.items()
+                      if row.get('unresolved') and previous.get('phase') == 'building'})
+    actual = {name:{key:value for key,value in row.items() if key != 'unresolved'}
+              for name,row in actual.items()}
+    old = previous.get('inputs', {})
+    if any(name in old or name in incoming for name in retired_links):
+        raise ValueError('generated-link recovery cannot remove a source input')
+    from gambit_smp.source_capabilities import source_name
+    for name in set(old) | set(incoming):source_name(name)
+    observed = previous.get('observed', old)
+    mutables = set(previous.get('mutable', ()))
+    if not old and any(entry not in (incoming.get(name), pending.get(name)) for name, entry in actual.items()):
+        raise ValueError('initial build source contains unowned bytes')
+    for name, entry in old.items():
+        if entry.get('directory'):
+            if actual.get(name) != entry:
+                raise ValueError('incremental source directory drift: ' + name)
+            continue
+        allowed = [observed.get(name), entry]
+        if name in pending:
+            allowed.append(pending[name])
+        if actual.get(name) not in allowed:
+            if not (previous.get('phase') == 'building' and name in mutables):
+                raise ValueError('incremental source drift: ' + name)
+    changed = [name for name, entry in incoming.items() if old.get(name) != entry]
+    if initial_transfer is not None and old:
+        raise ValueError('bulk transfer is restricted to a verified initial import')
+    removed = [name for name in old if name not in incoming and not old[name].get('directory')]
+    for name in changed:
+        if (name not in old and name in actual and actual[name] != incoming[name]
+                and actual[name] != pending.get(name)):
+            raise ValueError('new source collides with an existing generated output: ' + name)
+    state = dict(schema='incremental-source-state.v1', inputs=old,
+        pending={name: incoming.get(name) for name in set(changed) | set(removed)},
+        mutable=sorted(mutable), observed=observed, phase='updating',
+        run=os.environ['GAMBIT_SMP_TASK_RUN'],
+        overlayFiles=previous.get('overlayFiles', []), pendingOverlayFiles=list(overlay_files),
+        custody=str(context_run(root, task, os.environ['GAMBIT_SMP_TASK_RUN']).relative_to(root)))
+    for key in ('regeneration', 'additionalFixtures'):
+        if key in previous:state[key] = previous[key]
+    if retired_links:state['retiredGeneratedLinks']=retired_links
+    # Commit the complete delta before changing its first file.
+    write(state_path, state)
+    for name,target in retired_links.items():
+        alias=source/name
+        if not alias.is_symlink() and not alias.exists():continue
+        if not alias.is_symlink() or os.readlink(alias)!=target or alias.exists():
+            raise ValueError('registered generated alias changed during recovery')
+        alias.unlink()
+    if initial_transfer is not None:
+        initial_transfer()
+        if tree_identity(source) != incoming:
+            raise ValueError('initial imported tree differs from its complete input inventory')
+    # A verified, unpublished cold materialization can move into the empty
+    # leased root without copying every byte twice. Never move authored inputs.
+    consume = (consume_staged and not old and not actual
+               and not any('link' in entry for entry in incoming.values()))
+    if consume:
+        if not staged.is_relative_to(root / '.cache/tasks' / task) or task_output(root, staged) != staged:
+            raise ValueError('only owned ephemeral materialization may be consumed')
+        for child in staged.iterdir():
+            child.rename(source / child.name)
+    for name in removed:
+        (source / name).unlink(missing_ok=True)
+    for name in sorted(changed, key=lambda name: (len(Path(name).parts), name)):
+        if consume or initial_transfer is not None:continue
+        entry, target, origin = incoming[name], source / name, staged / name
+        if entry.get('directory'):
+            target.mkdir(parents=True, exist_ok=True)
+        elif 'link' in entry:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() or target.is_symlink():
+                target.unlink()
+            target.symlink_to(entry['link'])
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            # copyfile, not copy2: changed bytes must invalidate make timestamps.
+            if target.is_symlink():
+                target.unlink()
+            shutil.copyfile(origin, target)
+            target.chmod(entry['mode'])
+            os.utime(target, None)
+    state.update(inputs=incoming, pending={}, phase='building', overlayFiles=list(overlay_files), pendingOverlayFiles=[], observed={
+        name: entry for name, entry in tree_identity(source).items() if name in incoming})
+    write(state_path, state)
+    return dict(changed=changed, removed=removed, source=str(source),
+                retiredGeneratedLinks=retired_links,
+                interruptedPhase=previous.get('phase') if previous.get('phase') in {'building', 'updating'} else None)
+
+
+def checkpoint_build_source(source, **observations):
+    """Retain actual post-command source bytes; no success is inferred from state."""
+    from gambit_smp.recipes import tree_identity
+    source = Path(source)
+    state_path = source.parent / 'source-state.json'
+    if not state_path.is_file():
+        return
+    state = json.loads(state_path.read_text())
+    current = tree_identity(source)
+    state['observed'] = {name: entry for name, entry in current.items() if name in state['inputs']}
+    state.update(observations)
+    write(state_path, state)
 
 
 def collect_builds(root, cache, cutoff, opened=None):
@@ -598,7 +835,8 @@ def collect_builds(root, cache, cutoff, opened=None):
 
 def active_paths():
     """Open files, mappings and working directories; failure defers reclamation."""
-    result = subprocess.run(["lsof", "-n", "-P", "-Fpn"], capture_output=True, text=True, timeout=30)
+    from gambit_smp.task_processes import run
+    result = run(["lsof", "-n", "-P", "-Fpn"], capture_output=True, text=True, timeout=30)
     if result.returncode != 0 or result.stderr:
         raise ValueError("process inventory unavailable; cleanup deferred")
     return [Path(line[1:]) for line in result.stdout.splitlines() if line.startswith("n/")]
@@ -689,6 +927,9 @@ def main():
             sub.add_argument('process');sub.add_argument('--from-task',required=True)
         if name.startswith('process-'):
             sub.add_argument('process')
+            if name=='process-resume':
+                sub.add_argument('--discard-metadata-read',metavar='TOKEN',help='forensically discard one exact unbound legacy Git read; never replay it')
+                sub.add_argument('--argv-file',help='managed, root-relative JSON argv used for hash reconstruction')
             if name=='process-run':
                 sub.add_argument('--wall-seconds',type=float,default=1800)
                 sub.add_argument('--provider',choices=('codex','grok'),default='codex')
@@ -725,8 +966,15 @@ def main():
             command=args.argv[1:] if args.argv[:1]==['--'] else args.argv
             with work_process.scope(args.root,args.task,args.process,args.provider):
                 return execute(args.root,args.task,command,provider=args.provider,wall_seconds=args.wall_seconds)
-        result=(work_process.resume(args.root,args.task,args.process) if args.operation=='process-resume'
-                else work_process.collect(args.root,args.task,args.process))
+        if args.operation=='process-resume':
+            discard=None
+            if bool(args.discard_metadata_read)!=bool(args.argv_file):parser.error('--discard-metadata-read and --argv-file must be supplied together')
+            if args.argv_file:
+                identifier(args.discard_metadata_read)
+                argv=json.loads(bounded(args.root,args.argv_file).read_text())
+                discard=(args.discard_metadata_read,argv)
+            result=work_process.resume(args.root,args.task,args.process,discard_metadata_read=discard)
+        else:result=work_process.collect(args.root,args.task,args.process)
         print(json.dumps(result,indent=2));return 0
     if args.operation == "scripts":
         rows=[json.loads(record.read_text()) for record in bounded(args.root,".state/task-scripts/"+identifier(args.task)).glob("*.json")]
@@ -783,10 +1031,15 @@ def require_execution(root, task, script):
     if len(matches)!=1 or matches[0]['state']!='migrated':
         raise ValueError('script is not admitted to the task source registry')
     entry=matches[0]
+    if entry.get('processMigration',{}).get('state')=='prepared':
+        raise ValueError('program birth/exec source migration requires completion')
     if not entry['enabled']:
         raise ValueError('campaign script disabled; migration grants no execution authority')
     if hashlib.sha256(script.read_bytes()).hexdigest()!=entry['sha256']:
         raise ValueError('campaign script source changed; review and seal explicitly')
+    from gambit_smp.task_migration import rewrite_process_calls
+    if rewrite_process_calls(script.read_bytes())[1]:
+        raise ValueError('program needs direct birth/exec source migration; use workspace run-script')
     if os.environ.get('GAMBIT_SMP_TASK_ID')!=task or inherited_lease(root,task) is None:
         raise ValueError('launch with workspace run-script; real task execution custody required')
     run_id=identifier(os.environ.get('GAMBIT_SMP_TASK_RUN',''))
@@ -802,16 +1055,20 @@ def require_execution(root, task, script):
 
 
 def run_script(root,task,key,*,provider='codex',wall_seconds=1800):
-    from gambit_smp.task_migration import script_record
+    from gambit_smp.task_migration import script_record,rewrite_process_calls,upgrade_process_calls
     entry=json.loads(script_record(root,task,key).read_text())
     if entry['state']!='migrated' or not entry['enabled']:
         raise ValueError('campaign script disabled or incomplete')
     script=Path(entry['path'])
     if not script.is_relative_to(paths(root,task)[1]/'programs'):
         raise ValueError('task program is outside canonical storage')
-    if hashlib.sha256(script.read_bytes()).hexdigest()!=entry['sha256']:
+    prepared=entry.get('processMigration',{}).get('state')=='prepared'
+    if not prepared and hashlib.sha256(script.read_bytes()).hexdigest()!=entry['sha256']:
         raise ValueError('campaign script source changed')
-    return execute(root,task,[sys.executable,str(script)],provider=provider,wall_seconds=wall_seconds)
+    with execution_scope(root,task,provider=provider):
+        if prepared or rewrite_process_calls(script.read_bytes())[1]:
+            upgrade_process_calls(root,task)
+        return execute(root,task,[sys.executable,str(script)],provider=provider,wall_seconds=wall_seconds)
 
 
 if __name__ == "__main__":

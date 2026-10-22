@@ -1,0 +1,116 @@
+# Private Admission and Coroutine Net-Benefit Matrix
+
+No timings, native results, person-day estimates or implementation-size savings
+are claimed. Counts below concern selected source sites, declared obligations
+or algebraic work; they are not calibrated performance predictions.
+See [source](tcl-private-coro-evidence.md) and [arguments](tcl-private-coro-arguments.md).
+
+AV01. Compare equal semantic scope before comparing languages.
+
+Both providers retain the existing 13 necessary shared support families from
+the [preceding matrix](tcl-trace-reachability-benefit-matrix.md). These are declared
+architectural obligations, not a measured minimum or source-file count. This
+study refines the private/guard/coroutine obligations within that common support;
+it does not manufacture another set of 13 savings. Modern C means typed,
+Scheme-generated records/states/cleanup, not today's scattered C macros.
+
+AV02. Quantify the current evidence boundary.
+
+| Quantity | Source/design value | Valid inference | Invalid inference |
+|---|---|---|---|
+| Actual ordinary trace helper call expressions | 4, in 2 TEOV helpers | Selected producer identities are known | 4 bugs, 4 zero-depth entries or measured calls |
+| Identified actual depth-zero private trace caller | 0 in declared corpus | Caller gap persists | No such caller anywhere |
+| Identified concrete admitted force-reset hook | 0 | Hook admission remains unresolved | No legal custom pinned hook can be built |
+| CorContext payload fields | 4 | Frame context does not carry n or cancellation flags | Cancellation is coroutine-local |
+| Pinned fetches / new unique files / identical recapture | 3 / 2 / 1 | Source intent and stubs/coroutine contract refined | Passing tests or three new unique files |
+| Additional runtime paths retired / native profiles qualified | 0 / 0 | Research has not retired or qualified code | Semantic retirement from static review |
+| Zig-exclusive necessary support eliminations established | 0 | No demonstrated language-exclusive net benefit here | Zig cannot ever have incremental value |
+
+AV03. Necessary support and retirement matrix.
+
+| Responsibility | Current source burden | Modern generated C must maintain | Zig must maintain | Actual retirement condition |
+|---|---|---|---|---|
+| Private binding | Unsupported slots, private Command/Interp structures | Exact profile/layout binder, typed opaque handles, rejection | Same binder plus C import/call ABI discipline | One admitted producer/profile source replaces manual matching |
+| Caller closure | TEOV refs/epochs, list cursors and hooks | Generated per-entry obligations and caller inventory | Same semantic inventory | Every caller and hidden producer covered |
+| Coroutine depth | Manual staging discount, aux swap and exit compensation | Checked state tags, debt/accounting, explicit environment identity | Same, with native error/defer notation where safe | All old manual/deferred writers replaced without changed observations |
+| Native and logical completion | C stack, callback roots, yielded ExecEnv | Owned activation records, local-return and target-custody protocol | Same; lexical defer handles only executed lexical exits | Old depth-only completion and untracked callbacks gone |
+| Forced reset and raw state | Inline clears/private hook/pending cancel | SourceReset and OwnedReset, raw-producer settlement | Same plus provider interop | Complete writer/reset producer closure and results equivalence |
+| Resource handoff | freeProc, result objects, command/coroutine cleanup | Explicit single owner, failure and reentry paths | Same; no implicit native stack capture | Every real resource has transfer/drain proof |
+| Gambit roots and markers | RC/root/marker/native-return coupling | Existing root authority and explicit custody token | Same authority and C boundary | No duplicated root system or unsupported escape |
+| LLVM/MLIR integration | Backend needs runtime contract | Schema-consuming provider and ABI | Same service contract; Zig optional | Lowering does not bypass owner/GC/FFI semantics |
+
+All eight rows are shared semantic support. No row disappears because the
+provider language changes. Local error-path notation may reduce repeated text;
+the acceptance obligation and retained state still exist. [AE01, AX01–AX11]
+
+AV04. Account for runtime cost using actual event variables.
+
+For one admitted history let E be external entries, T trace invocations, A
+coroutine activation/resume events, Y successful yields, F rejected yields, R
+reset requests, H cleanup/async hook invocations and L maximum simultaneously
+live owned logical activations. Let each c denote a provider-specific full cost
+including synchronization and allocation if used. The new support work is
+bounded only after these event counts and per-event bounds are established:
+
+```text
+W_new = E*c_entry + T*c_trace + A*c_activate + Y*c_yield
+        + F*c_failed_yield + R*c_reset + H*c_hook + W_settlement
+M_new = L*m_activation + live_environment/root/producer/trace metadata
+```
+
+No global mutex or heap allocation per event is required by the schema itself.
+Conversely, neither provider may erase registration/identity/ownership work
+when the corresponding source event is possible. An unbounded suspended set
+or unsettled producer set defeats a fixed-memory claim. A busy-rejected yield
+can incur F work without increasing Y. A private interface rejection can be
+correct while yielding no runtime speedup. [AD07–AD13, AP03–AP08]
+
+AV05. State the real redesign break-even condition.
+
+Let W_removed be old duplicated checks/audits/state reconstruction actually
+removed for the same observable history, and W_new the complete replacement
+work. Runtime net benefit requires W_removed > W_new for the chosen workload
+and resource metric, without worsened required semantics or progress. Maintenance
+benefit is measured by independent schemas, private-layout bindings, event
+sites and failure paths that must change coherently; count their actual
+retirement and residual fan-out, not lines of generated output or person-days.
+At present W_removed is unmeasured and no old runtime path has retired.
+
+Canonical cancellation storage can eliminate whole-word resurrection caused
+by trace restoration only after every old restore/writer participates. It does
+not remove valid raw cancellation, hooks, roots or suspended cleanup. This
+safety benefit is common to modern C and Zig. [AD15, AP07–AP09]
+
+AV06. Isolate Zig's incremental threshold.
+
+For equal schemas and event histories, let S_Z be C-specific necessary glue,
+manual failure-path duplication or private binding work that Zig demonstrably
+eliminates after C generation and mature library reuse. Let K_Z be Zig-specific
+compiler/ABI/upgrade/tooling cost plus residual C imports, language-boundary
+support and any dual-provider obligations. Positive Zig increment requires
+S_Z > K_Z, and no worse required runtime/resource bounds. Current established
+exclusive eliminations are zero; neither term is calibrated. Language features
+alone cannot satisfy this inequality. A proof that generated C already shares
+the same support refutes counting that support as S_Z. [AV01, AV03–AV05]
+
+AV07. Falsify optimistic modernization claims.
+
+| Claim | Required evidence | Refuting observation |
+|---|---|---|
+| Zero depth means reusable | No live old snapshot/environment/native/producer effects | Root NRCommand at zero before async/exit work |
+| Stubs removes private maintenance | Exact stable private semantic/layout profile | Unsupported declarations and public-only guarantee |
+| Coroutine contexts isolate cancel | Explicit source storage/delivery equivalence | SAVE_CONTEXT omits cancel state; target flags shared |
+| Zig defer settles all exits | Every relevant exit actually runs owned cleanup | Suspended coroutine or nonlocal native escape |
+| Shared service pays for Zig | Measured eliminated C-specific obligations exceed residual Zig cost | Same generated contract/support in C; duplicate provider remains |
+| Reentry is solved by a lock | No synchronous return into held service lock | Trace/reset/delete/async/rewind reentry edge |
+
+AV08. Decision and next missing evidence.
+
+Continue the common native/GC/FFI contract and generated C design. Keep Zig and
+LLVM/MLIR as optional consumers of that contract. The next proof work is the
+complete coroutine debt/environment/root invariant and actual admitted hook or
+private-caller producer closure, not a native experiment. This study resolves
+the private-interface support category and several actual depth/callout phases;
+it does not resolve the private caller, hook legality, installed correspondence,
+all-history completion or positive Zig increment. All five full requirements
+and AG05–AG07 keep their prior unresolved/unpromoted status. [AD01–AD16, AP01–AP09]

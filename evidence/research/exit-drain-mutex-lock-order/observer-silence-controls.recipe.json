@@ -1,0 +1,54 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "inband-observer-silence-controls",
+  "scope": "The same absent in-band observation can hide work or no work. A host CPU cursor can advance without a new in-band row, and an unflushed write can hide a returned sleep. Missing digits after a prefix do not distinguish argument evaluation from a returned count or writer entry, even without assuming full buffering. io-settings=lu fills an unset file slot with general no-buffering before the full-buffering default; a file slot already set to full buffering stays full. Those tags are not a live port observation. No Gambit materialization, native execution, deadlock attribution or native admission.",
+  "inputs": [
+    "models/gambit/gsi_child_progress.qnt",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gsi_child_progress.qnt"}
+    },
+    {
+      "id": "typecheck",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 15,
+      "arguments": {"source": "models/gambit/gsi_child_progress.qnt", "parsed": "parse"}
+    },
+    {
+      "id": "trajectories",
+      "capability": "quint.test",
+      "dependsOn": ["parse", "typecheck"],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": "models/gambit/gsi_child_progress.qnt",
+        "parsed": "parse",
+        "main": "gsi_child_progress",
+        "seed": "0x1510",
+        "maxSamples": 1,
+        "expectedTests": ["bufferedSleepReturnStaysUnpublishedTest", "countReturnCanShareTheAbsentDigitObservationTest", "fileSlotFullKeepsFilePortTest", "flushedSleepMarkerAdvancesCursorTest", "generalNoBufferingFillsUnsetFileSlotTest", "hostCpuAndUnflushedSleepShareOneCursorTest", "hostValidationCannotBeChildGcTest", "quietCanHideNoWorkTest", "quietCanHideWorkTest", "quietHostCpuAdvancesWithoutInbandRowTest", "writerEntryCanShareTheAbsentDigitObservationTest"]
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["parse", "typecheck", "trajectories"],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {"checked": "checked_step", "missing": "missing_step"},
+        "expected": {"missing": []},
+        "recordedQueries": ["checked"]
+      }
+    }
+  ],
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30}
+}

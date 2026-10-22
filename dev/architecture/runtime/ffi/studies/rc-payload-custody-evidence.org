@@ -1,0 +1,90 @@
+#+TITLE: RC Custody and Teardown: Source and Paper Evidence
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN RC Custody and Teardown: Source and Paper Evidence :ffi:
+:PROPERTIES:
+:ID: 594beeea-0e0e-51a6-a72c-15b5e367a0b1
+:CUSTOM_ID: rc-custody-and-teardown-source-and-paper-evidence
+:SOURCE_PATH: docs/experimental/zig/rc-payload-custody-evidence.md
+:SOURCE_SHA256: cad0cead7d75242a30f63ca263a608a763180b33114674567347e1cdf974258e
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Research HEAD
+~b67da6262a973a0ae898002d5c7f5be2d8b5a90d~; vendor Gambit HEAD
+~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~. Whole-file SHA-256 bindings and
+selected spans are in the [[file:../../../../../docs/experimental/zig/rc-payload-custody-traceability.json][trace map]].
+These are working-source correspondence and conditional deductions, not installed
+Darwin/OpenSSL/collector qualification. No implementation or native test ran.
+
+*** Selected Source Ledger
+:PROPERTIES:
+:ID: 8954b5fd-ec23-576d-82b5-660c0459cfd1
+:CUSTOM_ID: selected-source-ledger
+:END:
+
+| ID | Reviewed source span | Observation / limit |
+|-
+| PC-S01 | [[file:../../../../../vendor/gambit/lib/mem.c::674][`mem.c:674--829`]], [[file:../../../../../vendor/gambit/include/gambit.h.in::11309][`gambit.h.in:11309--11315`]] | Intrusive RC header has prev/next/refcount/data. alloc_rc registers; addref/release/data operations use ordinary mutations. cleanup_rc resets list and frees all remaining headers without checking refcount. It is not an independently refcount-drained service domain. |
+| PC-S02 | [[file:../../../../../vendor/gambit/lib/mem.c::3969][`mem.c:3969--3989`]], [[file:../../../../../vendor/gambit/lib/mem.c::6839][`6839--6851`]], [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::3433][`candidate patch:3433--3452`]] | mark_rc traverses the processor RC list and passes data by address to mark_array. Vendor calls it in the processor-0 branch; candidate makes it per processor. Root-owner/list migration and nonzero-processor coverage cannot be assumed from native allocation. |
+| PC-S03 | [[file:../../../../../vendor/gambit/lib/os_io.c::3929][`os_io.c:3929--3972`]], [[file:../../../../../vendor/gambit/lib/os_io.c::4142][`4142--4160`]], [[file:../../../../../vendor/gambit/lib/os_io.c::4550][`4550--4564`]] | TLS context RC allocation owns five optional string fields and SSL_CTX pointer; destructor releases strings/library context/RC block. Wrapper-conversion failure invokes same destructor. Complete live child set and provider effects matter; TLS worker admission is not established. |
+| PC-S04 | [[file:../../../../../vendor/gambit/lib/os_io.c::5804][`os_io.c:5804--5815`]], [[file:../../../../../vendor/gambit/lib/os_io.c::6048][`6048--6063`]], [[file:../../../../../vendor/gambit/lib/os_io.c::6108][`6108--6120`]], [[file:../../../../../vendor/gambit/lib/os_io.c::10868][`10868--10925`]] | Server saves raw tls_context_p, and later accept dereferences it for SSL_new; opening extracts pointer from Scheme foreign object. No enclosing-context addref is inferred from a library reference. This is a real borrower obligation, not a current-source UAF finding. |
+| PC-S05 | [[file:../../../../../vendor/gambit/lib/_io.scm::8583][`_io.scm:8583--8605`]], [[file:../../../../../vendor/gambit/lib/_io.scm::8487][`8487--8511`]], [[file:../../../../../vendor/gambit/lib/_io#.scm::659][`_io#.scm:659--673`]], [[file:../../../../../vendor/gambit/lib/_io#.scm::846][`846--861`]] | Server creation passes tls-context and preserves psettings in the server port; psettings includes tls-context. Existing managed retention is credited. Moving to native tasks requires preserving or deliberately replacing this user chain under the managed contract. |
+| PC-S06 | [[file:../../../../../vendor/gambit/lib/os_io.c::1591][`os_io.c:1591--1623`]], [[file:../../../../../vendor/gambit/lib/os_io.c::10094][`10094--10128`]], [[file:../../../../../vendor/gambit/lib/os_io.c::10160][`10160--10177`]] | Example raw device allocation is ordinary ALLOC_MEM, with device refcount/free and conversion rollback to device_cleanup. Not every foreign object payload has an RC header. |
+| PC-S07 | [[file:../../../../../vendor/gambit/lib/c_intf.c::1729][`c_intf.c:1729--1809`]], [[file:../../../../../vendor/gambit/lib/c_intf.c::3228][`3228--3253`]], [[file:../../../../../vendor/gambit/lib/c_intf.c::3576][`3576--3607`]] | Strings/lists use RC storage; string-list final release walks elements. Allocation/ref/disposition closure can involve multiple native blocks. Existing error funnels are a modern C reuse baseline. |
+| PC-S08 | [[file:../../../../../vendor/gambit/lib/os_dyn.c::744][`os_dyn.c:744--785`]], [[file:../../../../../vendor/gambit/lib/c_intf.c::6509][`c_intf.c:6509--6550`]] | C closure uses alloc_rc, data=proc, generated trampoline/self identity; stack marker later reads data_rc. Commented marker GC/TLS concerns remain unresolved. Arbitrary closure copying or VM-independent survivor status is not established. |
+| PC-S09 | [[file:../../../../../vendor/gambit/lib/c_intf.c::1683][`c_intf.c:1683--1713`]], [[file:../../../../../vendor/gambit/lib/c_intf.c::2838][`2838--2856`]], [[file:../../../../../vendor/gambit/lib/c_intf.c::5176][`5176--5191`]], [[file:../../../../../vendor/gambit/lib/_kernel.scm::3869][`_kernel.scm:3869--3910`]] | Foreign release clears fields before callback; generic pointer conversion/address access exposes raw pointers; pointer-to-Scheme with nonnull processor constructs a still foreign wrapper. Wrapper status/ownership and task/storage transfer need an explicit common authority. |
+| PC-S10 | [[file:../../../../../vendor/gambit/lib/mem.c::1487][`mem.c:1487--1498`]], [[file:../../../../../vendor/gambit/lib/mem.c::1676][`1676--1689`]], [[file:../../../../../vendor/gambit/lib/mem.c::4389][`4389--4455`]], [[file:../../../../../vendor/gambit/lib/mem.c::4928][`4928--4939`]] | Still allocation prepends list; sweep invokes release for unreachable wrappers; final free_still_objs detaches the head to a private cursor, releases remaining foreign wrappers and frees them; cleanup_rc follows. Private discovery survives a zero public head. Reentrant creation is a conditional countermodel requiring separately admitted effects. |
+| PC-S11 | [[file:../../../../../vendor/gambit/lib/os_io.c::183][`os_io.c:183--194`]], [[file:../../../../../vendor/gambit/lib/os_io.c::1625][`1625--1670`]], [[file:../../../../../vendor/gambit/lib/os_io.c::11807][`11807--11831`]], [[file:../../../../../vendor/gambit/lib/os_io.c::11895][`11895--11907`]], [[file:../../../../../vendor/gambit/lib/os_io.c::11936][`11936--11955`]] | device cleanup unlinks before close/wait; group cleanup frees group even after error; pstate closes wake handles; module cleans group and provider globals. These are separate work/user/dependency cuts, not a deferred task drain protocol. |
+| PC-S12 | [[file:../../../../../vendor/gambit/lib/setup.c::4572][`setup.c:4572--4606`]], [[file:../../../../../vendor/gambit/lib/setup.c::4626][`4626--4630`]], [[file:../../../../../vendor/gambit/lib/setup.c::4839][`4839--4885`]], [[file:../../../../../vendor/gambit/lib/mem.c::4938][`mem.c:4938--4971`]], [[file:../../../../../vendor/gambit/lib/os_setup.c::3224][`os_setup.c:3224--3237`]] | Pstate/VM/global cleanup orders memory before OS; global cleanup shuts interrupts/resizes, then pstate/VM/module teardown. VM cleanup destroys scan synchronization before residual pstate cleanup. A new task cannot depend on already destroyed participation/scan/OS support. Non-single-VM global cleanup holds vm_list_mut around VM cleanup. VM cleanup explicitly revisits processor-0 memory cleanup; repeated teardown needs disposition identity. Source TODOs do not prove processor-wide completeness. |
+| PC-S13 | [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::3160][`candidate patch:3160--3234`]], [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::4362][`4362--4385`]], [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::4482][`4482--4505`]] | Joined donor transfer splices still/RC lists to live receiving pstate and then clears donor state; successful join is checked at callers. Credit existing C support. No service survivor, arbitrary concurrent list move, failure-join success or native result is inferred. |
+
+The paths shown with ~%23~ in Markdown denote the literal ~#~ in ~_io#.scm~;
+trace entries use the actual filesystem spelling. They are local source links,
+not claims about an upstream deployed checkout.
+
+*** Primary Literature / Interface Ledger
+:PROPERTIES:
+:ID: 062f7f13-2ad9-5f1d-87ea-c3f3acc8ab56
+:CUSTOM_ID: primary-literature-interface-ledger
+:END:
+
+| ID | Source | Narrow use and qualification boundary |
+|-
+| PC-P01 | [[https://cs.brown.edu/people/mph/HerlihyW90/p463-herlihy.pdf][Herlihy and Wing, Linearizability (1990), author-hosted paper]], abstract and sections 1--2 | Motivates a legal sequential handoff state machine and an explicit ownership cut between invocation and response. It does not prove RCO05, its memory ordering, alias census or progress. |
+| PC-P02 | [[https://www.cs.utexas.edu/~EWD/transcriptions/EWD06xx/EWD684.html][Dijkstra and Scholten, EWD684]], stock/deficit/termination argument | Work decided but not sent belongs in termination accounting; finite generation is an explicit scope premise. This motivates private cursor/reservation permits. Our centralized I/J/N/D ledger is not the distributed cornet algorithm and inherits no theorem without its own premises. |
+| PC-P03 | [[https://research.ibm.com/publications/hazard-pointers-safe-memory-reclamation-for-lock-free-objects][Maged M. Michael, Hazard Pointers (2004), IBM Research publication abstract]] | Safe memory reclamation/reuse and ABA require dedicated lifetime mechanisms. This study cites the accessible author-organization abstract only; it does not implement hazard pointers or claim their lock-free/progress bounds for a mutex/list handoff. |
+| PC-P04 | [[https://docs.openssl.org/3.4/man3/SSL_CTX_free/][OpenSSL SSL_CTX_free manual, description and warnings]] | Library refcount disposal may release nested objects and invoke configured session-removal callbacks. It does not retain the enclosing Gambit allocation. This reference identifies possible effect edges, not the installed library/configuration or an admitted callback profile. |
+| PC-P05 | [[https://ziglang.org/documentation/0.15.1/#Lifetime-and-Ownership][Zig language reference 0.15.1, Lifetime and Ownership]] and [[https://ziglang.org/documentation/0.15.1/#errdefer][errdefer]] | Pointer lifetime remains the programmer's responsibility; lexical ordinary-error cleanup can help precommit construction. It does not transfer RC headers/GC roots, drain borrows, enforce affine task ownership or release accepted asynchronous custody. |
+
+Publication/manual/tool identifiers are evidence identities, not architecture
+names. The Toronto full-paper hazard-pointer endpoint timed out, the WG21 PDF
+endpoint returned 403, and the ACM deadlock-paper PDF was unavailable. No detailed
+algorithm/theorem is attributed to those unseen contents. The operational-rank
+argument in this study is an explicit project deduction, not a quoted result
+from an unread deadlock paper. All primary-source summaries are bounded to their
+selected mechanisms; no upstream performance result is adopted.
+
+*** Evidence Boundary
+:PROPERTIES:
+:ID: f6e8a1cf-fa27-5666-acb8-6d03ca6d20b3
+:CUSTOM_ID: evidence-boundary
+:END:
+
+RCU/PC-S rows are selected actual-user/source correspondence, not a complete FFI
+export inventory. RCP/RCO/RPS/RDD and RCT/RCX are proposed contracts, conditional
+paper arguments and logical countermodels. In particular, root transfer remains
+conditional on PA03/PA04 and the worker/effect/frontier gates, even when header
+rewiring is structurally straightforward. The [[file:rc-payload-custody-cost-matrix.org][cost matrix]]
+keeps shared reconstruction benefits separate from any Zig-only increment.

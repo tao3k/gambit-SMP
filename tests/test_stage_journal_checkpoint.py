@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from gambit_smp.framework import digest
 from gambit_smp.reasoning_history import normalized
-from gambit_smp.step_checkpoint import content_id, journal_closure, observe_journal
+from gambit_smp.step_checkpoint import content_id, journal_closure, observe_journal, observe_stage_record
 
 
 class StageJournalCheckpointTests(unittest.TestCase):
@@ -51,6 +51,17 @@ class StageJournalCheckpointTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in rows], ["source", "seed"])
         self.assertEqual(set(references), {"source", "seed"})
         self.assertFalse((self.run / "run/receipt.json").exists())
+
+    def test_record_canonicalization_does_not_repeat_for_every_historical_observation(self):
+        source = self.stage('source')
+        self.stage('seed', {'source': source})
+        for index in range(30):
+            self.observations[str(index)] = {'scope': 'fixture',
+                'queries': normalized({'run_record': [{'unrelated': index}]}), 'inputs': {}}
+        with patch('gambit_smp.reasoning_history.normalized', wraps=normalized) as canonicalize:
+            rows, _ = self.read()
+        self.assertEqual(['source', 'seed'], [row['id'] for row in rows])
+        self.assertEqual(2, canonicalize.call_count)
 
     def test_unbound_legacy_tools_do_not_become_qualified(self):
         self.stage("seed", toolInputs={})
@@ -151,6 +162,49 @@ class StageJournalCheckpointTests(unittest.TestCase):
                             for ref in proof["stageReferences"].values()))
         self.assertFalse((self.run / "run/receipt.json").exists())
 
+    def phase_without_parent(self):
+        from gambit_smp.research_kernel import process_recorder
+        self.retained_run(step_budgets={"seed": 5, "bootstrap": 5})
+        (self.run / 'receipt.json').unlink()
+        path = self.run / 'run/seed.observation.json'
+        record = process_recorder(self.root, self.run, json.loads(path.read_text())['header'])
+        with patch('gambit_smp.research_kernel.clock_epoch', return_value='fixture-boot'):
+            record('planned', 'fixture-process', {'cwd': str(self.run/'run/bootstrap'), 'argv': ['fixture']})
+            record('started', 'fixture-process', {'pid': 12345})
+        return path
+
+    def test_completed_phase_is_consumable_without_inventing_parent_completion(self):
+        path = self.phase_without_parent()
+        with patch('gambit_smp.research_kernel.clock_epoch', return_value='fixture-boot'), \
+                patch('gambit_smp.process_observation.probe_group', return_value=(True, ())):
+            proof, header, rows, run = observe_stage_record(self.root, path, {'engineId': 'fixture-engine'})
+        self.assertEqual(['seed'], [row['id'] for row in rows])
+        self.assertEqual('INCOMPLETE', proof['campaignOutcome'])
+        self.assertFalse(proof['parentCompletionObserved'])
+        self.assertFalse(proof['missingChildReceiptReconstructed'])
+        self.assertFalse(proof['runtimeAdmitted'])
+        self.assertFalse((run/'receipt.json').exists())
+        self.assertEqual('fixture-engine', header['engineId'])
+
+    def test_live_or_unknown_producer_cannot_lend_a_phase(self):
+        path = self.phase_without_parent()
+        for present in (False, None):
+            with self.subTest(probe=present), \
+                    patch('gambit_smp.research_kernel.clock_epoch', return_value='fixture-boot'), \
+                    patch('gambit_smp.process_observation.probe_group', return_value=(present, ())):
+                with self.assertRaisesRegex(ValueError, 'Scheme checkpoint'):
+                    observe_stage_record(self.root, path, {'engineId': 'fixture-engine'})
+
+    def test_phase_record_drift_and_wrong_engine_reject_before_reuse(self):
+        path = self.phase_without_parent()
+        with self.assertRaisesRegex(ValueError, 'pinned seal'):
+            observe_stage_record(self.root, path, {'engineId': 'different'})
+        row = json.loads(path.read_text())
+        row['step']['outcome'] = 'PASS-WITHOUT-AUTHENTICATION'
+        path.write_text(json.dumps(row))
+        with self.assertRaisesRegex(ValueError, 'committed observation'):
+            observe_stage_record(self.root, path, {'engineId': 'fixture-engine'})
+
     def test_omitted_original_input_cannot_become_a_checkpoint(self):
         self.outer["inputs"] = {"source.c": digest(self.source), "compiler-fixture": digest(self.tool)}
         self.stage("seed")
@@ -223,6 +277,67 @@ class StageJournalCheckpointTests(unittest.TestCase):
         self.assertEqual(state["relations"]["reusable"], [])
         self.assertFalse((self.run / "receipt.json").exists())
 
+    def test_live_native_progress_is_projected_without_reconstructing_a_pass(self):
+        from gambit_smp.research_kernel import inspect, process_recorder
+        self.retained_run(step_budgets={"seed": 5, "bootstrap": 5})
+        (self.run / 'receipt.json').unlink()
+        reference = json.loads((self.run / 'run/seed.observation.json').read_text())['header']
+        record = process_recorder(self.root, self.run, reference)
+        with patch('gambit_smp.research_kernel.clock_epoch', return_value='fixture-boot'):
+            record('planned', 'fixture-process', {'cwd': str(self.run/'run/bootstrap/tests'), 'argv': ['fixture']})
+            record('started', 'fixture-process', {'pid': 12345})
+            record('progress', 'fixture-process', {'count': 1, 'observedMonotonic': 10., 'witness': None})
+            record('progress', 'fixture-process', {'count': 2, 'observedMonotonic': 20., 'witness': None})
+            with patch('gambit_smp.process_observation.probe_group', return_value=(False, ('present',))):
+                with patch('gambit_smp.step_checkpoint.execution_owner', return_value=dict(
+                        provider='grok', recordedTaskState='returned', reference='owner-snapshot')):
+                    state = inspect(self.run)['resumption']
+        self.assertEqual([('bootstrap', 'fixture-process', 12345, 'present-unattributed')],
+                         state['relations']['execution_pending'])
+        self.assertEqual(2, state['relations']['execution_frontier'][0][2])
+        self.assertEqual([('bootstrap', 'grok', 'returned', 'owner-snapshot')],
+                         state['relations']['execution_detached'])
+        self.assertEqual(1, len(state['executionObservation']['progress']))
+        self.assertIsNone(state['executionObservation']['progress'][0]['witness'])
+        self.assertEqual([], state['relations']['campaign_reusable'])
+        self.assertFalse(state['parentCompletionObserved'])
+        self.assertFalse(state['executionAuthorized'])
+        self.assertFalse(state['executionObservation']['completionCountsArePasses'])
+        self.assertFalse((self.run/'receipt.json').exists())
+
+    def test_unknown_host_probe_and_reboot_never_become_active_or_reusable(self):
+        from gambit_smp.step_checkpoint import execution_observations
+        records = [{'payload': {'schema': 'research-process-observation.v1', 'token': 'p',
+                    'event': 'planned', 'cwd': str(self.run/'run/seed')}},
+                   {'payload': {'schema': 'research-process-observation.v1', 'token': 'p',
+                    'event': 'started', 'clockEpoch': 'old-boot', 'pid': 12345}}]
+        with patch('gambit_smp.research_kernel.clock_epoch', return_value='new-boot'), \
+                patch('gambit_smp.process_observation.probe_group') as probe:
+            facts, _ = execution_observations(self.run, records, ['seed'])
+        probe.assert_not_called()
+        self.assertEqual([('p', 12345, 'unknown')], facts['execution_process'])
+        with patch('gambit_smp.research_kernel.clock_epoch', return_value='old-boot'), \
+                patch('gambit_smp.process_observation.probe_group', return_value=(None, ('permission-denied',))):
+            facts, _ = execution_observations(self.run, records, ['seed'])
+        self.assertEqual([('p', 12345, 'unknown')], facts['execution_process'])
+
+    def test_provider_custody_is_a_bound_snapshot_not_session_or_native_completion(self):
+        from gambit_smp.step_checkpoint import execution_owner
+        output = self.root/'.cache/tasks/repair/runs/attempt'
+        owner = self.root/'.state/task-runs/repair/attempt.json'
+        owner.parent.mkdir(parents=True)
+        value = dict(task='repair', provider='grok', state='returned', output=str(output))
+        owner.write_text(json.dumps(value))
+        result = execution_owner(self.root, output/'outputs/native')
+        self.assertEqual('returned', result['recordedTaskState'])
+        self.assertFalse(result['sessionCompletionObserved'])
+        self.assertEqual(digest(owner), result['reference'])
+        value['output'] = str(self.root/'other')
+        owner.write_text(json.dumps(value))
+        unknown = execution_owner(self.root, output/'outputs/native')
+        self.assertEqual('MISMATCH', unknown['bindingStatus'])
+        self.assertEqual('unknown', unknown['recordedTaskState'])
+        self.assertFalse(unknown['sessionCompletionObserved'])
     def test_existing_incomplete_run_returns_prefix_without_launching(self):
         from gambit_smp.research_kernel import run_sealed
         self.retained_run(step_budgets={"seed": 5, "bootstrap": 5})
