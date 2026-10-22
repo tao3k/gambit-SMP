@@ -195,6 +195,9 @@ class Launch:
         if self.scripts or read or profile['commands']:
             tools += ",run_terminal_cmd"
         argv += ["--tools", tools, "--deny", f"Edit({owned}/grok-runs/**)"]
+        from gambit_smp.storage_policy import EVIDENCE_CACHE_SUFFIXES
+        for suffix in sorted(EVIDENCE_CACHE_SUFFIXES):
+            argv += ['--deny', f'Edit({root}/evidence/**/*{suffix})']
         for mode, rule in (('read', 'Read'), ('edit', 'Edit')):
             for path in profile[mode]:
                 argv += ['--allow', rule+'('+path+')']

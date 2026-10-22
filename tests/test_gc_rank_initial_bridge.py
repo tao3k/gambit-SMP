@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from gambit_smp.framework import ROOT, digest
+from tests.support import published_digest
 
 
 class GcRankInitialBridgeTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class GcRankInitialBridgeTests(unittest.TestCase):
             self.assertTrue(archive["archiveOnly"])
             for path, expected in archive["files"].items():
                 self.assertEqual(Path(path).name, path)
-                self.assertEqual(digest(folder / path), expected)
+                self.assertEqual(published_digest(ROOT, folder / path), expected)
             receipt = self.receipt(name)
             for flag in ("accepted", "runtimeAdmitted", "releaseAdmitted",
                          "temporalProved", "generatorCoverageProved"):
@@ -27,7 +28,7 @@ class GcRankInitialBridgeTests(unittest.TestCase):
             self.assertTrue(receipt["contextStable"])
             for path, expected in receipt["inputs"].items():
                 self.assertEqual(digest(folder / Path(path).name), expected)
-            self.assertEqual(digest(folder / receipt["log"]), receipt["logSha256"])
+            self.assertEqual(published_digest(ROOT, folder / receipt["log"]), receipt["logSha256"])
 
     def test_actual_start_is_a_zero_step_pass_not_temporal_admission(self):
         receipt = self.receipt("actual-initial")
@@ -51,8 +52,9 @@ class GcRankInitialBridgeTests(unittest.TestCase):
         result = self.receipt("initial-import-denial")["observation"]
         self.assertFalse(result["counterexample"])
         self.assertFalse(result["obligationProved"])
-        log = (self.base / "initial-import-denial/initial.log").read_text()
-        self.assertIn("QNT404", log)
+        from gambit_smp.output_observations import recorded
+        output = recorded(ROOT, self.base / "initial-import-denial/initial.log")
+        self.assertIn("QNT404", output['diagnosticCodes'])
 
     def test_positive_bridge_is_unchanged_when_control_is_added(self):
         name = "gc_rank_actual_initial.qnt"

@@ -8,6 +8,18 @@ import tempfile
 from gambit_smp.framework import digest
 
 
+def copy_output_observations(repository, root, prefix):
+    """Transport the selected durable observations, never the raw cache."""
+    source = json.loads((repository/'evidence/published-inputs.json').read_text())
+    path = root/'evidence/published-inputs.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    selected = {identity: dict(item, origins=[name for name in item['origins']
+                if name.startswith(str(prefix).rstrip('/')+'/')])
+                for identity, item in source.get('observations', {}).items()
+                if any(name.startswith(str(prefix).rstrip('/')+'/') for name in item['origins'])}
+    path.write_text(json.dumps(dict(schema=source['schema'], records={}, observations=selected)))
+
+
 @contextmanager
 def task_fixture(name):
     """A real isolated task for CLI controls, not a relaxed storage policy."""
@@ -70,6 +82,7 @@ def protocol_fixture(repository, manifest_name, receipt_name):
         manifest = json.loads((repository / manifest_name).read_text())
         receipt = json.loads((repository / receipt_name).read_text())
         shutil.copytree((repository / receipt_name).parent, (root / receipt_name).parent)
+        copy_output_observations(repository, root, Path(receipt_name).parent)
         for case in manifest["cases"]:
             name = "models/gambit/" + case["id"] + ".qnt"
             (root / name).parent.mkdir(parents=True, exist_ok=True)
@@ -128,3 +141,10 @@ def seed_source_checkpoint_fixture(root, rows):
         db.executemany('INSERT OR IGNORE INTO observations VALUES (?,?)',rows[0])
         db.executemany('INSERT OR IGNORE INTO execution_checkpoints VALUES (?,?,?,?)',rows[1])
         db.commit()
+
+
+def published_digest(root, path):
+    """Historical output identity is durable even when its raw cache is gone."""
+    from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES, recorded
+    from gambit_smp.framework import digest
+    return recorded(root, path)['sha256'] if path.suffix in TRANSCRIPT_SUFFIXES else digest(path)

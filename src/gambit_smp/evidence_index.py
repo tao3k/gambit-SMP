@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from gambit_smp.framework import ROOT, digest
+from gambit_smp.output_observations import recorded, binding
 
 QUERIES = {
     "reports_without_snapshots": "needs_snapshot",
@@ -164,11 +165,11 @@ def observation_bindings(root, inventory_path, rows, bind):
             location = entry["logSha256Pointer"]
             if location not in (event + "/rawLogSha256", event + "/portableLogSha256"):
                 raise ValueError("log must bind an original process log digest")
-            log_path = source_path(root, row["log"])
+            from gambit_smp.output_observations import recorded, binding
+            log_path = root / row['log']
             sha = resolve(receipt, location)
-            if sha != digest(log_path):
-                raise ValueError("original observation log digest mismatch")
-            bind(root / row["log"])
+            recorded(root, log_path, sha)
+            for input_name in binding(root, log_path, sha): bind(root/input_name)
             attachments.append([name, row["log"], sha, location])
         bind(root / row["receipt"])
         result[name] = {"observed_failure": [[name, row["category"], row["status"], entry["receiptSha256"], entry["scope"]]],
@@ -185,6 +186,8 @@ def observation_bindings(root, inventory_path, rows, bind):
 
 def admitted_control(denied, control, file, mode, output):
     from gambit_smp.native_suite import admitted_suite
+    from gambit_smp.output_observations import observe
+    observed = output if isinstance(output, dict) else observe(output.encode())
     fields = ("candidateReceiptSha256", "gsiSha256", "gscSha256", "sourceFiles",
               "extraFixtures", "processors", "minHeapKiBControl", "compiler", "selectedFiles", "wholeSuiteBudgetPerMode")
     rows = [row for row in control.get("results", []) if row.get("mode") == mode]
@@ -199,7 +202,8 @@ def admitted_control(denied, control, file, mode, output):
             and any(row.get("mode") == mode and row.get("accepted") is False for row in denied.get("results", []))
             and len(rows) == 1 and rows[0].get("accepted") is True and rows[0].get("sourceStable") is True
             and rows[0].get("timeout") is False
-            and admitted_suite(rows[0].get("exit"), output, rows[0].get("timeout"), 1))
+            and rows[0].get('exit') == 0 and observed['suite']['completions'].count(1) == 1
+            and not observed['suite']['failed'])
 
 
 def export(root=ROOT):
@@ -216,7 +220,12 @@ def export(root=ROOT):
              "observed_failure", "observed_process", "observed_field", "observed_signal", "observed_control_reference", "observed_model_reference", "observed_log_attachment")}
     inputs = {}
     def bind(path):
-        inputs[str(path.relative_to(root))] = digest(path)
+        from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
+        if path.suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            output = recorded(root, path)
+            inputs.update(binding(root, path, output['sha256']))
+        else:
+            inputs[str(path.relative_to(root))] = digest(path)
     bind(directory / "cases.json")
     bind(directory / "report_catalog.json")
     paper_path = root / "evidence/papers.json"
@@ -263,25 +272,24 @@ def export(root=ROOT):
                 signal = row["signal"]
                 marker = f"*** FAILED {row['file']} WITH EXIT CODE HI=0 LO={signal}"
                 if (type(signal) is not int or not 0 < signal < 128
-                    or marker not in log.read_text().splitlines()
+                    or [row['file'], 0, signal] not in recorded(root, log)['failures']['signals']
                     or row["file"] not in receipt.get("extraFixtures", {})
                     or not any(not r.get("accepted", True) for r in receipt.get("results", []))):
                     raise ValueError("local signal is absent from denied source-bound log")
-                bind(root / row["log"])
+                for item in binding(root, log, recorded(root, log)['sha256']): bind(root/item)
             if row["category"] == "assertion" and row["file"] not in {r["file"] for r in receipt.get("assertionFailures", [])}:
                 if "log" not in row:
                     raise ValueError("local assertion is absent from receipt")
                 log = (root / row["log"]).resolve()
                 log.relative_to(root.resolve())
-                output = log.read_text()
-                if not any(line.startswith('"unit-tests/' + row["file"] + '"@') and ': FAILED ' in line
-                           for line in output.splitlines()):
+                output = recorded(root, log)
+                if row['file'] not in output['failures']['assertions']:
                     raise ValueError("local assertion is absent from bound log")
                 if not any(not result.get("accepted", True) for result in receipt.get("results", [])):
                     raise ValueError("local assertion log has no denied native mode")
                 if row["file"] not in receipt.get("extraFixtures", {}) and "unit-tests/" + row["file"] not in receipt.get("sourceFiles", {}):
                     raise ValueError("local assertion source is not inventoried")
-                bind(root / row["log"])
+                for item in binding(root, log, output['sha256']): bind(root/item)
             bind(root / row["receipt"])
             facts["local_native_failure"].append([row["id"], row["category"], row["status"], digest(receipt_path)])
             for control in row.get("controls", []):
@@ -290,10 +298,10 @@ def export(root=ROOT):
                 control_path.relative_to(root.resolve())
                 control_log.relative_to(root.resolve())
                 if not admitted_control(receipt, json.loads(control_path.read_text()), row["file"],
-                                        control["mode"], control_log.read_text()):
+                                        control["mode"], recorded(root, control_log)):
                     raise ValueError("local passing control is not identical-source/runtime native evidence")
                 bind(root / control["receipt"])
-                bind(root / control["log"])
+                for item in binding(root, control_log, recorded(root, control_log)['sha256']): bind(root/item)
                 facts["local_control_pass"].append([row["id"], control["kind"], control["mode"], digest(control_path)])
             for model in row["models"]:
                 if model not in cases:
@@ -373,14 +381,14 @@ def export(root=ROOT):
                 path.relative_to(root.resolve())
                 bind(root / observation[key])
             facts["native_observation"].append([name, observation["kind"],
-                digest(root / observation["receipt"]), digest(root / observation["log"])])
+                digest(root / observation["receipt"]), recorded(root, root/observation['log'])['sha256']])
         for observation in case.get("sourceUnitObservations", []):
             for key in ("receipt", "log"):
                 path = (root / observation[key]).resolve()
                 path.relative_to(root.resolve())
                 bind(root / observation[key])
             facts["source_unit_observation"].append([name, observation["kind"],
-                digest(root / observation["receipt"]), digest(root / observation["log"])])
+                digest(root / observation["receipt"]), recorded(root, root/observation['log'])['sha256']])
         for fixture_name in case.get("sourceUnitFixtures", []):
             fixture = (root / fixture_name).resolve()
             fixture.relative_to(root.resolve())

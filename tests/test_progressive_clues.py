@@ -855,9 +855,11 @@ print(json.dumps(result))'''
         stress = record["compiledStress"]
         self.assertEqual((stress["passedFiles"], stress["abortedFiles"], stress["timedOutFiles"]), (2, 1, 1))
         for path, sha in stress["retainedLogs"].items():
-            self.assertEqual(digest(ROOT / path), sha)
+            from tests.support import published_digest
+            self.assertEqual(published_digest(ROOT, ROOT / path), sha)
         stderr = ROOT / "evidence/fixtures/darwin-stack-prepare-origin/native-stress-20261018/suite-0-0.stderr"
-        self.assertIn("prepare_line=" + str(record["record"]["prepareLine"]), stderr.read_text())
+        from gambit_smp.output_observations import recorded
+        self.assertIn(record["record"]["prepareLine"], recorded(ROOT, stderr)['diagnosticNumbers']['prepare_line'])
         self.assertFalse(stress["unchangedRetryAdmitted"])
         self.assertFalse(result["brief"]["runtimeAdmitted"])
 

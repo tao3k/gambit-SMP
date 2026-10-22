@@ -6,6 +6,7 @@ from gambit_smp.framework import digest
 from gambit_smp.protocol_evidence import BUNDLES
 from gambit_smp.research_audit import local
 from gambit_smp.quint_backend import admitted_model, counterexample, summarize
+from gambit_smp.output_observations import recorded as recorded_output, check_model, binding, TRANSCRIPT_SUFFIXES, ObservationUnavailable
 
 
 RAW_LOG_MANIFEST = "evidence/model-raw-log-attestations.json"
@@ -68,10 +69,18 @@ def proof_observations(root):
             path = str(artifact.relative_to(root))
             if ".data" in artifact.relative_to(root).parts:
                 raise ValueError("partial proof artifact resolves into a cache")
-            if digest(artifact) != hashes["portableSha256"]:
-                raise ValueError("partial proof archived artifact drift: " + path)
-            inputs[path] = hashes["portableSha256"]
+            if artifact.suffix.casefold() in TRANSCRIPT_SUFFIXES:
+                recorded_output(root, artifact, hashes['portableSha256'], outputs=archive.get('outputs'))
+                inputs.update(binding(root, artifact, hashes['portableSha256']))
+            else:
+                if digest(artifact) != hashes["portableSha256"]:
+                    raise ValueError("partial proof archived artifact drift: " + path)
+                inputs[path] = hashes["portableSha256"]
             artifacts[name] = {"path": path, **hashes}
+        for name, observation in archive.get('outputs', {}).items():
+            recorded_output(root, receipt_file.parent/name, outputs=archive['outputs'])
+            artifacts[name] = {'path': str((receipt_file.parent/name).relative_to(root)),
+                               'rawSha256': observation['sha256'], 'portableSha256': observation['sha256']}
         if artifacts.get("receipt.json", {}).get("portableSha256") != row["receiptSha256"]:
             raise ValueError("partial proof archive does not bind its receipt")
         checks = saved.get("results", [])
@@ -115,6 +124,7 @@ VERIFIER_MODULES = (
     "src/gambit_smp/framework.py",
     "src/gambit_smp/tlc_values.py",
     "src/gambit_smp/quint_backend.py",
+    "src/gambit_smp/output_observations.py",
 )
 HISTORICAL_VERIFIER_NAMES = {Path(name).name for name in VERIFIER_MODULES}
 
@@ -136,6 +146,29 @@ def _record(root, path, expected, model=None, rechecked=False):
                                      for k, v in recorded.items())):
         raise ValueError("invalid receipt input map: " + path)
     bound = dict(recorded or {})
+    for name, sha in list(bound.items()):
+        if Path(name).suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            # Published receipts explicitly bind original and portable output
+            # identities. The original producer path is provenance, not a
+            # cache availability requirement after rechecking its published row.
+            counterpart = next((row for row in saved.get('results', [])
+                if rechecked and row.get('rawLogSha256') == sha
+                and row.get('log') == Path(name).name), None)
+            if counterpart is not None:
+                artifact = source.parent / counterpart['log']
+                recorded_output(root, artifact, counterpart['logSha256'], outputs=saved.get('outputs'))
+                del bound[name]
+                if not saved.get('outputs'):
+                    bound.update(binding(root, artifact, counterpart['logSha256']))
+                continue
+            try:
+                recorded_output(root, local(root, name), sha)
+            except ObservationUnavailable:
+                # Preserve an unresolved dependency; do not abort collection or
+                # turn an unrecorded observation into current evidence.
+                continue
+            del bound[name]
+            bound.update(binding(root, local(root, name), sha))
     superseded = []
     if rechecked and recorded:
         # protocol_checked is emitted only after the current verifier has
@@ -158,6 +191,11 @@ def _record(root, path, expected, model=None, rechecked=False):
                     continue
                 artifact = (source.parent / row[field]).resolve()
                 artifact.relative_to(source.parent.resolve())
+                if field == 'log':
+                    observation = recorded_output(root, artifact, row.get(hash_field), outputs=saved.get('outputs'))
+                    if not saved.get('outputs'):
+                        bound.update(binding(root, artifact, row[hash_field]))
+                    continue
                 name = str(artifact.relative_to(root))
                 expected_hash = row.get(hash_field)
                 if digest(artifact) != expected_hash:
@@ -251,19 +289,9 @@ def _checked_raw_logs(root, model, receipt_path, receipt_sha, entry):
         if Path(path).name != row["log"]:
             raise ValueError("raw log name differs from receipt")
         source = _archived(root, path)
-        if digest(source) != item["sha256"]:
-            raise ValueError("raw log identity mismatch: " + path)
-        output = source.read_text()
-        old = row["variant"] == "old"
-        if not admitted_model(row["exit"], output, row["timeout"], old):
-            raise ValueError("raw log does not support receipt: " + path)
-        if old:
-            counterexample(output)
-        if row.get("states") and summarize(output) != row["states"]:
-            raise ValueError("raw log state count differs from receipt: " + path)
-        if row.get("temporal") and "Finished checking temporal properties" not in output:
-            raise ValueError("raw log lacks temporal completion: " + path)
-        bound[path] = item["sha256"]
+        observation = recorded_output(root, source, item['sha256'])
+        check_model(observation, row, temporal=row.get('temporal'), decoded=True)
+        bound.update(binding(root, source, item['sha256']))
     for name in VERIFIER_MODULES:
         bound[name] = digest(local(root, name))
     return bound
@@ -300,8 +328,13 @@ def bindings(root, base, observations, snapshot_identity):
         path = model_paths[model]
         inputs, level, superseded = _record(root, path, receipt, model)
         attestation = raw_logs.get((model, path, receipt))
-        raw_logs_present = (attestation is not None and all(
-            _archived(root, row["path"]).is_file() for row in attestation["logs"]))
+        raw_logs_present = attestation is not None
+        if attestation is not None:
+            try:
+                for row in attestation['logs']:
+                    recorded_output(root, _archived(root, row['path']), row['sha256'])
+            except ObservationUnavailable:
+                raw_logs_present = False
         if attestation is not None:
             used_raw_logs.add((model, path, receipt))
         if raw_logs_present:
@@ -309,10 +342,10 @@ def bindings(root, base, observations, snapshot_identity):
                 if _verifier_input(name):
                     del inputs[name]
             inputs.update(_checked_raw_logs(root, model, path, receipt, attestation))
-            level = "raw-log-revalidated"
+            level = "recorded-output-validated"
         specs[model + ":" + receipt] = {"path": path, "inputs": inputs,
                                         "binding": level, "supersededVerifierInputs": superseded,
-                                        "rawLogEvidencePending": not raw_logs_present,
+                                        "recordedOutputPending": not raw_logs_present,
                                         "checks": _checks(root, path, model, inputs),
                                         "depends": []}
     if set(raw_logs) != used_raw_logs:
@@ -333,7 +366,7 @@ def bindings(root, base, observations, snapshot_identity):
         specs[model + ":" + receipt] = {"path": path, "inputs": inputs,
                                         "binding": level, "supersededVerifierInputs": superseded,
                                         "checks": _checks(root, path, model, inputs),
-                                        "rawLogEvidencePending": False, "depends": []}
+                                        "recordedOutputPending": False, "depends": []}
 
     path_to_receipts = {}
     for key, spec in specs.items():

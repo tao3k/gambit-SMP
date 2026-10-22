@@ -30,9 +30,10 @@ class StructureLifetimeEvidenceTests(unittest.TestCase):
                 # portable current-source witness or a reason to publish Cache.
                 self.assertEqual(len(row['sha256']), 64)
                 self.assertEqual(proof['sourceMapping'], 'PARTIAL')
-        logs = (ROOT/'evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/tests.log').read_text()
+        from gambit_smp.output_observations import recorded
+        tests = recorded(ROOT, ROOT/'evidence/model-results/processor-interrupt-collective-wait/structure-independent-audit-01/tests.log')['passedQuintTests']
         for name in ('objectOnlyRelocateRefreshReadTest', 'typeOnlyRelocateRefreshReadTest', 'missingObjectRootReadTest', 'missingTypeRootReadTest', 'legalReadThenRelocateTest'):
-            self.assertIn('ok ' + name + ' passed', logs)
+            self.assertIn(name, tests)
 
     def test_scheme_support_is_revoked_by_any_required_binding(self):
         doc, facts, catalog, _ = load(ROOT, VIEW)

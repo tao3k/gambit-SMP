@@ -18,7 +18,7 @@ SHARED = {'fixtures','fixture-archives','fixture-evidence','research','history',
 GENERATED_CONTAINERS = {'pro','profile','profiles','prompt','prompts','policy','policies','private','provider-source'}
 SOURCE_AREAS = {'src','vendor','provider','providers','provide','vr','.venv'}
 SOURCE = {'src','tests','docs','dev','models','evidence','patches','.git','.agents','.codex'}
-EVIDENCE_CACHE_SUFFIXES = frozenset({'.olean', '.txt', '.rb', '.sh'})
+EVIDENCE_CACHE_SUFFIXES = frozenset({'.olean', '.txt', '.rb', '.sh', '.log', '.stdout', '.stderr'})
 
 
 class StoragePolicyError(ValueError):

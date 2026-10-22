@@ -16,6 +16,7 @@ from gambit_smp.quint_backend import check as check_model, isolated_endpoint, su
 from gambit_smp.research_audit import local
 from gambit_smp.model_schedule import batches, physical_memory, resources, run_batch
 from gambit_smp.framework import positive_int
+from gambit_smp.output_observations import recorded, check_model as check_observation, binding
 
 
 def load_manifest(path):
@@ -88,17 +89,24 @@ def reusable_check(directory, manifest, case, variant, invariant, initializer, s
             or row.get("sourceStable") is not True):
         raise ValueError("resume model/initializer differs")
     log = local(directory, row["log"])
-    output = log.read_text()
+    output = log.read_text() if log.is_file() else recorded(ROOT, log, row.get('logSha256'),
+        outputs=saved.get('outputs') or ({row['log']: row['outputObservation']} if 'outputObservation' in row else None))
     old = variant == "old"
-    if not admitted_model(row["exit"], output, row["timeout"], old):
+    try:
+        if isinstance(output, dict):
+            check_observation(output, row, temporal=None if old else case['temporal'])
+        elif not admitted_model(row['exit'], output, row['timeout'], old):
+            raise ValueError('resume log contradicts verdict')
+    except ValueError:
         if recovering:
             return None
         raise ValueError("resume log contradicts verdict")
     trace = None
     if old:
-        trace = counterexample(output)
+        trace = (json.loads(local(directory, row.get('trace', Path(row['log']).with_suffix('.trace.json').as_posix())).read_text())
+                 if isinstance(output, dict) else counterexample(output))
         trace.update({"case": case["id"], "invariant": invariant, "modelSha256": sha})
-    elif row.get("temporal") != case["temporal"] or "Finished checking temporal properties" not in output:
+    elif not isinstance(output, dict) and (row.get("temporal") != case["temporal"] or "Finished checking temporal properties" not in output):
         raise ValueError("resume requires temporal evidence")
     recovered = dict(row)
     if recovering:
@@ -193,11 +201,13 @@ def main():
             if reused:
                 row, output, trace = reused
                 old_log = args.resume_from / row["log"]
-                inputs[str(old_log.relative_to(ROOT))] = digest(old_log)
+                inputs.update(binding(ROOT, old_log, output['sha256']) if isinstance(output, dict)
+                              else {str(old_log.relative_to(ROOT)): digest(old_log)})
                 inputs.update({str(Path(path).relative_to(ROOT)): expected
                     for path, expected in retain_reused_artifacts(
                         args.resume_from, args.out, row).items()})
-                (args.out / (name + ".log")).write_text(output)
+                if isinstance(output, dict): row['outputObservation'] = output
+                else: (args.out / (name + ".log")).write_text(output)
                 row.update(log=name + ".log", reusedFromReceiptSha256=digest(args.resume_from / "receipt.json"))
                 if trace:
                     (args.out / (name + ".trace.json")).write_text(json.dumps(trace, indent=2) + "\n")

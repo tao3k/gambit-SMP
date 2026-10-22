@@ -9,6 +9,7 @@ import shlex
 import hashlib
 
 from gambit_smp.framework import digest, relative
+from gambit_smp.output_observations import recorded, binding, TRANSCRIPT_SUFFIXES
 
 
 PUBLICATION = "gambit-observation-publication.v1"
@@ -218,7 +219,7 @@ def archive(source, destination, observed_exit, identity=None):
     return record
 
 
-def source_unit_checked(source, saved):
+def source_unit_checked(source, saved, *, root=None):
     if (saved.get("schema") != "gambit-actlog-abort-source-unit.v1"
             or saved.get("status") != "source-unit-pass" or saved.get("sourceStable") is not True
             or saved.get("runtimeAdmitted") is not False or saved.get("releaseAdmitted") is not False):
@@ -238,12 +239,14 @@ def source_unit_checked(source, saved):
         if row["compile"]["exit"] != 0 or row["compile"]["timeout"]:
             raise ValueError("source fixture compilation failed")
         result = row["observation"]
-        output = (source / (name + "-observe.log")).read_text()
+        from gambit_smp.framework import ROOT
+        output = recorded(ROOT if root is None else root, source / (name + '-observe.log'))
         if name in expected:
-            if (result["exit"] != 0 or result["timeout"] or json.loads(output) !=
+            if (result["exit"] != 0 or result["timeout"] or output.get('structured') !=
                     {"checks": expected[name], "arrayLive": 0, "mutexLive": 0}):
                 raise ValueError("source-unit log does not support positive result")
-        elif result["exit"] != 1 or result["timeout"] or output != "EXPECTED-MUTEX-ERROR\n":
+        elif (result["exit"] != 1 or result["timeout"] or output.get('terminalTags') != {'EXPECTED-MUTEX-ERROR': 1}
+              or output.get('lineCount') != 1 or output.get('endsWithNewline') is not True):
             raise ValueError("source-unit negative control did not fail as expected")
 
 
@@ -765,6 +768,11 @@ def validate(root, name):
     inputs = {name: digest(manifest)}
     for filename, expected in saved["files"].items():
         path = relative(manifest.parent, filename)
+        if path.suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            recorded(root, path, expected, outputs=saved.get('outputs'))
+            if not saved.get('outputs'):
+                inputs.update(binding(root, path, expected))
+            continue
         if digest(path) != expected:
             raise ValueError("component archive artifact changed: " + filename)
         relative_name = path.relative_to(root).as_posix()
@@ -778,7 +786,9 @@ def validate(root, name):
         compiler_probe_checked(receipt, saved["files"].get("identity.json"))
         expected = {"receipt.json", "identity.json", "scheme-to-c.log", "c-to-dynamic-module.log", "compiler-invocation.json"}
         command = json.loads((manifest.parent / "compiler-invocation.json").read_text())
-        parsed = compiler_invocation((manifest.parent / "c-to-dynamic-module.log").read_text())
+        parsed = recorded(root, manifest.parent/'c-to-dynamic-module.log',
+                          saved['files']['c-to-dynamic-module.log'], outputs=saved.get('outputs')).get('compilerInvocation')
+        if parsed is None: raise ValueError('recorded compiler invocation required')
         if (set(saved["files"]) != expected or set(saved["originalFiles"]) != expected - {"compiler-invocation.json"}
                 or saved.get("observedParentExit") is not None or saved.get("rawLogBoundByOriginalReceipt") is not False
                 or any(saved["files"][name] != saved["originalFiles"][name] for name in ("receipt.json", "identity.json"))
@@ -823,7 +833,7 @@ def validate(root, name):
             raise ValueError("source-unit parent exit differs")
         if not set(receipt["artifacts"]).issubset(saved["files"]):
             raise ValueError("source-unit artifacts omitted")
-        source_unit_checked(manifest.parent, receipt)
+        source_unit_checked(manifest.parent, receipt, root=root)
         return inputs
     if saved["schema"] == "gambit-scoped-suite-archive.v1":
         from gambit_smp.suite_primitives import admitted_suite, campaign_status
@@ -841,8 +851,9 @@ def validate(root, name):
                 name = f'{row["mode"]}-{shard["shard"]}.log'
                 if name not in saved["files"]:
                     raise ValueError("suite shard log missing")
-                accepted = admitted_suite(shard["exit"], (manifest.parent / name).read_text(),
-                                          shard["timeout"], len(shard["files"]))
+                observed = recorded(root, manifest.parent/name, saved['files'][name], outputs=saved.get('outputs'))['suite']
+                accepted = (shard['exit'] == 0 and not shard['timeout'] and
+                            observed['completions'].count(len(shard['files'])) == 1 and not observed['failed'])
                 if shard["accepted"] != (accepted and shard["sourceStable"]):
                     raise ValueError("suite shard log contradicts acceptance")
         return inputs

@@ -155,7 +155,7 @@ def build(root, model, facts, rows, bindings, source_facts, inputs, engine_input
         if receipt not in receipts:
             continue
         spec = bindings.get(receipt, {})
-        status = "unverified" if spec.get("rawLogEvidencePending") else (
+        status = "unverified" if spec.get("recordedOutputPending") else (
             "invalidated" if receipt in unusable else "reusable" if (receipt, name) in reusable else "open")
         rid = node("receipt", receipt, status=status, binding=spec.get("binding", "catalog-fallback"),
                    path=spec.get("path"), reasons=sorted(set(unusable.get(receipt, []))))

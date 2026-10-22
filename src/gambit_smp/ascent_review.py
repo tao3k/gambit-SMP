@@ -41,9 +41,9 @@ def project(base, failures, snapshot_identity, proposal=None, changed=(), observ
             return
         facts["ReceiptInput"].extend([qualified, path, sha]
                                      for path, sha in sorted(spec["inputs"].items()))
-        if spec.get("rawLogEvidencePending"):
-            # A legacy summary's accepted bit has no raw log admission.
-            facts["ReceiptInput"].append([qualified, "unverified-raw-log:" + qualified,
+        if spec.get("recordedOutputPending"):
+            # A summary bit alone has no source-bound output observation.
+            facts["ReceiptInput"].append([qualified, "unverified-output:" + qualified,
                                           "verified"])
         if spec["binding"] == "catalog-fallback":
             facts["ReceiptInput"].append([qualified, "validated-catalog", snapshot_identity])

@@ -35,6 +35,11 @@ class EvidenceTests(unittest.TestCase):
                     content = check_output(["git", "-C", str(index.ROOT), "cat-file", "blob", entries[path][1]])
                     self.assertEqual(binding[field], hashlib.sha256(content).hexdigest(), (name, field))
             for reference in view["references"]:
+                if reference.get('identity', {}).get('kind') == 'git':
+                    from gambit_smp.source_identity import read_source
+                    self.assertEqual(reference['sha256'], hashlib.sha256(
+                        read_source(index.ROOT, reference['identity'])).hexdigest())
+                    continue
                 path = reference["path"]
                 repository = index.ROOT
                 if path in entries:
@@ -139,7 +144,8 @@ class EvidenceTests(unittest.TestCase):
         directory = index.ROOT / "evidence/model-results"
         denied = json.loads((directory / "native-prim-port-019-deny.json").read_text())
         control = json.loads((directory / "native-prim-port-019-unsandboxed-pass.json").read_text())
-        output = (directory / "native-prim-port-019-unsandboxed-pass.log").read_text()
+        from gambit_smp.output_observations import recorded
+        output = recorded(index.ROOT, directory / "native-prim-port-019-unsandboxed-pass.log")
         file = "13-modules/prim_port.scm"
         self.assertTrue(index.admitted_control(denied, control, file, "gsi", output))
         for field, value in (("gsiSha256", "other"), ("wholeSuiteBudgetPerMode", 200),
@@ -189,10 +195,15 @@ class EvidenceTests(unittest.TestCase):
                 closure = checked_model_input_closure(index.ROOT, json.loads(path.read_text()))
                 self.assertTrue(all(index.digest(index.ROOT / source) == expected
                                     for source, expected in closure.items()))
-                missing = [row["path"] for row in entry["logs"]
-                           if not (index.ROOT / row["path"]).is_file()]
+                from gambit_smp.output_observations import recorded, ObservationUnavailable
+                missing = []
+                for row in entry['logs']:
+                    try:
+                        recorded(index.ROOT, index.ROOT / row['path'], row['sha256'])
+                    except ObservationUnavailable:
+                        missing.append(row['path'])
                 if missing:
-                    with self.assertRaises(OSError):
+                    with self.assertRaises(ObservationUnavailable):
                         _checked_raw_logs(index.ROOT, name, case["modelReceipt"], sha, entry)
                     continue
                 bound = _checked_raw_logs(index.ROOT, name, case["modelReceipt"], sha, entry)

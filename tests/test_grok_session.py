@@ -195,6 +195,9 @@ class GrokSessionTests(unittest.TestCase):
             self.assertIn('Bash(.venv/bin/gambit-smp --task repair research *)', record['argv'])
             self.assertNotIn('Bash(cp *)', record['argv'])
             self.assertIn('Read('+str(root)+'/src/**)', record['argv'])
+            self.assertIn('Edit('+str(root)+'/evidence/**/*.log)', record['argv'])
+            self.assertIn('Edit('+str(root)+'/evidence/**/*.stdout)', record['argv'])
+            self.assertIn('Edit('+str(root)+'/evidence/**/*.stderr)', record['argv'])
             self.assertIn('Edit('+str(root)+'/patches/diagnostic-*.patch)', record['argv'])
             self.assertIsNotNone(record['agentRegistrationSha256'])
             for key, value in [('read', ['../private/**']), ('commands', ['invented-command'])]:

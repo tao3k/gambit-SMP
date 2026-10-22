@@ -3,6 +3,7 @@ import json
 import unittest
 
 from gambit_smp.framework import ROOT, digest, relative
+from tests.support import published_digest
 
 
 class SfunBootstrapEvidenceTests(unittest.TestCase):
@@ -11,7 +12,7 @@ class SfunBootstrapEvidenceTests(unittest.TestCase):
         archive = json.loads((folder / "archive.json").read_text())
         self.assertTrue(archive["archiveOnly"])
         for path, expected in archive["files"].items():
-            self.assertEqual(digest(folder / path), expected)
+            self.assertEqual(published_digest(ROOT, folder / path), expected)
         receipt = json.loads((folder / "receipt.json").read_text())
         self.assertEqual(receipt["status"], "PASS")
         self.assertEqual(receipt["target"], "from-scratch")
@@ -50,11 +51,11 @@ class SfunBootstrapEvidenceTests(unittest.TestCase):
         self.assertEqual(digest(folder / "candidate.json"), receipt["candidateIdentitySha256"])
         for key, expected in receipt["artifacts"].items():
             self.assertEqual(identity[key], expected)
-        log = (folder / "bootstrap.log").read_text()
+        from gambit_smp.output_observations import recorded
+        output = recorded(ROOT, folder / "bootstrap.log")
         for phase in range(1, 5):
-            self.assertEqual(log.splitlines().count(f"*** making phase{phase}"), 2)
-        self.assertLess(log.index("make bootstrap"), log.index("make core"))
-        self.assertNotIn("/Users/", log)
+            self.assertEqual(output['buildPhases'][str(phase)], 2)
+        self.assertTrue(output['bootstrapBeforeCore'])
         for field in ("runtimeAdmitted", "releaseAdmitted", "performanceAdmitted", "generatedByteParity"):
             self.assertFalse(receipt[field])
         self.assertEqual(set(receipt["changedSourceFiles"]), {"lib/_std.c", "lib/_module.c"})

@@ -17,6 +17,18 @@ VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    def test_current_execution_blocks_do_not_requalify_historical_summaries(self):
+        name = 'evidence/scenarios/tool-reasoning/framework-execution.view.json'
+        with engine_api() as (engine, _):
+            result = view_query(ROOT, name, engine)
+        changed = {row[0] for row in result['answers']['summary_changed']}
+        current = {row[0] for row in result['answers']['summary_current']}
+        for identity in ('regeneration', 'interpretation'):
+            self.assertIn(identity, changed)
+            self.assertNotIn(identity, current)
+        self.assertFalse(result['runtimeAdmitted'])
+        self.assertFalse(result['executionAuthorized'])
+
     def test_scoped_archive_remains_readable_after_original_sources_are_removed(self):
         from gambit_smp import evidence_interface
         from gambit_smp.framework import digest

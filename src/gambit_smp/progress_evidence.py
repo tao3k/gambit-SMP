@@ -4,10 +4,10 @@ import hashlib
 import json
 from pathlib import Path
 
-from gambit_smp.check_gambit import admitted_model
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.model_progress import generated
-from gambit_smp.protocol_evidence import portable, relative
+from gambit_smp.protocol_evidence import relative
+from gambit_smp.output_observations import recorded, observe, binding
 
 
 MANIFEST = "evidence/progress-obligations.json"
@@ -38,10 +38,13 @@ def checked(root, case, receipt):
         expected = hashlib.sha256(generated(original, case, blocked).encode()).hexdigest()
         log = relative(receipt.parent, row["log"])
         if (row.get("accepted") is not True or row.get("snapshotSha256") != expected
-                or digest(snapshot) != expected or row.get("logSha256") != digest(log)):
+                or digest(snapshot) != expected):
             raise ValueError("progress snapshot or log identity differs")
-        text = log.read_text()
-        if not admitted_model(row["exit"], text, row["timeout"], blocked):
+        output = recorded(root, log, row.get("logSha256"), outputs=saved.get("outputs"))
+        tlc = output["tlc"]
+        if (type(row.get("exit")) is not int or row.get("timeout") is not False
+                or not (row["exit"] != 0 and tlc["invariantViolated"] if blocked else
+                        row["exit"] == 0 and tlc["completed"])):
             raise ValueError("progress log does not support the verdict")
         if blocked:
             trace = relative(receipt.parent, row["trace"])
@@ -50,7 +53,7 @@ def checked(root, case, receipt):
                     or value.get("case") != case["id"]):
                 raise ValueError("progress control trace differs")
         elif (row.get("temporal") != "obligationProgress"
-              or "Finished checking temporal properties" not in text):
+              or not tlc["temporalComplete"]):
             raise ValueError("explicit completed temporal check required")
     return saved
 
@@ -79,7 +82,9 @@ def facts(root):
             continue
         inputs.update(saved["inputs"])
         for row in saved["results"]:
-            for key in ("log", "trace", "snapshot"):
+            if not saved.get("outputs"):
+                inputs.update(binding(root, relative(path.parent, row["log"]), row["logSha256"]))
+            for key in ("trace", "snapshot"):
                 if key in row:
                     item = relative(path.parent, row[key])
                     inputs[str(item.relative_to(root))] = digest(item)
@@ -98,12 +103,12 @@ def main():
     checked(ROOT, case, source / "receipt.json")
     target = ROOT / "evidence/model-results/model-progress" / case["id"]
     target.mkdir(parents=True, exist_ok=False)
+    saved["outputs"] = {}
     for row in saved["results"]:
         log = relative(source, row["log"])
         row["rawLogSha256"] = digest(log)
-        copied = target / log.name
-        copied.write_text(portable(log.read_text()))
-        row["logSha256"] = digest(copied)
+        saved["outputs"][log.name] = observe(log.read_bytes())
+        row["logSha256"] = row["rawLogSha256"]
         for key in ("snapshot", "trace"):
             if key in row:
                 original = relative(source, row[key])
