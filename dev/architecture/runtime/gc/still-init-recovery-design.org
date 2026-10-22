@@ -56,6 +56,17 @@ writes releases result, assigns *obj=false and returns a conversion error. At
 The [[file:../../../../vendor/gambit/lib/c_intf.c::4335][C-to-Scheme conversion contract]] retains a still reference until its caller
 releases it. [[file:../../../../vendor/gambit/lib/mem.c::1730][release_scmobj]] decrements that count; it is not an immediate free.
 
+Reachability must retain its profile/input premises. [[file:../../../../vendor/gambit/lib/c_intf.c::445][The UTF8 decoder]] returns0
+without advancing on an illegal encoding; the counting pass can therefore stop
+before such an invalid suffix. An arbitrary malformed stable string does not
+by itself prove the later p==start branch is reached. A concrete source-level
+conditional witness uses bytes61 C4 80 00 and the [[file:../../../../vendor/gambit/include/gambit.h.in::1352][supported MAX_CHR=0xff profile]]:
+the first pass counts two nonzero characters; the second writes ASCII a, then
+rejects U+0100>MAX_CHR and releases a partially filled atomic STRING. This is a
+static branch argument, not a test or a claim about the current Darwin profile.
+The [[file:../../../../vendor/gambit/lib/c_intf.h::27][inline decoder macro]] and full helper remain bound evidence inputs. Mutation
+between the two passes is a separate input-lease failure, not a default premise.
+
 [[file:../../../../vendor/gambit/lib/mem.c::4016][The atomic subtype scan cases]] do not traverse STRING/BIGNUM payload words as
 Scheme pointers. That distinction explains why a string converter's partial
 error path cannot qualify a partially initialized STRUCTURE/PAIR for scanning.
@@ -68,6 +79,8 @@ must therefore cover that earlier effect if wrapper-level recovery is promised.
 A constructor-only ledger cannot prove directory-level exactly-once behavior.
 The lifetime/immutability of borrowed name across service suspension remains an
 explicit admission obligation, not a guarantee inferred from the pointer type.
+The [[file:../../../../vendor/gambit/lib/os_io.c::6836][opendir branch]] calls readdir and returns de->d_name, so this dependency is a
+real input/effect lifetime rather than an inference from the wrapper's name.
 
 [[file:../../../../vendor/gambit/lib/os_base.c::1735][Error-message conversion]] consumes a native/stack buffer and releases the converted
 result before returning. A suspended service cannot keep using an expired stack

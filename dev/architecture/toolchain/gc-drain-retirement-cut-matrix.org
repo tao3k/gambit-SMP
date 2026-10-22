@@ -1,0 +1,44 @@
+#+TITLE: Generated GC Drain Cuts and Net-Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: notifier-root-matrix
+:AUTHORITY: GcDrainRetirementCut
+:END:
+
+Derived from native SysML. Proposed root-retirement protocol is not current implementation.
+
+** Point
+
+| key | anchor | descriptor | actualEdge | requiredChange |
+|---+---+---+---+---|
+| will-pre-action-poll | _kernel.c:17146-17160; _kernel.scm:2106-2116 | L1: RETI cfs=4 link=0 gcmap=0x3f1 | R2=testator; R3=action; R1 copies R2; POLL precedes generic action jump | Reject issuance: action not returned; poll may preserve all registers |
+| will-action-return | _kernel.c:17161-17169; descriptor:30131 | L2: RETN fs=1 link=0 gcmap=0x1 | Reload RA and pop frame; L3 sets only R1=VOID then returns | Possible per-attempt generated epilogue cut only after qualified dead-register retirement and no restore/capture edges |
+| finalizer-next-will | _kernel.c:17094-17121; descriptor:30127 | L1: RETN fs=1 link=0 gcmap=0x1 | Reload/pop caller frame; fetch next will; next action can run or empty list tail-calls registry | Queue empty is not register/saved retirement or no-reentry proof; do not sign a batch from queue state |
+| final-will-registry | _kernel.c:17236-17270 | No return descriptor in this host | Writes R1/R2 and conditionally R3 while unlinking cleared actions; does not clear saved or R4 | Audit global registry and retained actions; empty path does not clear all residual roots |
+| handler-to-jobs | _kernel.c:17331-17335; descriptor:30142 | L1: RETN fs=1 link=0 gcmap=0x1 | Sets R1=gc-interrupt-jobs; reloads RA; pops frame; tail-calls execute-jobs | Preferred batch sealing candidate only after explicit qualified barrier; currently no issuer or full root cut |
+| jobs-entry-and-callback | _kernel.c:16579-16607; descriptors:30084-30087 | L1 RETI 0/0/0x3f; L2 RETN 5/0/0x3; L3 RETI 0/0/0x3f; L4 RETI 8/0/0x3f03 | Polls before loop and each generic job; snapshot list and job call can allocate/capture/throw | Generic drain job is too late to infer a prior root cut; jobs cannot confer GC provenance or bounded progress |
+| internal-and-thread-restore | _kernel.scm:249-290,1320-1344; gambit.h.in:6314-6388,8059-8084 | RETI converts caller size and scans all saved GVM registers plus return point | POLL stack handler pushes all registers; internal return restores; thread-save/restore and GC_RESTORE transfer values | A receipt must close every target-root restoration path, not clear only PSTATE saved or one cached register |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| generated-cohort | False | Retained _kernel.c has source hash and labels, but original compiler/options/source generation receipt and current Darwin object equivalence remain unresolved |
+| exact-root-map | False | Decode retained return descriptors and audit all ancestor maps at selected issuer; dead register masks need actual generated liveness, not numeric labels alone |
+| cached-bank-sync | False | Account for single/multiple host, MAX_LOCAL_GVM_REGS, W_ALL/R_ALL and all scanned register-bank entries |
+| restore-closure | False | No target-bearing internal-return, GC_SAVE destination, suspended thread, captured continuation or error can restore after signing |
+| issuer-effect-profile | False | Generated epilogue/barrier is nonallocating/noncapturing and cannot poll into a target-root-bearing snapshot; no user jobs before sealing |
+| per-attempt-completion | False | GC provenance and normal-return evidence bind each attempt across skipped action, failed action, nested GC and queue reentry |
+| publication-and-release | False | Rootless receipt identity, stable storage, duplicate/unknown settlement and ancestor release permit join qualify before reclamation |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| per-action-generated-cut | Can avoid waiting through unrelated wills and generic jobs for a completed eligible attempt | Generated epilogue PointId/root-mask support plus O(K) target-dead root retirement | Conditional candidate, not current issuer; no latency bound, action effect/root liveness still open |
+| pre-jobs-batch-barrier | Can amortize one barrier over B completed eligible attempt slots and keep user jobs after sealing | Scan B status slots plus K dead-register operations; still O(B) per-attempt outcomes and O(W) storage | Prefer explicit barrier at handler L1 before arbitrary job code; queue emptiness alone cannot qualify |
+| restore-aware-safety | Eliminates false retirement from R1=VOID, empty finalizer list, saved-slot clear or entry into jobs | Cached-bank synchronization and internal/thread/exception restoration proof | No whole-heap traversal proposed; a missing closure invalidates the receipt before release |
+| modern-c-vs-zig | Reuse Scheme-generated descriptors and shared native contract; retire heuristic notification issuers only | Both backends need equivalent root/effect/memory-order obligations | Modern C mainline; retained generated C supplies concrete integration points; no independent Zig net gain established |

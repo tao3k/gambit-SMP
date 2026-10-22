@@ -1,0 +1,365 @@
+#+TITLE: Whole-Round Resume Seal and Deferred Cleanup
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+#+OPTIONS: toc:3
+
+* Decision and limits
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-decision
+:STATUS: conditional-model-source-order-open
+:MAINLINE: modern-generated-C
+:END:
+
+WholeRoundResumeSeal certifies a current collection's ability to restore a
+specific context. It requires closed strong/weak work, qualified round-critical
+cleanup settlement, a known capacity outcome, a prepared success or error
+continuation, committed request results, current roots/binding and released
+metadata gates. It does not certify that every native destructor has finished.
+
+Cleanup may settle by a qualified deferred handoff only when the service owns
+the exact native payload, root/code/library/wait dependencies and release duty.
+It must not wait for an owner callback that itself needs this resume seal.
+Unknown handoff, managed-root coverage, writer state, capacity or binding refuses
+recovery. An isolated native effect's unknown result may retain resource debt
+without blocking GC, but cannot justify replay, refund or a claim of physical free.
+
+Modern generated C is the architecture mainline. Scheme owns semantics,
+liveness/FrameSpec and explicit FFI meaning. C services own typed effects,
+custody, phase results and activation permissions. Zig supplies no demonstrated
+additional runtime-work reduction here. No runtime implementation, native test,
+benchmark, path retirement, commit or push is part of this study.
+
+[[file:models/sysml/resume-seal-cleanup.sysml][GambitResumeSealCleanup]] owns obligations, source routes, caller/cost rows
+and topology. Native sysml drives the [[file:resume-seal-cleanup-matrix.org][matrix]] and [[file:diagrams/resume-seal-cleanup.d2][D2]]. The actual
+[[file:../../../modeling/ascent/resume-seal-cleanup.rules.scm][ASCENT DSL]] binds exact artifact digest/method/check/scope. [[file:../../../../models/gambit/resume_seal_cleanup.qnt][QNT]] and
+[[file:../../../../models/gambit/lean/ResumeSealCleanup.lean][Lean]] supply conditional evidence only; the [[file:../../../../evidence/research/resume-seal-cleanup/checks.json][receipt]] preserves open source
+and platform gates. The earlier [[file:root-scan-arbitration-design.org][root arbitration study]] remains a historical
+predecessor rather than a requalified global proof.
+
+* Real release and recovery consumers
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-source
+:END:
+
+** Public release meaning and the destructive dispatch cut
+
+[[file:../../../../vendor/gambit/doc/gambit.txi::19006][The Gambit manual]] specifies release invocation at most once per foreign
+object, GC invocation for an unreachable unreleased wrapper, and explicit
+foreign-release! for prompt release. Released status and pointer conversion
+are public observations. The release function returns a Scheme-represented
+error code; the signature alone provides no effect, affinity or dependency map.
+
+[[file:../../../../vendor/gambit/lib/_kernel.scm::3884][##foreign-release!]] disables Scheme interrupts around ___release_foreign,
+waits for its result and raises an OS exception on nonzero code. Deferral cannot
+replace that synchronous behavior with queue acceptance without an independently
+specified API/semantic change. Scheme interrupt deferral is not a proof against
+all native cancellation, nonlocal exits or library callbacks.
+
+[[file:../../../../vendor/gambit/lib/c_intf.c::5155][___POINTER_to_SCMOBJ]] allocates a foreign wrapper and installs tags, release
+function and pointer. [[file:../../../../vendor/gambit/lib/c_intf.c::1683][___release_foreign]] reads the function/pointer, clears
+the wrapper fields, then calls release_fn. The clearing does not prove that
+the external effect succeeded. A delayed task descriptor must reserve its
+record/dependencies before this destructive cut. An unknown clear-to-publication
+gap cannot be repaired by reading the now-zero wrapper fields or invoking again.
+
+The conversion rollback calls at [[file:../../../../vendor/gambit/lib/c_intf.c::5287][5287–5312]], 5322–5347 and 5357–5382 invoke
+release_fn directly on construction failure, sometimes before a wrapper exists.
+They need source-payload custody and their existing result timing. One adapter
+cannot infer all four origins' semantics from a common function pointer.
+
+** GC and device cleanup really have blocking and partial effects
+
+[[file:../../../../vendor/gambit/lib/mem.c::4390][free_unmarked_still_objs]] invokes release_foreign and then frees the still
+wrapper, ignoring the release result. [[file:../../../../vendor/gambit/lib/mem.c::4430][free_still_objs]] does this during
+teardown too. Neither path currently creates a deferred release service.
+
+[[file:../../../../vendor/gambit/lib/os_io.c::10162][Raw-device wrapping]] and the stream wrapping at 10458–10472 register
+___device_cleanup_from_ptr; failure paths synchronously clean the native device.
+[[file:../../../../vendor/gambit/lib/os_io.c::1625][___device_cleanup]] unlinks its group, closes read then write direction,
+waits through ___device_select on EAGAIN and finally releases the device.
+An early error can follow group removal or a partial close. Recalling the whole
+helper is not a valid generic retry protocol.
+
+[[file:../../../../vendor/gambit/lib/os_io.c::930][___device_select]] uses local select state, current PSTATE fdsets and its
+abort channel at 973–1023 and 1435–1488. A standalone release worker needs an
+explicit WaitContext with owned buffers, capacity, wake identity and leases.
+Assigning another thread's PSTATE pointer is not a substitute. These real waits
+do not by themselves prove that a device cleanup calls Scheme or has owner affinity.
+
+[[file:../../../../vendor/gambit/lib/os_io.c::1603][___device_release]] invokes the virtual release function and frees self when
+the refcount reaches zero, even when that virtual function returns an error.
+The close-stage write before a socket close error at [[file:../../../../vendor/gambit/lib/os_io.c::5831][5831–5860]] is another
+partial-effect witness. Distinguish FailedFreed, AlivePartial, Freeable and
+Unknown; a scalar error is not a native storage disposition.
+
+The device refcount is a plain integer outside the USE_PUMPS interlocked branch;
+group links and close stages also have writers. Moving cleanup to another
+executor requires coordinator ownership/borrow closure or a proved C atomic
+protocol. An outcome must use stable attempt metadata or record its disposition
+before native storage disappears; it cannot inspect self after ___device_release
+has freed it.
+
+TLS cleanup at [[file:../../../../vendor/gambit/lib/os_io.c::3948][3948–3973]] releases strings, SSL_CTX and RC storage; TCP
+release at [[file:../../../../vendor/gambit/lib/os_io.c::5124][5124–5140]] calls SSL_free. OpenSSL documents configured
+session-remove callbacks inside SSL_CTX_free. No installed library/configuration
+or actual Scheme/owner callback registration is qualified here. This is a
+potential hidden call edge requiring an effect/configuration profile, not a
+claim of a reproduced Gambit deadlock.
+
+** Root and teardown boundaries cannot be hidden by the queue
+
+[[file:../../../../vendor/gambit/lib/mem.c::4023][The FOREIGN scan case]] treats its payload as opaque. Copying native pointer
+bits or tags into a release task does not make hidden Scheme dependencies roots.
+Managed dependencies need an existing covered root-domain mapping or explicit
+pre-seal tracing/rescan. Never root the whole unreachable wrapper forever merely
+to keep a task alive; that can prevent the very finalization being selected.
+
+[[file:../../../../vendor/gambit/lib/mem.c::4932][cleanup_mem_pstate]] runs still teardown then cleanup_rc. [[file:../../../../vendor/gambit/lib/mem.c::684][cleanup_rc]] frees
+the RC chain regardless of individual refcounts. [[file:../../../../vendor/gambit/lib/setup.c::4572][cleanup_os_and_mem_pstate]]
+then tears down OS support. Deferred tasks must drain or transfer actual native,
+RC, root, wait and code custody before those facilities disappear. RC addref
+alone is insufficient. A successful GC resume seal is not a shutdown-drain seal.
+
+The prior [[file:../ffi/studies/device-release-wait-contract.org][device wait contract]] and [[file:../ffi/studies/device-release-sync-proof.org][publication/wait study]] contain relevant
+conditional handoff and wake arguments. They are maintained research inputs,
+not native qualifications for this new seal boundary.
+
+** Recovery is later than strong roots or cleanup acceptance
+
+[[file:../../../../vendor/gambit/lib/mem.c::6998][___garbage_collect_pstate]] orders setup, strong, weak, cleanup and resize,
+then guarantees heap fudge and calls [[file:../../../../vendor/gambit/lib/mem.c::4525][prepare_mem_pstate]]. That function writes
+fp/hp/stack/heap limits and refreshes interrupt detection. [[file:../../../../vendor/gambit/lib/setup.c::1065][execute_sync_op_loop]]
+still delivers the combined operation result and drains synchronous operations.
+[[file:../../../../vendor/gambit/include/gambit.h.in::10325][CFUN context exit]] reloads generated resources; it does not itself validate
+collection generation or independently acquire a mutator permit.
+
+* WholeRoundResumeSeal: issuance and consumption
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-contract
+:END:
+
+#+NAME: whole-round-seal-gates
+| Gate | Required evidence | If unknown or missing |
+|------+-------------------+-----------------------|
+| Identity and admission | VM/context/view generations, collection/root-cut epoch, participant snapshot and worker role | reject stale/mismatched seal |
+| Strong and weak closure | all pending/owned/private/derived/Ready/quarantined obligations settled in their proper phases; weak continuation movement finished | retain round debt; no permit |
+| Cleanup handback | each selected release either completed with known GC-safe disposition or has an admitted stable deferred task and no reverse wait | source/transfer retains responsibility |
+| Root closure | every future managed dependency rooted and traced with current locators; any new edge processed before closure | rescan before seal or refuse |
+| Native/code/wait lifetime | payload, RC domain, callback/module image, libraries and wait endpoints have actual stable owners | refuse detach or retain backing |
+| Capacity outcome | known success with required space, or known failure with a safe prepared error path | unknown capacity cannot restore |
+| Context preparation | fresh frame/heap pointers, limits, interrupt/safepoint state and root reload map | no use of pre-GC context |
+| Result and policy | request/result delivery is committed; required native no-escape/restore state known | refuse recovery on partial/unknown policy restore |
+| Arbitration | ordinary root writers/borrows closed, binding current, short metadata gates released, current seal consumed into active participation | no callback, root read or reload before permit |
+
+The seal is an immutable tuple referring to exact admitted facts, not a Boolean
+found in an old context. Consumption revalidates its generations and phase
+cut under the same arbitration discipline as the return ticket. It grants active
+participation before root reload and before any managed callback. A generation
+change invalidates an unconsumed seal; notification or receipt transport alone
+never grants execution rights.
+
+Capacity failure is not automatically success or unrecoverable corruption.
+The modern C service may issue a safe error-route seal only after proving that
+the designated error continuation has adequate roots/frame/space and a committed
+matching result. The QNT capacity-error path assumes that adapter; current C
+equivalence and minimum recovery space remain RS-SEAL/RS-RECOVERY obligations.
+
+* Deferred release protocol and the owner cycle
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-handoff
+:END:
+
+** Admission must precede a GC that could discover the finalizer
+
+An effect/delay profile is bound to the exact release adapter, origin, code and
+library/configuration revision, native alias policy, result/disposition schema,
+root dependencies and execution domain. Dynamic callback configuration is a
+writer to this profile; it must be frozen or revoke admission. A closed
+domain-wide census matters: another unreachable foreign object can introduce
+an unsafe callback even if the current native call itself is pure.
+
+Reserve task and retention budgets before granting a released-native/independent
+collector profile that may discover these finalizers. Merely allocating a queue
+record during sweep can fail after the collector has already committed to that
+profile. Reservation failure before destructive transfer leaves the source
+responsible. A qualified bounded inline fallback is possible only when it cannot
+form the owner/return cycle; otherwise refuse the profile before release. No
+unregistered arbitrary release_fn acquires permission through this proposal.
+
+** Ownership and delivery cuts
+
+#+NAME: deferred-cleanup-transitions
+| Transition | Required ordering | Failure custodian |
+|------------+-------------------+-------------------|
+| Reserve | prepare immutable adapter, payload identity, budget and dependency pins; source still owns effects | source; no wrapper clearing/free |
+| Accept and detach | atomically commit canonical task/attempt ownership and known decision before retiring source invocation rights | known reject stays source; uncertain transaction retained/poisoned |
+| Notify/query | publish durable accepted state before wake; lost response queries the same task | service record; no duplicate task or invocation |
+| Retire wrapper | only after native/root dependencies are independently owned; Scheme shell and native payload are distinct allocations | shell may retire while native backing remains charged |
+| Settle round cleanup | acquire accepted handoff and covered-root facts, with no wait for owner callback completion | unresolved GC-critical facts keep round blocked |
+| Dispatch | native-only admitted leaf may execute without managed access; owner/managed leaf waits for active permit and protected activation | accepted service retains duty during owner delay/cancellation |
+| Publish outcome | effects, error and allocation disposition published before notification; at-most-once invocation rights consumed | missing terminal outcome retains backing/attempt |
+| Release backing | use known actual disposition and last-user/pin drain; never replay freed pointer | resource/allocator ledger retains unknown liabilities |
+
+For native-only tasks, root closure is vacuous only after proving absence of
+managed dependencies and runtime metadata access. For managed tasks, an existing
+traced root can transfer metadata ownership without creating an unseen edge.
+New roots discovered after strong closure require an explicitly accounted
+rescan before the seal. No implicit reentrant GC or optimistic post-seal root
+registration is an acceptable substitute.
+
+Keep Scheme heap/still occupancy and retained native-resource budgets distinct.
+Freeing a Scheme wrapper may legitimately reduce still occupancy while its
+deferred native allocation remains charged elsewhere. When task backing shares
+an actual still/RC allocation, its physical custody must instead survive in the
+appropriate canonical ledger. Neither queue acceptance nor an error code is a
+physical-memory refund or evidence that external handles have all closed.
+
+The concrete cycle to exclude is:
+return waits for ResumeSeal → cleanup waits for owner callback → callback waits
+for active reentry → return. An accepted owner task breaks this cycle only if
+cleanup hands it off without waiting for callback completion, all dependencies
+remain owned, and delayed effects are legal for that origin. The callback then
+enters under the restored owner's normal managed/root/continuation protocol.
+The model proves the absence of this selected reverse edge, not all possible
+application lock cycles or eventual owner scheduling.
+
+** The four origins remain different
+
+#+NAME: release-origin-semantics
+| Origin | Existing behavior to account for | Deferral boundary |
+|--------+----------------------------------+-------------------|
+| GC-discovered wrapper | release invoked before current sweep returns and wrapper freed | delay needs explicit admitted semantics; arbitrary callbacks/external observations not silently equivalent |
+| Explicit foreign-release! | prompt synchronous invocation, result/error and released observations | preserve synchronous completion or introduce an explicitly different API; model does not admit blanket deferral |
+| Conversion rollback | native pointer exists before wrapper success; direct cleanup on error | source ownership/result/error ordering needs its own adapter |
+| PSTATE/VM teardown | remaining still releases precede unconditional RC and later OS cleanup | new producer and dependency-drain contract; GC seal does not permit teardown |
+
+Public released status, logical invocation claim, accepted task, known destructor
+completion and native storage free are separate events. In current C the wrapper
+fields clear before the release call completes. Preserve or explicitly redesign
+those observations per admitted API/profile; never equate Accepted with successful
+foreign-release! or with a zero native address on all paths.
+
+* Unknown results, failures and custody
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-unknowns
+:END:
+
+#+NAME: resume-refusal-matrix
+| Unknown or failure | May GC resume? | Resource/semantic action |
+|--------------------+----------------+--------------------------|
+| Acceptance reply lost, canonical accepted record intact | conditionally, using that record and all other gates | query same ID; never create another release attempt |
+| Detach/accept transaction or wrapper-clear gap unknown | no | retain source/transfer pins; no rollback/replay inferred |
+| Deferred root coverage, writer/borrow or binding unknown | no | retain root/domain and refuse active permit |
+| Capacity result or safe error-route preparation unknown | no | do not infer fresh limits or throwable continuation |
+| Required gate/no-escape/restore state unknown | no | retain/poison affected domain; no automatic owner-death repair |
+| Isolated native release result unknown | only if all GC-critical custody and isolation facts remain independently valid | retain backing and attempt; do not retry/refund |
+| Destructor returns error with known storage already freed | conditionally, if GC-critical gates hold | retain error/external-effect debt; do not free or invoke again |
+| Destructor returns error with partial/unknown storage disposition | conditionally only under admitted isolation | preserve exact partial state; scalar error grants no retry/free |
+| Observer cancels after acceptance | acceptance remains owned | discard observation rights only; service still releases or retains resource |
+
+Isolation excludes hidden Scheme accesses, an untracked collector/runtime write,
+unowned dependencies and unqualified callback effects. It is not a general
+claim that a corrupt arbitrary C function is harmless or that allocator progress
+is guaranteed. Unexpected writers after a previously issued permit are outside
+the qualified model; the design does not promise automatic corruption detection.
+
+* Conditional evidence and counterexamples
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-proof
+:END:
+
+QNT models one selected foreign wrapper, one release task/owner and one GC round.
+It distinguishes source reservation, accepted task, execution, known result,
+isolated unknown native result and unknown handoff. It tracks root rescan debt,
+phase/capacity/result/context gates, stale context generation and owner waits.
+Thirty-one histories include six injected unsafe controls. One hundred sampled
+traces of at most 100 transitions with seed 17 found no violation; the search
+is non-exhaustive. Adapter/delay/isolation/stop and physical-effect classifications
+are premises, not automatically inferred from real C.
+
+The model's freeDispositionKnown flag abstracts only admitted Freeable/Freed
+terminal dispositions. Known AlivePartial and unknown dispositions both retain
+backing in this slice; the full native disposition enum is a source obligation.
+
+Lean checks 25 declarations: missing seal-gate rejection; independently isolated
+native-outcome independence; known handoff and delay permissions; source/service
+credit conservation through Step/Trace; error versus storage authority; selected
+callback cycle exclusion; stale seals; and retained backing/no-replay arithmetic.
+It does not prove every QNT transition, all phase producers, arbitrary callbacks,
+fair scheduling, actual C memory order or public observational equivalence.
+
+#+NAME: resume-seal-counterexamples
+| Counterexample | Consequence | Required boundary |
+|----------------+-------------+-------------------|
+| Issue seal when cleanup merely queued a pointer | dangling payload/dependencies or lost release duty | canonical accepted ownership and covered roots |
+| Execute managed destructor before permit | callback waits for seal needed by cleanup | post-seal managed dispatch; no cleanup wait |
+| Free native backing on enqueue | task dereferences freed native state | separate shell retirement and actual native disposition |
+| Replay after cleared fields/result loss | double close/free or invalid stale pointer | at-most-once attempt and stable query |
+| Treat error as native allocation still alive | device_release may already have freed it | effect/disposition schema independent of result code |
+| Register new managed dependency after closure | untraced object can die before callback | existing traced mapping or counted pre-seal rescan |
+| Restore old seal after context reuse | stale roots/limits/binding execute | generation and admitted-round cut checks |
+| Shutdown after GC seal while tasks remain | cleanup_rc or image/OS teardown invalidates tasks | separate producer/dependency shutdown drain |
+
+The SysML extension has 19 needs, 38 dependency edges, seven source routes,
+eleven caller families and nine cost rows. RS-H/RS-I are the only exact local
+formal receipts. Fifteen source and two native-order needs remain unresolved;
+zero components are admitted. Five ASCENT cases check exact digest/scope and
+independently decoded native facts. The all-scoped positive case is synthetic.
+
+* Research learning and source reflection
+
+[[https://www.hboehm.info/popl03/slides.pdf][Boehm's POPL 2003 author slides]] discuss finalizer synchronization, early
+cleanup relative to native handles, held-lock deadlock and shutdown dependencies.
+The useful lesson is separating reachability from external last use and waiting.
+These are Java-oriented slides, not Gambit language rules or a performance forecast.
+
+[[https://ocaml.org/manual/5.3/intfc.html][OCaml's custom-block interface]] restricts managed allocation/callbacks inside
+custom finalizers and provides a separate more flexible finalization mechanism.
+The lesson is an explicit effect boundary. Gambit's arbitrary release_fn cannot
+be declared equally restricted without changing and qualifying its FFI contract.
+
+[[https://docs.openssl.org/3.4/man3/SSL_CTX_free/][OpenSSL's SSL_CTX_free documentation]] warns that configured session-remove
+callbacks can run during cleanup. This is a concrete reason to bind effect
+profiles to library configuration, rather than infer purity from a short Gambit
+wrapper. It does not identify the installed OpenSSL or a real owner callback.
+
+* Migration and benefit/peak bounds
+:PROPERTIES:
+:CUSTOM_ID: resume-seal-cleanup-migration
+:END:
+
+1. Scheme FFI completion emits origin/effect/dependency descriptors with unknown
+   as an explicit non-admitted state. Inventory every domain-visible release
+   producer before granting independent GC/native-release admission.
+2. Rebuild modern C release dispatch around typed invocation/effect/disposition
+   records. Retire raw clear-and-forget GC dispatch only after every migrated
+   adapter preserves at-most-once semantics and accepted custody on all failures.
+3. Replace implicit PSTATE select scratch for the eligible device cohort with
+   owned WaitContext and resumable close state. Do not move the unchanged helper
+   to another thread or retry group removal as if it were a transaction rollback.
+4. Integrate root-domain transfer/rescan, service code/native dependencies and
+   separate task/shutdown drain. Old RC/PSTATE cleanup assumptions retire only
+   when real task payloads survive or drain before their facilities are freed.
+5. Publish a typed current-round seal after phase/capacity/context/result work;
+   active permit precedes generated C reload/callback entry. Retire implicit
+   calling-processor recovery only after both success and error paths refine.
+
+For eligible serial cleanup bodies Fi and handoff work Hi, the conditional
+critical-path comparison is Tcore+sum(Fi) versus Tcore+sum(Hi)+new ledger/rescan
+costs. This assumes core work unchanged and legal delay; no duration is measured.
+If callbacks are frequent, root rescans large, or task contention high, net
+benefit can be negative. No root traversal is proved removable.
+
+#+BEGIN_QUOTE
+Peak = max_t(existing live backing + reserved task/receipt/wait pools
+             + retained managed/native/RC dependency backing + quarantine).
+Count physical backing once. Retiring a Scheme wrapper or ACKing a receipt is
+not native release. For M possible admitted jobs, O(M) records alone does not
+bound retained external resources; admission needs a real retention budget.
+#+END_QUOTE
+
+The [[file:resume-seal-cleanup-matrix.org][SysML-derived matrix]] includes new support and peak liabilities explicitly.
+The proposed gain is removing qualified destructor waiting from the GC critical
+path while preserving Scheme/continuation/FFI correctness through explicit
+services. Modern C can express it. No additional Zig reduction, whole-round
+peak decrease or universally positive speedup has been established.

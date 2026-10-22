@@ -107,3 +107,8 @@ Normal-path diagnostic: PASS, 4.334 seconds, {'generated': 17, 'distinct': 13, '
 Birth-to-finished-observation spans include launcher/recording overhead; they do not isolate CPU time. The same total budget covers identity, compiler and checker. New QNT results concern this finite design only; no native gate is upgraded.
 
 Raw run: `.cache/tasks/repair-9-12/processes/audit/runs/5cb2056899764ee59b9b1278db778b80/outputs/retirement-prepare-phase`; complete timing provenance is `normal-path-diagnostic/timing.json`.
+
+
+## Source-refinement correction and remaining abort boundary
+
+The [dispatcher/abort/root-owner follow-up](smp-retirement-prepare-refinement.md) qualifies the parent-replay claim: nested calls offer their own request; suspended C frames are not automatically election offers. It also records why local Ready/Failed cannot authorize exit or root withdrawal with another donor still running, the outer catcher admission boundary, exact RC ownership operations, and model coverage still missing. The prior model and receipts remain unchanged.

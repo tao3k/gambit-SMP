@@ -1,0 +1,74 @@
+#+TITLE: Still inventory reconstruction, consistent views and peak matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: ledger-caller-matrix
+:END:
+#+NAME: ledger-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| small-still | mem.c:1571-1605 | Physical aligned allocation -> deferred counter -> chain link/header | Successful raw pointer can precede a counter/list record; counters alone cannot find it | Legacy adoption drains active allocators; future managed intent owns private allocation before exposure |
+| large-still | mem.c:1610-1675 | Charge requested+deferred under VM lock -> allocator -> subtract only new words on failure | A reservation is not physical residency; old deferred objects remain charged on failure | Per-intent outcome/rollback token; do not refund prior deferred cohort |
+| gc-request | mem.c:6300-6505;setup.c:903-916 | resize_heap recount -> pretend request live -> overflow rollback/zero -> retry | Temporary requested words affect capacity but do not denote a published block | Capture accounting phase and request settlement; no duplicate physical inventory item |
+| scan-and-sweep | mem.c:4222-4245,4387-4427,6910-6937,7000-7049 | Mark refcounts/roots -> sweep/relink/free -> barrier -> resize recount | A list/live-counter read across sweep is not a single snapshot | Canonical epoch grants; revision-bound inventory and immutable ledger publication; stale commit refuses |
+| recount-consumer | mem.c:6256-6293,360-371,486-499 | Sum per-processor live still totals; capacity and allocation-stat consumers | Live/deferred/global counts have phase-specific meanings; allocation stats are not physical extent | Replace processor-only census with canonical domains once; retain phase statistics separately |
+| aligned-backing | mem.c:554-599,657-667;os_base.c:321-415,445-518 | Alignment-layer request -> heap wrapper (normal/code allocator) -> original container free | STILL_LENGTH omits alignment/container overhead; C free is not RSS release | Record checked requested byte extent and raw container identity; allocator/RSS remain separately bounded |
+| foreign-free | mem.c:4398-4406,4442-4448;c_intf.c:1683-1711 | release_fn can execute native code before physical free | Destructor/allocator integrity is independent; void code-free wrappers discard backend return status | Explicit release receipt and allowed executor; unresolved free never retried from timeout |
+| retirement | setup.c:903-978,4572-4580,4665-4672;mem.c:4928-4935 | PSTATE cleanup currently frees all still backing before native join | A copied counter/root cannot resurrect a destroyed chain or unknown private allocation | Adoption/commit precedes cleanup; old readers receive metadata-only capability or retain raw borrow debt |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: ledger-benefit-matrix
+:END:
+#+NAME: ledger-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| legacy reconstruction | Obtain a truthful adoption cut instead of copying ambiguous counters | O(N+I) inventory/intent audit at cut; legacy I must drain to known outcomes because existing malloc has no keyed query | One-time block walk, checked extent reconstruction, allocator and scanner closure | Current sweep already accumulates live lengths: zero extra current full-chain recount passes proved removable |
+| steady capacity aggregation | Count each canonical domain once after processor retirement | O(D) domain summary aggregation; old consumer is O(P) processors, not O(N) blocks | Per-intent transitions, revisions and retained-domain summaries | D may exceed P; no speedup follows from replacing one linear census with another |
+| unpublished allocation | Retain a private block or its reservation without exposing garbage fields to GC | For one bounded intent w words, unresolved liability retains up to its w-word capacity grant plus native padding | Native intent/extent record, stable input roots and outcome witness | No generic malloc result recovery; absent exact outcome/closure, adoption remains blocked |
+| snapshot handoff | Zero payload copying at owner-only commit; reject mixed ledger/list states | O(1) revision/owner commit only after a qualified snapshot; unchanged inventory allows canonical mark overlap | Joint gate or reservation, immutable snapshot and retry/refresh on sweep revision | No wait-free or bounded retry theorem; version check followed by unrelated owner CAS is insufficient |
+| retired and unknown free | Avoid early credit and duplicate free after lost native outcome | R retired-but-held words remain in capacity; one acknowledged free removes exactly its charge | Quarantine/release receipts may prolong R and hold source metadata | Logical retirement and free acknowledgement are different; unknown native free may still block GC/allocator progress |
+| physical peak accounting | Separate logical words from requested C bytes and observed residency | Alignment-layer request = extra+(w+modulus)*WS; peak includes private+published+retired backing and metadata once | Alignment/container bytes plus allocator overhead; metadata pins retain snapshot versions | No claimed RSS bound or peak reduction; pre-peak Qg must exceed added concurrent residency at actual peak |
+| modern C and Zig | Use one Scheme-generated intent/snapshot/reclamation contract | Same physical allocation, barriers, root coverage and unknown-outcome duties | Modern C refactoring and checked arithmetic required; Zig adds another backend if selected | No established incremental Zig saving in ledger reconstruction, payload copying or GC correctness |
+
+* Exact model scopes and dependencies
+#+NAME: ledger-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| LS-H | interleaving | models/gambit/still_ledger_snapshot.qnt | still_ledger_snapshot:30-named-histories;safe;seed=17;100x100 | Two two-word blocks/one intent, private publication, revision-bound handoff, mark/sweep/free and metadata/raw pins; allocation outcome witnesses are premises; no native liveness |
+| LS-I | induction | models/gambit/lean/StillLedgerSnapshot.lean | GambitSMP.StillLedgerSnapshot:physicalBound;attachConserves;publishConserves;retireConserves;retireIsNotFree;countersNotInjective;noCounterOnlyDecoder;staleRejected;mutationRejected;ownerOnlyChange;revisionAdvanceInvalidates;refundStepConserves;refundTraceConserves;emptyGrantCannotCredit;nativeExtentIncludesPadding;logicalRetirementPeak | 16 conditional statements including refund Step/Trace conservation and a noninjective legacy-counter witness; no C refinement or whole QNT induction |
+| LS-INVENTORY | source-refinement | models/gambit/lean/StillLedgerSnapshot.lean | LS-INVENTORY:actual-source-refinement | Adopt only a closed valid inventory plus reservation/private/retired ledger; live/deferred/VM counters are not sufficient at arbitrary cuts; distinguish logical words, aligned allocator request bytes and unknown RSS |
+| LS-INTENT | source-refinement | models/gambit/lean/StillLedgerSnapshot.lean | LS-INTENT:actual-source-refinement | Pre-register one exact allocation intent and extent; preserve unknown malloc/free outcomes and capacity custody; refund only unique no-block/closed-call evidence, not stop alone or timeout |
+| LS-SNAPSHOT | source-refinement | models/gambit/lean/StillLedgerSnapshot.lean | LS-SNAPSHOT:actual-source-refinement | Commit compares owner generation and inventory/root/ledger revisions under one admission gate; canonical mark authority unchanged; sweep/list/accounting mutation excludes commit and invalidates prepared views |
+| LS-RECLAIM | source-refinement | models/gambit/lean/StillLedgerSnapshot.lean | LS-RECLAIM:actual-source-refinement | Logical retirement retains held-block charge until backend-specific physical free acknowledgement; void code-free return discards munmap/VirtualFree status; metadata snapshots grant no payload authority; raw users/root and scan writers close first; foreign release and native allocator integrity remain explicit |
+
+#+NAME: ledger-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| LS-INVENTORY | LS-H |
+| LS-INVENTORY | LS-I |
+| LS-INTENT | LS-H |
+| LS-INTENT | LS-I |
+| LS-SNAPSHOT | LS-H |
+| LS-SNAPSHOT | LS-I |
+| LS-RECLAIM | LS-H |
+| LS-RECLAIM | LS-I |
+| LS-INVENTORY | AH-CLOSE |
+| LS-INVENTORY | RC-LIFETIME |
+| LS-INVENTORY | IH-MEMORY |
+| LS-INTENT | LS-INVENTORY |
+| LS-INTENT | OR-STOP |
+| LS-INTENT | IR-PROGRESS |
+| LS-INTENT | GW-S |
+| LS-SNAPSHOT | LS-INVENTORY |
+| LS-SNAPSHOT | LS-INTENT |
+| LS-SNAPSHOT | WB-SNAPSHOT |
+| LS-SNAPSHOT | AH-CLOSE |
+| LS-RECLAIM | LS-SNAPSHOT |
+| LS-RECLAIM | RX-S |
+| LS-RECLAIM | HR-EXIT |
+| AH-CHAIN | LS-INVENTORY |
+| AH-CHAIN | LS-SNAPSHOT |
+| AH-ADMIT | LS-INTENT |
+| AH-ADMIT | LS-RECLAIM |

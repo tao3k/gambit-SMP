@@ -1,0 +1,74 @@
+#+TITLE: Stopped-owner, native isolation and receipt retirement matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: owner-caller-matrix
+:END:
+#+NAME: owner-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| join | os_thread.c:546-591;_thread.scm:1511-1596;setup.c:978 | Scheme termination schedules/interrupts; native pthread_join -> status; resize ignores error | Scheme termination is not OS stop; native success stops target only; preserve raw join identity | StopReceipt plus delegated writer closure; no timeout/second join inference |
+| resize | setup.c:903-978,1012-1043 | Direct GC pstate -> collective resize -> pstate cleanup/exit -> join | A blocking join can remain on collective control path; executor count is not root-domain census | Park participant before waiting; independent root domain enrolled before removal |
+| cleanup | mem.c:684-703,4928-4935;setup.c:4665-4770 | cleanup_mem_pstate -> free_still_objs and cleanup_rc | Thread exit/cleanup may destroy roots while operations/native borrowers remain | Durable domain transfer and last-user receipt before old cleanup retires |
+| constructor | _kernel.scm:43-112;_kernel.c:23864-23904 | Linked still body -> fill -> GVM result | Current raw pointer body is not private replayable staging; no native async stop contract | Keep synchronous fast path; admit service work only via isolated bytes/handle recipe |
+| utf8-input | c_intf.c:5413-5500;os_base.c:1735-1747 | Two-pass decoder over native/stack buffer -> atomic result | An expired/mutated input cannot reconstruct a pending private batch | Stable input image plus output index/byte offset/decoder state; no effect replay |
+| directory | os_io.c:6816-6872,11412-11428 | readdir/de->d_name -> string conversion -> release/return | Directory advancement cannot be repeated during initializer recovery | Record effect outcome before staging; copy/lease name; raw effect ambiguity remains unknown |
+| native-callback | examples/tcltk/tcltk.scm:100-194,221-227;c_intf.c:6550-6562 | Tcl command callback/deletion -> release roots/RC; marker invalidation | Delete/marker false is not proof of drained native aliases or future continuation uses | Close new entries, retain in-flight and child pins, then retire exact generation |
+| receipt-consumer | gambit.h.in:10033-10066,10269-10272;setup.c:3275-3413 | Generated native conversion, Scheme call and exceptional return | Existing output/status ABI has no general retired-retry rejection protocol | Managed session opt-in; raw ABI retains synchronous semantics without resumable authority |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: owner-benefit-matrix
+:END:
+#+NAME: owner-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| isolated native helper | Remove its unresolved completion/join from GC membership wait | Conditional GC gate independent of unknown owner and pending native writes | Independent root-domain scan, handle IDs and stable input; no collector lock held by helper | Raw heap access, raw movable pointers or a helper-owned scan lock falsifies isolation |
+| private batch takeover | Replay only unpublished native range after exact stop and all-writer drain | With batch q, ambiguous recomputation at most q output items if recipe/input bound holds | Stop generation, input lease, cursor and replacement executor metadata | No replay of heap-visible fields, directory I/O, callbacks or unknown-live writer |
+| staging and materialization | Allow collector to ignore unscannable native buffer | Mandatory final Scheme fill/allocation still remains; staged bytes S may coexist with heap B | At least overlapping S+B plus input E/roots/ledger before stage release | No automatic peak reduction; direct synchronous constructors need not pay staging |
+| valid-shell alternative | Potentially scan a partial pointer body only under a different proven layout | Sentinel then final fill costs 2a writes versus a; pre-dirty coverage and atomic store premises extra | Extra a writes, publication/barrier support and root lifetimes | Does not alone allow GC concurrent with an unknown raw mutator; not the default or implemented |
+| receipt compaction | Drop full completed reply after receiver acknowledgement and closed/drained ingress | Full result/dedup record -> smaller retained floor/session fence; O(sessions+gaps+live users) | Retired floor and generation namespace remain; unacknowledged records retained | Managed protocol may return Retired; unlimited exact-original-reply ABI cannot use this compaction |
+| callback-derived drain | Avoid deleting receipt while a parent hands responsibility to a child | Parent pin decrement and child pin increment conserve unfinished debt | Per-query/callback/derived refs and terminal arbitration | Close ingress is insufficient if admitted callbacks can still derive children |
+| unknown memory | Permit GC progress without pretending uncertain backing was freed | Retain full native buffer S and source/root/operation liabilities until authoritative outcome | Potential indefinite retained memory and bounded-admission pressure | GC noninterference is not eventual completion, bounded RSS, resource free or process-crash recovery |
+| whole peak | Credit only actual acquisition/record lifetime eliminated across phases | Peak candidate max_t(P_t-Q_t+A_t); stage S+heap B overlap may dominate | Staging, snapshots, root domains, stop records, query pins and rejection floors | No measured saving, no obligatory payload allocation retired; later compaction cannot erase earlier peak |
+
+* Exact model scopes and dependencies
+#+NAME: owner-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| OR-H | interleaving | models/gambit/still_owner_retirement.qnt | still_owner_retirement:33-named-histories;safe;seed=17;100x100 | One helper/three fields/two generations, one receipt plus abstract earlier gap; private replay, isolated GC, child pins and retired retry controls; no native liveness |
+| OR-I | induction | models/gambit/lean/StillOwnerRetirement.lean | GambitSMP.StillOwnerRetirement:unknownOwnerDoesNotChangeGate;pendingNativeWritesDoNotChangeGate;isolationRequiresRoots;isolationRequiresIndependentResources;isolationRejectsRawAlias;stopAloneInsufficient;sideEffectsForbidReplay;noPublishedReplay;oldGenerationRevoked;prefixPreserved;drainStepDoesNotIncreaseDebt;drainTraceDoesNotIncreaseDebt;closedNeverReopens;childHandoffConservesDebt;outstandingDebtBlocksRetire;childHandoffStillBlocks;unacknowledgedRetains;earlierGapBlocksFloor;retiredRetryRejected;floorNeverForgets;stagingPeakIncludesBoth;sentinelAddsWrites | 22 conditional isolation/takeover/debt/retirement statements; finite drain Step/Trace kernel only, not whole QNT or C refinement |
+| OR-STOP | source-refinement | models/gambit/lean/StillOwnerRetirement.lean | OR-STOP:actual-source-refinement | Exact native join success, unique join owner, generation identity and delegated writer closure; errors/timeouts/cleanup flags do not confirm stopped writes |
+| OR-ISOLATE | source-refinement | models/gambit/lean/StillOwnerRetirement.lean | OR-ISOLATE:actual-source-refinement | Before helper start publish an independent root domain; helper uses preallocated native bytes/opaque IDs only and holds no collector root/allocator resource; no post-failure relabeling of raw heap writers |
+| OR-TAKEOVER | source-refinement | models/gambit/lean/StillOwnerRetirement.lean | OR-TAKEOVER:actual-source-refinement | After confirmed stop and writer drain, replay only private unpublished effect-free batch from stable input; preserve prefix, revoke old generation; heap-visible materialization remains a separate safe-point gate |
+| OR-RETIRE | source-refinement | models/gambit/lean/StillOwnerRetirement.lean | OR-RETIRE:actual-source-refinement | Recipient acknowledgement, closed ingress, query/callback/derived drain, contiguous retired floor and retained generation fence before receipt deletion; reject late retry without execution |
+
+#+NAME: owner-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| OR-STOP | OR-H |
+| OR-STOP | OR-I |
+| OR-STOP | RC-JOIN |
+| OR-STOP | RC-LIFETIME |
+| OR-STOP | IH-MEMORY |
+| OR-ISOLATE | OR-H |
+| OR-ISOLATE | OR-I |
+| OR-ISOLATE | HR-RC |
+| OR-ISOLATE | HR-BIND |
+| OR-ISOLATE | GW-S |
+| OR-TAKEOVER | OR-H |
+| OR-TAKEOVER | OR-I |
+| OR-TAKEOVER | OR-STOP |
+| OR-TAKEOVER | OR-ISOLATE |
+| OR-TAKEOVER | IR-PROGRESS |
+| OR-TAKEOVER | IR-ROOT |
+| OR-RETIRE | OR-H |
+| OR-RETIRE | OR-I |
+| OR-RETIRE | IR-DELIVERY |
+| OR-RETIRE | RC-LIFETIME |
+| OR-RETIRE | RX-S |
+| OR-RETIRE | HR-EXIT |
+| SP-STILL | OR-TAKEOVER |
+| SP-STILL | OR-ISOLATE |
+| SP-PEAK | OR-RETIRE |

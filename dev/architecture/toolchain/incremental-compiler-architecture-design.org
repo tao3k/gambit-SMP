@@ -1,0 +1,330 @@
+#+TITLE: Modern Incremental and Concurrent Scheme Compiler Architecture
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH The mainline is a compiler architecture replacement :modern_c:gxi:gxc:
+:PROPERTIES:
+:CUSTOM_ID: incremental-compiler-architecture
+:AUTHORITY: IncrementalCompilerArchitecture
+:STATUS: architecture-proposed-source-refinement-open
+:EVIDENCE_CLASS: source-research-and-conditional-models
+:END:
+
+The preceding lifecycle work became too dominant relative to the compiler design.
+This document restores the main question: what replaces gxi/gxc's whole-module,
+mutable-session compilation protocol? Eliminating one repeated expansion is not
+by itself the modernization architecture. The proposed replacement is a persistent,
+demand-driven compiler query graph with phase-specific results, tracked inputs,
+owned semantic sessions, a single resource scheduler and atomic result manifests.
+It changes the compiler/build boundary rather than wrapping the same gxc command
+in another pool. Modern generated C remains the mandatory native backend.
+
+[[file:models/sysml/incremental-compiler-architecture.sysml][SysML]] owns six responsibilities, eight result stages, an eight-node formal
+instance, seven admission gates and six gain cases. [[file:../../modeling/tools/incremental-compiler-study.py][Python]] invokes native SysML,
+[[file:../../modeling/ascent/incremental-compiler-architecture.rules.scm][ASCENT]], [[file:../../../models/build/incremental_compiler_architecture.qnt][QNT]] and [[file:../../../models/build/IncrementalCompilerArchitecture.lean][Lean]], generating [[file:incremental-compiler-architecture-matrix.org][the architecture/net-work matrix]] and
+[[file:diagrams/incremental-compiler-architecture.svg][D2]]. [[file:../../../evidence/research/incremental-compiler-architecture/checks.json][Receipts]] separate conditional models, source simulation and native
+acceptance. No compiler/runtime implementation, native test or benchmark is run.
+
+* RESEARCH Concrete pain and the replacement unit
+:PROPERTIES:
+:CUSTOM_ID: compiler-replacement-boundaries
+:END:
+
+The inspected [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::207][std/make]] already has workers, dependencies and completions. Its
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::220][import/load-path synchronization]] and [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::299][coordinator]] wait on a module's overall completion.
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::502][gxc-compile]] explicitly notes the need to split the operation into more actions.
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::119][compile-module]] initializes optimizer state/imports under a driver mutex;
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::621][compile-top-module]] runs optimization, runtime emission, meta emission and SSXI
+work through one context. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::707][SSI generation]] may emit load-module, so a file's existence
+is not an executable macro-support credential.
+
+The [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::116][default core policy]] can return zero unless GERBIL_BUILD_CORES is set;
+workers are clamped to at least one. This explains one possible source-level
+underutilization mechanism, not the user's actual 12-core run. Merely raising it
+does not remove state locks, dependencies, memory pressure or critical paths.
+No source analysis here attributes the reported Darwin/Linux ratio to one cause.
+
+| Current architectural boundary | Proposed replacement | What must actually retire |
+|---+---+---|
+| One module completion gates consumers | Typed interface, executable support, semantic IR and native readiness | Whole-module completion as the sole dependency authority |
+| Mutable imported contexts/optimizer globals | Immutable program descriptions plus owned instance overlays and identities | Cross-session shared mutable state; mutex only after all protected state migrates |
+| Timestamp/temporary load-path observation | Input/absence/capability broker and immutable cohort | Untracked observations as cache authority |
+| Broad compile-module call | Explicit compiler queries and persistent dependency traces | Repeating the whole pipeline after an unrelated leaf change |
+| Independently written output files | One manifest commits the result group | File-existence-based acceptance of partial or mixed outputs |
+| Separate frontend workers and deferred native jobs | One budget authority with phase-specific scheduling | Duplicate scheduling authority/pools after caller migration |
+
+Current std/make already skips unrelated modules in ordinary leaf-edit cases;
+that skip cannot be counted as a newly invented benefit. The new opportunity is
+stage/result-level reuse within a changed module and early readiness across
+modules, while avoiding repeated import/support reconstruction. Its magnitude
+requires a baseline trace, not the number of nodes in a toy model.
+
+Initial query granularity is module × phase × stage × semantic profile. Arbitrary
+subform/function incrementalization is NOT presumed sound: hygiene, source identity,
+errors and compile-time effects can cross such cuts. The design permits later
+finer queries only after their own observational-equivalence contract. A module
+is a semantic container; it no longer has to be an indivisible scheduling unit.
+
+* RESEARCH Architecture and data contracts
+:PROPERTIES:
+:CUSTOM_ID: compiler-query-contract
+:END:
+
+#+begin_src text :eval never
+QueryId = (module, stage, phase, dialect, semanticProfile)
+InputEpoch = (source/absence observations, resolution policy, tool descriptions)
+ActionKey = hash(QueryId, rule/compiler identities, consumed dependency projections,
+                 admitted capability observations, semantic configuration)
+Result = (typed value/program/IR, dependency trace, effect class,
+          diagnostic/origin projection, output manifest, completion outcome)
+Session = (fresh identity domain, owned expander/optimizer/loader overlays,
+           instantiated phase modules, effect order, native borrow domain)
+#+end_src
+
+QueryId is logical identity; ActionKey is a content-dependent computation identity.
+An attempt/epoch is a separate execution identity. Hash equality assumes collision
+resistance plus validated typed encoding; pointer equality is not semantic identity.
+The trace includes rule/tool descriptions, negative lookups and dynamically selected
+phase support, not merely source filenames. Consumer projections may be narrower
+than full producer results only with an explicit observational proof. In particular,
+unchanged exports/signature cannot hide changed transformer code.
+
+Eight proposed result stages:
+
+1. Source syntax: reader inputs and syntax/location/identity observations.
+2. Binding interface: canonical exports, phase relations and binding identities.
+3. Phase program: executable transformer/helper/native-support closure and initializer plan.
+4. Session instance: fresh marks, contexts, mutable overlays and ordered initialization.
+5. Expanded semantic IR: completed expansion/normalization plus consumed diagnostics/effects.
+6. GVM contract: optimizer/SSXI facts and explicit ModuleSpec/FrameSpec/PointId/root duties.
+7. Generated modern C: code/layout emission from that contract.
+8. Native manifest: configured C compilation, linking and coherent publication.
+
+Not every stage is persistently cacheable. Session instances are owned live values;
+arbitrary macro closure heaps are not serialized and shared as if immutable.
+Reusable phase programs are separated from stateful execution instances. Lexical
+marks/bindings require canonical names and a proven reconstruction relation;
+gensym or address equality is not a reusable cross-session identity scheme.
+Opaque native callbacks, dynamic I/O, time, randomness or environment reads either
+enter an admitted tracked capability or keep the query owned and nonreusable.
+No effect is silently dropped merely to permit caching or parallel execution.
+
+** A source-level identity blocker that requires compiler redesign
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::27][compile-timestamp]] reads wall-clock time. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::679][Runtime emission]] embeds it in the
+module timestamp binding; [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/base.ss::198][quoted gensym reference generation]] also uses that
+value in generated symbol names. Together with fresh expander marks and mutable
+phase instances, this prevents treating every current compiler result as a pure
+function of source bytes. This is an architectural identity problem, not just a
+cache lookup or a lock-size issue.
+
+The proposal separates SemanticId (canonical binder/expansion lineage), InstanceId
+(fresh session/module instantiation) and AttemptId (producer provenance/time).
+The reconstruction proof must preserve distinctions/equalities visible through
+quoted symbols, syntax and cross-module references. Stable hashes cannot replace
+fresh semantic identity indiscriminately. Source-position-only names may cause
+broad invalidation on insertion; finer stable names need their own correctness
+and uniqueness proof.
+
+Timestamp is not silently removed from observable behavior. A reusable profile
+must explicitly specify build-time policy and whether a stored producer stamp is
+acceptable; a query requiring current wall-clock semantics remains nonreusable
+or tracks that clock input. A clean-build oracle uses the same declared policy
+and input epoch. Backend/native output reuse is blocked until this identity/time
+contract is established. Moving a mutable cache into another language does not
+solve this dependency.
+
+* RESEARCH The algorithm, not just more workers
+:PROPERTIES:
+:CUSTOM_ID: compiler-query-algorithm
+:END:
+
+** Demand, trace validation and dynamic discovery
+
+For a requested QueryId:
+
+1. Obtain an immutable input cohort and the current rule/profile description.
+2. Consult prior dependency traces. Validate their consumed observations and
+   dependency projections in this cohort. A previous trace is a candidate, not
+   permission to ignore changed query code or capability policy.
+3. If an admitted successful result matches, materialize its manifest and finish
+   without rerunning that query. Validation and filesystem work still exist.
+4. Otherwise join or create the single producer for (ActionKey, epoch). Duplicate
+   requests wait on that producer; cancellation of one waiter does not cancel
+   shared work required by other waiters.
+5. Execute inside an owned session. Each new semantic/file/native dependency goes
+   through the broker. Suspend on an unready producer, release execution capacity,
+   retain attempt custody, and resume after its required projection is ready.
+   Dynamic cycles receive diagnostics; phase cycles are not assumed to have a
+   meaningful fixed point or silently broken by scheduling.
+6. Produce an attempt-owned output group. Before commit, validate its epoch/read
+   trace and producer authority. Changed input, failure, cancellation or unknown
+   completion cannot publish a reusable success. Stable old artifacts may remain
+   in the store, but are not labeled current for a new demand.
+7. Atomically commit the manifest, observed trace and result digest. Wake consumers
+   of changed projections only; equal consumed results cut propagation off.
+
+No-change means validating/reusing demanded results, not running gxc once more and
+hoping its native cache notices. A leaf edit affects its semantic query and true
+consumer closure. A changed macro implementation invalidates every consumer of
+that executable support even if its binding interface is byte-identical.
+An unchanged observable support result may allow cutoff; source locations or
+errors must be included when their changes are observable to that consumer.
+
+** Parallel scheduling and budgets
+
+Interface/executable-support readiness can unblock two independent consumer
+expansions before unrelated runtime objects finish. One consumer's native stage
+can overlap the other's expansion. One admission authority limits CPU, memory,
+file descriptors and native compiler slots; suspension releases CPU execution
+capacity but not necessarily retained memory. Budget retained sessions separately.
+No independent worker may start a second producer for the same key.
+
+Process-isolated sessions provide a possible early parallel execution boundary,
+with startup/serialization/IPC costs. Same-VM true multicore needs the separate T0
+GC/SMP runtime redesign; it is not obtained by changing a build-core variable.
+The eventual runtime must support these query/session contracts, not force the
+compiler to share mutable state to save process overhead.
+
+* RESEARCH Theory, comparison and Gambit-specific opportunity
+:PROPERTIES:
+:CUSTOM_ID: compiler-theory-and-comparison
+:END:
+
+[[https://simon.peytonjones.org/assets/pdfs/build-systems-original.pdf][Build Systems a la Carte]] separates scheduling from rebuilding, analyzes
+persistent traces and cutoff, and supplies a correctness framework. This design
+uses that distinction: a resource/suspending scheduler and a trace-validating,
+content-addressed rebuilder are separate modules. The paper does not prove this
+Scheme design correct, nor automatically model arbitrary macro side effects.
+
+[[https://raw.githubusercontent.com/ocaml/dune/main/src/memo/memo.ml][Dune Memo source]] exposes memoized computations, dependency tracking, cutoff
+and fiber composition. [[https://raw.githubusercontent.com/ocaml/dune/main/src/dune_engine/build_system.ml][Dune's build engine]] has explicit rule discovery/validation,
+state transitions and execution coordination. These are architecture lessons,
+not reasons to claim that Dune is just a file cache or that this proposal is
+already ahead of it. The links are inspected moving-source references; no pinned
+Dune source-simulation proof is claimed.
+
+[[https://ocaml.org/manual/5.5/comp.html][OCaml separate compilation]] and [[file:../../../vendor/ocaml/typing/persistent_env.ml::121][its persistent environment]] show explicit imported
+interface identity/consistency. We should learn interface boundaries and consistency
+checks, while accounting for Scheme's executable positive-phase macro support and
+fresh binding contexts. OCaml/Dune also support preprocessing/generation; do not
+claim exclusive ownership of compile-time computation.
+
+| Capability | Modern-system lesson | Proposed Gambit/Gerbil choice | Present conclusion |
+|---+---+---+---|
+| Incremental results | Stable typed contracts and dependency identity | Phase-aware QueryId/ActionKey and manifest | Proposed, not implemented |
+| Concurrent computation | Track dependency completion, isolate mutable state | Owned macro sessions plus suspending budgeted producer graph | Source isolation/refinement open |
+| Early cutoff | Compare the outputs a consumer actually observes | Separate binding interface from executable support and semantic/native projections | Cannot use signature-only equality for macros |
+| Persistent support | Reuse validated programs/artifacts | First-class positive-phase executable closure plus explicit instantiation plan | Potential specialization for Scheme; initialization work remains |
+| Backend evolution | Keep semantic results separate from target services | One GVM/runtime contract feeds modern C; optional LLVM/MLIR consumes the same contract | Decoupling does not require Zig |
+| Debuggability | Explain why a node ran or was reused | Every miss/wait/rejection identifies changed observation or unresolved authority | Maintenance/inspection value; no speed claim |
+
+Our defensible opportunity is to integrate Scheme's executable macro dependencies,
+hygienic identity reconstruction and GVM/native contracts into the same graph.
+This is a proposed specialization, not demonstrated superiority to Dune/OCaml.
+A stronger runtime can amplify Scheme control and C portability through explicit
+contracts, while the compiler can avoid repeating admitted computations. These
+are two connected refactoring lanes, not one undifferentiated GC project.
+
+* RESEARCH Quantitative baseline and falsifiable benefit
+:PROPERTIES:
+:CUSTOM_ID: compiler-benefit-baseline
+:END:
+
+Let W be actual demanded computation work, S its dependency/serialization span,
+P admitted execution capacity, H added validation/instantiation/transfer work,
+and M retained working memory. A scheduling lower bound is
+T >= max((W+H)/P, S) before additional contention/I/O. This is a bound, not a
+prediction that all tasks reach it. Duplicated work reduction and span reduction
+must be measured separately; keeping every core busy with redundant work is not
+an objective.
+
+| Scenario | What should disappear | What remains / must be counted | Refutation condition |
+|---+---+---+---|
+| Unchanged demand | Query/compiler/native re-execution for admitted matching results | Input/trace checks, store reads and materialization | Hidden input changes output despite accepted trace |
+| Leaf misc edit | wg expansion/native execution when consumed inputs are unchanged | Affected misc closure and link plus validations | Global state or effect order couples the sessions |
+| Macro code edit | Only downstream work beyond equal consumed projections | Changed phase program and all true consumers | Signature-only cutoff leaves stale expansion |
+| Independent consumers | Whole-module/object barrier on their expansion critical path | Real support dependencies, memory/IPC and contention | Isolation overhead or locks erase span saving |
+| Shared phase program | Preparation already duplicated by otherwise isolated workers | Fresh initialization/identity/overlay and transfer costs | Existing sticky cache already removes the alleged duplicate, or H >= avoided work |
+| Darwin native pipeline | Regeneration/recompilation under unchanged native keys | Correct ABI/header/compiler invalidation; cold GCC macro cost | Claimed cross-OS cause lacks matched stage evidence |
+
+Positive total-work benefit requires avoided work R > H; speed benefit further
+requires sufficient parallel slack and acceptable M/coordination. No invented
+speed ratio or person-days is used. The user's 12-core underuse and reported
+fivefold platform difference motivate decomposition, but are not measurements
+established in this study. Earlier patch receipts are not added together.
+
+The required future observation vector is: query executions/reuses by stage,
+trace/read validation count, changed projection edges, wait reasons, critical-path
+time, compiler/FFI time, bytes instantiated/transferred, peak retained state and
+native outputs produced. Theory admission precedes implementation/native tests.
+A result is rejected if semantics diverge, if hidden effects are omitted, or if
+added work and retention exceed removed work without compensating span benefit.
+
+* RESEARCH Formal instance, migration and proof ownership
+:PROPERTIES:
+:CUSTOM_ID: compiler-model-and-migration
+:END:
+
+The QNT instance has iter interface/support, misc and wg expansion/native nodes,
+one target link and one hypothetical dynamically discovered support node. The
+last is an algorithm control, not an observed new import. It is not the full
+production graph, nor the earlier GSC ten-node/74-action model. Its native nodes
+group GVM/C/CC stages for bounded exploration; production refinement must split
+and map all actual actions and consumers.
+
+The model checks per-key single flight, bounded active leases, suspension on a
+new dependency, epoch rejection, complete-group publication, leaf reuse, changed
+macro support and native-only invalidation. Cached values are validated through
+explicit traces; an independent clean-result function checks accepted values.
+Integer encodings stand for collision-free identities only in the bounded input
+range. Reusing conservative old traces can validate extra dependencies; no global
+optimality claim follows. Opaque controls deny cache reuse, not ordinary execution.
+
+Lean supplies eight conditional boundary/cost kernels. They are not the full
+inductive source simulation or proof of observational equivalence. IC-S depends
+on IC-H/I/E and session closure GS-S. The new architecture route belongs to the
+build planner; it does not depend on will-action admission. Historical lifecycle
+needs remain in the retained assurance ledger, not on this mainline dependency
+path. Runtime roots, QNT/Lean GC models and FFI notifier studies stay separate
+subsystems with explicit shared contracts.
+
+Migration sequence:
+
+1. Define typed result/effect/identity contracts and a source-complete query DAG.
+2. Replace global observation with the input/capability broker and immutable cohorts.
+3. Split interface/support/instance boundaries; move mutable expander/optimizer state
+   into owned sessions before retiring the protected global paths.
+4. Make semantic results and output groups explicit; replace direct consumer reads
+   with exact manifests, then retire the old whole-module completion authority.
+5. Unify scheduling authority and resource budgets; retire redundant pools only
+   after every producer/waiter/cancellation caller migrates.
+6. Qualify modern-C runtime/backend consumers and optional LLVM/MLIR separately.
+   Performance acceptance uses stage work/span/retention evidence after theory gates.
+
+This is a compiler and runtime protocol refactoring. A new build wrapper that
+still repeatedly calls the monolithic gxc path does not fulfill this design.
+
+* RESEARCH Supporting binary recovery has a bounded role
+:PROPERTIES:
+:CUSTOM_ID: compiler-descriptor-appendix
+:END:
+
+The [[file:../../modeling/tools/inspect-action-descriptors.py][read-only binary adapter]] recovered three return descriptors from the matched
+SQLite object/dSYM using native symbol/table layout, chained-fixup format 6 and
+Gambit setup/descriptor definitions. The records are retained with this study.
+L1 has RETI caller-size field 8, link 0, bitmap 0x3f03; L2/L3 have RETN size 5,
+link 0, bitmap 0x3. The maps specify marked frame positions, not dead GVM register
+masks. All three machine dead-register masks and the complete restore/effect
+closure remain unresolved. No module was loaded to populate the label table.
+
+The prior [[file:will-action-admission-design.org][action study]] lacked these recovered descriptors; this new evidence does
+not rewrite that historical receipt. The two proposed issuer cuts still lack
+original generation/loaded-image binding and required liveness/effect closure.
+[[file:../../../../../patches/gerbil-v19-darwin/receipts/d884-patched-staging-bootstrap-coverage.md][D884]] records a different isolated build. Its successful stages cannot certify
+this action's original compiler/input/output chain. No original complete generation
+record for the selected action was recovered in the inspected paths/receipts.
+This subproblem supports native-contract confidence; it contributes no direct
+incremental-build speedup and cannot replace the architecture above.

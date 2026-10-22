@@ -20,6 +20,12 @@ field, an ASCENT answer or a filename containing `evidence` does not automatical
 make its output a Git asset. Failed results may be important durable evidence;
 successful debug logs may be disposable.
 
+Compiled Lean modules (`.olean`), scratch text (`.txt`) and author/execution
+scripts (`.rb`, `.sh`) are not Evidence assets. Run artifacts belong in the
+existing task cache; maintained programs belong in source/tool/fixture directories.
+Reviewed prose uses Markdown or Org. A required input selection is structured
+data, not a dependency on a cached line-list file.
+
 | Class | Location | Retention and authority |
 | --- | --- | --- |
 | Source and research definitions | `src/`, `models/`, `library/`, `patches/`, Evidence DSL, Recipes and locks | Version in Git; exact source and policy remain bound inputs |
@@ -29,6 +35,16 @@ successful debug logs may be disposable.
 | Historical active workspace custody | Existing ignored `.data/fixtures` stores | Old references remain exact; active leases/quarantine stay with their original workspaces and are not silently moved |
 
 ## Framework Behavior
+
+- Python write validation rejects those four suffixes below `evidence/`, even
+  outside an active task scope. This also applies inside managed worktrees.
+  The repository check inspects both the working Evidence tree and the Git index,
+  so an external script or force-add cannot silently publish such files. Ignore
+  rules alone are insufficient because they do not remove already indexed files.
+- Publish selected typed observations through the existing publication commands;
+  never copy every child of a run directory into Evidence. An incidental file
+  being hashed does not change its storage class. No new archive, restore alias
+  or retention pin is required for disposable output.
 
 - The cache root is exactly `git rev-parse --show-toplevel` plus `.cache/`, not
   the current working directory or a caller-selected source subdirectory. Nested
@@ -65,6 +81,17 @@ successful debug logs may be disposable.
   first. Do not claim raw logs are archived when they are only local or deleted.
 
 ## Existing Evidence And Cleanup
+
+The mixed-run cleanup relocated 896 `.olean`/`.txt`/`.rb`/`.sh` files out of
+Evidence, plus one paired C fixture. Only the maintained registry review runner
+and its C fixture remain source assets, under `models/gambit/native/`.
+The remaining relocated files are ordinary task cache, not a durable archive.
+Current inventories dropped 851 incidental bindings; five selected model-input
+lists became explicit receipt data, and one unqualified web-cache dependency was
+removed. Receipt revisions identify this as storage-only, not new execution or
+qualification. Historical before/entry/predecessor snapshots and observed source
+digests are not refreshed to manufacture currentness. Existing selected failure
+results and native/formal outcomes are retained; scratch files need not be.
 
 The audit found 92 versioned workspace-state inventories (30,439,189 bytes).
 The 54 automatic records under `evidence/research/workspace-states` alone occupied

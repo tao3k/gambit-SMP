@@ -1,0 +1,358 @@
+#+TITLE: Native Root Views, GC Participation and Reentry
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+#+OPTIONS: toc:3
+
+* Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: native-root-decision
+:STATUS: conditional-design-source-refinement-open
+:MAINLINE: modern-generated-C
+:END:
+
+A native call may relinquish its active barrier acknowledgement only by
+publishing a complete, stable, collector-writable root view in the same
+membership transition. It retains a root obligation. Return or callback must
+reacquire an active participation permit *before* reading Scheme values.
+Freezing describes locations, layout and ordinary writer permissions; the
+collector must still update relocated references in those locations.
+
+This is a modern C runtime refactoring contract. Scheme retains GVM semantics,
+liveness, frame description, tail calls and continuation semantics. Generated
+C supplies explicit root/activation descriptors; runtime services arbitrate
+participants, workers and relocation rights. Zig supplies no separately proved
+reduction in runtime work for this contract.
+
+The authority is [[file:models/sysml/native-root-reentry.sysml][GambitNativeRootReentry]]. Its native projection drives the
+[[file:native-root-reentry-matrix.org][caller, cost and closure matrix]] and [[file:diagrams/native-root-reentry.d2][D2 graph]]. The
+[[file:../../../modeling/ascent/native-root-reentry.rules.scm][ASCENT rules]] check exact artifact digest, method, check and scope, with
+dependency closure. The [[file:../../../../models/gambit/native_root_reentry.qnt][QNT model]] and
+[[file:../../../../models/gambit/lean/NativeRootReentry.lean][Lean model]] concern conditional abstract behavior. They do not establish
+current C FFI safety or an installed platform's memory-order implementation.
+
+The maintained receipt is [[file:../../../../evidence/research/native-root-reentry/checks.json][checks.json]]. No runtime implementation,
+native test, benchmark, path retirement, commit or push is part of this study.
+
+* Source baseline and actual writers
+:PROPERTIES:
+:CUSTOM_ID: native-root-source
+:END:
+
+** Generated entry spills are useful, but are not a participation protocol
+
+[[file:../../../../vendor/gambit/gsc/_t-c-1.scm::2131][targ-begin-cod]] emits resource-dependent access declarations; generated
+[[file:../../../../vendor/gambit/lib/_kernel.c::9017][MR_ALL/MW_ALL]] include heap/frame pointers and registers. In
+[[file:../../../../vendor/gambit/include/gambit.h.in::10325][BEGIN_CFUN_CTX / END_CFUN_CTX]], the C entry saves RA, writes all
+declared resources and later reloads them. The hp/fp accessors at 6978–6992
+connect C locals to PSTATE. These are reusable materialization points. They
+do not close root writers, publish a participant snapshot or grant an
+independent collector access.
+
+PSTATE contains r[], saved[3] and type_cache[2] at 11618–11625, alongside
+non-root temporaries. [[file:../../../../vendor/gambit/lib/mem.c::6510][mark_registers and adjacent root routines]] explicitly scan the
+root arrays, processor state and VM state. A new descriptor must preserve
+this classification rather than scan arbitrary C words or assume every
+temporary is a Scheme root.
+
+[[file:../../../../vendor/gambit/include/gambit.h.in::8059][GC_SAVE/RESTORE]] writes canonical saved slots, reloads them after a
+possible collection and clears them. Real uses include vector construction
+at [[file:../../../../vendor/gambit/lib/_kernel.scm::2420][2420–2440]] and frame return construction at 3568–3586. Type-cache writes
+occur in [[file:../../../../vendor/gambit/lib/_io.scm::5067][I/O type conversion]]; setup initializes these roots at
+[[file:../../../../vendor/gambit/lib/setup.c::4721][4721–4727]]. These writers belong in generated coverage and activation
+banks. The single saved[3] bank cannot be assigned simultaneously to a
+suspended native parent and its nested managed callback.
+
+** Moving roots, continuation frames and denv
+
+[[file:../../../../vendor/gambit/lib/mem.c::3490][mark_array]] writes forwarding results back through the root cell.
+[[file:../../../../vendor/gambit/lib/mem.c::3820][mark_frame]] uses GC maps; [[file:../../../../vendor/gambit/lib/mem.c::3895][mark_continuation]] decodes frame sizes/link
+coordinates and may rewrite return-address/frame information before following
+captured continuations. Thus retaining an object through a detached list of
+values is insufficient: original C locals and resumed frame locations would
+still contain old addresses.
+
+Denv is also live mutable state: continuation-denv setters at
+[[file:../../../../vendor/gambit/include/gambit.h.in::5915][5915–5929]], return/graft paths at 6658–6665 and 6726–6733, and
+[[file:../../../../vendor/gambit/lib/_thread.scm::352][thread denv cache refill/reorder]] plus clear sites at 1637 and 6676.
+Coverage must include both canonical denv roots and cache writers. Captured
+frame/denv topology must remain pinned while a scanner or suspended activation
+can follow it; freezing C register slots alone is not sufficient.
+
+** RC and callback callers
+
+[[file:../../../../vendor/gambit/lib/mem.c::684][RC allocation, register, release and data access]] form a real writer/lifetime
+family. register_rc links the current PSTATE; set_data_rc and data_rc are plain
+accesses; release can unlink/free the header. [[file:../../../../vendor/gambit/lib/mem.c::3969][mark_rc]] follows the current
+PSTATE chain, but the strong phase at [[file:../../../../vendor/gambit/lib/mem.c::6812][6812–6870]] invokes it only on
+processor zero. A canonical all-domain RC registry is a refactoring obligation.
+This source mismatch alone is not proof that every supported configuration
+currently reaches an unsafe nonzero-processor registration.
+
+The Tcl example is a concrete ordering witness:
+
+1. [[file:../../../../vendor/gambit/examples/tcltk/tcltk.scm::288][define-procedure]] allocates RC, constructs a Scheme vector, writes its
+   payload and calls Tcl_CreateCommand.
+2. [[file:../../../../vendor/gambit/examples/tcltk/tcltk.scm::134][scheme_call_cmd]] reads ___data_rc(client_data) *before* entering
+   tcltk_call. Reentry cannot be delayed until the Scheme body starts.
+3. [[file:../../../../vendor/gambit/examples/tcltk/tcltk.scm::217][tcltk_call]] extracts the procedure and applies it; the native wrapper also
+   translates arguments/results. Deletion at 174–196 releases the payload and
+   RC header. Header borrow/retire protection must cover an in-flight callback.
+4. [[file:../../../../vendor/gambit/lib/c_intf.c::6511][make_sfun_stack_marker]] allocates before initializing the procedure root;
+   its source explicitly records the pre-allocation-rooting concern.
+   [[file:../../../../vendor/gambit/include/gambit.h.in::10043][SFUN entry macros]] create this marker before conversions. The procedure
+   must therefore be rooted *before* marker allocation, after reentry.
+
+Native string conversion at [[file:../../../../vendor/gambit/lib/c_intf.c::3210][3210–3258 and 3270–3290]] allocates a native
+RC-backed buffer and reads Scheme characters into it. That conversion needs
+managed access until copying completes; only the subsequent native-byte phase
+may use a released profile. Tcl_Eval and Tcl_DoOneEvent are actual nesting
+points at [[file:../../../../vendor/gambit/examples/tcltk/tcltk.scm::271][271–276]] and 350–359.
+
+[[file:../../../../vendor/gambit/lib/os_dyn.c::744][c_closure_self]] is a static global with a TODO for thread locality in the
+conditional C_CLOSURE_CODE_SIZE implementation. Thread locality alone would
+still need nested identity save/restore. Use activation-scoped identity and a
+generation check; do not assume this generated trampoline profile is enabled
+or supported on current Darwin arm64. [[file:../../../../vendor/gambit/lib/os_thread.c::697][thread_set_pstate]] sets binding and
+affinity, not root ownership or a mutator permit. [[file:../../../../vendor/gambit/lib/setup.c::3330][call/run]] also update fp,
+R0 and self and create/kill markers. These are separate binding and activation
+obligations, not implied by a matching thread-local PSTATE pointer.
+
+* Proposed native contract
+:PROPERTIES:
+:CUSTOM_ID: native-root-contract
+:END:
+
+** Descriptors and ownership
+
+#+NAME: native-root-records
+| Record | Required content | Authority |
+|--------+------------------+-----------|
+| RootCoverageSpec | PointId, FrameSpec coordinates, live register classes, denv/cache/RC domains and reload destinations | Scheme semantic/liveness completion |
+| FrozenRootView | context generation, activation ID, view revision, canonical writable locations, layout descriptors, root/frame/RC lifetime pins | root service; published under phase gate |
+| NativePermit | no managed payload access, native byte/handle profile, operation identity, parent activation | participation service |
+| ScanLease | view revision, worker role, collection epoch, exclusive relocation-cell write right | collector phase service |
+| RelocationAck | canonical updates complete for the latest admitted epoch; scan lease released | collector |
+| ReentryPermit | current context/binding generation, active participation, protected reload window | phase arbiter |
+
+An immutable descriptor may point at cells that the collector changes. A plain
+native reader of those cells is prohibited while released. STILL fixes shell
+location, not the addresses of its children or the race semantics of plain
+field reads. Opaque handles may retain roots but must be resolved after reentry.
+Hidden raw/interior aliases require an independently qualified pin/access
+profile or rejection; conservative retention alone cannot repair them.
+
+Stable PSTATE/activation-bank cells and pinned RC headers can use direct cell
+addresses. A field inside a movable captured heap frame needs a locator based
+on its relocated owner handle and FrameSpec, or a proved relocation/writeback
+mapping. A raw interior address cannot be frozen across movement. Frame pins
+here retain the required lifetime and layout metadata; they do not silently
+make every captured Scheme object nonmoving. NR-COVERAGE/NR-SCAN must refine
+this distinction before any frame-scanning adapter is admitted.
+
+** Entry and collection membership
+
+1. At a managed safepoint, retain active participation, spill live C values,
+   close new ordinary writers/borrowers, drain existing ones and pin storage.
+2. If a collection intervenes during preparation, participate in that round or
+   restart preparation. An unfinished view must not replace an active member.
+3. In one phase-gated commit publish the complete view and transfer the active
+   acknowledgement duty to a frozen-root duty. Collection snapshots include
+   every context exactly once; a view publication and membership change cannot
+   be observed separately.
+4. Issue the native permit only after publication. A pure-native caller may
+   use copied bytes and opaque identities. An unknown native operation result
+   does not by itself revoke independently valid root coverage.
+
+For N contexts and K qualified released contexts, active acknowledgement
+targets become N-K; root obligations remain N. The design does not let a
+copying collector arbitrarily race other active managed mutators. Other
+contexts and global moving-GC phases retain their coordination obligations.
+An independent worker has a CollectorWorkContext; it must not reinterpret its
+worker ID as the context's PSTATE or processor count. Existing global-root
+partitioning at [[file:../../../../vendor/gambit/lib/mem.c::6593][6593–6663]] and collective phase boundaries at 6998–7048
+must be adapted together with root addressing and allocation/scan cursors.
+
+** Return, callbacks and nested activation
+
+1. Request reentry before the first managed read, including RC payload lookup.
+   Arbitrate against round admission under the phase gate. If the view is
+   already enlisted, its pending or running scan remains owed and may still
+   be claimed/completed after the request. Prevent later round enlistment from
+   overtaking this return. Closing every unclaimed scan would deadlock return
+   against an already-published collection obligation.
+2. Under the same phase arbiter validate context/binding generation, canonical
+   root coverage, latest relocation acknowledgement and absence of writer
+   ambiguity. Grant active participation/mutator permission.
+3. Release the short metadata lock, then reload live C locals from updated
+   canonical cells while the permit prevents a new moving scan. A new GC
+   request now waits for the active context's safepoint. Epoch comparison
+   followed by an unprotected reload is not sufficient.
+4. For callback entry, pin the outer activation; allocate a distinct root bank,
+   root the callback procedure, then allocate the marker and convert arguments.
+   Nested native calls return to this callback activation. Callback completion
+   exports the C result and publishes a fresh parent view revision before
+   restoring pure-native execution.
+5. Ordinary return retires the frozen view only after scanner/borrow/return
+   pins drain. Published operation recovery and no-escape obligations remain
+   governed by [[file:still-completion-lifetime-design.org][native completion/lifetime]], not by the root protocol alone.
+
+An unqualified nonlocal continuation/exception crossing a foreign activation
+cannot silently discard these duties. Preserve Scheme control semantics using
+a separately qualified boundary, or refuse the released profile. The protocol
+does not infer that a callback's result completes the outer native operation.
+
+** Modern C ordering and exceptional custody
+
+Use one short-lived phase/membership mutex (or a proved equivalent atomic
+state machine) for view publication, scan grant and active-permit arbitration.
+Spills, descriptors and pins precede publication. Worker acquisition happens
+after it; relocation writes precede ack publication. The reentry acquirer
+observes those writes before reload. Mutex release/acquire can supply these
+happens-before edges; a lock-free realization needs equivalent release/acquire
+publication plus a lifetime protocol, and a separate C weak-memory proof.
+An atomic epoch field alone does not make ordinary payload accesses safe.
+
+Never hold this metadata lock across a native call, marker allocation, moving
+scan, callback or a blocking drain. Record the obligation under the lock,
+release it, wait while retaining custody, then revalidate generation/epoch.
+Reentrant callbacks acquire an activation-specific permit, not the outer
+lock recursively. If the arbiter owner dies or partially changes shared state,
+retain/poison and refuse handoff; no automatic robust-mutex repair is proved.
+
+#+NAME: native-root-unknowns
+| Observation | Scan | Reentry / handoff | Custodian |
+|-------------+------+-------------------+-----------|
+| Native result unknown; writers closed and view valid | Conditionally allowed | Operation handoff waits outcome; callback uses own permit | operation record plus canonical root service |
+| View already enlisted, scan pending or in flight | Owed scan may be claimed/completed | Wait for that round; later enlistment is arbitrated | phase ledger, scanner and pinned root service |
+| Stale detached C local | Canonical scan allowed | Reload under active permit required | suspended activation |
+| Unknown root writer or raw borrower | Refuse scan admission | Refuse transfer; no stop inferred | source activation/domain |
+| Unknown binding, callback identity or marker protection | View scan only if separately valid | Refuse managed entry | activation/binding service |
+| Partial/dead-held publication gate | No new authority | Refuse handoff | poisoned domain; capacity may remain retained |
+| Collector allocator or foreign corruption unknown | No progress guarantee | Refuse inferred recovery | affected allocator/domain |
+
+* Conditional proofs, counterexamples and source refinement
+:PROPERTIES:
+:CUSTOM_ID: native-root-proof
+:END:
+
+The QNT model uses one context, two abstract canonical root cells (register and
+RC), two GC epochs and callback depth at most two. Worker identity is distinct
+from context identity. Actual frame/denv traversal and binding restoration are
+premises. Thirty-one named histories include five unsafe controls; 100 sampled
+traces of at most 100 steps with seed 17 found no invariant violation. This is
+bounded, non-exhaustive evidence, not a progress proof or a full heap model.
+
+Lean checks 22 named declarations: coverage composition and missing-root
+rejection; writer/borrow/unknown rejection; active/frozen-duty conservation
+through Step and Trace; scan/grant exclusion; protected reload; callback
+rooting/parent pins; view generations and retirement pins. These are proofs of
+the stated abstract predicates and a small duty transition relation, not a
+simulation of every QNT action or generated C instruction.
+
+#+NAME: native-root-counterexamples
+| Counterexample | Failure | Required prevention |
+|----------------+---------+---------------------|
+| Publish before the last root writer leaves | Collector races a plain root write | close and drain writers before publication |
+| Grant active access during a scan | C reads moving cells concurrently | scan/grant exclusion under one arbiter |
+| Keep an object live in a detached list, resume old local | stale pointer despite reachability | canonical writable cell plus protected reload |
+| Allocate marker before rooting callback procedure | allocation may collect the procedure | activation bank before marker allocation |
+| Restore old parent view after callback | relocated roots / view revision discarded | fresh parent revision and retained parent pins |
+| Reentry closes an enlisted but unclaimed scan | return waits for an ack that cannot be produced | retain owed work after request; round admission and worker claim are distinct |
+
+An arbitrary uninstrumented writer during an admitted scan can break the model
+invariant. The model does not promise to detect that writer. NR-COVERAGE and
+NR-FREEZE must establish closure before admission, including FFI/deletion paths.
+
+#+NAME: native-root-refinement-cuts
+| Need | Concrete obligation before closure |
+|------+------------------------------------|
+| NR-COVERAGE | PointId/frame/register/denv/RC mapping covers every source root and reload destination |
+| NR-FREEZE | all writer and borrow producers participate; storage pins cover scanner and suspended parents |
+| NR-MEMBER | active acknowledgement and frozen-root duty transfer linearizes against phase snapshots |
+| NR-SCAN | CollectorWorkContext adapter preserves maps, frame mutation and canonical RC root updates |
+| NR-REENTRY | latest-epoch ack, binding restoration and active permit protect the complete reload interval |
+| NR-FFI | callback first load, marker, deletion, native copies and nested identity have qualified custody |
+| NR-ORDER | actual C atomic/mutex ordering, withdrawal, machine arithmetic and platform callbacks refine the abstract steps |
+
+The SysML boundary has 16 needs, 31 dependency edges, seven source routes and
+12 caller families. Only NR-H and NR-I have exact local formal receipts. Six
+new source needs, seven imported source needs and one native-memory-order need
+remain unresolved: *13 source gaps plus one platform/order gap*. No component
+is admitted. Five ASCENT cases retain wrong-scope/stale-digest/missing-history
+rejections and a clearly synthetic all-scoped control. Source anchors and
+diagram links are traceability evidence, not source-simulation receipts.
+
+** Historical binding limitation
+
+The preserved still-completion-lifetime receipt names
+models/gambit/still_receipt_admission.qnt in its QNT artifact field, although
+its history counts describe the completion/lifetime study. That binding does
+not establish that study's exact QNT evidence. The old receipt is not rewritten
+or inherited as a formal root here. Only its explicitly open NC-ENVELOPE and
+NC-RESTORE source obligations are imported. This study binds NR-H to
+models/gambit/native_root_reentry.qnt and checks its digest against its actual
+history and simulation logs; NR-I binds the actual Lean artifact and axiom log.
+
+* Learning and reflection
+
+[[https://ocaml.org/manual/5.3/intfc.html][OCaml's C interface manual]] separates explicit local roots from runtime
+ownership and requires runtime reacquisition before callbacks. The useful
+lesson is an ownership boundary around managed access. Gambit must additionally
+account for GVM resource spills, continuation frame mutation, processor-linked
+RC chains and reentrant marker roots; transplanting the API names would not
+solve these obligations. Copy native arguments while still managed, then
+release only a qualified byte/handle phase.
+
+[[https://anil.recoil.org/papers/2020-icfp-retropar.pdf][Retrofitting Parallelism onto OCaml]] motivates separating blocked native
+execution from collection participation while preserving language semantics.
+For Gambit this is a proposal to remove an architectural coupling, not evidence
+that current SMP already supports independent workers or that root scanning
+has become cheaper. C11 ordering terminology follows
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570]]; actual platform refinement remains NR-ORDER, not a claimed receipt.
+
+* Migration and net benefit
+:PROPERTIES:
+:CUSTOM_ID: native-root-migration
+:END:
+
+1. Scheme emits RootCoverageSpec from live resources/FrameSpec; inventory all
+   generated and native writers. Replace implicit root-layout interpretation
+   only after point-by-point coverage and reload equivalence.
+2. Introduce activation banks and canonical RC domains, including nonzero
+   processors and cleanup/deletion. Existing RC header lifetimes cannot retire
+   before all borrowers and scanners move to the new domain contract.
+3. Separate context participation from collector work state and migrate phase
+   snapshots/global partitioning together. Retire processor-equals-worker
+   assumptions only when every root family and GC/resize caller is covered.
+4. Move native/callback admission ahead of the first Scheme access; migrate
+   conversion, marker, binding, nested identity and exceptional exits. Retire
+   raw payload-before-entry and shared activation-bank paths per qualified
+   profile, never by adding an unchecked wrapper.
+5. Qualify native memory order and platform callback/control behavior before
+   independent-worker use. Existing fallback remains necessary for unqualified
+   foreign code; it must retain active participation or refuse admission.
+
+The [[file:native-root-reentry-matrix.org][SysML-derived matrix]] reports work counts and retained memory rather than
+person-days or hypothetical speedups. R denotes live root cells, D descriptor
+blocks, U live exported C locals, A simultaneous native/callback activations,
+and Bcopy copied native bytes. Canonical-cell reuse permits O(D+U) entry
+metadata work only when existing spills and stable blocks suffice. A flat
+value-copy profile is O(R). Root scanning remains O(R), and reload is O(U).
+
+#+BEGIN_QUOTE
+Conditional whole-round memory:
+P = max_t [existing live heap/backing(t) + native-copy backing(t)
+          + activation/descriptor/pin backing(t) + retained frame spans(t)].
+Count each physical backing once; a descriptor pointing into an existing
+PSTATE block does not allocate that block again. Logical unpin is not physical
+free. No whole-round peak reduction has been established.
+#+END_QUOTE
+
+Positive architectural benefit requires a meaningful set of long native calls
+with closed managed access, less barrier waiting than new transition/copy/drain
+cost, and bounded retained activation/root backing. Frequent callbacks, large
+copies, unqualified aliases or prolonged parent pins can reverse the benefit.
+Root correctness and tail/continuation capability are strengthened by explicit
+coverage and activation contracts; they are not sacrificed to obtain release.
+Modern C can express the complete mechanism. No additional Zig benefit is
+claimed until a distinct necessary support workload is demonstrably eliminated.

@@ -98,7 +98,7 @@ mutation aborts do not create core dumps.
 Given a separately materialized current source matching the existing lock:
 
 ```sh
-evidence/review/registry-retirement-reuse/run.sh "$PWD" MATERIALIZED_SOURCE FRESH_OUTPUT
+models/gambit/native/registry-retirement-reuse/run.sh "$PWD" MATERIALIZED_SOURCE FRESH_OUTPUT
 ```
 
 The output must be new; source SHA mismatch fails before compilation. Current

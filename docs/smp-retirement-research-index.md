@@ -38,3 +38,55 @@ Original receipts and model identities:
 ## Versionable validation summary
 
 The [compact validation summary](../evidence/research/smp-retirement-study/validation-summary.json) retains original model/receipt hashes, per-check outcomes, decoded mutation witnesses and the normal-path timing comparison in the repository. The original normal timeout remains; the same model, compiled TLA/config artifacts, JVM/jar and worker/heap configuration passed the diagnostic in 4.334 seconds within the same combined 30-second cap. The preparation model has three positive passes, seven decoded controls and two actual trajectory passes. Earlier timeout cases and the empty-selection test correction remain explicit. These are research results, not a change from native acceptance 8/12.
+
+
+## Two donors and repeated GC
+
+The [multi-donor study](smp-retirement-multi-donor.md), [QNT model](../models/gambit/retirement_multi_donor.qnt) and [validation](../evidence/research/smp-retirement-study/multi-donor-validation.json) add two positive safety/liveness passes, seven decoded mutation controls and one explicit trajectory. A Ready donor stays available while another fails; a second GC updates donor and error roots before current-epoch abort. Callback/global closure/common completion are distinct. Source refinement and complete native gates remain open; acceptance stays 8/12.
+
+
+## Queue, epoch and typed-root implementation contract
+
+The [gate-9 implementation contract](smp-retirement-implementation-contract.md), [two-epoch QNT](../models/gambit/retirement_epoch_queue_roots.qnt) and [validation](../evidence/research/smp-retirement-study/epoch-queue-roots-validation.json) specify local callback completion, global preparation closure and common completion. Prefer one-node pop with the untouched suffix retained in the existing queue. Two positive checks, ten decoded mutations and two explicit trajectories pass. Will/testator strongification, unscanned RC payloads, stale real prior-epoch acks and unsafe suffix reuse are rejected. Four minimal edit surfaces and unresolved callback/root/native premises are explicit; acceptance remains 8/12.
+
+
+## Unified mechanism model and implementation handoff
+
+The [integrated plan](smp-retirement-integrated-plan.md), [single QNT](../models/gambit/retirement_integrated.qnt) and [validation](../evidence/research/smp-retirement-study/integrated-validation.json) now combine P0/two donors, two GC rounds per epoch, two epochs, queue disposition and typed root coverage in one state machine. Three safety/conditional-completion passes, seventeen decoded controls and two named trajectories pass under existing caps. Four function-level implementation surfaces, call order and remaining sufficiency blockers are explicit. The earlier integrated run is retained with its narrower will-owner assumption; no native gate is upgraded.
+
+
+## Actual C work closure and caller-root refinement
+
+The [C handoff audit](smp-retirement-c-handoff.md), [unified-model successor](../models/gambit/retirement_c_handoff.qnt) and [validation](../evidence/research/smp-retirement-study/c-handoff-validation.json) distinguish encoded immediate errors, cross-GC saved error roots, normal Scheme PSR1 installation, explicitly rooted external C callers and unsupported raw/catcher-only retention. Work closure includes late publication, scanner return and the full GC epilogue; typed still/RC/frame/will ownership is explicit. Five TLC positives and twenty-six decoded controls pass. Three default Rust trajectory calls fail at evaluator recursion parsing and remain recorded; the exact same model passes three actual named trajectories on the installed TypeScript evaluator under unchanged caps. This is source/finite evidence, not native admission; acceptance stays 8/12.
+
+
+## Donor Scheme execution ownership and private work
+
+The [donor ownership audit](smp-retirement-donor-ownership.md), [unified successor](../models/gambit/retirement_donor_ownership.qnt), [importing trajectory tests](../models/gambit/retirement_donor_ownership_tests.qnt) and [validation](../evidence/research/smp-retirement-study/donor-ownership-validation.json) distinguish active GC-visible frames, stack-backed thread-save, typed captured-continuation materialization, private incomplete chunks and unique scheduler ownership. Five positives, 32 decoded controls and three trajectories pass under original limits. Existing scanners/save/restore can be reused; a concrete Scheme-safe-point/C-collective scheduler publication/abort protocol remains the largest source-refinement blocker. The interrupted output-truncated batch and its reconciliation remain explicit; no runtime/framework change or native admission.
+
+
+## Scheme safe-point and C collective protocol
+
+The [function-level protocol](smp-retirement-safe-point-protocol.md), [unified QNT](../models/gambit/retirement_safe_point.qnt), [trajectory module](../models/gambit/retirement_safe_point_tests.qnt) and [validation](../evidence/research/smp-retirement-study/safe-point-validation.json) replace the precommit runnable-publication shortcut with a rooted parked owner through C3, followed by exactly one survivor activation or original-owner restore. Five positives, 39 decoded controls and three trajectories pass (48 effective checks). A third helper GC uses old membership on abort and reduced membership on success. P0/direct-C helper entry, opcode wait/GC priority, queue critical-section refinement and postcommit faults remain implementation blockers; native acceptance remains 8/12.
+
+
+## P0 raw c-lambda and direct-C bridge refinement
+
+The [P0 bridge study](smp-retirement-p0-completion-bridge.md), [unified QNT](../models/gambit/retirement_p0_bridge.qnt) and [validation](../evidence/research/smp-retirement-study/p0-bridge-validation.json) identify the actual ___call/return_to_c/marker control mechanism and shared current_vm_resize_admitted placement, including shutdown bypass of the public wrapper. Eight positives, 51 decoded controls, five trajectories and typecheck pass (65 checks). Scheme-caught errors must match-return before retry; raw C unwind has no normal-frame restoration guarantee. P already fixes the B marker-proc root TODO. Prepared direct-C context, helper registration/pinning, exceptional disposition and native acceptance remain open; progress remains 8/12.
+
+
+## Shutdown context and helper registration
+
+The [shutdown context study](smp-retirement-shutdown-context.md), [unified QNT](../models/gambit/retirement_shutdown_bridge.qnt) and [validation](../evidence/research/smp-retirement-study/shutdown-context-validation.json) distinguish setup admission, Scheme/helper readiness and matching host return. `(exit 0)` can use raw unwind; ___run lacks an all-path marker finalizer. Proposed per-VM scanned slot-2 registration, P0 execution claims, explicit-migration exclusion and retained raw-context disposition are source-mapped. Eleven positives (eight normal, one opaque-suffix retention, two unsafe-context retentions), 63 decoded controls, eight trajectories and typecheck pass: 83 checks. Retention is not recovery; native acceptance remains 8/12.
+
+
+## Pre-exit landing pad and original TFIB failure frontier
+
+The [landing-pad source contract](smp-retirement-exit-landing.md), [experimental unified QNT](../models/gambit/retirement_exit_landing.qnt) and [validation summary](../evidence/research/smp-retirement-study/exit-landing-validation.json) add worker-origin intent, callback failure/reentrancy and per-invocation marker disposition. Typecheck and 12 explicitly selected TypeScript trajectories pass. TLC never starts because the unchanged compiler RPC string limit is exceeded; ten planned positives and nineteen negative initializers are not exhaustively validated. Previous 83-check evidence remains attached to its earlier hash.
+
+The [repair-9 TFIB investigation](smp-repair9-tfib-sigsegv.md) records the user-reported original `(go 15 5000)` SIGSEGV separately from the subsequent interrupt2 timeout and retirement design. All 21 locked vector-inc candidate source files were reconstructed and hash-checked offline. Static normal-completion counts and the creation/join/wakeup/save/restore last-consumer table narrow the investigation; missing crashing-binary/PC evidence still prevents causal attribution. No runtime edit, native run, peer operation or gate upgrade; native acceptance remains 8/12.
+
+
+## Verified TFIB crash and finite GC/handoff envelope
+
+The [binary/crash/source study](smp-repair9-tfib-crash-binding.md), [QNT model](../models/gambit/tfib_gc_handoff.qnt), [binary binding](../evidence/research/smp-retirement-study/tfib-crash-binding.json) and [validation](../evidence/research/smp-retirement-study/tfib-gc-model-validation.json) bind source-core build-4 gsi 5620dd70… to the existing mark_array +104 crash by SHA/UUID/PID/parent/time. Correct generated defaults, scalar F64 dispatch, early forwarding versus copy readiness, root-copy/FIFO barriers and frame-map routes are distinguished. Nineteen checks pass: typecheck, two positives, twelve decoded controls and four trajectories. First corrupting writer/native source refinement and large shutdown-model composition remain open; no native run or gate upgrade, still 8/12.
