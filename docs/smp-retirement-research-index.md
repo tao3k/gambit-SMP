@@ -90,3 +90,13 @@ The [repair-9 TFIB investigation](smp-repair9-tfib-sigsegv.md) records the user-
 ## Verified TFIB crash and finite GC/handoff envelope
 
 The [binary/crash/source study](smp-repair9-tfib-crash-binding.md), [QNT model](../models/gambit/tfib_gc_handoff.qnt), [binary binding](../evidence/research/smp-retirement-study/tfib-crash-binding.json) and [validation](../evidence/research/smp-retirement-study/tfib-gc-model-validation.json) bind source-core build-4 gsi 5620dd70… to the existing mark_array +104 crash by SHA/UUID/PID/parent/time. Correct generated defaults, scalar F64 dispatch, early forwarding versus copy readiness, root-copy/FIFO barriers and frame-map routes are distinguished. Nineteen checks pass: typecheck, two positives, twelve decoded controls and four trajectories. First corrupting writer/native source refinement and large shutdown-model composition remain open; no native run or gate upgrade, still 8/12.
+
+
+## Combined wait/fault/VM-exit draft
+
+[Repository-owned combination QNT](../models/gambit/wait_fault_exit_composition.qnt), SHA256 004fd9036cd72feaf859492fa800444d56ffc56ba9e9390c8ef6cc2749db2312, and [pending status](../evidence/research/smp-retirement-study/wait-fault-exit-composition-verification.json). New draft only;23 authored profiles remain unverified pending production custody.
+
+
+## Wait backend/coordinator implementation contract
+
+[Concrete functions, fields and ordering](smp-repair9-wait-backend-coordinator-contract.md), repository-owned combined QNT with27 profiles/8 trajectories (unverified). Covers P release, deadline distinction, actual P0 carrier and VM/device/root final consumers.
