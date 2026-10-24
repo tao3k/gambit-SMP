@@ -181,6 +181,15 @@ def reconcile(root,row):
     from gambit_smp.process_identity import boot_id,process,same_birth
     protocol=row.get('spawnProtocol')
     if not protocol:return None
+    current_boot=boot_id()
+    if protocol.get('bootId') and protocol['bootId']!=current_boot:
+        # Kernel processes and inherited lock FDs cannot survive a boot. Do
+        # not authenticate replacement files, claim an exit status, or reuse
+        # their outputs merely because the historical process is now gone.
+        return dict(result='prior-boot-process-ended',targetExecuted=None,
+                    previousBootId=protocol['bootId'],currentBootId=current_boot,
+                    outputsAdmitted=False,replayAuthorized=False,
+                    method='kernel-boot-boundary-no-output-admission')
     directory=bounded(root,protocol['directory']);lock=os.open(directory/'custody.lock',os.O_RDWR|os.O_NOFOLLOW)
     try:
         stat=os.fstat(lock)

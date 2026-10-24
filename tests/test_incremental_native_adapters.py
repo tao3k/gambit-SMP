@@ -44,11 +44,13 @@ class NativeIncrementalAdapterTests(unittest.TestCase):
                          'processesPerWorker': 1}
     setUp = fixtures.WorkspaceTests.setUp
 
-    def lock(self, edited=False):
+    def lock(self, edited=False, fragment=False):
         name = 'lib/os_thread.c'
         before = subprocess.check_output(['git', '-C', str(self.root / 'vendor/gambit'),
             'show', self.revision + ':' + name]).decode()
         after = ('/* Incremental source identity control. */\n' if edited else '/* Cold source identity control. */\n') + before
+        if fragment:
+            after = '#include "memory/control.inc"\n' + after
         patch = ''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
             fromfile='a/' + name, tofile='b/' + name))
         overlay = self.root / 'patches/control.patch'; overlay.parent.mkdir(exist_ok=True); overlay.write_text(patch)
@@ -58,6 +60,15 @@ class NativeIncrementalAdapterTests(unittest.TestCase):
             patchSha256=digest(overlay), runtimeAdmitted=False, releaseAdmitted=False,
             files={name: dict(baseSha256=hashlib.sha256(before.encode()).hexdigest(),
                              candidateSha256=hashlib.sha256(after.encode()).hexdigest())})
+        if fragment:
+            name = 'lib/memory/control.inc'
+            payload = '/* New locked compilation input. */\n'
+            with overlay.open('a') as stream:
+                stream.write(''.join(difflib.unified_diff([], payload.splitlines(True),
+                    fromfile='/dev/null', tofile='b/'+name)))
+            lock['patchSha256'] = digest(overlay)
+            lock['files'][name] = dict(baseSha256=None,
+                                      candidateSha256=hashlib.sha256(payload.encode()).hexdigest())
         path = self.root / 'evidence/control.lock.json'; path.parent.mkdir(exist_ok=True)
         path.write_text(json.dumps(lock))
 
@@ -128,6 +139,14 @@ class NativeIncrementalAdapterTests(unittest.TestCase):
         self.assertEqual(first, changed); self.assertEqual(1, count)
         self.assertEqual(inode, changed.stat().st_ino)
         self.assertEqual(untouched, (changed / 'lib/os_shell.o').stat().st_mtime_ns)
+        self.lock(edited=True, fragment=True)
+        added, count, _ = self.build_objects()
+        self.assertEqual(first, added); self.assertEqual(1, count)
+        self.assertTrue((added / 'lib/memory/control.inc').is_file())
+        self.lock(edited=True)
+        removed, count, _ = self.build_objects()
+        self.assertEqual(first, removed); self.assertEqual(1, count)
+        self.assertFalse((removed / 'lib/memory/control.inc').exists())
         reconfigured, count, _ = self.build_objects('grok', optimization=1)
         self.assertNotEqual(first, reconfigured); self.assertEqual(2, count)
 

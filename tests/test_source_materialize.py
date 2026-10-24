@@ -31,6 +31,8 @@ class SourceMaterializeTests(unittest.TestCase):
                 info.size = len(data)
                 tree.addfile(info, io.BytesIO(data))
         def git(command, **kwargs):
+            if "rev-parse" in command:
+                return b'a' * 40 + b'\n'
             if "ls-tree" in command:
                 name = command[-1]
                 return (b"100644 blob " + b"a" * 40 + b"\t" + name.encode() + b"\0"
@@ -142,9 +144,42 @@ class SourceMaterializeTests(unittest.TestCase):
             with patch.object(source, "ROOT", root), \
                  patch.object(source, "revision", return_value="a" * 40), \
                  patch.object(source.subprocess, "check_output", side_effect=git):
-                with self.assertRaisesRegex(ValueError, "tracked"):
+                with self.assertRaisesRegex(ValueError, "regular"):
                     source.export(checkout, candidate, root / "lock.json", root / "snapshot.patch",
                                   (*source.FILES, "unknown.c"))
+
+    def test_new_fragment_requires_absence_and_reproduces_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            checkout, candidate, git = self.fixture(root)
+            name = 'lib/memory/roots.inc'
+            fragment = candidate / name
+            fragment.parent.mkdir(parents=True)
+            fragment.write_bytes(b'/* root registry */\nstatic int root;\n')
+            with patch.object(source, 'ROOT', root), \
+                 patch.object(source, 'revision', return_value='a' * 40), \
+                 patch.object(source.subprocess, 'check_output', side_effect=git):
+                lock = source.export(checkout, candidate, root / 'lock.json', root / 'snapshot.patch',
+                                     (*source.FILES, name))
+                self.assertIsNone(lock['files'][name]['baseSha256'])
+                result = source.materialize(root / 'lock.json', root / 'restored', root=root)
+            self.assertEqual(fragment.read_bytes(), (root / 'restored' / name).read_bytes())
+            self.assertFalse(result['runtimeAdmitted'])
+
+    def test_absent_base_is_not_empty_file_or_symlink_permission(self):
+        from gambit_smp.source_capabilities import verify_source_base
+        row = dict(baseSha256=None, candidateSha256='d' * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            verify_source_base(root, 'new/roots.inc', row)
+            (root / 'new').mkdir()
+            (root / 'new/roots.inc').touch()
+            with self.assertRaisesRegex(ValueError, 'absent'):
+                verify_source_base(root, 'new/roots.inc', row)
+            (root / 'new/roots.inc').unlink()
+            (root / 'alias').symlink_to(root / 'new', target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                verify_source_base(root, 'alias/roots.inc', row)
 
     def test_generic_source_inventory_reproduces_c_scheme_and_build_files(self):
         files = ("lib/runtime.c", "lib/_kernel.scm", "lib/_thread#.scm", "gsc/makefile.in")

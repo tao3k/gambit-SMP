@@ -13,6 +13,36 @@ from gambit_smp.framework import digest
 
 
 class CompletedProducerTests(unittest.TestCase):
+    def test_malformed_history_cannot_block_or_supply_producer_discovery(self):
+        ctx = self.duplicate_context()
+        path = self.root / "evidence/research/old-native-receipt.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"schema":"native-observation","seconds":.5}')
+        before = digest(path)
+        producer.prevent_duplicate_configuration(ctx.receipt["steps"][1]["arguments"], ctx)
+        self.assertEqual(ctx.receipt["unreadableHistoricalObservations"][0]["sha256"], before)
+        self.assertFalse(ctx.receipt["unreadableHistoricalObservations"][0]["producerAdmitted"])
+        self.assertEqual(digest(path), before)
+        with self.assertRaises(json.JSONDecodeError):
+            producer.discovered_reference(path, ctx, explicit=True)
+        path.write_text('{"schema":"' + producer.SCHEMA + '","seconds":.5}')
+        with self.assertRaises(json.JSONDecodeError):
+            producer.discovered_reference(path, ctx)
+
+    def test_explicit_consumer_uses_reuse_only_without_allocating_source_capacity(self):
+        from types import SimpleNamespace
+        ctx = SimpleNamespace(directory=Path('attempt/candidate'), planned_steps=[
+            {'capability': 'gambit.completed-runtime',
+             'arguments': {'source': {'step': 'candidate'}}}])
+        args = {'sourceLock': 'evidence/source.lock.json'}
+        with patch.object(native_capabilities, '_materialize',
+                          side_effect=ValueError('producer unavailable')) as reuse, \
+                patch('gambit_smp.fixture_storage.source_capacity') as capacity:
+            with self.assertRaisesRegex(ValueError, 'producer unavailable'):
+                native_capabilities.materialize(args, ctx)
+        reuse.assert_called_once_with(args, ctx, reuse_only=True)
+        capacity.assert_not_called()
+
     def test_owner_shutdown_revalidation_cannot_recover_failed_native_stages(self):
         outer = {"timeout": False, "parentReaped": True, "processGroupQuiescent": True}
         for outcome in ("DENY", "TIMEOUT", "STALE", "BLOCKED"):
@@ -103,6 +133,26 @@ class CompletedProducerTests(unittest.TestCase):
         self.save(".data/fixtures/completed-source/request.json", {"recipe": "evidence/recovery.recipe.json"})
         self.child["inputs"] = {str(recipe): digest(recipe)}
         self.refresh()
+
+    def test_self_source_before_bootstrap_keeps_exact_seed_ancestry(self):
+        rows = {row["id"]: row for row in self.child["steps"]}
+        current = {"id": "self-source", "capability": "gambit.source-core", "outcome": "PASS",
+                   "arguments": {"runtime": {"step": "seed", "output": "runtime"}}}
+        rows[current["id"]] = current
+        target = {"arguments": {"runtime": {"step": "self-source", "output": "runtime"},
+                                "identity": {"step": "self-source", "output": "identity"}}}
+        seed, configured, materialized = producer.bootstrap_ancestry(self.root, rows, target)
+        self.assertIs(seed, current)
+        self.assertIs(configured, rows["configure"])
+        self.assertIs(materialized, rows["source"])
+        for parent in ("self-source", "configure"):
+            current["arguments"]["runtime"]["step"] = parent
+            with self.assertRaisesRegex(ValueError, "typed seed ancestry"):
+                producer.bootstrap_ancestry(self.root, rows, target)
+        current["arguments"]["runtime"]["step"] = "seed"
+        rows["seed"]["outcome"] = "DENY"
+        with self.assertRaisesRegex(ValueError, "exact seed producer"):
+            producer.bootstrap_ancestry(self.root, rows, target)
 
     def test_completed_owner_supersedes_only_obsolete_wall_clock_decision(self):
         self.owner_teardown_denial()

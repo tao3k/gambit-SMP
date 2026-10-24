@@ -331,6 +331,24 @@ class CheckpointObserverTests(unittest.TestCase):
         self.assertIn("stress/PR obligations", review)
         self.assertNotIn("GC/FFI gate is closed", milestone)
 
+    def test_real_recovery_banner_is_not_a_still_joinable_join(self):
+        root = Path(".")
+        for name in observer.LIFECYCLE_RUNS:
+            stdout = (root / name / "run/join-probe/run-executable.stdout").read_text()
+            receipt = json.loads((root / name / "receipt.json").read_text())
+            self.assertEqual(stdout, observer.LIFECYCLE_STDOUT)
+            self.assertEqual(receipt["outcome"], "PASS")
+            self.assertEqual(receipt["exit"], 0)
+            self.assertFalse(observer.os_join_error_then_success(stdout))
+            self.assertTrue(observer.pre_join_flag_before_join(root, name))
+            self.assertFalse(observer.os_join_errno_recorded(root, name))
+            self.assertFalse(observer._lifecycle_run_ok(root, name))
+        decision = observer.qualify_nine_of_twelve(root)
+        self.assertEqual(decision, {
+            "admitted": False, "count": "8/12", "closed": None, "runsOk": False})
+        milestone = (root / observer.MILESTONE_PATH).read_text()
+        self.assertNotIn("Cumulative completion is **9/12**", milestone)
+
 
 if __name__ == '__main__':
     unittest.main()

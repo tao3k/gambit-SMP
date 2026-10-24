@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from gambit_smp.framework import available_processors, digest, gnu_build_driver, relative
 
 
-TREE_TYPES = {"source-tree", "configured-tree", "seed-runtime", "source-runtime"}
+TREE_TYPES = {"source-tree", "configured-tree", "seed-runtime", "source-runtime", "bootstrap-input"}
 CONFIGURATION_OUTPUTS = ('makefile', 'include/gambit.h', 'include/config.h',
                          'lib/makefile', 'gsi/makefile', 'gsc/makefile', 'config.status', 'configure', 'aclocal.m4')
 
@@ -39,13 +39,14 @@ def graph(step, by_id, registry):
         "gambit.seed-checkpoint": {"source": {"source-tree"}},
         "gambit.object": {"source": {"configured-tree", "source-runtime"}},
         "gambit.seed-core": {"source": {"configured-tree"}},
+        "gambit.bootstrap-input": {"source": {"configured-tree"}},
         "gambit.regenerate-module": {"runtime": {"seed-runtime"}},
         "gambit.source-core": {"runtime": {"seed-runtime"}},
         "gambit.runtime-import": {"source": {"source-tree"}},
         "gambit.upstream-tests": {"runtime": {"source-runtime"}, "identity": {"runtime-identity"}},
-        "gambit.bootstrap": {"runtime": {"seed-runtime"}},
+        "gambit.bootstrap": {"runtime": {"seed-runtime", "source-runtime", "bootstrap-input"}},
         "gambit.suite": {"runtime": {"seed-runtime", "source-runtime"}, "identity": {"runtime-identity"}},
-        "gambit.review": {"runtime": {"seed-runtime", "source-runtime"}, "identity": {"runtime-identity"}},
+        "gambit.review": {"runtime": {"seed-runtime", "source-runtime", "bootstrap-input"}, "identity": {"runtime-identity", "bootstrap-input-identity"}},
         "gambit.probe": {"runtime": {"seed-runtime", "source-runtime"}, "identity": {"runtime-identity"}},
         "gambit.executable-test": {"runtime": {"seed-runtime", "source-runtime"}, "identity": {"runtime-identity"}},
         "gambit.compiler-observation": {"runtime": {"source-runtime"}, "identity": {"runtime-identity"}},
@@ -77,6 +78,11 @@ def graph(step, by_id, registry):
     if step["capability"] == "gambit.review":
         args = step["arguments"]
         target = by_id.get(args["target"])
+        producer = by_id[args['runtime']['step']]
+        if producer['capability'] == 'gambit.bootstrap-input' and (
+                target is None or target['capability'] != 'gambit.bootstrap'
+                or args.get('mode') not in {None, 'bootstrap'}):
+            raise ValueError('compiler-only input may only review a bootstrap')
         upstream = target is not None and target["capability"] == "gambit.upstream-tests"
         expected = (target["arguments"].get("reviews", {}).get(args.get("mode")) if upstream else
                     target["arguments"].get("retryReview") if target is not None else None)
@@ -163,6 +169,14 @@ def validate_source(args, inputs):
     reference(args["source"])
 
 
+def validate_seed(args, inputs):
+    fields(args, ("source",), ("bootstrapHost",))
+    reference(args["source"])
+    if "bootstrapHost" in args and (args["bootstrapHost"] not in inputs
+                                    or not args["bootstrapHost"].endswith(".json")):
+        raise ValueError("declared byte-bound bootstrap host required")
+
+
 def validate_object(args, inputs):
     fields(args, ("source",), ("translationUnit", "defines", "debugSymbols"))
     reference(args["source"])
@@ -193,6 +207,15 @@ def validate_bootstrap(args, inputs):
             reference(args["retryReview"])
         elif args["retryReview"] not in inputs or not args["retryReview"].endswith(".json"):
             raise ValueError("retry review must be a declared typed data input")
+
+
+def validate_bootstrap_input(args, inputs):
+    fields(args, ('source', 'bootstrapHost'), ('producer',))
+    reference(args['source'])
+    if args['bootstrapHost'] not in inputs or not args['bootstrapHost'].endswith('.json'):
+        raise ValueError('declared source-bound AOT host required')
+    if 'producer' in args and (args['producer'] not in inputs or not args['producer'].endswith('.json')):
+        raise ValueError('declared compiler-input producer reference required')
 
 
 def validate_regenerate(args, inputs):
@@ -412,7 +435,20 @@ def validate_native_test(args, inputs):
             raise ValueError("bounded exact stdout observation required")
 
 
-def host_tools(gcc, steps, environment):
+def configure_tool_bindings(bindings):
+    """Revalidate the sealed configure executables before PATH construction."""
+    selected = {}
+    for name in ("aclocal", "autoconf"):
+        row = bindings.get(name)
+        if row is not None:
+            path = Path(row["path"]).resolve(strict=True)
+            if not path.is_file() or not os.access(path, os.X_OK) or digest(path) != row["sha256"]:
+                raise ValueError("sealed configure tool drift: " + name)
+            selected[name] = path
+    return selected
+
+
+def host_tools(gcc, steps, environment, *, configure_bindings=None):
     tools = {"gcc": gcc.resolve(strict=True)}
     if any(step["capability"] == "gambit.executable-test" and
            "stackSampleAfterSeconds" in step["arguments"] for step in steps):
@@ -427,6 +463,7 @@ def host_tools(gcc, steps, environment):
     if "gambit.configure" in kinds:
         required.update({"aclocal", "autoconf", "m4"})
     env = dict(environment)
+    declared = configure_tool_bindings(configure_bindings or {})
     # An explicitly selected Node installation must not replace the native
     # compiler's system assembler/linker with its unrelated package-manager tools.
     directories = [str(gcc.absolute().parent), "/usr/bin", "/bin", "/usr/sbin", "/sbin",
@@ -452,7 +489,7 @@ def host_tools(gcc, steps, environment):
     else:
         developer = {}
     for name in sorted(required):
-        path = developer.get(name) or shutil.which(name, path=os.pathsep.join(directories)) or (
+        path = developer.get(name) or declared.get(name) or shutil.which(name, path=os.pathsep.join(directories)) or (
             shutil.which(name) if name in {"aclocal", "autoconf", "m4"} else None)
         if path is None:
             raise ValueError("required native tool missing: " + name)
@@ -481,9 +518,38 @@ def compiler(ctx):
     return gcc
 
 
+def head_command(git, checkout):
+    return [git, "-C", str(checkout), "rev-parse", "HEAD"]
+
+
+def locked_revision_command(git, checkout, revision):
+    return [git, "-C", str(checkout), "rev-parse", "--verify", "--end-of-options",
+            revision + "^{commit}"]
+
+
+def assert_locked_source(resolved, expected):
+    """The archive commit is the lock. A different checkout HEAD is not drift."""
+    if (not isinstance(expected, str) or len(expected) != 40
+            or any(char not in "0123456789abcdef" for char in expected)
+            or resolved != expected):
+        raise ValueError("source revision drift")
+
+
+def assert_head_unchanged(before, after, message):
+    if not before or after != before:
+        raise ValueError(message)
+
+
 def materialize(args, ctx):
     if 'buildWorkspace' in args:
         return incremental_materialize(args, ctx)
+    # An explicit consumer only validates and leases its completed producer.
+    # It must not request capacity for an attempt-local source tree, or fall
+    # back to allocating one if the producer is absent or invalid.
+    if any(step['capability'] == 'gambit.completed-runtime'
+           and step['arguments']['source']['step'] == ctx.directory.name
+           for step in getattr(ctx, 'planned_steps', ())):
+        return _materialize(args, ctx, reuse_only=True)
     from gambit_smp.runtime_artifact import import_steps
     if import_steps(ctx):
         return _materialize(args, ctx)
@@ -536,6 +602,13 @@ def incremental_materialize(args, ctx):
     partial = bool(previous.get('inputs')) and 'overlayFiles' in previous
     staged = _materialize(args, ctx, raw_source=True, source_files=changed_paths if partial else None)
     incoming = dict(previous['inputs'], **tree_identity(staged)) if partial else tree_identity(staged)
+    if partial:
+        # An old overlay addition omitted from the new lock has no archive
+        # counterpart. Remove its input entry so sync can retire its bytes.
+        staged_names = tree_identity(staged)
+        for name in changed_paths:
+            if name not in lock['files'] and name not in staged_names:
+                incoming.pop(name, None)
     generated = [name for name in incoming if Path(name).suffix == '.c' and Path(name).name.startswith('_')]
     generated.extend(name for name in ('configure', 'aclocal.m4') if name in incoming)
     delta = sync_build_source(ctx.root, build, staged, mutable=generated,
@@ -546,9 +619,9 @@ def incremental_materialize(args, ctx):
             'claim': 'owned-incremental-source-not-runtime-admission'}
 
 
-def _materialize(args, ctx, *, raw_source=False, source_files=None):
+def _materialize(args, ctx, *, raw_source=False, source_files=None, reuse_only=False):
     from gambit_smp.recipes import read_json, source_path
-    from gambit_smp.source_capabilities import validate_source_lock, source_file
+    from gambit_smp.source_capabilities import validate_source_lock, source_file, verify_source_base
     lock_path = source_path(ctx.root, args["sourceLock"])
     lock = read_json(lock_path)
     validate_source_lock(lock)
@@ -564,8 +637,10 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
     if any(part.casefold() in CACHE_PARTS for part in checkout.relative_to(ctx.root.resolve()).parts):
         raise ValueError("source repository cannot be a Cache alias")
     git = ctx.tools["git"]
-    if ctx.require("revision", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
-        raise ValueError("source revision drift")
+    head_sha = ctx.require("revision", head_command(git, checkout), ctx.root, 10).strip()
+    resolved = ctx.require("locked-revision", locked_revision_command(git, checkout, lock["revision"]),
+                           ctx.root, 10).strip()
+    assert_locked_source(resolved, lock["revision"])
     gitdir = Path(ctx.require("git-directory", [git, "-C", checkout, "rev-parse", "--absolute-git-dir"], ctx.root, 10).strip())
     head = gitdir / "HEAD"
     ctx.bind([head])
@@ -579,12 +654,19 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
     if reused is None and not raw_source:
         reused = reuse_materialized_source(lock_path, ctx)
     if reused is not None:
-        if ctx.require("revision-after", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
-            raise ValueError("source revision changed during reuse")
+        observed = ctx.require("revision-after", head_command(git, checkout), ctx.root, 10).strip()
+        assert_head_unchanged(head_sha, observed, "source revision changed during reuse")
         return reused
+    if reuse_only:
+        raise ValueError('explicit completed source unavailable; allocation fallback forbidden')
     archive = ctx.directory / "source.tar"
+    archive_paths = source_files
+    if source_files:
+        listed = ctx.require("archive-paths", [git, "-C", checkout, "ls-tree", "-r", "--name-only", "-z",
+                             lock["revision"], '--', *source_files], ctx.root, 10)
+        archive_paths = [name for name in listed.split('\0') if name]
     ctx.require("archive", [git, "-C", checkout, "archive", "--output=" + str(archive), lock["revision"],
-                           '--', *(source_files or [])], ctx.root, 30)
+                           '--', *(archive_paths or [])], ctx.root, 30)
     if "workspace" in args:
         from gambit_smp.artifact_storage import adopt_source_archive
         from gambit_smp.recipes import tree_identity
@@ -604,8 +686,8 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
                     raise ValueError("retained workspace candidate differs from source lock")
             ctx.bind([reference_path, state_path])
             archive.unlink()
-            if ctx.require("revision-after", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
-                raise ValueError("source revision changed during state reuse")
+            observed = ctx.require("revision-after", head_command(git, checkout), ctx.root, 10).strip()
+            assert_head_unchanged(head_sha, observed, "source revision changed during state reuse")
             return {"outputs": ctx.publish("source", "source-tree", source),
                     "claim": "exact-retained-workspace-cache-not-runtime-admission"}
         cache_files = {}
@@ -626,8 +708,8 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
                                "lib/continuation-segment-diagnostic.o": diagnostic["outputObjectSha256"]}
         adopt_source_archive(source, archive, lock["files"], cache_files)
         archive.unlink()
-        if ctx.require("revision-after", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
-            raise ValueError("source revision changed during workspace adoption")
+        observed = ctx.require("revision-after", head_command(git, checkout), ctx.root, 10).strip()
+        assert_head_unchanged(head_sha, observed, "source revision changed during workspace adoption")
         return {"outputs": ctx.publish("source", "source-tree", source),
                 "claim": "locked-source-in-place-adoption-not-runtime-admission"}
     source = ctx.directory / "source"
@@ -635,8 +717,7 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
     extract_archive(archive,source,ctx,stage='source-extract',preserve_modes=False)
     archive.unlink()
     for name, row in lock["files"].items():
-        if digest(source_file(source, name)) != row["baseSha256"]:
-            raise ValueError("archived source differs from lock")
+        verify_source_base(source, name, row)
     command = [git, "--git-dir=/dev/null", "apply"]
     stats = ctx.require("patch-inventory", [*command, "--numstat", "-z", patch], source, 10)
     names = []
@@ -644,7 +725,7 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
         if row:
             added, removed, name = row.split("\t", 2)
             if not added.isdecimal() or not removed.isdecimal() or name not in lock["files"] or name in names:
-                raise ValueError("source patch exceeds locked existing files")
+                raise ValueError("source patch exceeds locked files")
             relative(source, name)
             names.append(name)
     if not names:
@@ -654,26 +735,37 @@ def _materialize(args, ctx, *, raw_source=False, source_files=None):
     for name, row in lock["files"].items():
         if digest(source_file(source, name)) != row["candidateSha256"]:
             raise ValueError("materialized candidate differs from lock")
-    if ctx.require("revision-after", [git, "-C", checkout, "rev-parse", "HEAD"], ctx.root, 10).strip() != lock["revision"]:
-        raise ValueError("source revision changed during materialization")
+    observed = ctx.require("revision-after", head_command(git, checkout), ctx.root, 10).strip()
+    assert_head_unchanged(head_sha, observed, "source revision changed during materialization")
     if raw_source:
         return source
     return {"outputs": ctx.publish("source", "source-tree", source), "claim": "locked-source-slice-only"}
 
 
-def clone(ctx, ref, kind):
-    if ctx.receipt.get("workspacePolicy") == "in-place":
+def clone(ctx, ref, kind, *, private=False):
+    producer = next(step for step in ctx.receipt['steps'] if step['id'] == ref['step'])
+    descriptor = producer['outputs'][ref['output']]
+    if (ctx.receipt.get("workspacePolicy") == "in-place" and not private
+            and descriptor['type'] not in {'seed-runtime', 'source-runtime', 'bootstrap-input'}):
         return ctx.reuse_workspace(ref, kind)
     from gambit_smp.artifact_storage import transfer_tree
     source = ctx.artifact(ref, kind)
-    destination = ctx.directory / "source"
-    storage = transfer_tree(source, destination)
-    producer = next(step for step in ctx.receipt["steps"] if step["id"] == ref["step"])
+    if ctx.receipt.get('workspacePolicy') == 'in-place':
+        from gambit_smp.bootstrap_artifacts import private_copy
+        role = ('working-bootstrap-input' if descriptor['type']=='configured-tree' else
+                'working-bootstrap' if ctx.directory.name=='bootstrap' else 'working-consumer')
+        destination, storage = private_copy(ctx, source, role)
+    else:
+        destination = ctx.directory / "source"
+        storage = transfer_tree(source, destination)
     actual_type = producer["outputs"][ref["output"]]["type"]
     allowed = [kind] if isinstance(kind, str) else sorted(kind)
     ctx.receipt.setdefault("storageTransfers", []).append(
         {"purpose": actual_type, "allowedTypes": allowed, **storage})
     ctx.remaining()
+    if ctx.receipt.get('workspacePolicy') == 'in-place':
+        from gambit_smp.recipes import tree_identity
+        ctx.lease_workspace(destination, tree_identity(destination))
     return destination
 
 
@@ -791,17 +883,70 @@ def identity(ctx, source):
     return ctx.publish("identity", "runtime-identity", path)
 
 
+def current_compiler_inputs(source):
+    paths = [*source.glob("gsc/*.scm"), *source.glob("lib/*.scm"), source/"gsi/main.scm"]
+    return {str(path.relative_to(source)): digest(path) for path in paths}
+
+
+def prepare_bootstrap_input(args, ctx):
+    from gambit_smp.bootstrap_artifacts import prepare
+    return prepare(args, ctx)
+
+
 def seed(args, ctx):
-    from gambit_smp.gambit_build_primitives import build_seed_core
+    from gambit_smp.gambit_build_primitives import build_seed_core, build_hosted_core
     source = clone(ctx, args["source"], "configured-tree")
     gcc = compiler(ctx)
-    ok, observation = build_seed_core(Stages(ctx), source, ctx.remaining())
+    if "bootstrapHost" in args:
+        from gambit_smp.recipes import source_path, read_json
+        path = source_path(ctx.root, args["bootstrapHost"])
+        spec = read_json(path)
+        fields(spec, ("schema", "kind", "executable", "sha256", "qualification"))
+        if spec["schema"] != "gambit-bootstrap-host" or spec["kind"] not in {"interpreted-gsc", "compiled-current-gsc"}:
+            raise ValueError("current-source bootstrap host required")
+        host = relative(ctx.root, spec["executable"])
+        if not host.is_file() or not os.access(host, os.X_OK) or digest(host) != spec["sha256"]:
+            raise ValueError("bootstrap host executable drift")
+        ctx.bind([path, host])
+        compiled = spec["kind"] == "compiled-current-gsc"
+        if compiled and spec["qualification"].get("compilerSourceInputs") != current_compiler_inputs(source):
+            raise ValueError("AOT host compiler source graph differs from target generator")
+        previous = ctx.env.get("GAMBIT_BOOT_GSI")
+        if not compiled:ctx.env["GAMBIT_BOOT_GSI"] = str(host)
+        try:
+            # The leased source manifest predates destructive bootclean. After
+            # a failed emission the directory may contain zero C products;
+            # file existence must not erase the required linker/module units.
+            state = read_json(source.parent / "source-state.json")
+            generated = sorted(name for name in state["inputs"]
+                if len(Path(name).parts) == 2 and Path(name).parts[0] in {"lib", "gsi", "gsc"}
+                and Path(name).name.startswith("_") and name.endswith(".c"))
+            ok, observation = build_hosted_core(Stages(ctx), source, ctx.remaining(),
+                required_generated=generated, bootstrap_compiler=host if compiled else None)
+        finally:
+            if previous is None:ctx.env.pop("GAMBIT_BOOT_GSI", None)
+            else:ctx.env["GAMBIT_BOOT_GSI"] = previous
+        observation["host"] = spec
+    else:
+        ok, observation = build_seed_core(Stages(ctx), source, ctx.remaining())
     (ctx.directory / "observation.json").write_text(json.dumps(observation, indent=2) + "\n")
     if not ok:
         raise ValueError("seed core was not established")
-    return {"observation": observation, "claim": "pre-generated-C-seed-only",
+    if "bootstrapHost" in args:
+        command = ctx.commands[-1]
+        if (command["stage"] != "seed-core" or command["exit"] != 0
+                or command["timeout"] or command.get("parentReaped") is not True
+                or command.get("processGroupQuiescent") is not True):
+            raise ValueError("completed hosted source build required before checkpoint")
+        from gambit_smp.workspace import checkpoint_build_source
+        # Distinct from regeneration: the next source-core must replace the
+        # interpreted host with the newly built target compiler and really run.
+        checkpoint_build_source(source, hostedSource=observation)
+    from gambit_smp.bootstrap_artifacts import freeze
+    retained, preservation = freeze(ctx, source, 'completed-seed')
+    return {"observation": observation, "preservation": preservation, "claim": "hosted-source-core-not-self-bootstrap" if "bootstrapHost" in args else "pre-generated-C-seed-only",
             **effective_configuration(ctx, source, gcc),
-            "outputs": {**ctx.publish("runtime", "seed-runtime", source), **identity(ctx, source)}}
+            "outputs": {**ctx.publish("runtime", "seed-runtime", retained), **identity(ctx, retained)}}
 
 
 def regenerate(args, ctx):
@@ -865,8 +1010,8 @@ def bootstrap(args, ctx):
     from gambit_smp.native_review import preflight
     if "engine" not in ctx.receipt or "identity" not in args:
         raise ValueError("bootstrap execution requires sealed known-failure review and matching identity")
-    runtime = ctx.artifact(args["runtime"], "seed-runtime")
-    candidate = ctx.artifact(args["identity"], "runtime-identity")
+    runtime = ctx.artifact(args["runtime"], {"seed-runtime", "source-runtime", "bootstrap-input"})
+    candidate = ctx.artifact(args["identity"], {"runtime-identity", "bootstrap-input-identity"})
     if args["runtime"]["step"] != args["identity"]["step"]:
         raise ValueError("bootstrap runtime and identity must have the same producer")
     review_args = {key: value for key, value in args.items() if key in {"failures", "reviewRules", "retryReview"}}
@@ -880,13 +1025,18 @@ def bootstrap(args, ctx):
     capacity = build_capacity(available_processors())
     if capacity["makeJobs"] != retry["campaign"]["effectiveJobs"]:
         raise ValueError("bootstrap host CPU budget changed after causal review")
-    source = clone(ctx, args["runtime"], "seed-runtime")
+    source = clone(ctx, args["runtime"], {"seed-runtime", "source-runtime", "bootstrap-input"}, private=True)
     compiler(ctx)
     scheme = {str(path.relative_to(source)): digest(path) for folder in ("lib", "gsi", "gsc")
               for path in (source / folder).glob("*.scm")}
-    generated = [name[:-4] + ".c" for name in scheme if Path(name).name.startswith("_")
-                 and (source / (name[:-4] + ".c")).is_file()]
-    shutil.copy2(source / "gsc/gsc", source / "gsc-boot")
+    generated = sorted(str(path.relative_to(source))
+        for folder in ("lib", "gsi", "gsc") for path in (source/folder).glob("_*.c"))
+    input_identity = json.loads(candidate.read_text())
+    if input_identity.get('schema') == 'gambit-bootstrap-input-identity':
+        from gambit_smp.bootstrap_artifacts import check
+        check(source, input_identity)
+    else:
+        shutil.copy2(source / "gsc/gsc", source / "gsc-boot")
     ctx.require("bootclean", [ctx.tools["make"], "bootclean"], source, 10)
     if not generated or any((source / name).exists() for name in generated):
         raise ValueError("generated C removal was not established")
@@ -902,7 +1052,9 @@ def bootstrap(args, ctx):
             or any(digest(source / name) != sha for name, sha in scheme.items())):
         raise ValueError("from-scratch source closure not established")
     phases = bootstrap_phase_counts(log)
-    return {"outputs": {**ctx.publish("runtime", "source-runtime", source), **identity(ctx, source)},
+    from gambit_smp.bootstrap_artifacts import freeze
+    retained, preservation = freeze(ctx, source, 'completed-runtime')
+    return {"preservation": preservation, "outputs": {**ctx.publish("runtime", "source-runtime", retained), **identity(ctx, retained)},
             "claim": "source-bound-two-pass-bootstrap-not-full-native-acceptance",
             "phaseCounts": phases, "capacity": capacity, "fullTwoPassBootstrapEstablished": True}
 
@@ -1085,10 +1237,17 @@ def bind_review(args, ctx):
     from gambit_smp.native_review import campaign, preflight, SCHEMA
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.suite_primitives import selected_files, check_runtime
-    runtime = ctx.artifact(args["runtime"], {"seed-runtime", "source-runtime"})
-    identity = ctx.artifact(args["identity"], "runtime-identity")
-    check_runtime(runtime, read_json(identity))
+    runtime = ctx.artifact(args["runtime"], {"seed-runtime", "source-runtime", "bootstrap-input"})
+    identity = ctx.artifact(args["identity"], {"runtime-identity", "bootstrap-input-identity"})
     target = next(row for row in ctx.receipt["plannedSteps"] if row["id"] == args["target"])
+    input_identity = read_json(identity)
+    if input_identity.get('schema') == 'gambit-bootstrap-input-identity':
+        if target['capability'] != 'gambit.bootstrap' or args.get('mode') not in {None, 'bootstrap'}:
+            raise ValueError('compiler-only input cannot review a runtime suite')
+        from gambit_smp.bootstrap_artifacts import check
+        check(runtime, input_identity)
+    else:
+        check_runtime(runtime, input_identity)
     intent_path = source_path(ctx.root, args["intent"])
     ctx.bind([intent_path])
     intent = read_json(intent_path)
@@ -1672,7 +1831,8 @@ def capabilities(Capability):
         "gambit.materialize": (validate_materialize, materialize, (("source", "source-tree"),)),
         "gambit.configure": (validate_configure, configure, (("source", "configured-tree"),)),
         "gambit.object": (validate_object, object_build, (("object", "native-object"),)),
-        "gambit.seed-core": (validate_source, seed, (("runtime", "seed-runtime"), ("identity", "runtime-identity"))),
+        "gambit.seed-core": (validate_seed, seed, (("runtime", "seed-runtime"), ("identity", "runtime-identity"))),
+        "gambit.bootstrap-input": (validate_bootstrap_input, prepare_bootstrap_input, (("source", "bootstrap-input"), ("identity", "bootstrap-input-identity"))),
         "gambit.seed-checkpoint": (validate_seed_arguments, import_seed, (("runtime", "seed-runtime"), ("identity", "runtime-identity"))),
         "gambit.regenerate-module": (validate_regenerate, regenerate, (("generated", "c-source"),)),
         "gambit.source-core": (validate_runtime, source_core, (("runtime", "source-runtime"), ("identity", "runtime-identity"))),

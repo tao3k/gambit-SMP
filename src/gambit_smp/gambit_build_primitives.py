@@ -85,6 +85,45 @@ def command(plan, compiler, source, output):
     return args
 
 
+def build_hosted_core(stages, source, budget, *, required_generated=None, bootstrap_compiler=None):
+    """Regenerate target C before compiling against a changed runtime ABI.
+
+    Use either this tree's interpreted igsc sources or a source-bound complete
+    AOT compiler. The host runtime is never linked into the target. The
+    following self-source pass remains a separate observation.
+    """
+    deadline = time.monotonic() + budget
+    scheme = {str(p.relative_to(source)): digest(p)
+              for folder in ("lib", "gsi", "gsc") for p in (source / folder).glob("*.scm")}
+    # Linker-generated _gambit*.c / *_*.c have no matching Scheme source.
+    # They belong to the cohort just as much as Scheme-to-C module products.
+    generated = (list(required_generated) if required_generated is not None else
+                 sorted(str(p.relative_to(source)) for folder in ("lib", "gsi", "gsc")
+                        for p in (source/folder).glob("_*.c")))
+    if not generated:
+        raise ValueError("explicit old generated-C inventory required")
+    boot = source / "gsc-boot"
+    shutil.copy2(bootstrap_compiler or source/"gsc/igsc.scm", boot)
+    boot.chmod(boot.stat().st_mode | 0o111)
+    boot_hash = digest(boot)
+    code, _, timed, _ = stages.run("hosted-bootclean", ["make", "bootclean"], source, min(10, budget))
+    remaining_old = [name for name in generated if (source/name).exists()]
+    if code != 0 or timed or remaining_old or digest(boot) != boot_hash:
+        return False, {"sourceRegenerationEstablished": False, "remainingOldC": remaining_old}
+    remaining = deadline-time.monotonic()
+    if remaining <= 0:return False, {"sourceRegenerationEstablished": False, "wholeBudgetExhausted": True}
+    ok, observation = build_seed_core(stages, source, remaining)
+    missing = [name for name in generated if not (source/name).is_file()]
+    stable = all(digest(source/name)==value for name,value in scheme.items())
+    ok = ok and not missing and stable
+    observation.update(sourceRegenerationEstablished=ok, scmRegenerationEstablished=ok,
+        sourceCompilerSha256=boot_hash, schemeInputs=scheme, schemeInputsStable=stable,
+        generatedSources=generated, missingGeneratedSources=missing,
+        generatedHashes={name:digest(source/name) for name in generated if (source/name).is_file()},
+        hostRuntimeLinkedIntoTarget=False, fullTwoPassBootstrapEstablished=False)
+    return ok, observation
+
+
 def build_seed_core(stages, source, budget):
     plan = build_capacity(available_processors())
     jobs = plan["makeJobs"]
@@ -142,8 +181,8 @@ def rebuild_source_core(stages, source, budget, *, incremental=False, retained_g
     plan = build_capacity(available_processors())
     scheme = {str(path.relative_to(source)): digest(path)
               for folder in ("lib", "gsi", "gsc") for path in (source / folder).glob("*.scm")}
-    generated = sorted(name[:-4] + ".c" for name in scheme
-                       if Path(name).name.startswith("_") and (source / (name[:-4] + ".c")).is_file())
+    generated = sorted(str(p.relative_to(source)) for folder in ("lib", "gsi", "gsc")
+                       for p in (source/folder).glob("_*.c"))
     if incremental and retained_generation:
         generated = retained_generation['generatedSources']
     if not generated:

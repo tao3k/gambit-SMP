@@ -523,13 +523,21 @@ def adopt_source_archive(workspace, archive, files, cache_files):
             raise ValueError("tracked archive source cannot be disposable cache")
         cache_directories = {parent.as_posix() for name in cache_files
                              for parent in Path(name).parents if parent != Path(".")}
+        source_directories = {parent.as_posix() for name in files
+                              for parent in Path(name).parents if parent != Path(".")}
         for name, row in files.items():
             member = members.get(name)
-            if member is None or not member.isfile():
+            if row['baseSha256'] is None:
+                if member is not None:
+                    raise ValueError("new source path must be absent from pinned archive")
+                from gambit_smp.source_capabilities import source_file
+                source_file(workspace, name)
+            elif member is None or not member.isfile():
                 raise ValueError("locked source missing from archive")
-            with tree.extractfile(member) as stream:
-                if hashlib.sha256(stream.read()).hexdigest() != row["baseSha256"]:
-                    raise ValueError("source archive base differs from lock")
+            else:
+                with tree.extractfile(member) as stream:
+                    if hashlib.sha256(stream.read()).hexdigest() != row["baseSha256"]:
+                        raise ValueError("source archive base differs from lock")
             if digest(workspace / name) != row["candidateSha256"]:
                 raise ValueError("adopted candidate differs from source lock")
         # Validate the entire existing inventory before writing or removing bytes.
@@ -538,7 +546,8 @@ def adopt_source_archive(workspace, archive, files, cache_files):
             if path.is_symlink() or not (path.is_file() or path.is_dir()):
                 raise ValueError("adopted workspace contains unsupported entry")
             if path.is_dir():
-                if (name not in members or not members[name].isdir()) and name not in cache_directories:
+                if ((name not in members or not members[name].isdir())
+                        and name not in cache_directories and name not in source_directories):
                     raise ValueError("untracked workspace directory")
             elif name in files:
                 continue

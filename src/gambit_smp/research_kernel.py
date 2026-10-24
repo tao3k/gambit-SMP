@@ -33,7 +33,7 @@ def process_transport_identity():
 GENERATION = re.compile(r"\.o[1-9][0-9]*")
 ALLOWED = frozenset({"gambit.materialize", "source.overlay", "source.project", "source.bind",
                      "native.workspace-build", "native.test", "quint.parse", "quint.typecheck", "quint.test", "quint.verify",
-                     "evidence.evaluate", "gambit.configure", "gambit.object", "gambit.seed-core", "gambit.seed-checkpoint",
+                     "evidence.evaluate", "gambit.configure", "gambit.object", "gambit.seed-core", "gambit.seed-checkpoint", "gambit.bootstrap-input",
                      "gambit.regenerate-module", "gambit.source-core", "gambit.bootstrap", "gambit.suite", "gambit.review",
                      "gambit.completed-runtime", "gambit.probe", "gambit.executable-test", "gambit.compiler-observation",
                      "gambit.runtime-import", "gambit.upstream-tests", 'gerbil.build', 'gerbil.test'})
@@ -503,6 +503,12 @@ def seal(out, *, gcc, quint=None, node=None, ascent_api, provider_sources=None, 
     before = {path: digest(path) for path in originals}
     provider_contract = inspect_provider(api, binding)
     host = {"python": Path(sys.executable).resolve(strict=True), "gcc": gcc.absolute()}
+    # Configure runs in a sanitized child environment. Carry observed tool
+    # identities across that boundary instead of depending on the caller PATH.
+    for name in ("aclocal", "autoconf"):
+        selected = shutil.which(name)
+        if selected is not None:
+            host[name] = Path(selected).resolve(strict=True)
     if sys.platform == "darwin" and Path("/usr/bin/sample").is_file():
         host["darwinSample"] = Path("/usr/bin/sample")
     if (quint is None) != (node is None):
@@ -1009,7 +1015,8 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                     raise ValueError("prior child receipt was changed")
                 repaired_authorization = authorization_repair(read_json(child_path), allow_native,
                                                              manifest["hostTools"].get("gcc"))
-            elif not repaired_environment and ("timeoutPolicy" in recipe or previous.get("timeout") is True):
+            elif not repaired_environment and ("timeoutPolicy" in recipe or previous.get("timeout") is True
+                                               or previous.get("executionLaunched") is True):
                 if (previous.get("parentReaped") is not True
                         or previous.get("processGroupQuiescent") is not True):
                     raise ValueError("prior process group must be quiescent before a fresh attempt")

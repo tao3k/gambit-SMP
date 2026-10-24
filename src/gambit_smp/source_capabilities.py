@@ -52,7 +52,9 @@ def validate_source_lock(lock):
     for name, row in inventory.items():
         source_name(name)
         fields(row, ("baseSha256", "candidateSha256"))
-        sha(row["baseSha256"])
+        # Null means the path must be absent in the pinned archive, not empty.
+        if row["baseSha256"] is not None:
+            sha(row["baseSha256"])
         sha(row["candidateSha256"])
 
 
@@ -75,6 +77,23 @@ def source_file(root, name):
     if not path.is_file():
         raise ValueError("existing regular source file required")
     return path
+
+
+def verify_source_base(root, name, row):
+    """Distinguish an absent new path from an existing empty source file."""
+    source_name(name)
+    path = Path(root)
+    for part in name.split("/"):
+        path = path / part
+        if path.is_symlink():
+            raise ValueError("source file cannot traverse a symlink")
+        if path.exists() and path != Path(root) / name and not path.is_dir():
+            raise ValueError("source parent must be a directory")
+    if row["baseSha256"] is None:
+        if path.exists():
+            raise ValueError("new source path must be absent from pinned archive")
+    elif digest(source_file(root, name)) != row["baseSha256"]:
+        raise ValueError("archived base source differs from lock")
 
 
 def reference(value):

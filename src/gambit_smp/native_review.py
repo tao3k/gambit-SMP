@@ -651,7 +651,16 @@ def historical_observation(ctx, failure, original, inputs, facts):
         raise ValueError("historical observation must retain the exact canonical failure")
     archive_path = source_path(ctx.root, version["archive"]["path"])
     archived_inputs = validate(ctx.root, version["archive"]["path"])
-    if version["log"]["path"] not in archived_inputs:
+    # Transcript observations are represented by publication bindings in the
+    # validator's input closure. Membership still belongs to the validated
+    # archive inventory, not to the set of ordinary repository input paths.
+    log_path = source_path(ctx.root, version["log"]["path"])
+    try:
+        log_member = log_path.relative_to(archive_path.parent).as_posix()
+    except ValueError:
+        raise ValueError("historical observation log must belong to the verified archive")
+    archived = read_json(archive_path)
+    if archived.get("files", {}).get(log_member) != version["log"]["sha256"]:
         raise ValueError("historical observation log must belong to the verified archive")
     inputs.update(archived_inputs)
     recovered = read_json(archive_path.parent / "receipt.json")
@@ -680,7 +689,14 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.research_kernel import manifest_paths
     from gambit_smp.suite_primitives import check_runtime
-    check_runtime(runtime, read_json(candidate_receipt))
+    candidate = read_json(candidate_receipt)
+    if candidate.get('schema') == 'gambit-bootstrap-input-identity':
+        if args.get('mode') != 'bootstrap' or args.get('operation') != 'from-scratch':
+            raise ValueError('compiler-only identity cannot admit a runtime operation')
+        from gambit_smp.bootstrap_artifacts import check
+        check(runtime, candidate)
+    else:
+        check_runtime(runtime, candidate)
     ctx.bind([candidate_receipt])
     manifest = source_path(ctx.root, args["failures"])
     if manifest != source_path(ctx.root, "evidence/native-failures.json"):
@@ -809,7 +825,14 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         raise ValueError("native retry rules did not partition all scoped known failures exactly once")
     if sorted(answers["eligible"] + answers["review"]) != sorted(answers["selected"]):
         raise ValueError("native retry disposition omitted or duplicated a known failure")
-    check_runtime(runtime, read_json(candidate_receipt))
+    candidate = read_json(candidate_receipt)
+    if candidate.get('schema') == 'gambit-bootstrap-input-identity':
+        if args.get('mode') != 'bootstrap' or args.get('operation') != 'from-scratch':
+            raise ValueError('compiler-only identity cannot admit a runtime operation')
+        from gambit_smp.bootstrap_artifacts import check
+        check(runtime, candidate)
+    else:
+        check_runtime(runtime, candidate)
     if campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget) != current:
         raise ValueError("candidate campaign or topology drift during native inference")
     if any(digest(ctx.root / name) != expected for name, expected in inputs.items()):

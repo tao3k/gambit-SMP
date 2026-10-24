@@ -506,6 +506,17 @@ class NativeRecipeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             core_command(build_capacity(2), "unbounded-target")
 
+    def test_official_bootstrap_can_follow_self_source_without_accepting_configured_source(self):
+        producer = {"id": "current", "capability": "gambit.source-core", "arguments": {}}
+        target = {"id": "bootstrap", "capability": "gambit.bootstrap", "dependsOn": ["current"],
+                  "arguments": {"runtime": {"step": "current", "output": "runtime"}}}
+        graph = {"current": producer, "bootstrap": target}
+        native.graph(target, graph, recipes.CAPABILITIES)
+        producer["capability"] = "gambit.configure"
+        target["arguments"]["runtime"]["output"] = "source"
+        with self.assertRaisesRegex(ValueError, "type mismatch"):
+            native.graph(target, graph, recipes.CAPABILITIES)
+
     def test_bootstrap_accepts_typed_current_producer_review_reference(self):
         args = {"runtime": {"step": "seed", "output": "runtime"},
                 "identity": {"step": "seed", "output": "identity"},

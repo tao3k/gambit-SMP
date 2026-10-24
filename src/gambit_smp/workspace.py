@@ -198,17 +198,21 @@ def pending(root):
         return db.execute("SELECT count(*) FROM requests WHERE result IS NULL").fetchone()[0]
 
 
-def transition_check(root, value):
+def transition_check(root, value, *, takeover=False):
     """Conservative host observation, not a native recovery/admission result."""
     from gambit_smp.task_dependencies import dependencies
     for store in (".cache/workspace-leases", ".data/workspace-leases"):
         if any(bounded(root, store).glob("*.quarantine.json")):
             raise ValueError("workspace quarantine requires producer reconciliation")
     from gambit_smp.task_processes import check
-    child_observations=check(root,value["task"])
+    child_observations=check(root,value["task"],all_processes=takeover)
     occupied = active_paths()
     dependency_observations = []
-    watched = [Path(value["cache"]), *dependencies(root, value["task"], observations=dependency_observations)]
+    registered = dependencies(root, value["task"], observations=dependency_observations)
+    cache = Path(value["cache"])
+    # Takeover preserves evidence. Cleanup still excludes every cache reader.
+    watched = ([cache / "build", *cache.glob("processes/*/build"), *registered]
+               if takeover else [cache, *registered])
     if any(referenced(path, occupied) for path in watched):
         raise ValueError("task dependencies are occupied; transition deferred")
     for run in bounded(root, ".state/task-runs/" + value["task"]).glob("*.json"):
@@ -259,17 +263,7 @@ def execution_scope(root, task, provider="codex"):
             raise ValueError("task is not open")
         if value.get("execution") in {"running", "interrupted"}:
             raise ValueError("uncertain previous execution; explicit workspace resume required")
-        if value.get("run"):
-            prior = json.loads(bounded(root, ".state/task-runs/" + task + "/" + identifier(value["run"]) + ".json").read_text())
-            from gambit_smp.task_processes import check
-            check(root,task)
-            if prior.get("pgid") and prior.get("custodyProtocol",0)<3:
-                try:
-                    os.killpg(prior["pgid"], 0)
-                except ProcessLookupError:
-                    pass
-                else:
-                    raise ValueError("previous process group remains; refuse overlapping execution")
+        transition_check(root, value, takeover=True)
         module = Path(__file__).resolve()
         selected_module = Path(value["checkout"]) / "src/gambit_smp/workspace.py"
         if selected_module.exists() and selected_module.resolve() != module:
@@ -392,7 +386,7 @@ def resume(root, task):
             cache.mkdir(parents=True, exist_ok=True)
         elif value["state"] != "open":
             raise ValueError("closed task cannot resume")
-        observation = transition_check(root, value)
+        observation = transition_check(root, value, takeover=True)
         if value.get("run"):
             prior=bounded(root,".state/task-runs/"+task+"/"+identifier(value["run"])+".json")
             receipt=json.loads(prior.read_text())
@@ -593,8 +587,12 @@ def owned_build_reference(root, path, product):
     if candidate.resolve()!=candidate or declaration.is_symlink():
         raise ValueError('shared build reference cannot be an alias')
     configuration=json.loads(declaration.read_text())
-    if not isinstance(configuration,dict) or set(configuration)!={'compiler','compilerSha256','flags','environment'}:
+    if (not isinstance(configuration,dict) or set(configuration) not in (
+            {'compiler','compilerSha256','flags','environment'},
+            {'compiler','compilerSha256','flags','environment','derivation'})):
         raise ValueError('shared build configuration schema differs')
+    if 'derivation' in configuration:
+        validate_build_derivation(configuration['derivation'])
     actual=hashlib.sha256(json.dumps(configuration,sort_keys=True).encode()).hexdigest()
     if actual!=key:raise ValueError('shared build configuration identity changed')
     compiler=Path(configuration['compiler'])
@@ -603,7 +601,16 @@ def owned_build_reference(root, path, product):
     return candidate
 
 
-def build_output(root, name, *, compiler, flags=()):
+def validate_build_derivation(value):
+    if (not isinstance(value, dict) or set(value) != {'role', 'inputSha256'}
+            or value['role'] not in {'completed-seed', 'completed-runtime', 'completed-bootstrap-input', 'working-bootstrap-input',
+                                    'working-bootstrap', 'working-consumer'}
+            or not isinstance(value['inputSha256'], str) or len(value['inputSha256']) != 64
+            or any(c not in '0123456789abcdef' for c in value['inputSha256'])):
+        raise ValueError('typed build role and exact input identity required')
+
+
+def build_output(root, name, *, compiler, flags=(), derivation=None):
     """Stable native build work area; attempts/logs still use task_output.
 
     Build tools own dependency invalidation. Reusing this directory never
@@ -632,6 +639,9 @@ def build_output(root, name, *, compiler, flags=()):
     if not isinstance(flags,(list,tuple)) or any(type(flag) is not str for flag in flags):raise ValueError('literal build flags required')
     configuration=dict(compiler=str(compiler),compilerSha256=hashlib.sha256(compiler.read_bytes()).hexdigest(),flags=list(flags),
         environment={key:os.environ.get(key) for key in ('CC','CFLAGS','CPPFLAGS','LDFLAGS','LIBRARY_PATH','CPATH','SDKROOT','MACOSX_DEPLOYMENT_TARGET')})
+    if derivation is not None:
+        validate_build_derivation(derivation)
+        configuration['derivation'] = derivation
     key=hashlib.sha256(json.dumps(configuration,sort_keys=True).encode()).hexdigest()
     target=task_output(root,cache/'build'/name/key)
     target.mkdir(parents=True,exist_ok=True)

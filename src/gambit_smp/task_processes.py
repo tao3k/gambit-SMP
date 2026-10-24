@@ -75,8 +75,20 @@ def check(root,task,*,process=None,all_processes=False,run=None):
             write(path,row)
         if row.get('spawnQuiescence'):
             retained=row['spawnQuiescence']
-            if retained.get('protocol')!=row.get('spawnProtocol') or retained.get('method') not in {'exclusive-spawn-custody-and-no-birth','kernel-birth-group-and-exclusive-spawn-custody'}:
+            if retained.get('protocol')!=row.get('spawnProtocol') or retained.get('method') not in {'exclusive-spawn-custody-and-no-birth','kernel-birth-group-and-exclusive-spawn-custody','kernel-boot-boundary-no-output-admission'}:
                 raise ValueError('spawn quiescence custody mismatch')
+            if retained.get('method')=='kernel-boot-boundary-no-output-admission':
+                if (retained.get('previousBootId')!=row['spawnProtocol'].get('bootId')
+                        or not retained.get('currentBootId')
+                        or retained['currentBootId']==retained['previousBootId']
+                        or retained.get('outputsAdmitted') is not False
+                        or retained.get('replayAuthorized') is not False
+                        or retained.get('targetExecuted') is not None):
+                    raise ValueError('invalid non-admitting boot closure')
+                # A reused numeric PID/group belongs to the new boot. It is
+                # not the historical child and must neither block nor be killed.
+                observed.append(row['token'])
+                continue
         if row['event']=='planned' and not row.get('pid'):
             raise ValueError('unresolved spawn journal; explicit process reconciliation required')
         if row.get('pgid') and row.get('groupObservation',{}).get('result')!='absent':

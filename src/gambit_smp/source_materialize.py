@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 
 from gambit_smp.framework import ROOT, apply_untracked_patch, digest, relative
-from gambit_smp.source_capabilities import source_name, source_file, validate_source_lock
+from gambit_smp.source_capabilities import source_name, source_file, validate_source_lock, verify_source_base
 
 LOCK = ROOT / "evidence/runtime-source.lock.json"
 FILES = ("lib/mem.c", "lib/setup.c", "include/gambit.h.in")
@@ -71,17 +71,18 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES, *, overlay=N
         entry = _task_check_output(["git", "-C", str(checkout), "ls-tree", "-z", commit,
                                          "--", name], timeout=10)
         rows = entry.rstrip(b"\0").split(b"\0")
-        if (len(rows) != 1 or b"\t" not in rows[0]
+        absent = not entry
+        if not absent and (len(rows) != 1 or b"\t" not in rows[0]
                 or rows[0].split(b"\t", 1)[0].split()[:2] not in
                    ([b"100644", b"blob"], [b"100755", b"blob"])
                 or rows[0].split(b"\t", 1)[1] != name.encode()):
             raise ValueError("existing regular tracked source file required")
-        base = _task_check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
-                                       timeout=10)
+        base = b"" if absent else _task_check_output(
+            ["git", "-C", str(checkout), "show", commit + ":" + name], timeout=10)
         current = source_file(candidate, name).read_bytes()
         patches.extend(difflib.unified_diff(base.decode().splitlines(True),
-            current.decode().splitlines(True), "a/" + name, "b/" + name))
-        files[name] = {"baseSha256": hashlib.sha256(base).hexdigest(),
+            current.decode().splitlines(True), "/dev/null" if absent else "a/" + name, "b/" + name))
+        files[name] = {"baseSha256": None if absent else hashlib.sha256(base).hexdigest(),
                        "candidateSha256": hashlib.sha256(current).hexdigest()}
     overlay = "".join(patches)
     if not overlay:
@@ -93,12 +94,15 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES, *, overlay=N
     with tempfile.TemporaryDirectory(dir=scratch) as temporary:
         target = Path(temporary)
         for name in sorted(selected):
+            if files[name]["baseSha256"] is None:
+                continue
             data = _task_check_output(["git", "-C", str(checkout), "show", commit + ":" + name],
                                            timeout=10)
             path = target / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        apply_untracked_patch(target, overlay.encode(), selected)
+        apply_untracked_patch(target, overlay.encode(), selected,
+                              new_files={name for name, row in files.items() if row['baseSha256'] is None})
         if any(digest(target / name) != row["candidateSha256"] for name, row in files.items()):
             raise ValueError("snapshot overlay does not reproduce candidate bytes")
     patch_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +139,12 @@ def _materialize(lock_path, out, *, root=None):
     patch = source_path(root, lock["patch"])
     if checkout != root / "vendor/gambit":
         raise ValueError("source repository cannot be an alias")
-    if revision(checkout) != lock["revision"] or digest(patch) != lock["patchSha256"]:
+    head_before = revision(checkout)
+    from gambit_smp.native_capabilities import locked_revision_command, assert_locked_source
+    resolved = _task_check_output(locked_revision_command('git', checkout, lock['revision']),
+                                  timeout=10).decode().strip()
+    assert_locked_source(resolved, lock['revision'])
+    if digest(patch) != lock["patchSha256"]:
         raise ValueError("source revision or snapshot overlay drift")
     if out.exists():
         raise ValueError("fresh output directory required")
@@ -149,13 +158,14 @@ def _materialize(lock_path, out, *, root=None):
         source.mkdir()
         with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
             tree.extractall(source, filter="data")
-        if any(digest(source_file(source, name)) != row["baseSha256"] for name, row in lock["files"].items()):
-            raise ValueError("archived base source differs from lock")
-        apply_untracked_patch(source, patch_bytes, set(lock["files"]))
+        for name, row in lock["files"].items():
+            verify_source_base(source, name, row)
+        apply_untracked_patch(source, patch_bytes, set(lock["files"]),
+                              new_files={name for name, row in lock['files'].items() if row['baseSha256'] is None})
         observed = {name: digest(source_file(source, name)) for name in lock["files"]}
         if any(observed[name] != row["candidateSha256"] for name, row in lock["files"].items()):
             raise ValueError("materialized source differs from candidate slice")
-        if (digest(patch) != lock["patchSha256"] or revision(checkout) != lock["revision"] or
+        if (digest(patch) != lock["patchSha256"] or revision(checkout) != head_before or
                 digest(lock_path) != lock_hash):
             raise ValueError("source inputs changed during materialization")
         record = {"schema": "gambit-source-materialization.v1",
@@ -181,12 +191,13 @@ def locked_source(root, name):
     if any(".data" in path.relative_to(root).parts for path in paths):
         raise ValueError("source inputs must be versioned, not cache paths")
     inputs = {str(path.relative_to(root)): digest(path) for path in paths}
+    head_before = revision(relative(root, lock['submodule']))
     with tempfile.TemporaryDirectory(prefix="gambit-source-") as temporary:
         source = Path(temporary) / "source"
         materialize(lock_path, source, root=root)
         yield source, inputs
         if (any(digest(root / path) != sha for path, sha in inputs.items()) or
-                revision(relative(root, lock["submodule"])) != lock["revision"]):
+                revision(relative(root, lock["submodule"])) != head_before):
             raise ValueError("locked source inputs changed during audit")
 
 
@@ -201,7 +212,7 @@ def main():
     parser.add_argument("--overlay", type=Path,
                         help="apply a delta to selected candidate bytes in isolation before export; producer stays unchanged")
     parser.add_argument("--file", action="append",
-                        help="explicit existing tracked source files with locked byte identities")
+                        help="explicit regular source files; new paths require absence in the pinned revision")
     args = parser.parse_args()
     if args.export_candidate:
         if not args.patch or args.out or (args.overlay and not args.file):

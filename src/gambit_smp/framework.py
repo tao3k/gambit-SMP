@@ -96,13 +96,16 @@ def parallel_jobs(items, worker, jobs, timeout):
         return [future.result() for future in futures]
 
 
-def apply_untracked_patch(root, data, allowed):
+def apply_untracked_patch(root, data, allowed, *, new_files=()):
     from gambit_smp.task_processes import run
     if not data:
         raise ValueError("empty patch")
     command = ["git", "--git-dir=/dev/null", "apply"]
     stats = run(command + ["--numstat", "-z"], input=data,
                            cwd=root, capture_output=True, check=True, timeout=10).stdout
+    new_files = set(new_files)
+    if not new_files <= set(allowed):
+        raise ValueError("new files must be explicitly allowed")
     names = []
     for row in stats.decode().split("\0"):
         if not row:
@@ -111,8 +114,15 @@ def apply_untracked_patch(root, data, allowed):
         target = (root / name).resolve()
         if (not added.isdecimal() or not removed.isdecimal() or name not in allowed
             or Path(name).is_absolute() or not target.is_relative_to(root.resolve())
-            or not target.is_file() or name in names):
+            or (target.exists() if name in new_files else not target.is_file())
+            or name in names):
             raise ValueError("patch must remain inside unique allowed existing files")
+        if name in new_files:
+            path = root
+            for part in Path(name).parts:
+                path = path / part
+                if path.is_symlink():
+                    raise ValueError("new source cannot traverse a symlink")
         names.append(name)
     if not names:
         raise ValueError("empty patch")

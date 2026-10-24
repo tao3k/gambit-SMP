@@ -734,6 +734,43 @@ def observe_journal(root, run, target, *, historical=False):
             "missingChildReceiptReconstructed": False}, outer, closure, engine
 
 
+def stage_commands(root, row, seen=None):
+    """Read authenticated command origins without claiming a reused launch ran."""
+    if 'reused' not in row:
+        if not isinstance(row.get('commands'), list):
+            raise ValueError('observed stage command inventory required')
+        return row['commands']
+    if row.get('executionLaunched') is not False or row.get('commands'):
+        raise ValueError('reused commands are ancestry, not a new native launch')
+    origin = row['reused']
+    from gambit_smp.recipes import fields, read_json
+    from gambit_smp.research_kernel import content_id
+    fields(origin, ('run', 'step', 'receipt'))
+    key = (origin['run'], origin['step'], origin['receipt'])
+    seen = set() if seen is None else set(seen)
+    if key in seen or len(seen) >= 64:
+        raise ValueError('cyclic or unbounded command ancestry')
+    seen.add(key)
+    run = fixture_path(root, origin['run'])
+    _, outer, closure, _ = observe_journal(root, run, origin['step'], historical=True)
+    child_path = run / 'run/receipt.json'
+    if digest(child_path) != outer.get('childReceiptSha256'):
+        raise ValueError('command-origin child receipt changed')
+    originals = [r for r in read_json(child_path)['steps'] if r['id'] == origin['step']]
+    # Prefix reuse names the immutable journal step, before its mutable
+    # receipt envelope received the separate journal-reference field.
+    if len(originals) != 1 or content_id(closure[-1]) != origin['receipt']:
+        raise ValueError('command-origin stage receipt changed')
+    original = originals[0]
+    if ({k: v for k, v in original.items() if k != 'journal'} != closure[-1]
+            or any(original.get(k) != row.get(k) for k in ('id', 'capability', 'arguments', 'dependsOn'))):
+        raise ValueError('command-origin journal or declaration differs')
+    commands = stage_commands(root, original, seen)
+    if row.get('originCommands') != commands:
+        raise ValueError('reused command inventory differs from authenticated origin')
+    return commands
+
+
 def observe(root, run, target):
     """Bind the original generator, all inputs/artifacts and successful closure."""
     from gambit_smp.research_kernel import inspect, manifest_paths
@@ -949,7 +986,7 @@ def import_seed(args, ctx):
     if (configured["arguments"].get("buildProfile") != args["buildProfile"]
             or read_profile(source_path(ctx.root, args["buildProfile"])) != configured.get("buildProfile")):
         raise ValueError("checkpoint build profile differs from the consumer")
-    command = next(row for row in configured["commands"] if row["stage"] == "configure")
+    command = next(row for row in stage_commands(ctx.root, configured) if row["stage"] == "configure")
     required = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
     if not required <= set(command["argv"]):
         raise ValueError("checkpoint lacks the three required concurrency flags")

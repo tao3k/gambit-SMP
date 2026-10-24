@@ -469,7 +469,7 @@ def artifact_path(out, descriptor, *, root=None, _seen=None):
     if "workspace" not in descriptor:
         return path
     if root is None or descriptor.get("type") not in {
-            "source-tree", "configured-tree", "seed-runtime", "source-runtime"}:
+            "source-tree", "configured-tree", "seed-runtime", "source-runtime", "bootstrap-input"}:
         raise ValueError("managed workspace requires same-project source type")
     if digest(path) != descriptor.get("locationSha256"):
         raise ValueError("managed workspace location receipt drift")
@@ -741,7 +741,7 @@ class ExecutionContext:
         if path.is_dir():
             descriptor["identity"] = tree_identity(path)
             if (self.receipt.get("workspacePolicy") == "in-place" and
-                    kind in {"source-tree", "configured-tree", "seed-runtime", "source-runtime"}):
+                    kind in {"source-tree", "configured-tree", "seed-runtime", "source-runtime", "bootstrap-input"}):
                 from gambit_smp.artifact_storage import cache_path, seal_workspace_state
                 bindings = {Path(key).relative_to(self.root).as_posix(): sha
                             for key, sha in self.receipt["inputs"].items()
@@ -768,7 +768,11 @@ def authorization_preflight(receipt):
 def prior_tool_observation(out, receipt):
     descriptor = receipt.get("toolInputs")
     if descriptor is None:
-        if not authorization_preflight(receipt):
+        configure_preflight = (receipt.get("schema") == "evidence-recipe-run.v1"
+            and receipt.get("outcome") == "DENY" and receipt.get("steps") == []
+            and receipt.get("error") in {"required native tool missing: aclocal",
+                                         "required native tool missing: autoconf"})
+        if not authorization_preflight(receipt) and not configure_preflight:
             raise ValueError("missing prior tool observation outside authorization preflight")
         return None
     path = relative(out, descriptor["path"])
@@ -964,7 +968,8 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
             if not allow_native or gcc is None:
                 raise ValueError(AUTHORIZATION_ERROR)
             from gambit_smp.native_capabilities import host_tools, implementation_files
-            native_tools, environment = host_tools(gcc, steps, environment)
+            native_tools, environment = host_tools(gcc, steps, environment,
+                **({"configure_bindings": engine_identity["hostTools"]} if engine_identity is not None else {}))
             paths.extend(native_tools.values())
             receipt["tools"].update({name: str(value) for name, value in native_tools.items()})
             inputs.update(fingerprints(implementation_files(steps)))

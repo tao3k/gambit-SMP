@@ -213,7 +213,8 @@ class ResearchGraphTests(unittest.TestCase):
         workspace.git(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
                       "commit", "--allow-empty", "-qm", "owned dispatcher fixture")
         workspace.start(self.root, "kernel-fixture", adopt=True)
-        with patch.dict(os.environ, {"GAMBIT_SMP_ROOT": str(self.root),
+        with workspace.execution_scope(self.root, "kernel-fixture"), \
+                patch.dict(os.environ, {"GAMBIT_SMP_ROOT": str(self.root),
                                      "GAMBIT_SMP_TASK_ID": "kernel-fixture",
                                      "GAMBIT_SMP_TASK_ROOT": str(self.root)}), \
                 patch.object(research_kernel, "ROOT", self.root):
@@ -443,6 +444,46 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertIsNone(json.loads((self.root / "whole-new/request.json").read_text())["prior"])
         self.assertEqual(original, (prior / "receipt.json").read_bytes())
         self.assertNotEqual(result["outcome"], "PASS")
+
+    def test_explicit_stop_missing_child_requires_quiescence_and_real_change(self):
+        from gambit_smp import host_environment
+        self.load()
+        inputs = {name: recipes.digest(self.root / name)
+                  for name in ["evidence/control.recipe.json", *self.recipe["inputs"]]}
+        manifest = {"engineId": "new-seal", "processProtocol": research_kernel.PROCESS_PROTOCOL,
+                    "files": research_kernel.process_transport_identity(),
+                    "hostTools": {"python": {"path": sys.executable}}}
+        for name, engine, quiet, expected in (
+                ("stopped-changed", "old-seal", True, None),
+                ("stopped-live", "old-seal", False, "quiescent"),
+                ("stopped-unchanged", "new-seal", True, "unchanged failed")):
+            with self.subTest(name=name):
+                prior = self.root / (name + "-prior")
+                prior.mkdir()
+                previous = dict(schema="sealed-research-run.v1", recipe=self.recipe["id"],
+                                inputs=inputs, engineId=engine, outcome="DENY", budgetSeconds=40,
+                                wholeSeconds=12, timeout=False, executionLaunched=True,
+                                parentReaped=True, processGroupQuiescent=quiet,
+                                stepBudgets={s["id"]: 5 for s in self.recipe["steps"]})
+                path = prior / "receipt.json"
+                path.write_text(json.dumps(previous))
+                original = path.read_bytes()
+                out = self.root / name
+                with patch.object(research_kernel, "manifest_paths", return_value=manifest), \
+                        patch.object(host_environment, "observe", return_value=None), \
+                        patch.object(research_kernel, "retain_run_record", return_value={"path": "unit-only"}), \
+                        patch.object(research_kernel, "execute", return_value=(2, "unit only", False, .01)) as launched:
+                    result = research_kernel.run_sealed(self.root, self.path, out,
+                                                        self.root / "seal", prior=prior)
+                if expected:
+                    launched.assert_not_called()
+                    self.assertIn(expected, result["denial"])
+                else:
+                    launched.assert_called_once()
+                    self.assertIsNone(json.loads((out / "request.json").read_text())["prior"])
+                    self.assertTrue(result["prior"]["interruptedPriorExpenditure"]["accountingOnly"])
+                self.assertEqual(original, path.read_bytes())
+                self.assertNotEqual("PASS", result["outcome"])
 
     def test_timeout_policy_migration_requires_unchanged_graph_and_inputs(self):
         from gambit_smp import host_environment

@@ -1,5 +1,6 @@
 """Reuse a verified completed bootstrap without rewriting historical outcomes."""
 import json
+import hashlib
 import math
 from pathlib import Path
 from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
@@ -11,6 +12,22 @@ from gambit_smp.framework import digest, relative
 
 SCHEMA = "completed-bootstrap-reference.v1"
 FLAGS = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
+
+
+def discovered_reference(path, ctx, *, explicit=False):
+    """Historical observations share this store; only references grant reuse."""
+    from gambit_smp.recipes import read_json
+    try:
+        return read_json(path)
+    except json.JSONDecodeError as error:
+        # A selected or recognizable producer declaration must still fail
+        # closed. Never repair, overwrite or promote malformed observations.
+        if explicit or SCHEMA in path.read_text():
+            raise
+        ctx.receipt.setdefault("unreadableHistoricalObservations", []).append({
+            "path": str(path.relative_to(ctx.root)), "sha256": digest(path),
+            "reason": str(error), "producerAdmitted": False})
+        return None
 
 
 def recover_retained_owner_teardown(root, run, outer, child, step_id):
@@ -219,9 +236,24 @@ def bootstrap_ancestry(root, rows, step):
     if (seed.get("outcome") != "PASS"
             or step["arguments"]["identity"]["step"] != seed["id"]):
         raise ValueError("bootstrap must bind its exact seed producer")
-    if seed["capability"] == "gambit.seed-core":
+    if seed["capability"] in {"gambit.seed-core", "gambit.bootstrap-input"}:
+        if seed['capability'] == 'gambit.bootstrap-input' and (
+                seed.get('claim') != 'qualified-host-compiler-not-target-runtime'
+                or seed['outputs']['source']['type'] != 'bootstrap-input'
+                or seed['outputs']['identity']['type'] != 'bootstrap-input-identity'):
+            raise ValueError('typed compiler-only bootstrap ancestry required')
         configured = rows[seed["arguments"]["source"]["step"]]
         materialized = rows[configured["arguments"]["source"]["step"]]
+    elif seed["capability"] == "gambit.source-core":
+        # A real completed self-source pass can precede the official two-pass
+        # bootstrap. Trace its seed ancestry; do not promote it to a completed
+        # bootstrap or accept an unrelated runtime with the same filenames.
+        parent = seed["arguments"]["runtime"]
+        if parent["step"] == seed["id"] or rows[parent["step"]]["capability"] not in {
+                "gambit.seed-core", "gambit.seed-checkpoint"}:
+            raise ValueError("self-source runtime needs its exact typed seed ancestry")
+        _, configured, materialized = bootstrap_ancestry(root, rows, {"arguments": {
+            "runtime": parent, "identity": {"step": parent["step"], "output": "identity"}}})
     elif seed["capability"] == "gambit.seed-checkpoint":
         from gambit_smp.recipes import read_json
         from gambit_smp.step_checkpoint import seed_reference
@@ -242,6 +274,39 @@ def bootstrap_ancestry(root, rows, step):
             or materialized["capability"] != "gambit.materialize" or materialized["outcome"] != "PASS"):
         raise ValueError("bootstrap source must have the locked producer ancestry")
     return seed, configured, materialized
+
+
+def configure_command(root, configured):
+    """Read a real configure observation, including checked configuration reuse.
+
+    Reuse does not manufacture a new configure invocation. The original full
+    process receipt and all generated configuration hashes stay authenticated
+    by the successful configure stage and its producer envelope.
+    """
+    from gambit_smp.step_checkpoint import stage_commands
+    commands=[r for r in stage_commands(root,configured) if r['stage']=='configure']
+    if commands:
+        if len(commands)!=1:raise ValueError('unique completed configure observation required')
+        return commands[0]
+    proof=configured.get('configurationReuse',{})
+    raw=proof.get('receiptBytes','')
+    if (proof.get('schema')!='gambit-configure-reuse.v1' or not raw
+            or hashlib.sha256(raw.encode()).hexdigest()!=proof.get('receiptSha256')):
+        raise ValueError('bound original configure receipt required')
+    observed=json.loads(raw)
+    if (observed.get('stage')!='configure' or observed.get('state')!='OBSERVED'
+            or observed.get('exit')!=0 or observed.get('timeout') is not False
+            or observed.get('parentReaped') is not True or observed.get('processGroupQuiescent') is not True
+            or len(proof.get('commands',[]))!=1
+            or any(observed.get(k)!=v for k,v in proof['commands'][0].items())
+            or observed.get('argv',[])[2:]!=proof.get('flags')):
+        raise ValueError('configure reuse lacks completed process evidence')
+    from gambit_smp.native_capabilities import CONFIGURATION_OUTPUTS
+    identity=configured.get('outputs',{}).get('source',{}).get('identity',{})
+    if (set(proof.get('files',{}))!=set(CONFIGURATION_OUTPUTS)
+            or any(identity.get(name,{}).get('sha256')!=sha for name,sha in proof['files'].items())):
+        raise ValueError('configure reuse generated-byte identity differs')
+    return proof['commands'][0]
 
 
 def completed(root, run, step_id, *, input_archive=None, workspace_context=None):
@@ -298,7 +363,7 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     current_runtime = artifact_path(run / "run", output, root=root)
     if tree_identity(current_runtime) != output["identity"]:
         raise ValueError("completed runtime bytes unavailable or changed")
-    command = next(row for row in configured["commands"] if row["stage"] == "configure")
+    command = configure_command(root, configured)
     if command["exit"] != 0 or command["timeout"] is not False or not FLAGS <= set(command["argv"]):
         raise ValueError("all three concurrency flags must be observed in the producer")
     manifest = manifest_paths(Path(outer["engine"]))
@@ -373,7 +438,7 @@ def reuse_materialized_source(lock_path, ctx):
         ctx.remaining()
         if path.is_symlink():
             continue
-        proof = read_json(path)
+        proof = discovered_reference(path, ctx, explicit=bool(explicit))
         if (not isinstance(proof, dict) or proof.get("schema") != SCHEMA
                 or proof.get("sourceLockSha256") != lock_sha):
             if explicit:
@@ -433,7 +498,7 @@ def prevent_duplicate_configuration(args, ctx, *, stage="configure"):
         ctx.remaining()
         if path.is_symlink():
             continue
-        proof = read_json(path)
+        proof = discovered_reference(path, ctx)
         if not isinstance(proof, dict) or proof.get("schema") != SCHEMA:
             continue
         if proof.get("sourceLockSha256") != lock_sha or proof.get("gccSha256") != gcc_sha:
