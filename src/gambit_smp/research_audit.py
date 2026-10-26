@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from gambit_smp import evidence_index as index
-from gambit_smp.framework import digest
+from gambit_smp.framework import digest, evidence_file
 from gambit_smp.protocol_source_audit import ARITIES as SOURCE_ARITIES
 
 ROOT = index.ROOT
@@ -51,6 +51,7 @@ def local(root, name):
     root = resolved_root(root)
     path = (root / name).resolve()
     path.relative_to(root)
+    evidence_file(name, path)
     return path
 
 

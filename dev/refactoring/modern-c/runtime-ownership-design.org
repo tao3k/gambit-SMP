@@ -1178,6 +1178,125 @@ bulk-call savings are still credited as zero new optimization. Native adoption
 must show actual removed work exceeds any new validation, retention, barrier or
 transfer cost, and must retire the old authority rather than layer another one.
 
+* RESEARCH Native cursor arithmetic, descriptor views and frame spans :gc:c23:proof:
+:PROPERTIES:
+:CUSTOM_ID: cursor-native-bounds
+:AUTHORITY: GambitRuntimeOwnership::nativeFrameView; law33..law36; mathScope11..mathScope14
+:STATUS: Arithmetic kernels closed; native representation and whole GC composition open
+:END:
+
+This advances the GC/SMP modernization line, not the build-system line and not a
+Zig backend. Scheme remains the authority for frame semantics. C23 realizes a
+qualified borrowed descriptor view and writable frame spans; it must not acquire
+semantic authority merely by exposing a pointer. See
+[[file:models/lean/FrameCursorNativeBounds.lean][the C-facing mathematical kernels]] and
+[[file:models/quint/frame_contract.qnt][the existing descriptor model with boundary histories]]. These complement the
+extracted cursor family, rather than replace it with another handwritten loop.
+The C source inventory is not a verified C AST extraction.
+
+** Source chain and statement correspondence
+The local modular [[file:../../../vendor/gambit/gsc/_t-c-3.scm::489][targ-make-frame-spec producer]] validates stored size below 16384,
+computes RETI actual size, selects inline form using actual size and emits
+32-bit chunks using actual size. Under the five-register/reserve3/alignment4
+profile already used by frame_contract, internal actual size is
+=4*floor((stored+3)/4)+9=. Its maximum is 16393, not 16383. Normal frames
+retain their stored size. This is a conditional profile calculation, not
+qualification of every generated Darwin configuration or proof that every
+maximal descriptor occurs in a legal Scheme program. Current emitter code
+already uses actual size; no new runtime defect is asserted.
+
+The [[file:../../../vendor/gambit/include/_gambit/module_generation.h.in::1214][C advance sequence]] shifts the unsigned word, increments slot, then optionally
+loads =*next++=. The QNT cursor's slot before advance is s. Its native load guard
+becomes =s < fs and s % w = 0= after increment. Its tail index before loading is
+=floor((s-1)/w)=, established by the previously proved word-position invariant.
+The finite-word shift theorem, low-bit theorem and power-of-two mask theorem
+connect these scalar operations to division, remainder and the mathematical
+window. Refills overwrite the intermediate shift; no additional tail read is
+allowed at s=fs, even if fs is a word boundary. Treat a null inline tail as
+unchanged storage: never justify null pointer arithmetic by saying its offset is
+zero. An unsigned cast of signed metadata has a modulo interpretation in the
+BitVec model; qualifying actual C types and integer promotions is still required.
+
+For positive fs, the required native word count is ceil(fs/w), and tail length
+is max(ceil(fs/w)-1,0). The raw tail starts after the first bitmap word.
+=tailReadBound= proves every enabled load is strictly inside this logical tail;
+=tailPostincrementBound= permits the resulting one-past cursor without permitting
+another dereference. Packing pairs of 32-bit chunks into 64-bit words preserves
+ceil(fs/64), including an odd final chunk. For actual size <=16393, maxima are:
+
+| Native width | Total bitmap words | Tail words | Final cursor slot |
+|--------------+--------------------+------------+-------------------|
+| 32 | 513 | 512 | 16394 |
+| 64 | 257 | 256 | 16394 |
+
+All additions/subtractions in the slot and nonempty-run calculations fit when
+the qualified signed int maximum is at least 32767. This is not a bound on
+pointer differences across arbitrary allocations or on whole-GC work.
+
+** Logical view and native storage are distinct contracts
+SysML's =NativeFrameView= specifies allocation identity/generation, descriptor
+identity/ABI, actual size, word width, tail base/count and frame base/allocation
+length. These are the obligations of FrameSpec emission and module setup, not
+mandatory heap records per root run. A tail read may lie inside the entire OFD
+array while reading the next descriptor. The retained counterexample 3<10 but
+not 3<3 separates physical allocation bounds from the current logical view.
+It is a contract counterexample, not a reachable-source-bug claim.
+
+A borrowed view requires its descriptor/code and frame backing to remain live
+through last use, initialized before sharing, without incompatible mutations.
+The proof does not derive lifetime from an integer address. The admission set
+excludes malformed inline RETI metadata whose stored size fits an inline field
+but actual size crosses a word. The real producer selects inline form from
+actual size <=20 and therefore excludes this example. The history preserves
+that distinction instead of attributing malformed metadata to legal Scheme.
+
+** Actual consumers and reversed coordinates
+[[file:../../../vendor/gambit/lib/_mem/continuation-roots.inc::220][mark_continuation acquires frame access]] before decoding stack descriptors and holds it through
+=mark_frame= and captured-continuation processing. The
+[[file:../../../vendor/gambit/lib/_mem/object-scanning.inc::133][sFRAME consumer]] similarly holds frame access, checks payload words against actual
+size, scans ordinary runs and separately handles its structural link before
+release. The local [[file:../../../vendor/gambit/lib/_mem/copy-reservations.inc::118][frame gate implementation]] supplies a shared access domain; its legacy atomic
+memory ordering, descriptor leases, diagnostic callbacks and all external
+writers are not proved by the arithmetic kernels.
+
+For one live allocation of N words, let fp be element coordinate F with
+fs <= F <= N, and let 1 <= first < past <= fs+1. The actual
+=mark_array(work, &FP_STK(fp,past-1), past-first)= span starts at
+=F-(past-1)=, has length =past-first= and ends at or before N. For each slot i
+in [first,past), element =start+(past-1-i)= equals =F-i=.
+The two reversed-span theorems prove this universally. Allocation identity,
+generation, WORD stride/alignment and writable root-role admission remain
+premises. The ordinary-root proof does not replace the structural link walker.
+
+** Proof/benefit/overhead and retirement matrix
+#+NAME: cursor-native-net-return
+| Subject | Closed here | Reusable work / possible benefit | Added obligation or cost | Remaining admission gate |
+|---------+-------------+---------------------------------+--------------------------+--------------------------|
+| Unsigned word and boundary arithmetic | Shift, low bit and mask identities | Reuse existing 32/64-bit cursor; no per-slot root list | Bind actual native types and cast interpretation | Effective ABI and C execution refinement |
+| Logical tail bounds | Enabled read and postincrement bounds | One producer-defined view replaces duplicated informal size assumptions | Tail view derived from actual fs, not merely OFD allocation | Producer-to-view correspondence and descriptor lifetime |
+| RETI capacity | Actual maximum and signed-counter bounds under stated profile | Reject stored-size underbudget; share FrameSpec calculation | Profile/ABI invalidation and bounded metadata | Bind other register/alignment configurations separately |
+| Reversed mark_array spans | Range and per-slot coordinate identity | Existing bulk delivery retained; zero new bulk-call savings credited | Same live generation and writable frame-role contract | C pointer/provenance and alias refinement |
+| Synchronous consumer scope | Source witnesses only | No new heap allocation or atomic ticket per run required | Maintain frame access and descriptor/backing lifetime | Complete callback/writer/escape closure |
+| Derived copy/chunk work | Not closed | Future independent workers must retain every producer duty | Publication, task custody, phase termination and retirement | WorkClosure plus native synchronization |
+| Runtime acceleration | Not measured or proved | No numerical speedup claimed | No runtime instrumentation introduced | Separate future native qualification |
+
+The 16 new arithmetic kernels are universal within their premises. Eight new
+QNT boundary histories supplement the previous four descriptor histories;
+the negative histories are deliberately malformed or insufficient-contract
+examples. ASCENT records four =cFacingArithmetic= scopes, independently from the
+supported-family total scope, and rejects promotion of bounds into native or
+whole-GC closure. The extractor remains trusted. No runtime source is changed,
+no native tests run, and no old native path is retired by this proof alone.
+
+** NEXT Composition obligations
+1. Supply descriptor-tail views from the real emission/setup byte layout,
+   including packed chunks and module generation/ABI, not a naked allocation span.
+2. Refine synchronous frame access, GC rewrite and code/descriptor leases to
+   C23 operations; qualify diagnostics and callbacks before allowing suspension.
+3. Connect ordinary-root handoff to mark_array's forwarding, initialization,
+   chunk publication and last-idle work conservation. A finished cursor does
+   not certify that descendant work or the GC round has finished.
+
 * RESEARCH C23 realization and whole-system progress
 :PROPERTIES:
 :CUSTOM_ID: c23-realization

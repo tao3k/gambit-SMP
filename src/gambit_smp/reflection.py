@@ -1,7 +1,7 @@
 """Unclosed requirements and contextual references, never proof admission."""
 from pathlib import Path
 
-from gambit_smp.framework import digest
+from gambit_smp.framework import digest, evidence_file
 from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES, recorded, binding
 
 
@@ -19,6 +19,7 @@ def validate(root, reflection):
             raise ValueError("durable repository-relative reflection path required")
         resolved = (root / path).resolve()
         local = resolved.relative_to(root.resolve())
+        evidence_file(path, resolved)
         if any(part.casefold() in {".data", ".cache", ".git", ".venv", "__pycache__"}
                for part in (*path.parts, *local.parts)):
             raise ValueError("durable repository file required, not a cache alias")

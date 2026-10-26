@@ -18,7 +18,7 @@ SHARED = {'fixtures','fixture-archives','fixture-evidence','research','history',
 GENERATED_CONTAINERS = {'pro','profile','profiles','prompt','prompts','policy','policies','private','provider-source'}
 SOURCE_AREAS = {'src','vendor','provider','providers','provide','vr','.venv'}
 SOURCE = {'src','tests','docs','dev','models','evidence','patches','.git','.agents','.codex'}
-EVIDENCE_CACHE_SUFFIXES = frozenset({'.olean', '.txt', '.rb', '.sh', '.log', '.stdout', '.stderr'})
+EVIDENCE_CACHE_SUFFIXES = frozenset({'.gz', '.olean', '.txt', '.rb', '.sh', '.log', '.stdout', '.stderr'})
 
 
 class StoragePolicyError(ValueError):
@@ -62,7 +62,7 @@ def validate(root, path, *, task=None, deleting=False):
         parts=parts[3:]
     if (not deleting and parts and parts[0].casefold() == 'evidence'
             and Path(parts[-1]).suffix.casefold() in EVIDENCE_CACHE_SUFFIXES):
-        raise StoragePolicyError('compiled output, scratch text and scripts do not belong in evidence/: '+str(relative))
+        raise StoragePolicyError('compressed archives, compiled output, scratch text and scripts do not belong in evidence/: '+str(relative))
     if not deleting and parts and parts[0].casefold() in SOURCE_AREAS:
         if any(part.casefold() in GENERATED_CONTAINERS for part in parts[1:]):
             raise StoragePolicyError('generated runtime directories require .cache/: '+str(relative))

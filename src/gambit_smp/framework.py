@@ -78,12 +78,20 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def evidence_file(path, resolved=None):
+    """Compressed raw artifacts belong in local cache, never evidence inputs."""
+    if any(Path(candidate).suffix.casefold() == ".gz"
+           for candidate in (path, resolved) if candidate is not None):
+        raise ValueError("compressed archives are cache artifacts, not evidence")
+
+
 def relative(root, name):
     if not isinstance(name, str) or Path(name).is_absolute() or ".." in Path(name).parts:
         raise ValueError("relative evidence path required")
     root = resolved_root(root)
     path = (root / name).resolve()
     path.relative_to(root)
+    evidence_file(name, path)
     return path
 
 

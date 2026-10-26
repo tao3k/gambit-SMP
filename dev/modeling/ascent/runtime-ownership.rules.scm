@@ -39,4 +39,6 @@
  ((conditionalRefinement I) <-- (mathematicalClosure I) (scopeKind I "conditional-refinement"))
  ((structuralRefinement I) <-- (mathematicalClosure I) (scopeKind I "extracted-structural"))
  (relation cursorFamilyClosure ((id string?)))
- ((cursorFamilyClosure I) <-- (mathematicalClosure I) (scopeKind I "extracted-total")))
+ ((cursorFamilyClosure I) <-- (mathematicalClosure I) (scopeKind I "extracted-total"))
+  (relation cFacingArithmetic ((id string?)))
+  ((cFacingArithmetic I) <-- (mathematicalClosure I) (scopeKind I "c-facing-arithmetic")))

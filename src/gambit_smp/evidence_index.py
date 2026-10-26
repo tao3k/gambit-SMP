@@ -220,6 +220,8 @@ def export(root=ROOT):
              "observed_failure", "observed_process", "observed_field", "observed_signal", "observed_control_reference", "observed_model_reference", "observed_log_attachment")}
     inputs = {}
     def bind(path):
+        from gambit_smp.framework import evidence_file
+        evidence_file(path, path.resolve())
         from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
         if path.suffix.casefold() in TRANSCRIPT_SUFFIXES:
             output = recorded(root, path)
