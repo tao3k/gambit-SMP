@@ -5,6 +5,9 @@ package GambitModernC {
     private import ScalarValues::*;
     private import GambitFoundation::*;
 
+    /* Selected structural delivery; later runtime ownership remains research. */
+    ref part currentDelivery = GambitMemoryDelivery::unit;
+
     part def CRealization {
         part identity : Identity;
         port service : NativeService;
