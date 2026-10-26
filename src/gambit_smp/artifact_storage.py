@@ -477,7 +477,7 @@ def seal_workspace_state(root, source, destination, bindings):
 def checked_workspace_state(root, reference, expected_identity, *, input_bindings=None):
     """Check retained evidence without upgrading absent bytes into a runtime."""
     from gambit_smp.framework import digest, relative
-    from gambit_smp.recipes import source_path
+    from gambit_smp.recipes import CACHE_PARTS, source_path
     root = Path(root).resolve(strict=True)
     path = relative(root, reference["path"])
     if not (path.is_relative_to(root / "evidence") or
@@ -492,8 +492,13 @@ def checked_workspace_state(root, reference, expected_identity, *, input_binding
             or record.get("runtimeAdmitted") is not False or not record.get("bindings")):
         raise ValueError("retained workspace state does not match producer")
     for name, expected in record["bindings"].items():
-        original = source_path(root, name)
-        bound = (input_bindings or {}).get(str(original), original)
+        original = relative(root, name)
+        if any(part.casefold() in CACHE_PARTS for part in
+               (*Path(name).parts,*original.relative_to(root).parts)):
+            raise ValueError('retained workspace originals cannot be Cache aliases')
+        archived = (input_bindings or {}).get(str(original))
+        bound = (source_path(root,str(Path(archived).relative_to(root))) if archived is not None
+                 else source_path(root,name))
         if digest(bound) != expected:
             raise ValueError("retained workspace input drift")
     return {"recordedStateBound": True, "currentBytesEstablished": False,

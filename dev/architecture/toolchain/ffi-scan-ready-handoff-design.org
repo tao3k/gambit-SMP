@@ -1,0 +1,197 @@
+#+TITLE: FFI Scan-Ready Root Handoff Before Allocating GC
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Architectural decision
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-decision
+:AUTHORITY: FfiScanReadyHandoff
+:MAINLINE: modern-generated-C
+:STATUS: proposed-protocol-with-local-formal-checks
+:END:
+
+Separate the lifetime of an FFI operation from the interval during which it mutates its root description. Before an allocating call may join GC, the operation must publish stable scan cells and exchange its mutable-preparation lease for scan-ready custody. The collector waits for root publication and valid participant quiescence; it must not wait for that operation to return from the GC it requested.
+
+This refines the blocked =writerGcCycle= case in the frozen [[file:root-producer-census-design.org][root census study]]. It does not implement a runtime. Modern C owns stable storage, VM enrollment, synchronization and guards; Scheme generators own semantic call/exit structure and root schemas. Zig is not required for any mechanism below.
+
+[[file:models/sysml/ffi-scan-ready-handoff.sysml][Native SysML]] owns component/protocol/status/action/lemma mappings and FSH-H/I/S/E dependencies. Python queries the native tool and produces the [[file:ffi-scan-ready-handoff-matrix.org][matrix]] and [[file:diagrams/ffi-scan-ready-handoff.svg][D2 architecture]]. Actual [[file:../../modeling/ascent/ffi-scan-ready-handoff.rules.scm][ASCENT]], [[file:../../../models/build/ffi_scan_ready_handoff.qnt][QNT]] and [[file:../../../models/build/FfiScanReadyHandoff.lean][Lean]] participate in the checks. All seven source/native admission gates remain open.
+
+* RESEARCH Real source paths and why the current contract is insufficient
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-source
+:OBLIGATION: FSH-S
+:END:
+
+** Nonzero processor RC and provisional payload
+
+[[file:../../../vendor/gambit/lib/mem.c::703][alloc_rc_no_register]] creates native storage and initializes =data=#f=. [[file:../../../vendor/gambit/lib/mem.c::743][alloc_rc]] then calls [[file:../../../vendor/gambit/lib/mem.c::723][register_rc]] on the current PSTATE chain. [[file:../../../vendor/gambit/lib/mem.c::816][set_data_rc]] is a plain payload assignment. None of these functions establishes VM-wide root membership, epoch exclusion or an acknowledged ownership transfer.
+
+[[file:../../../vendor/gambit/lib/os_dyn.c::764][C closure construction]] uses current =___PSTATE=, then stores =proc=. [[file:../../../vendor/gambit/lib/mem.c::3969][mark_rc]] rewrites the registered =h->data= slot when marking, but its [[file:../../../vendor/gambit/lib/mem.c::6845][strong-entry caller]] is processor-zero-only. A provisional frame on processor 1 therefore needs a VM adapter independent of that old call-site restriction. So does the final committed RC slot. Copying its value into a temporary frame protects the candidate but does not update every existing raw alias to the registered slot.
+
+The new protocol deliberately distinguishes:
+
+| Responsibility | Meaning | What does not follow |
+|----------------+---------+----------------------|
+| Root-frame enrollment | provisional candidate is a current-epoch writable scan cell | target RC payload has committed |
+| Target RC root registration | committed payload will be scanned and rewritten in its VM domain | processor-local list storage can be freed |
+| Native RC pin | RC header/body remains allocated | scanner may be excluded or payload value may be cached across GC |
+| Participant stop/delegation | context does not mutate roots and its sync-op role is covered | OS thread can sleep without satisfying the collector roster |
+
+The architecture-gated C closure code and its =c_closure_self= thread-local TODO remain separate ingress conditions. No current Darwin arm64 trampoline reachability is inferred from this source path.
+
+** Explicit marker argument and allocating slow path
+
+[[file:../../../vendor/gambit/lib/c_intf.c::6511][make_sfun_stack_marker]] calls =make_vector= before storing explicit =proc_or_false=. The function itself retains a GC-protection TODO. [[file:../../../vendor/gambit/lib/mem.c::1804][make_vector]] calls =alloc_scmobj=; the still allocation slow path can [[file:../../../vendor/gambit/lib/mem.c::1647][request GC]], which reaches [[file:../../../vendor/gambit/lib/setup.c::1182][on_all_processors]]. Returning a still marker with external refcount one cannot protect an argument retrospectively.
+
+Using =#f= as vector initializer obeys [[file:../../../vendor/gambit/lib/mem.c::1778][the constructor's nonmoving initializer contract]]. It does not solve the lifetime of the separate explicit procedure argument. The procedure must be rooted before allocation and reloaded afterward. Passing an arbitrary movable value as the initializer instead would violate the documented constructor contract.
+
+[[file:../../../vendor/gambit/include/gambit.h.in::8059][GC_SAVE/RESTORE]] illustrates the existing rooted-slot and reload mechanism. It is not a general nested-frame solution: these macros use fixed PSTATE =saved[0..2]= slots, with no activation identity or stacking in the macros themselves. Reentrant users must not overwrite an outer activation's protection. The redesign uses activation-specific root frames, retaining existing saved slots where their scoped caller contract is proved.
+
+** Exceptional exits do not all reach the normal macro tail
+
+[[file:../../../vendor/gambit/lib/setup.c::3383][call may rethrow]] when the unwind does not target this marker. Normal SFUN macro cleanup appears after the call in [[file:../../../vendor/gambit/include/gambit.h.in::10043][the entry/exit macros]]. =___run= has a try boundary but [[file:../../../vendor/gambit/lib/setup.c::3413][marker kill is inside that try after the call]], not a universal finally clause. This source order is sufficient to reject the claim that every exit necessarily executes ordinary marker cleanup. It is not a native leak demonstration for every caller/configuration.
+
+The C [[file:../../../vendor/gambit/include/gambit.h.in::9981][TRY/THROW path]] uses a catcher and longjmp. A new guard must preserve the exact runtime unwind destination/error while performing admitted nonallocating cleanup. An ordinary lexical cleanup annotation or Zig =defer= is not proof that an external longjmp executes that cleanup. Mutable guard state belongs in stable native storage, not automatic variables whose post-setjmp changes would make their values indeterminate after longjmp. Exact configured ABI/catcher source refinement remains open.
+
+** Native storage destruction is a different authority
+
+[[file:../../../vendor/gambit/lib/mem.c::760][release_rc]] unlinks/frees when its plain reference count reaches zero. [[file:../../../vendor/gambit/lib/mem.c::684][cleanup_rc]] frees the whole chain without consulting that count; [[file:../../../vendor/gambit/lib/mem.c::4928][cleanup_mem_pstate]] frees still objects and then RC. A new pin is effective only after every such free path honors ownership/handoff; incrementing the old count alone cannot prevent processor cleanup from invalidating a descriptor's RC pointer.
+
+Tcl supplies actual reads and release endpoints: [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::150][callback payload read]], [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::193][command deletion]], and [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::316][still-vector creation and RC publication]]. The still vector already has external protection; it is not evidence of an unconditional nonzero-RC lost root. Command creation failure and deletion still require explicit resource outcomes and accepted-reader drain. Arbitrary foreign-thread access or concurrent deletion is not presumed currently legal.
+
+* RESEARCH Root-frame and receipt data contract
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-data
+:END:
+
+These are design fields, not implemented C declarations.
+
+| Record | Required fields | Lifetime authority |
+|--------+-----------------+--------------------|
+| NativeRootFrame | VM/domain identity; storage generation; activation/parent identity; schema; writable Scheme slots; operation identity | VM native arena, independent of retired PSTATE and movable Scheme heap |
+| RootIntent | accepted epoch; owner/context; preparation state; enrolled frame; origin custody; target RC identity | enrollment gate plus operation journal |
+| ScanReadyReceipt | VM/domain/frame generation; activation; accepted epoch; fully initialized schema; participant stop/delegation acknowledgement | produced only after enrollment and stop publication linearize |
+| StoragePin | native resource identity/generation; borrower; accepted cleanup obligation | storage owner; never a GC-scan exclusion lock |
+| CompletionRecord | stable operation identity; committed/aborted/pending outcome; target transfer; marker state; cleanup obligations | operation owner; retained independently of response delivery |
+
+The schema reserves every value that may survive allocation or cleanup: procedure/candidate, marker, and managed error/handler data where applicable. The root adapter enumerates actual slots; no untracked managed value may hide inside opaque metadata. Root frame initialization may not call Scheme, allocate Scheme objects or invoke foreign callbacks.
+
+Reserve stable native capacity before abandoning the existing origin root. Native allocation may fail; failure leaves origin custody unchanged. If the incoming word is already an unrooted movable C local, registration cannot recover an earlier missed collection: reject it or require a proven nonmoving/registered-root ingress contract. A pre-reserved per-context pool is one design option; the architecture does not depend on a specific pool algorithm or assume native allocation cannot fail.
+
+A stack address alone is not a durable descriptor. The chosen VM-owned record survives permitted unwind and unknown delivery. Its generation prevents a stale continuation/callback capability from accessing reused storage. Frame reachability is distinct from permission to reenter a dead C activation.
+
+* RESEARCH Prepare, handoff, collect, resume
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-protocol
+:OBLIGATION: FSH-S
+:END:
+
+** Accepted intent and the collector cutoff
+
+1. Attach to the correct VM/context or reject ingress. Keep the origin in a proven existing root. Reserve stable frame storage.
+2. Enter the VM enrollment gate, validate owner/storage generations and obtain an accepted intent. Its preparation interval is nonallocating and bounded by protocol, not by a speculative timeout.
+3. Initialize all candidate/root slots, then publish the adapter. Drop the origin only after this publication is accepted. The target RC write is still uncommitted.
+4. Before an allocating helper can request GC, exchange mutable-preparation ownership for scan-ready custody and publish the context stop record. Release every enrollment/root lock needed by GC. Keep storage pins that allow scanner access rather than exclude it.
+5. Join the real sync operation or use an explicitly proved delegate. In the current all-processors design the requesting processor must still execute its GC role. =parked= in the model means no root mutation; it does not prescribe blocking the OS thread.
+
+Closing admission forbids new intents but must allow a previously accepted, nonallocating preparation to publish and yield. Otherwise the collector could close the gate while waiting for a writer that needs the same gate to discharge its preparation. The accepted-intent set is finite at cutoff; publication and freeze use one synchronization authority. A denied late caller keeps its source root and cannot proceed to allocation under an unaccepted temporary.
+
+** Freeze criterion, not operation completion
+
+The collector may freeze when preparation is empty, every live activation is parked/delegated, and the frame/domain census is stable. An operation's semantic outcome may still be pending. Its root cells remain owned and scanned.
+
+The old wait cycle was =writer holds GC-blocking lease -> writer requests GC -> collector waits for writer completion=. The new dependency is =nonallocating preparation -> scan-ready custody -> GC -> operation continuation=. Persistent ownership survives the transition; only the GC-blocking mutable interval ends.
+
+This removes that particular wait edge. It does not prove global deadlock freedom, scheduler fairness, lock ordering of every runtime module or termination of arbitrary foreign code. Unknown running state is not quiescence. Uncooperative foreign ingress remains rejected rather than counted as parked.
+
+** Collector scan and owner reload
+
+The VM scanner visits all enrolled provisional frames and all admitted RC domains, including processor 1. It rewrites moved values in their owning cells. Original committed RC payload and provisional replacement stay separate until commit; a frame copy cannot excuse leaving the real RC slot stale.
+
+After GC completion, the owner acquires the same epoch/generation outcome and reloads the procedure/candidate from its cell. Only then may it initialize a marker or commit a target RC value. If another GC intervenes before a value-dependent operation, it must park and reload again. A raw =data_rc= result is not a handle that updates itself.
+
+A conflicting writer or changed target generation must cause explicit failure/revalidation under the target contract. The finite model serializes target commit; it does not prove compare-and-validate semantics for multiple concurrent writers to the same RC payload.
+
+** Memory order and real participant obligations
+
+| Edge | Required modern C relation | Remaining source obligation |
+|------+----------------------------+-----------------------------|
+| initialized cells -> enrollment | release publication, acquire snapshot through VM gate | descriptor adapter and native arena do not yet exist |
+| accepted preparation -> scan-ready/park | atomic transition or one gate-protected transaction; no blocking resource held | integrate with current sync-op participant roster |
+| GC slot writeback -> resume | GC completion release and owner acquire before root reload | configured barrier/mutex/C ABI refinement |
+| known terminal outcome -> withdrawal | close new users; drain readers/pins; generation-checked unregister | intercept cleanup_rc, still cleanup and owner exit |
+
+Do not mix plain unsynchronized slot writes with atomic readers and call the result a memory-order proof. Storage pins permit only lifetime retention; a foreign borrower still needs an attached-context/no-read-during-scan contract before touching a mutable Scheme payload. They do not make concurrent raw reads safe.
+
+* RESEARCH Failure, exception and unknown-result custody
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-failure
+:END:
+
+| Point | Retained owner | Allowed progress / release |
+|-------+----------------+----------------------------|
+| native frame reservation fails | original caller/root | return failure without weakening origin root |
+| preparation validation fails | accepted-intent owner plus origin | acknowledge abort, release native reservations under gate; no GC-dependent abort |
+| handoff acknowledgement lost | VM frame and operation journal | query stable identity; GC may proceed only with actual stop acknowledgement, not caller inference |
+| marker allocation fails after GC | VM frame and storage pins | record failure, reload any needed values, settle guard; frame remains until known cleanup |
+| known runtime unwind | completion guard, then VM operation owner | close/invalidate owned marker, record exact outcome, settle children/pins before rethrow |
+| RC commit succeeds but response is lost | target RC owner plus provisional frame/journal | query committed record; never replay the mutation as delivery retry |
+| arbitrary foreign longjmp / thread disappearance | VM quarantine retains stable records | no retirement receipt; reject unsupported boundary or require a proved catcher/owner-exit protocol |
+| nested callback remains live | child and parent activation records | child root lifetime closes before parent retirement |
+| processor wants to exit with pins/unknown outcome | VM/domain custodian | transfer native storage or veto cleanup; do not join away the owner needed to settle its callbacks |
+
+Marker kill clears its procedure slot and drops the external still reference. Captured Scheme continuations may still reference the invalid marker; they must observe the existing dead-C-activation behavior, not resurrect a descriptor or C stack. A genuine reexecution gets a fresh activation/operation identity. Retrying delivery of an already committed outcome retains the old identity and does not execute again.
+
+The guard must run for every admitted runtime exit, including a rethrow from =___call=. It must not invoke user Scheme effects during bookkeeping cleanup or replace the original unwind with a cleanup error. Managed error values require their own root slots before any allocating cleanup. Exact dynamic-wind, catcher and generated macro integration remains a source-refinement obligation.
+
+Unknown outcomes can retain memory and roots indefinitely. The service needs a bounded outstanding-operation/quarantine policy and backpressure or failed admission when that bound is reached. It may not fabricate success or free unknown state to reclaim capacity. No leak-freedom or unlimited fault-progress result is claimed.
+
+* RESEARCH Formal models and evidence chain
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-models
+:END:
+
+The QNT scope has two operation identities on nonzero processor 1, explicit origins, stable cells, preparation, scan-ready parking, native pins, outcome journal, reader retention and parent/child dependency. Cell version abstracts relocation; it is not a Scheme symbol or binding identity. Ordinary roots and marker still-object scanning compose only conditionally with the parent GC model.
+
+Thirty-two scenarios include fifteen negative controls. Positive paths cover collector freeze before operation return, publication by an accepted preparer after admission cutoff, explicit and implicit marker routes, nonzero RC commit/scan, reservation/preparation/allocation failure, supported unwind, unknown outcomes, nested activations and repeated GC. Negative controls cover dropped origin/root, premature freeze or GC return, stale local reuse, skipped nonzero RC scan, cleanup under native pins, unknown or reader-held retirement, duplicate commit and parent retirement before child.
+
+Two bounded random campaigns use explicit and implicit RC origins. These are safety checks, not unbounded model checking or native tests. They do not prove a scheduler eventually parks every context. The counterexample =unknown outcome with owner still running= is deliberately separate from =unknown acknowledgement after confirmed handoff=.
+
+Fourteen Lean conditional lemmas establish origin-to-frame coverage preservation, explicit lease conversion that retains rooted storage and leaves operation completion unchanged, collector readiness without operation completion, preparation obstruction, unknown/quiescence separation, reload correctness, retirement prerequisites, nonzero root coverage and cost threshold. They do not prove full inductive preservation of C or arbitrary repeated nested activations. The retry lemma is only the pure no-mutation delivery step; exactly-once external effects would require a source-bound operation journal, not merely this equality.
+
+SysML owns nineteen component action/lemma mappings, five source routes and three parent-model dependencies. Actual ASCENT checks mapping, subject hash/scope, missing roots/model steps/source anchors and unresolved gates. Ten independent local cases qualify only a synthetic all-closed control; current source is never admitted. Inherited host attestation failure remains unresolved and is not retried.
+
+* RESEARCH Net benefit and retirement matrix
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-benefit
+:END:
+
+Let =A= be live/retained activations, =k_i= their managed slot count, =G_i= collections while activation i remains enrolled, and =U= unknown outcomes. Stable root storage is =O(A + sum k_i)= plus journal/pin metadata; root visitation is =O(sum G_i*k_i)=. Explicit root coverage is necessary work. Unknown retention must be bounded separately; average fast-path cost does not hide an unbounded U.
+
+| Architectural result | Avoided work / failure | Added work | Positive net condition |
+|----------------------+------------------------+------------+------------------------|
+| preparation-to-scan-ready conversion | writer/collector self-wait edge | publication, stop acknowledgement and resume reload | no allocating preparation; real participant role remains executable |
+| activation-specific reusable frame | repeated root-description reconstruction; nested saved-slot overwrite | one frame and k slots; per-GC scanning | reuse exceeds metadata cost without reducing root completeness |
+| all-domain RC adapter | omitted/stale processor-1 payload slots | scanning every registered slot and synchronizing target mutation | supported FFI correctness requires the work; no speedup claim from repairing omission |
+| explicit completion guard/journal | replay after lost response and premature cleanup | known terminal record, nested/pin/reader drain | every exit and raw cleanup path actually uses the contract |
+| modern C implementation boundary | second systems-language/exception bridge | C memory-order and generator/ABI discipline | C provides all required mechanisms; language substitution does not discharge GC/longjmp obligations |
+
+No milliseconds, percentage or person-days are inferred. Benefit threshold remains =eliminated redundant work > added bookkeeping= for performance claims. Removal of a cyclic wait and qualification of previously unsupported FFI profiles are architectural capabilities, not a measured speedup.
+
+Retirement order: source-root ingress and schema inventory; nonallocating intent/enrollment gate; VM-wide provisional/RC scan adapters; same sync-op participant integration and post-GC reload; explicit macro/helper/catcher completion guards; cleanup_rc/still/owner-exit interception and reader drain; then retire unmanaged payload publication and processor-zero-only RC scan as authorities for admitted profiles. Valid still/frame walkers remain reusable. Old exported entry points cannot retire while external extensions bypass admission.
+
+* RESEARCH Closure boundary and reproduction
+:PROPERTIES:
+:CUSTOM_ID: ffi-scan-ready-handoff-closure
+:END:
+
+Closed locally: a protocol schedule can collect while the requesting operation remains incomplete; root publication permits safe origin withdrawal; repeated relocation requires reload; failed/unknown/nested/reader-held cases cannot withdraw custody under the modeled guards. Closed structurally: exact allocation-to-sync-op source route and the possibility of rethrow before ordinary cleanup.
+
+Open: complete source root schemas and dynamic aliases, physical VM adapter, arbitrary task/reader multiplicity, same-target concurrent writes, all participant/exit paths, cleanup authority interception, configured C memory order/ABI, full model composition and native correctness. Seven admission gates remain false. This narrows the previous refusal boundary without upgrading a model into runtime acceptance.
+
+#+begin_src text
+.venv/bin/python dev/modeling/tools/ffi-scan-ready-handoff-study.py
+#+end_src
+
+[[file:../../../evidence/research/ffi-scan-ready-handoff/checks.json][Structured checks]] and [[file:../../../evidence/research/ffi-scan-ready-handoff/prior-model-alignment.json][parent-model obligations]] bind exact worktree source hashes. Raw transcripts stay in task cache; parent studies and historical failures remain unchanged.

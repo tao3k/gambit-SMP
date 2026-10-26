@@ -1,0 +1,42 @@
+--- 2fe7/lib/_thread.scm
++++ 60b3/lib/_thread.scm
+@@ -4477,7 +4477,19 @@
+ 
+   ;; Publish initialized queues without holding the lock peers need to enqueue.
+   (macro-unlock-current-processor!)
+-  (##c-code "___EXT(___processor_startup_complete) (___PSPNC);")
++  ;; startup_complete joins the sync barrier and can run a GC.
++  ;; The host ___PW_ALL macro is not a save. Use the ##gc bridge.
++  (##c-code #<<end-of-code
++
++___FRAME_STORE_RA(___R0)
++___W_ALL
++___EXT(___processor_startup_complete) (___PSPNC);
++___R_ALL
++___SET_R0(___FRAME_FETCH_RA)
++___RESULT = ___VOID;
++
++end-of-code
++)
+   (macro-lock-current-processor!)
+ 
+   ;; enable interrupting this processor
+@@ -8315,7 +8327,17 @@
+     (##btq-insert! (macro-current-processor) thread)
+     )
+ 
+-  (##c-code "___EXT(___processor_startup_complete) (___PSPNC);")
++  (##c-code #<<end-of-code
++
++___FRAME_STORE_RA(___R0)
++___W_ALL
++___EXT(___processor_startup_complete) (___PSPNC);
++___R_ALL
++___SET_R0(___FRAME_FETCH_RA)
++___RESULT = ___VOID;
++
++end-of-code
++)
+   (##enable-interrupts!)
+ 
+   (let loop ()

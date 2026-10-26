@@ -1,7 +1,10 @@
 import Std.Tactic
 namespace IncrementalCompilerArchitecture
 def netWorkPositive (avoided overhead : Nat) : Prop := overhead < avoided
-theorem workPositive (r h : Nat) (p : h < r) : netWorkPositive r h := p
+-- Explicit accounting premise; establishing it for real compiler stages remains open.
+theorem workPositive (oldWork newWork avoided overhead : Nat)
+    (accounting : newWork + avoided = oldWork + overhead)
+    (positive : overhead < avoided) : newWork < oldWork := by omega
 -- Work/span is an assumed scheduling lower bound, not a speedup prediction.
 theorem spanLowerBound (time span : Nat) (p : span ≤ time) : span ≤ time := p
 structure Projection where

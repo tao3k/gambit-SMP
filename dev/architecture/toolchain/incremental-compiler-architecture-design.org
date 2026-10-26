@@ -21,11 +21,107 @@ owned semantic sessions, a single resource scheduler and atomic result manifests
 It changes the compiler/build boundary rather than wrapping the same gxc command
 in another pool. Modern generated C remains the mandatory native backend.
 
-[[file:models/sysml/incremental-compiler-architecture.sysml][SysML]] owns six responsibilities, eight result stages, an eight-node formal
+[[file:models/sysml/incremental-compiler-architecture.sysml][SysML]] owns six responsibilities, four implementation placements, eight result stages, an eight-node formal
 instance, seven admission gates and six gain cases. [[file:../../modeling/tools/incremental-compiler-study.py][Python]] invokes native SysML,
 [[file:../../modeling/ascent/incremental-compiler-architecture.rules.scm][ASCENT]], [[file:../../../models/build/incremental_compiler_architecture.qnt][QNT]] and [[file:../../../models/build/IncrementalCompilerArchitecture.lean][Lean]], generating [[file:incremental-compiler-architecture-matrix.org][the architecture/net-work matrix]] and
 [[file:diagrams/incremental-compiler-architecture.svg][D2]]. [[file:../../../evidence/research/incremental-compiler-architecture/checks.json][Receipts]] separate conditional models, source simulation and native
 acceptance. No compiler/runtime implementation, native test or benchmark is run.
+
+* DECISION Gambit foundation, Gerbil implementation
+:PROPERTIES:
+:CUSTOM_ID: gambit-foundation-gerbil-service
+:DECISION_STATUS: proposed-source-refinement-open
+:CANONICAL_MODEL: IncrementalCompilerArchitecture::placement0..placement3
+:END:
+
+The proposed implementation home is Gerbil, running on Gambit. Gambit supplies
+compiler semantics, explicit lowering/backend services and the modern C runtime;
+Gerbil supplies the language-aware incremental compilation service. gxi and gxc
+become clients of that one service. Dune is a source of mechanisms and counterexamples,
+not the implementation or the Scheme semantic specification. No Zig dependency is
+required for this architecture.
+
+| Layer | Mandatory redesign | Boundary that must not be hidden |
+|---+---+---|
+| Gambit compiler foundation | Explicit owned compilation context; normalized Scheme/GVM stage results; ModuleSpec, FrameSpec and PointId; backend/native demands | Existing internal procedures and textual GVM dumps are not yet stable or replayable service APIs |
+| Gerbil compiler service | Phase-aware query graph; executable macro support; identity/instance reconstruction; capability tracing; persistent result validation; scheduling/publication | Gerbil hygiene, module semantics and macro effects remain Gerbil responsibilities |
+| gxi/gxc clients | Request targets/queries and render diagnostics through one engine | Interactive session state is not automatically reusable batch state |
+| Execution host | Isolated process workers or qualified owned same-VM sessions | Query parallelism and runtime SMP safety need separate evidence |
+| Bootstrap | Seed-built service artifact, then rebuild with recorded compiler/rule identities | Building the new service must not require that same service before it exists |
+
+The source seam is concrete. Gambit's [[file:../../../vendor/gambit/gsc/_front.scm::194][compile-frontend-aux]] parses into a compilation
+context and invokes normalization at line 250. [[file:../../../vendor/gambit/gsc/_front.scm::317][compile-frontend]] installs compilation
+options globally and calls env.begin!, ptree.begin!, virtual.begin! and target-select!.
+[[file:../../../vendor/gambit/gsc/_front.scm::352][compile-program]] lowers the parsed program, constructs supplied/demanded module
+data, optionally dumps GVM and calls the target emitter. These are candidate cuts,
+not proof that the current functions are reentrant, serializable or independently
+cacheable. Gerbil already performs its own expansion/optimization and emits Scheme;
+that Gerbil-to-Gambit handoff must be represented as a typed query result, retaining
+source origin and required compiler declarations. It cannot be relabeled as Gambit
+GVM directly.
+
+** Proposed service boundary and retirement sequence
+
+A request carries the cohort, owned context, stage, semantic/target profile and
+source-origin mapping. A response carries a typed result, actual dependency/native
+demands, diagnostics/effect observations, and an outcome. Suspended, failed,
+cancelled and unknown attempts cannot mint a reusable success. A compiler context
+and its rooted values remain owned until the explicit outcome is settled; arbitrary
+Scheme continuations cannot transfer ownership behind the service's back.
+
+#+begin_src text :eval never
+GerbilQuery(module, phase, requestedProjection, inputEpoch)
+  -> expand/optimize in owned Gerbil session
+  -> GeneratedSchemeResult(code, declarations, originMap, dependencyTrace)
+  -> GambitStageRequest(context, normalize/lower/emit, profile, result)
+  -> GambitStageResult(typedIR or generatedC, module/frame contract,
+                       actualDemands, diagnostics, outcome)
+  -> native action -> atomic manifest -> waiting clients
+#+end_src
+
+This is a proposed contract, not an existing function signature. Moving Gambit's
+mutable compiler globals into context-owned state is necessary for same-VM service
+calls. Process isolation can supply an earlier execution mechanism, but opaque
+whole-gsc invocations alone do not implement stage-level invalidation. Runtime GC,
+FFI and SMP redesign stays a distinct T0 workstream; a process scheduler neither
+solves nor blocks that redesign.
+
+Migration follows consumers: define typed stage inputs/outcomes; migrate Gerbil's
+pipeline and timestamp/identity policy; introduce owned Gambit contexts and stage
+results; move all consumers to manifest-backed readiness; then retire whole-module
+completion as the sole gate and direct file acceptance. Retire driver locks only
+after every protected writer has an owned-state replacement. Retain standalone gsc
+as a client, C portability, tail calls and continuation semantics. Replacing those
+contracts does not require deleting the standalone compiler.
+
+Bootstrap is an explicit acyclic subgraph: an existing supported compiler builds
+the service seed; that artifact can rebuild the service under the recorded profile.
+The seed and rebuilt producer identities remain distinct. This permits an ordinary
+cold bootstrap without requiring a persistent daemon or an already populated cache.
+Equivalent rebuilds, stable naming and subsequent fixed-point reproducibility are
+separate proof obligations, not inferred from two successful compilations.
+
+** What to study deeply in Dune, and what must be derived for Scheme
+
+[[https://raw.githubusercontent.com/ocaml/dune/main/src/memo/memo.ml][Dune Memo]] exposes keyed computations, dependency nodes and cutoff; its
+[[https://raw.githubusercontent.com/ocaml/dune/main/src/dune_engine/build_system.ml][build engine]] coordinates rule discovery/validation and build state. These are
+moving source references, not a pinned validation baseline. A subsequent comparative
+study must pin a source commit and trace memo invalidation, dynamic rule discovery,
+resource scheduling, failed/cancelled results and publication separately. The
+[[https://simon.peytonjones.org/assets/pdfs/build-systems-original.pdf][Build Systems à la Carte]] separation of scheduler and rebuilder provides the
+algorithmic vocabulary; it does not prove Scheme macro-cache correctness.
+
+For Gambit/Gerbil the extra semantic obligations are executable positive-phase
+support, fresh lexical identity, initializer order/effects, continuation-sensitive
+session ownership and backend/runtime contracts. Dune's cutoff cannot justify
+sharing mutable macro closures or skipping changed transformer code. Our potential
+advantage is direct integration of these language facts into the dependency graph,
+not a demonstrated superiority over Dune or a speedup from using Scheme itself.
+
+The decisive experiment, when separately authorized, will compare avoided stage
+executions and critical-path length against validation, instantiation, transfer and
+memory costs. Until then the architecture has conditional benefit and open source
+refinement, not a measured acceleration.
 
 * RESEARCH Concrete pain and the replacement unit
 :PROPERTIES:

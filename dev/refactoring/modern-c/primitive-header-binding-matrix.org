@@ -1,0 +1,149 @@
+#+TITLE: Primitive Header, Native Binding and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitPrimitiveHeaderBinding
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| scheme-primitive | vendor/gambit/lib/_kernel.scm | (define-prim (##get-monotonic-time! u64vect i) | Actual primitive source; native payload writes vector, no pure-operation claim |
+| macro-lowering | vendor/gambit/lib/_gambit#.scm | (##define-syntax define-prim | Macro transforms definition; compile-time primitive table controls inline choice |
+| front-primitive | vendor/gambit/gsc/_front.scm | (proc-obj-primitive?-set! | Global constant procedure branch marks primitive; not every arbitrary lambda |
+| main-demand | vendor/gambit/gsc/_t-c-1.scm | (targ-use-prc proc #f) | Main starts demanded before header |
+| other-supply | vendor/gambit/gsc/_t-c-1.scm | (targ-use-prc proc #t) | Non-tree-shaken procedures are supplied; not necessarily demanded |
+| primitive-use | vendor/gambit/gsc/_t-c-1.scm | (targ-use-glo (string->symbol name) supply?) | Primitive discovery updates resource roles before dump |
+| entry-lookup | vendor/gambit/gsc/_t-c-1.scm | (table-ref targ-glo-vars glo #f) | Idempotence requires same interned symbol and existing entry |
+| demand-write | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-demanders-set! (cdr x) '("")) | False use normalizes the whole demander list even when entry exists |
+| supply-write | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-suppliers-set! (cdr x) '("")) | True use normalizes the whole supplier list |
+| absent-insert | vendor/gambit/gsc/_t-c-1.scm | (table-set! targ-glo-vars glo (cons y r)) | Absent entry allocates unresolved cell; cannot replace by readonly lookup |
+| vector-writer | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Value idempotence does not remove physical setter or alias observation |
+| snapshot-alias | vendor/gambit/gsc/_t-c-1.scm | (map targ-glo-rsrc glo-list) | Resource vectors remain shared, classification must snapshot values at read time |
+| header-snd | vendor/gambit/gsc/_t-c-1.scm | (targ-write-rsrc-names 'globals-s-nd | Header serializes supplied/not-demanded before dump-mod |
+| index-write | vendor/gambit/gsc/_t-c-1.scm | (targ-cell-set! (cadr g) i) | Global index assigned after header and before native binding |
+| mod-call | vendor/gambit/gsc/_t-c-1.scm | (targ-dump-mod prm-list c-inits sym-list key-list) | Module output consumes extracted primitive roster |
+| late-demand | vendor/gambit/gsc/_t-c-1.scm | (targ-use-glo (string->symbol name) #f) | Native helper invoked twice, first use need not be idempotent |
+| prm-call | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_PRM") | First binding block precedes C init |
+| c-init | vendor/gambit/gsc/_t-c-1.scm | (targ-display x) | Opaque C initializer between binding blocks requires exact text custody |
+| glo-call | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Second binding block must use same slot/name/label |
+| runtime-prm | vendor/gambit/include/gambit.h.in | #define ___DEF_MOD_PRM(i,glo,n)___PRM(i,glo)=___MLBL(n); | setup_mod primitive-slot store distinct from init_mod global store |
+| runtime-glo | vendor/gambit/include/gambit.h.in | #define ___DEF_MOD_GLO(i,glo,n)___GLO(i,glo)=___MLBL(n); | Profile-dependent macro semantics; no preprocessing performed |
+| artifact-prm | vendor/gambit/lib/_kernel.c | ___DEF_MOD_PRM(146,___G__23__23_get_2d_monotonic_2d_time_21_,828) | Existing artifact supplies exact binding tuple, no fresh generation claim |
+| artifact-glo | vendor/gambit/lib/_kernel.c | ___DEF_MOD_GLO(146,___G__23__23_get_2d_monotonic_2d_time_21_,828) | Independent second binding span must agree with tuple |
+| artifact-header | vendor/gambit/lib/_kernel.c | ( #\vert{}*/"*/"globals-s-nd\vert{}# | Header section membership is independently read from artifact bytes |
+| artifact-provenance | vendor/gambit/lib/_kernel.c | produced by Gambit v4.9.8 | Embedded version alone cannot bind generator revision or Darwin flags |
+| c2-use-1396 | vendor/gambit/gsc/_t-c-2.scm | (targ-use-glo name #f) | Other native global-use writer; phase-specific closure must include this caller |
+| c2-use-2278 | vendor/gambit/gsc/_t-c-2.scm | (targ-use-glo name #f) | Other native global-use writer; phase-specific closure must include this caller |
+| c2-use-2337 | vendor/gambit/gsc/_t-c-2.scm | (targ-use-glo name #t) | Other native global-use writer; phase-specific closure must include this caller |
+| c2-use-2383 | vendor/gambit/gsc/_t-c-2.scm | (targ-use-glo name #f) | Other native global-use writer; phase-specific closure must include this caller |
+| c2-use-2413 | vendor/gambit/gsc/_t-c-2.scm | (targ-use-glo name #t)))) | Other native global-use writer; phase-specific closure must include this caller |
+| c2-use-2439 | vendor/gambit/gsc/_t-c-2.scm | (targ-use-glo name #t) | Other native global-use writer; phase-specific closure must include this caller |
+| label-constructor-intro | vendor/gambit/include/gambit.h.in | #define ___DEF_LBL_INTRO( | One macro constructor per label table initializer; selected PROC ordinal differs from INTRO ordinal |
+| label-constructor-proc | vendor/gambit/include/gambit.h.in | #define ___DEF_LBL_PROC( | One macro constructor per label table initializer; selected PROC ordinal differs from INTRO ordinal |
+| label-constructor-ret | vendor/gambit/include/gambit.h.in | #define ___DEF_LBL_RET( | One macro constructor per label table initializer; selected PROC ordinal differs from INTRO ordinal |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| roles | Two temporal projections | Capture header values before native helper writes | Header s-nd and native binding coexist | Current-source generation provenance OPEN |
+| idempotence | Demand setter maps payload to singleton | Same interned key and entry identity; no intervening mutation | Second value update redundant; first may change classification | Physical-write removal requires alias observer closure |
+| spans | Independent byte parser for existing C | Exact SHA and half-open byte intervals | Two binding tuple spans agree with global and host labels | Full ModuleSpec encoder and native expansion OPEN |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| two-helpers | 2P emission-time use-glo calls and existing-entry setters; artifact P=455 gives 910 calls | P immutable binding records plus 2P readonly consumers | Producer closure proves entries and indices; no missing-use error changes |
+| header | Repeated role classification for C and Spec in proposed dual consumers | One owned header snapshot; copy cost H | Only savings against dual-consumer design; current compiler already writes header once |
+| binding | Repeated name conversion and binding tuple derivation | P records; span metadata O(P); byte verification O(C) | Share encoding without alias retention; no measured speedup |
+| macos | No directly established preprocessing or startup saving | Same C bytes retain downstream compile work | Darwin improvement requires separate artifact reuse or C emission redesign |
+| net | 2P mutation-capable uses plus duplicate work D | Planning K + owned storage S + byte verification V + profile qualification A | Positive only if avoided work exceeds K+S+V+A; no numeric timing claim |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Scheme primitive | Discovery | semantics |
+| Discovery | HeaderRoleSnapshot | roles at read |
+| HeaderRoleSnapshot | Layout | indices |
+| Layout | BindingPlan | slot and label |
+| BindingPlan | PRM output | setup |
+| PRM output | C init | ordered text |
+| C init | GLO output | init |
+| HeaderRoleSnapshot | ModuleSpec witness | header spans |
+| GLO output | ModuleSpec witness | binding spans |
+| ModuleSpec witness | Pair receipt | verify + close |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| primitive_header_binding.seedSupply | PrimitiveHeader.seedSupplyPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.seedDemand | PrimitiveHeader.seedDemandPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.seedOtherDemand | PrimitiveHeader.seedOtherDemandPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.writeHeader | PrimitiveHeader.writeHeaderPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.emitPrm | PrimitiveHeader.emitPrmPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.emitGlo | PrimitiveHeader.emitGloPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.sealSpec | PrimitiveHeader.sealSpecPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.checkCoverage | PrimitiveHeader.checkCoveragePreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.closePair | PrimitiveHeader.closePairPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.issue | PrimitiveHeader.issuePreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.unknownOutput | PrimitiveHeader.unknownOutputPreserves | Actual extracted sequential step; native alias and C11 refinement external |
+| primitive_header_binding.rejectLateUse | PrimitiveHeader.rejectLateUsePreserves | Actual extracted sequential step; native alias and C11 refinement external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| step | PrimitiveHeader.stepPreserves |
+| reachable | PrimitiveHeader.reachableSafe |
+| header | PrimitiveHeader.lateBindingKeepsHeader |
+| pair | PrimitiveHeader.receiptNeedsPair |
+| demand-idempotent | PrimitiveBindingAlgebra.demandIdempotent |
+| supply-idempotent | PrimitiveBindingAlgebra.supplyIdempotent |
+| exact | PrimitiveBindingAlgebra.exactDemandUnchanged |
+| classification | PrimitiveBindingAlgebra.classificationUnchanged |
+| supplier | PrimitiveBindingAlgebra.supplierPreserved |
+| counterexample | PrimitiveBindingAlgebra.suppliedOnlyChangesHeader |
+| payload | PrimitiveBindingAlgebra.noncanonicalChangesPayload |
+| span | PrimitiveBindingAlgebra.correspondenceRequiresBoth |
+| width | PrimitiveBindingAlgebra.equalWidthsInsufficient |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| header-values | snapshot-alias | header-snd | primitive_header_binding.writeHeader | PrimitiveHeader.writeHeaderPreserves |
+| readonly-plan | index-write | late-demand | primitive_header_binding.emitPrm | PrimitiveHeader.emitPrmPreserves |
+| both-stores | prm-call | glo-call | primitive_header_binding.emitGlo | PrimitiveHeader.emitGloPreserves |
+| pair-close | artifact-prm | artifact-glo | primitive_header_binding.issue | PrimitiveHeader.receiptNeedsPair |
+
+** Caller
+
+| key | caller | phase | effect | condition |
+|---+---+---+---+---|
+| global-jump | targ-gen-jump | glo operand jump | demand false | Registration happens while converting procedures; preserve safe/unsafe jump distinction |
+| boxed-read | targ-repr-opnd-boxed | boxed global operand | demand false | Uses global-ID form after registering demand |
+| boxed-write | targ-repr-loc-boxed | boxed global location | supply true | Preserve SET_GLO and value boxing requirements |
+| operand-read | targ-opnd | generic global operand | demand false | Location helper can call this after supplying; same key may become both |
+| location-read | targ-loc-opnd | global location operand | supply then demand | Supply call followed by targ-opnd; do not summarize as supply-only |
+| location-write | targ-loc-no-invalidate | generic global store | supply true | Preserve flonum-cache invalidation caller and SET_GLO |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| PH-history | interleaving | dev/refactoring/modern-c/models/quint/primitive_header_binding.qnt | 11 representative histories; sequential temporal roles, no parallel implementation |
+| PH-induction | induction | dev/refactoring/modern-c/models/lean/PrimitiveHeader.lean | All extracted steps preserve conditional invariant |
+| PH-algebra | induction | dev/refactoring/modern-c/models/lean/PrimitiveBindingAlgebra.lean | Exact payload idempotence and symbolic spans; no native encoder proof |
+| PH-projection | restricted-projection | dev/refactoring/modern-c/models/lean/PrimitiveHeaderAst.lean | Checked binding identities field kinds supported expressions action roster; parser trusted |
+| PH-source | source-refinement | dev/refactoring/modern-c/primitive-header-binding-design.org | Entire writer alias GC exception closure and selected artifact generation provenance OPEN |
+| PH-emission | emitter-fidelity | dev/refactoring/modern-c/primitive-header-binding-design.org | All C constructors and exact full ModuleSpec codec coverage OPEN |
+| PH-platform | native-memory-order | dev/refactoring/modern-c/primitive-header-binding-design.org | C11 snapshot publication and macro profile qualification OPEN |

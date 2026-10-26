@@ -1,0 +1,7 @@
+import ThreadCacheTail
+open ThreadCacheTailAst
+def witness : State := selectFastNext (sampleNearNext (initial))
+example : sampleNearGuard (initial) := by simp [sampleNearGuard,initial]
+example : selectFastGuard (sampleNearNext (initial)) := by simp [selectFastGuard,initial,sampleNearNext]
+example : Safe witness := by simp [Safe,witness,initial,sampleNearNext,selectFastNext,enterChildGuard,childCleanupKnownGuard,beginChildRestoreGuard,knownChildRestoreGuard,claimExtraGuard,returnExtraGuard,denyOwnerGuard,sampleEmptyGuard,sampleLowGuard,sampleNearGuard,sampleHighGuard,selectFastGuard,selectHelperGuard,attestFastTailGuard,writeFastLinkGuard,publishFastHeadGuard,incrementFastCountGuard,publishFastReceiptGuard,helperPushGuard,helperFlush800Guard,helperKnownReturnGuard,unknownHelperGuard,handoffParentGuard,beginParentRestoreGuard,knownParentRestoreGuard]
+example : ¬ (writeFastLinkGuard witness) := by simp [Safe,witness,initial,sampleNearNext,selectFastNext,enterChildGuard,childCleanupKnownGuard,beginChildRestoreGuard,knownChildRestoreGuard,claimExtraGuard,returnExtraGuard,denyOwnerGuard,sampleEmptyGuard,sampleLowGuard,sampleNearGuard,sampleHighGuard,selectFastGuard,selectHelperGuard,attestFastTailGuard,writeFastLinkGuard,publishFastHeadGuard,incrementFastCountGuard,publishFastReceiptGuard,helperPushGuard,helperFlush800Guard,helperKnownReturnGuard,unknownHelperGuard,handoffParentGuard,beginParentRestoreGuard,knownParentRestoreGuard]

@@ -1,0 +1,855 @@
+{
+  "source": [
+    {
+      "key": "port-install",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(set! targ-port (open-output-file-preserving-case filename))",
+      "obligation": "Backend selects file port, not a caller-supplied arbitrary port"
+    },
+    {
+      "key": "host-file",
+      "path": "vendor/gambit/gsc/_host.scm",
+      "needle": "(define (open-output-file-preserving-case path)",
+      "obligation": "Gambit branch parameterizes readtable and calls file opener; host artifact binding external"
+    },
+    {
+      "key": "file-open",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (##open-output-file path-or-settings)",
+      "obligation": "File opener uses open-file-generic and device constructor"
+    },
+    {
+      "key": "device",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (##make-device-port device-name rdevice wdevice psettings)",
+      "obligation": "Default device writer uses ##wr; handler and timeout thunk initially false"
+    },
+    {
+      "key": "default-writer",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(##wr we obj)",
+      "obligation": "Device writer calls mutable global formatter"
+    },
+    {
+      "key": "wr-hook",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (##wr-set! x)",
+      "obligation": "Actual hook setter; not evidence gsc installs a custom hook"
+    },
+    {
+      "key": "wr-write",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(set! ##wr x)",
+      "obligation": "Formatting behavior may change without replacing port"
+    },
+    {
+      "key": "display",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(display x targ-port)",
+      "obligation": "Display crosses generic Scheme formatter"
+    },
+    {
+      "key": "generic",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (##write-generic-to-character-port style port rt force? limit obj)",
+      "obligation": "Mark and output passes both invoke writer dispatch; not one callback per display"
+    },
+    {
+      "key": "wr-substr",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(##write-substring s i j port)",
+      "obligation": "Connect primitive string output to buffer drain/error"
+    },
+    {
+      "key": "drain",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(let ((code ((macro-character-port-wbuf-drain port) port)))",
+      "obligation": "Buffer drain errors can raise after unlocking the port"
+    },
+    {
+      "key": "io-error",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (##raise-io-exception port exc)",
+      "obligation": "Port custom handler or dynamic raise channel"
+    },
+    {
+      "key": "port-handler",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (port-io-exception-handler-set! port handler)",
+      "obligation": "Requires actual port reference and caller installation"
+    },
+    {
+      "key": "timeout",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "(define-prim (output-port-timeout-set!",
+      "obligation": "Requires port capability and finite timeout/OS wait condition"
+    },
+    {
+      "key": "timeout-dispatch",
+      "path": "vendor/gambit/lib/_io.scm",
+      "needle": "((macro-port-wtimeout-thunk port))",
+      "obligation": "Reachable dispatch guarded by wait failure; not unconditional default callback"
+    },
+    {
+      "key": "runtime-handler",
+      "path": "vendor/gambit/lib/_thread#.scm",
+      "needle": "(##define-macro (macro-raise obj)",
+      "obligation": "Uses thread dynamic exception handler, separate from compiler-abort continuation"
+    },
+    {
+      "key": "dynamic-install",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim (with-exception-handler handler thunk)",
+      "obligation": "Embedding can establish dynamic handler without owning targ-port"
+    },
+    {
+      "key": "catcher",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim (##with-exception-catcher catcher thunk)",
+      "obligation": "Captures/grafts continuation; different from resumable return"
+    },
+    {
+      "key": "compiler-catch",
+      "path": "vendor/gambit/gsc/_utils.scm",
+      "needle": "(set! throw-to-exception-handler cont)",
+      "obligation": "Compiler wrapper changes its own variable, not dynamic runtime handler"
+    },
+    {
+      "key": "compiler-abort",
+      "path": "vendor/gambit/gsc/_utils.scm",
+      "needle": "(throw-to-exception-handler #f)",
+      "obligation": "Ordinary compiler abort targets outer captured continuation"
+    },
+    {
+      "key": "gc-register",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "(define-prim (##add-gc-interrupt-job! thunk)",
+      "obligation": "Global GC job registration is another callback producer"
+    },
+    {
+      "key": "gc-dispatch",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "(##execute-jobs! ##gc-interrupt-jobs)",
+      "obligation": "Runtime dispatch exists; exact poll position and current profile qualification OPEN"
+    },
+    {
+      "key": "will-dispatch",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "(action testator)",
+      "obligation": "Will action invokes Scheme callback; resource capabilities need closure"
+    },
+    {
+      "key": "table-reset",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(set! targ-glo-vars         (make-table 'test: eq?))",
+      "obligation": "Nested compilation changes table identity"
+    },
+    {
+      "key": "table-clear",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(set! targ-glo-vars #f)",
+      "obligation": "Normal nested cleanup can leave resumed outer helper with cleared table"
+    },
+    {
+      "key": "demand",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(targ-rsrc-demanders-set! (cdr x) '(\"\"))",
+      "obligation": "Named use-false canonicalizes same-entry demand"
+    },
+    {
+      "key": "supply",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(targ-rsrc-suppliers-set! (cdr x) '(\"\"))",
+      "obligation": "Named use-true preserves demand field"
+    },
+    {
+      "key": "raw-setter",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(vector-set! r 1 demanders)",
+      "obligation": "Raw setter can undo canonical value"
+    },
+    {
+      "key": "prm",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(def-mod-prm-glo \"DEF_MOD_PRM\")",
+      "obligation": "First effect before selected PRM text construction"
+    },
+    {
+      "key": "glo",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(def-mod-prm-glo \"DEF_MOD_GLO\")",
+      "obligation": "Second effect must not be deleted under raw write/entry replacement"
+    },
+    {
+      "key": "helper",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "needle": "(targ-use-glo (string->symbol name) #f)",
+      "obligation": "Helper re-reads current global table; does not retain first entry"
+    },
+    {
+      "key": "namespace",
+      "path": "vendor/gambit/gsc/fixnum.scm",
+      "needle": "targ-use-glo",
+      "obligation": "Compiler namespace maps helper; namespace alone is not a full capability analysis"
+    },
+    {
+      "key": "debug-install",
+      "path": "vendor/gambit/gsc/_gscdebug.scm",
+      "needle": "(##wr-set!",
+      "obligation": "Interactive compiler has a real formatter registration, not merely an API"
+    },
+    {
+      "key": "debug-default",
+      "path": "vendor/gambit/gsc/_gscdebug.scm",
+      "needle": "(##default-wr we",
+      "obligation": "Scalar/non-vector operands take default branch under stable debug bindings"
+    },
+    {
+      "key": "debug-restore",
+      "path": "vendor/gambit/gsc/_gscdebug.scm",
+      "needle": "(##wr-set! save-wr)",
+      "obligation": "Special vector branch restores global hook by normal statement, not guard"
+    },
+    {
+      "key": "debug-transform",
+      "path": "vendor/gambit/gsc/_gscdebug.scm",
+      "needle": "(c#parse-tree->expression obj)",
+      "obligation": "Special var/ptree formatting has a different effect closure"
+    },
+    {
+      "key": "igsc-module",
+      "path": "vendor/gambit/gsc/igsc.scm",
+      "needle": "\"_gscdebug\"",
+      "obligation": "Interactive compiler module roster includes formatter registration"
+    },
+    {
+      "key": "igsc-load",
+      "path": "vendor/gambit/gsc/igsc.scm",
+      "needle": "(for-each (load-from-root \"gsc/\") gsc-modules)",
+      "obligation": "Roster is actually loaded before main entry"
+    },
+    {
+      "key": "var-predicate",
+      "path": "vendor/gambit/gsc/_envadt.scm",
+      "needle": "(define (var? x)",
+      "obligation": "First test is vector?; strings and integers excluded"
+    },
+    {
+      "key": "ptree-predicate",
+      "path": "vendor/gambit/gsc/_ptreeadt.scm",
+      "needle": "(define (ptree? obj)",
+      "obligation": "First test is vector?; strings and integers excluded"
+    }
+  ],
+  "route": [
+    {
+      "key": "formatter",
+      "producer": "##wr-set!",
+      "dispatch": "device write-datum -> ##wr",
+      "capability": "Hook registration and a closure capable of metadata access",
+      "status": "Actual mechanism; gsc registration and metadata effect not observed"
+    },
+    {
+      "key": "io-dynamic",
+      "producer": "with-exception-handler",
+      "dispatch": "IO error -> macro-raise -> current handler",
+      "capability": "Dynamic handler plus backend access; no port alias required",
+      "status": "Actual route under IO error; handler may return or escape"
+    },
+    {
+      "key": "io-port",
+      "producer": "port-io-exception-handler-set!",
+      "dispatch": "IO error -> port handler",
+      "capability": "Existing target-port reference and installed handler",
+      "status": "API exists; ordinary file initializes handler false"
+    },
+    {
+      "key": "timeout",
+      "producer": "output-port-timeout-set!",
+      "dispatch": "EAGAIN -> wait failure -> thunk",
+      "capability": "Port reference, timeout setting, wait outcome",
+      "status": "Conditional route; not evidence default gsc callback"
+    },
+    {
+      "key": "gc",
+      "producer": "GC job or will registration",
+      "dispatch": "handle-gc-interrupt -> jobs / action",
+      "capability": "Registered closure, permitted poll and backend capability",
+      "status": "Dispatch established; exact interpass scheduling OPEN"
+    },
+    {
+      "key": "compiler-abort",
+      "producer": "compiler-error -> compiler-abort",
+      "dispatch": "throw-to-exception-handler",
+      "capability": "Compiler wrapper continuation",
+      "status": "Does not itself resume failed helper or install dynamic EH"
+    },
+    {
+      "key": "raw-resume",
+      "producer": "capture inside admitted callback",
+      "dispatch": "saved continuation -> old locals and current globals",
+      "capability": "Capture site, multi-shot continuation, resource lifetime",
+      "status": "Source-composable conditional path; no native reproduction"
+    },
+    {
+      "key": "igsc-debug",
+      "producer": "igsc loads _gscdebug",
+      "dispatch": "##wr hook -> var/ptree predicate -> default writer for scalar",
+      "capability": "Stable hook and predicate bindings, selected string/integer output",
+      "status": "Actual source registration; direct scalar branch excludes resource access, asynchronous effects separate"
+    }
+  ],
+  "claim": [
+    {
+      "key": "first",
+      "mechanism": "Observe demand through capable formatter/handler",
+      "condition": "Actual callback registration and resource read capability",
+      "result": "First normalization is observable in that domain",
+      "gap": "No current default-gsc malicious/metadata callback asserted"
+    },
+    {
+      "key": "second",
+      "mechanism": "Canonicality-preserving writer closure",
+      "condition": "Same entry/generation and only named demand/supply writes",
+      "result": "Second value normalization redundant even with intermediate writes",
+      "gap": "Setter identity/events and raw writes outside theorem"
+    },
+    {
+      "key": "error",
+      "mechanism": "Returning handler can let caller continue",
+      "condition": "IO failure plus a returning runtime or port handler",
+      "result": "Successful close alone cannot certify no prior lost bytes",
+      "gap": "Sticky error or independent byte validation needs concrete adapter"
+    },
+    {
+      "key": "continuation",
+      "mechanism": "Retained roots and multiple resumes",
+      "condition": "Real capture plus stable entry/output operation identity",
+      "result": "Capture does not become consumed after first return",
+      "gap": "Detachment source proof and byte cursor refinement OPEN"
+    },
+    {
+      "key": "registration",
+      "mechanism": "Close or version every callback producer",
+      "condition": "Formatter port handlers timeout dynamic denv and GC job effects remain admitted throughout output window",
+      "result": "Pinned data alone is insufficient for elision",
+      "gap": "Current source has no unified callback-policy receipt; model profile is conditional"
+    },
+    {
+      "key": "scope",
+      "mechanism": "Session and environment-qualified identity",
+      "condition": "Nested compilation shares the same compiler bindings; distinct VM isolation separately qualified",
+      "result": "Same symbol does not prove same resource or output operation",
+      "gap": "Per-VM/global layout and host binary provenance OPEN"
+    }
+  ],
+  "gain": [
+    {
+      "key": "first",
+      "avoided": "Up to P first demand writes",
+      "added": "Callback effect audit plus plan/root ownership",
+      "condition": "No observer and matching fault semantics; P=455 is prior artifact count, not timing"
+    },
+    {
+      "key": "second",
+      "avoided": "Up to P second normalizations",
+      "added": "Writer-class/canonicality and identity qualification",
+      "condition": "Allows named writers instead of a blanket no-writer condition"
+    },
+    {
+      "key": "both",
+      "avoided": "Up to 2P late mutation-capable uses",
+      "added": "Shared immutable plan, owned buffers, capture custody and validation",
+      "condition": "Lookup/validation may move rather than disappear"
+    },
+    {
+      "key": "hooked",
+      "avoided": "No guaranteed first-write saving",
+      "added": "Preserve supported callback observations; raw writes may retain second effect",
+      "condition": "Default file port does not close formatter or dynamic exception capabilities"
+    },
+    {
+      "key": "net",
+      "avoided": "Removed duplicate work D and proven redundant work W",
+      "added": "Plan K + ownership S + observer audit H + verification V",
+      "condition": "Positive only if D+W>K+S+H+V; no native speedup established"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "File opener",
+      "toNode": "Device writer",
+      "custody": "initial defaults"
+    },
+    {
+      "fromNode": "Device writer",
+      "toNode": "Formatter hook",
+      "custody": "mutable dispatch"
+    },
+    {
+      "fromNode": "Formatter hook",
+      "toNode": "Capability audit",
+      "custody": "closure effects"
+    },
+    {
+      "fromNode": "IO fault",
+      "toNode": "Dynamic handler",
+      "custody": "independent channel"
+    },
+    {
+      "fromNode": "Dynamic handler",
+      "toNode": "Capability audit",
+      "custody": "return or escape"
+    },
+    {
+      "fromNode": "GC and timeout",
+      "toNode": "Capability audit",
+      "custody": "conditional callbacks"
+    },
+    {
+      "fromNode": "Capability audit",
+      "toNode": "First-effect decision",
+      "custody": "observer closure"
+    },
+    {
+      "fromNode": "First-effect decision",
+      "toNode": "Canonical writer closure",
+      "custody": "same entry"
+    },
+    {
+      "fromNode": "Canonical writer closure",
+      "toNode": "Second-effect decision",
+      "custody": "preserve value"
+    },
+    {
+      "fromNode": "Second-effect decision",
+      "toNode": "Completion guard",
+      "custody": "byte and error status"
+    },
+    {
+      "fromNode": "Captured continuation",
+      "toNode": "Completion guard",
+      "custody": "retained root debt"
+    },
+    {
+      "fromNode": "Completion guard",
+      "toNode": "Retirement receipt",
+      "custody": "no stale resume"
+    },
+    {
+      "fromNode": "igsc loader",
+      "toNode": "Formatter hook",
+      "custody": "debug registration"
+    },
+    {
+      "fromNode": "Scalar predicates",
+      "toNode": "Capability audit",
+      "custody": "selected payload"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "binding_observer_reentry.plainProfile",
+      "lemma": "BindingObserver.plainProfilePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.useOnlyProfile",
+      "lemma": "BindingObserver.useOnlyProfilePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.rawProfile",
+      "lemma": "BindingObserver.rawProfilePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.seal",
+      "lemma": "BindingObserver.sealPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.firstElide",
+      "lemma": "BindingObserver.firstElidePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.firstRetain",
+      "lemma": "BindingObserver.firstRetainPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.enterFormatter",
+      "lemma": "BindingObserver.enterFormatterPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.enterIOHandler",
+      "lemma": "BindingObserver.enterIOHandlerPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.enterTimeout",
+      "lemma": "BindingObserver.enterTimeoutPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.enterGC",
+      "lemma": "BindingObserver.enterGCPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.readObserver",
+      "lemma": "BindingObserver.readObserverPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.namedDemand",
+      "lemma": "BindingObserver.namedDemandPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.namedSupply",
+      "lemma": "BindingObserver.namedSupplyPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.rawWrite",
+      "lemma": "BindingObserver.rawWritePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.leaveHook",
+      "lemma": "BindingObserver.leaveHookPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.secondReadonly",
+      "lemma": "BindingObserver.secondReadonlyPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.secondUnobserved",
+      "lemma": "BindingObserver.secondUnobservedPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.secondNormalize",
+      "lemma": "BindingObserver.secondNormalizePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.ioFailure",
+      "lemma": "BindingObserver.ioFailurePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.compilerAbort",
+      "lemma": "BindingObserver.compilerAbortPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.nestedCompilation",
+      "lemma": "BindingObserver.nestedCompilationPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.rejectStale",
+      "lemma": "BindingObserver.rejectStalePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.capture",
+      "lemma": "BindingObserver.capturePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.resumeCaptured",
+      "lemma": "BindingObserver.resumeCapturedPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.certifyNoResume",
+      "lemma": "BindingObserver.certifyNoResumePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.closeOutput",
+      "lemma": "BindingObserver.closeOutputPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.issue",
+      "lemma": "BindingObserver.issuePreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.unknownExit",
+      "lemma": "BindingObserver.unknownExitPreserves",
+      "scope": "Interpass abstract action; actual producer qualification and source refinement external"
+    },
+    {
+      "actionName": "binding_observer_reentry.debugScalarPass",
+      "lemma": "BindingObserver.debugScalarPassPreserves",
+      "scope": "Conditional scalar debug branch; actual Scheme value-to-class reflection external"
+    }
+  ],
+  "proof": [
+    {
+      "key": "steps",
+      "lemma": "BindingObserver.stepPreserves"
+    },
+    {
+      "key": "reachable",
+      "lemma": "BindingObserver.reachableSafe"
+    },
+    {
+      "key": "error",
+      "lemma": "BindingObserver.errorBlocksReceipt"
+    },
+    {
+      "key": "capture",
+      "lemma": "BindingObserver.captureBlocksReceipt"
+    },
+    {
+      "key": "custody",
+      "lemma": "BindingObserver.unknownKeepsCustody"
+    },
+    {
+      "key": "demand",
+      "lemma": "BindingWriterClosure.demandCanonical"
+    },
+    {
+      "key": "supply",
+      "lemma": "BindingWriterClosure.supplyKeepsCanonical"
+    },
+    {
+      "key": "one-writer",
+      "lemma": "BindingWriterClosure.stepKeepsCanonical"
+    },
+    {
+      "key": "all-writers",
+      "lemma": "BindingWriterClosure.historyKeepsCanonical"
+    },
+    {
+      "key": "second",
+      "lemma": "BindingWriterClosure.secondAfterNamedHistory"
+    },
+    {
+      "key": "first-counterexample",
+      "lemma": "BindingWriterClosure.firstObservable"
+    },
+    {
+      "key": "raw-counterexample",
+      "lemma": "BindingWriterClosure.rawWriterBreaks"
+    },
+    {
+      "key": "identity",
+      "lemma": "BindingWriterClosure.namesDoNotReplaceIdentity"
+    }
+  ],
+  "migration": [
+    {
+      "key": "formatter",
+      "producerAnchor": "wr-write",
+      "consumerAnchor": "default-writer",
+      "actionName": "binding_observer_reentry.enterFormatter",
+      "lemma": "BindingObserver.enterFormatterPreserves"
+    },
+    {
+      "key": "io-channel",
+      "producerAnchor": "io-error",
+      "consumerAnchor": "runtime-handler",
+      "actionName": "binding_observer_reentry.enterIOHandler",
+      "lemma": "BindingObserver.enterIOHandlerPreserves"
+    },
+    {
+      "key": "timeout",
+      "producerAnchor": "timeout",
+      "consumerAnchor": "timeout-dispatch",
+      "actionName": "binding_observer_reentry.enterTimeout",
+      "lemma": "BindingObserver.enterTimeoutPreserves"
+    },
+    {
+      "key": "gc",
+      "producerAnchor": "gc-register",
+      "consumerAnchor": "gc-dispatch",
+      "actionName": "binding_observer_reentry.enterGC",
+      "lemma": "BindingObserver.enterGCPreserves"
+    },
+    {
+      "key": "canonical",
+      "producerAnchor": "supply",
+      "consumerAnchor": "glo",
+      "actionName": "binding_observer_reentry.secondReadonly",
+      "lemma": "BindingWriterClosure.secondAfterNamedHistory"
+    },
+    {
+      "key": "nested",
+      "producerAnchor": "table-reset",
+      "consumerAnchor": "helper",
+      "actionName": "binding_observer_reentry.rejectStale",
+      "lemma": "BindingWriterClosure.namesDoNotReplaceIdentity"
+    },
+    {
+      "key": "abort",
+      "producerAnchor": "compiler-abort",
+      "consumerAnchor": "compiler-catch",
+      "actionName": "binding_observer_reentry.compilerAbort",
+      "lemma": "BindingObserver.compilerAbortPreserves"
+    },
+    {
+      "key": "debug-scalar",
+      "producerAnchor": "debug-install",
+      "consumerAnchor": "debug-default",
+      "actionName": "binding_observer_reentry.debugScalarPass",
+      "lemma": "BindingObserver.debugScalarPassPreserves"
+    }
+  ],
+  "inventory": [
+    {
+      "key": "formatter",
+      "path": "vendor/gambit/lib/_io.scm",
+      "pattern": "##wr-set!(?![A-Za-z0-9?!-])",
+      "count": "1",
+      "scope": "Exact lexical token footprint including definitions/comments; installed capability closure OPEN"
+    },
+    {
+      "key": "port-ref",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "pattern": "targ-port(?![A-Za-z0-9?!-])",
+      "count": "13",
+      "scope": "Exact lexical token footprint including definitions/comments; installed capability closure OPEN"
+    },
+    {
+      "key": "compiler-error",
+      "path": "vendor/gambit/gsc/_utils.scm",
+      "pattern": "throw-to-exception-handler(?![A-Za-z0-9?!-])",
+      "count": "5",
+      "scope": "Exact lexical token footprint including definitions/comments; installed capability closure OPEN"
+    },
+    {
+      "key": "io-raise",
+      "path": "vendor/gambit/lib/_io.scm",
+      "pattern": "##raise-io-exception(?![A-Za-z0-9?!-])",
+      "count": "5",
+      "scope": "Exact lexical token footprint including definitions/comments; installed capability closure OPEN"
+    }
+  ],
+  "policy": [
+    {
+      "key": "current-no-qualified-closure",
+      "writerClass": "none",
+      "assumptions": "",
+      "firstExpected": "false",
+      "secondExpected": "false",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    },
+    {
+      "key": "synthetic-unobserved",
+      "writerClass": "none",
+      "assumptions": "no-observers;same-entry;writer-closure;fault-equivalence;lifetime-closed",
+      "firstExpected": "true",
+      "secondExpected": "false",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    },
+    {
+      "key": "synthetic-named",
+      "writerClass": "named-only",
+      "assumptions": "first-retained;same-entry;writer-closure;fault-equivalence;lifetime-closed;setter-events-unobservable",
+      "firstExpected": "false",
+      "secondExpected": "true",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    },
+    {
+      "key": "synthetic-raw",
+      "writerClass": "raw",
+      "assumptions": "first-retained;same-entry;writer-closure;fault-equivalence;lifetime-closed;setter-events-unobservable",
+      "firstExpected": "false",
+      "secondExpected": "false",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    },
+    {
+      "key": "synthetic-swapped",
+      "writerClass": "named-only",
+      "assumptions": "first-retained;writer-closure;fault-equivalence;lifetime-closed;setter-events-unobservable",
+      "firstExpected": "false",
+      "secondExpected": "false",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    },
+    {
+      "key": "synthetic-returned-error",
+      "writerClass": "named-only",
+      "assumptions": "first-retained;same-entry;writer-closure;lifetime-closed;setter-events-unobservable",
+      "firstExpected": "false",
+      "secondExpected": "false",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    },
+    {
+      "key": "synthetic-live-capture",
+      "writerClass": "named-only",
+      "assumptions": "first-retained;same-entry;writer-closure;fault-equivalence;setter-events-unobservable",
+      "firstExpected": "false",
+      "secondExpected": "false",
+      "scope": "Assumption-only sufficient contract profile; not source or native admission"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "BO-history",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/binding_observer_reentry.qnt",
+      "subjectScope": "20 interpass histories; named/raw writers error return capture debt and stale context",
+      "owner.componentId": "build-publisher"
+    },
+    "induction": {
+      "obligationId": "BO-induction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/BindingObserver.lean",
+      "subjectScope": "All projected steps preserve conditional slice invariant",
+      "owner.componentId": "build-publisher"
+    },
+    "closure": {
+      "obligationId": "BO-closure",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/BindingWriterClosure.lean",
+      "subjectScope": "Canonicality under all finite histories of named same-entry demand/supply operations",
+      "owner.componentId": "build-publisher"
+    },
+    "projection": {
+      "obligationId": "BO-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/BindingObserverAst.lean",
+      "subjectScope": "Actual binding IDs field kinds expressions roster; parser trusted",
+      "owner.componentId": "build-publisher"
+    },
+    "source": {
+      "obligationId": "BO-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/binding-observer-reentry-design.org",
+      "subjectScope": "Actual installed callbacks full capability/alias closure poll positions and capture detachment OPEN",
+      "owner.componentId": "build-publisher"
+    },
+    "exceptions": {
+      "obligationId": "BO-exceptions",
+      "kind": "exception-equivalence",
+      "subjectPath": "dev/refactoring/modern-c/binding-observer-reentry-design.org",
+      "subjectScope": "Fault-prefix equality returning handler byte loss and operation replay OPEN",
+      "owner.componentId": "build-publisher"
+    },
+    "platform": {
+      "obligationId": "BO-platform",
+      "kind": "c23-platform-qualification",
+      "subjectPath": "dev/refactoring/modern-c/language-baseline-design.org",
+      "subjectScope": "C23 owner/publication/lifetime and actual host artifact qualification OPEN",
+      "owner.componentId": "build-publisher"
+    },
+    "emission": {
+      "obligationId": "BO-emission",
+      "kind": "emitter-fidelity",
+      "subjectPath": "dev/refactoring/modern-c/binding-observer-reentry-design.org",
+      "subjectScope": "Complete byte mapping and before/after-interpass composition OPEN",
+      "owner.componentId": "build-publisher"
+    }
+  }
+}

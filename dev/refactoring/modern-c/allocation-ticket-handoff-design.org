@@ -1,0 +1,351 @@
+#+TITLE: Stable allocation tickets before native allocation and index admission
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: allocation-ticket-handoff
+:BASELINE: C23
+:AUTHORITY: GambitAllocationTicketHandoff
+:STATUS: conditional architecture; native admission denied
+:END:
+
+The modern-C storage owner must reserve stable attempt metadata before invoking
+the native allocator. A ticket created by allocating another RC block would
+recurse into the very gap it is meant to close. Nonallocating issuance is possible
+only inside an already initialized, bounded owner domain. It does not mean that
+pool bootstrap, replenishment, or the native allocation itself is allocation-free.
+
+The strongest currently supportable design is a result-bearing attempt owner,
+not a wrapper around =register_rc=. It reserves the record and all mandatory
+handoff capacity, captures the allocator result, and retains responsibility until
+a known index handoff or known private rollback. Unknown outcome is not NULL.
+There is no qualified native TicketPool, capture guard, or index-result signer
+in the inspected source. C23 supplies mechanisms, not those semantic authorities.
+
+This is a research model of a future runtime contract. It introduces no runtime
+implementation, preprocessing, native execution, or performance experiment.
+The parent [[file:rc-storage-lifecycle-design.org][RC lifecycle study]] and its receipts remain unchanged.
+
+* RESEARCH Source-grounded producer and consumer chain
+:PROPERTIES:
+:CUSTOM_ID: ticket-real-callers
+:END:
+
+1. [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc][RC allocation]] calls
+   =ALLOC_MEM(payload + header)=. On success it sets refcount to one and Scheme
+   data to false. It does not initialize list links in the private allocator.
+2. [[file:../../../vendor/gambit/lib/os_base.c][alloc_mem]] has a default =malloc=
+   branch. Its optional debug counters and logger execute after allocation,
+   before return. The effective Darwin profile must qualify or exclude those
+   branches; the plain default body is not evidence for every configured body.
+3. =alloc_rc= receives the pointer and conditionally invokes =register_rc=.
+   The latter writes four list links. NULL already skips registration; this
+   architecture claims no saving for that existing behavior.
+4. [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][Tcl command creation]]
+   allocates zero native payload, then allocates a Scheme vector. Failure of
+   that vector allocation calls =release_rc= on an already registered block.
+   This is not an example of safely releasing a never-linked candidate.
+5. [[file:../../../vendor/gambit/lib/os_dyn.c][C closure construction]] installs a
+   Scheme procedure in RC data after allocation on supported architecture
+   branches. The procedure's existing input root must outlive any new GC gap;
+   a native ticket holding only a copied Scheme word is not automatically a root.
+6. [[file:../../../vendor/gambit/lib/_mem/rc-roots.inc][mark_rc]] scans actual
+   =h->data= slots in the registered chain. A pre-index ticket carrier requires
+   an explicit every-round adapter; it is not covered by virtue of its name.
+7. [[file:../../../vendor/gambit/include/_gambit/foreign_conversion.h.in][THROW]]
+   can use nonlocal C transfer. [[file:../../../vendor/gambit/lib/setup.c][call]]
+   establishes catcher/return-to-C behavior, but neither body issues a stable
+   allocation guard. Public allocation exports also admit indirect callers.
+8. [[file:../../../vendor/gambit/lib/_mem/memory-lifecycle.inc][Processor cleanup]]
+   frees still objects before the RC chain; the ticket's Scheme root and native
+   backing responsibilities must transfer before that cut.
+
+The [[file:../../../evidence/research/allocation-ticket-handoff/source-witnesses.json][source witness receipt]]
+records exact current file hashes and physical line matches. It is a selected
+literal evidence set, not a proof of all indirect, external, signal, or FFI callers.
+
+* RESEARCH Nonallocating issuance contract
+:PROPERTIES:
+:CUSTOM_ID: ticket-issuance
+:END:
+
+** Stable resource bundle
+
+A proposed =AttemptTicket= contains an owner incarnation, slot and slot generation,
+semantic RequestId/OperationId, state, checked extent and allocator identity,
+original allocation base, root-carrier binding, reserved index node, result
+record, completion-guard binding, and outstanding observer/retry authority.
+This describes fields and responsibilities, not a C layout or generated ABI.
+Slot generation is distinct from StorageId generation and module incarnation.
+Input-root authority must already exist, or be drawn from the reserved registered
+carrier capacity, before any allocation that can trigger GC. Creating the ticket
+is not permission to copy an unprotected Scheme word and root it later.
+
+Bootstrap creates stable pool backing, GC carrier registration, index-node space,
+and terminal-result space before admission opens. Each request already has a
+stable RequestId or a qualified synchronous identity source. Issuance claims an
+exclusive bundle and binds the attempt in one owner transaction. No allocation,
+Scheme execution, GC, user callback, formatter, or blocking I/O is allowed inside
+that short transaction. A mutex design is acceptable; lock-free issuance is not
+an architectural requirement or a proved progress claim. C23 does not promise
+that a mutex implementation, lazy TLS initialization, tracing, or error formatter
+never allocates internally. Nonallocating qualification must cover their actual
+call graph too; initialization outside the region alone is insufficient. A pool
+claim is refused if it needs such unqualified support.
+
+Reserve terminal metadata up front. A design which reserves only a ticket and
+then needs to allocate its failure record is not nonallocating on its failure
+path. A design with intrusive index storage in the ticket may reuse that backing,
+but then the cell remains occupied by the index after caller acknowledgment.
+
+** Exhaustion, identity, and reentrancy
+
+Before issuing a ticket, insufficient capacity produces a synchronous bounded
+exhaustion status and performs zero native allocator calls. This response does
+not promise a durable replay receipt for an unissued ticket. An asynchronous
+front door needing replay must first reserve a request/result envelope; it
+cannot acquire durability for free after exhaustion.
+
+Unknown issuance acknowledgment requires query by the preexisting RequestId.
+It must not mint a second semantic attempt on redelivery. A genuinely new macro,
+continuation, or FFI execution must receive a fresh operation identity outside
+restored frames. Counter wrap refuses admission unless a separately proved
+incarnation change has removed every old authority. No such current signer is
+qualified. Address-only identity remains insufficient.
+
+Nested callbacks consume distinct bundles; they never overwrite the outer cell.
+Pool growth may occur at a separate admitted maintenance cut, with stable cell
+addresses and registered backing. The critical path cannot silently replenish.
+If the outer request waits for an inner callback while all cells are held by
+outer requests, waiting for a cell can deadlock. Reserve nested capacity under a
+bounded policy or return explicit exhaustion before calling the inner allocator.
+An emergency reserve is policy, not a proof of unlimited nesting.
+
+** Capacity statement
+
+For ticket capacity T, simultaneously active attempts A, unknown/quarantined
+attempts U, terminal records still observable R, nested demand D, and reserve E:
+
+#+begin_example
+T >= A + U + R + D + E
+#+end_example
+
+These are disjoint occupancy classes; do not count an active nested attempt both
+in A and D. Apply the inequality componentwise to tickets, index nodes, root
+carriers and guard/result records when bundles are not physically combined.
+The usable admission bound is the minimum supported by all resource classes.
+The Lean arithmetic lemma only derives the inequality under its stated budget;
+it does not establish any real A/U/R/D bound. Unbounded unknown outcomes or retry
+authority defeats every finite no-exhaustion claim. Backpressure is necessary.
+
+* RESEARCH Native return and ownership handoff
+:PROPERTIES:
+:CUSTOM_ID: ticket-capture-window
+:END:
+
+** Invocation, unrecorded return, and stable capture
+
+Before invocation, publish the stable attempt, root coverage, and completion
+owner. Drop pool/index locks before entering the allocator. The model separates:
+
+- allocator in flight;
+- successful return whose pointer exists only in the local execution;
+- captured private candidate whose original base and extent are in stable custody.
+
+The intermediate native effect is ghost state in the model, not a recovery API.
+A signal flag or release store after =malloc= cannot retroactively record a
+pointer lost before that store. Qualification therefore needs a nonescaping
+invocation-to-capture segment: no Scheme callback, nonlocal jump, admitted
+cancellation, or teardown that abandons the local result. Ordinary signals may
+return to that segment only under a separately qualified handler profile.
+The debug logging branch is an actual extra call in this segment, not assumed
+pure merely because the allocation itself is native.
+
+An outer guard can transfer an already recorded ticket after exceptional exit.
+It cannot reconstruct an unrecorded pointer. If an allocator outcome is genuinely
+unknown, retain the operation as poisoned, forbid replay of its effect, and
+withhold VM/pool teardown permission. This prevents unsafe retries but does not
+prove leak recovery or eventual shutdown. Unrestricted process death or arbitrary
+longjmp across the segment cannot be supported by this design; reject that
+profile, or introduce a separately recoverable allocator. A C23 assignment is
+not a transaction with malloc.
+
+Normal synchronous NULL is a definite no-storage result. It does not enter the
+unknown branch. Header-plus-payload overflow must be rejected before invocation
+using checked arithmetic; the current local expression does not provide that
+receipt. No header size or Darwin configuration has been inferred from the
+abstract model's integers.
+
+** Index admission and private rollback
+
+Once captured, reserve the exact physical extent and publish the proposed root
+binding under the unified owner protocol. A definite precommit rejection keeps
+the original allocation base privately owned. A missing/unknown commit response
+retains the ticket, input roots and query authority; it permits neither retrying
+the allocator nor freeing a possibly committed block. Query the same OperationId.
+
+Private abort requires known absent publication, no escaped borrower, settled
+resource effects, and exclusive ownership of the original allocator base. It
+uses a dedicated private cleanup path. =release_rc= is unsuitable because it
+unlinks using prev/next, which the private allocation body did not initialize.
+There is no demonstrated in-tree misuse: the Tcl vector-failure caller uses the
+already registered wrapper path.
+
+After invoking private free, a known return permits backing responsibility to
+end. Unknown free keeps a poisoned identity and forbids a second invocation;
+it is not a claim that the old pointer remains dereferenceable. Do not inspect
+freed C storage to resolve the outcome. A service-level lost acknowledgment after
+a known native return should be answerable from the pre-reserved result record;
+a native execution abandoned before recording that return remains unresolved.
+
+After known index commitment, input roots can be released only when target GC
+coverage is acknowledged. The finite model treats that acknowledgment as a
+trusted boundary premise. It does not prove the RC/root-registry product.
+=observeCommit= detaches the request ticket; =reserved= remains one because the
+index still owns backing metadata. It does not authorize pool-slot recycling.
+Replay-ledger retirement and late observer grace remain separate obligations.
+
+* RESEARCH C23 publication and teardown obligations
+:PROPERTIES:
+:CUSTOM_ID: ticket-c23
+:END:
+
+- Initialize exclusively owned immutable fields before release-publishing the
+  active ticket. A reader needs an acquire observation of the matching state
+  and generation, plus a backing lifetime guarantee. Atomic pointer publication
+  alone does not pin the cell or establish GC scanning.
+- Serialize pool slot claim and generation comparison together. Use either an
+  owner lock or a qualified tagged atomic protocol; no unproved ABA exclusion.
+- Serialize index commit/result queries on the same semantic OperationId. A
+  release/acquire edge on unrelated pool and index locations is insufficient to
+  prove a multi-location transaction. Specify the actual lock/commit word and
+  its linearization point before C23 refinement can close.
+- Retain a root carrier through every GC while Scheme inputs are held, including
+  closing contexts and unknown outcomes. Nonmoving C metadata is not GC rooting.
+- Pool teardown closes new admission, drains in-flight issuance and capture,
+  transfers outstanding attempts, and waits for root/observer grace. Processor
+  exit is not a signer for VM-wide pool retirement.
+- Asynchronous handlers cannot call the proposed mutex/pool/allocator path on
+  the strength of C23 alone. Lock-free signal operations have narrower rules.
+  No platform cancellation or handler capability is assumed from this model.
+
+The language basis is the public [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf][WG14 N3096 C23 draft]],
+not a claim that every current Darwin compiler/library implements this profile.
+Relevant clauses: 5.1.2.4 (memory model), 7.14.1.1 (signal handlers), 7.17
+(atomics), 7.20 (checked arithmetic), and 7.24.3.6 (malloc). The draft supports
+the mechanisms and restrictions; it provides no stable attempt ownership service.
+
+[[https://www.cs.columbia.edu/~wing/publications/HerlihyWing90.pdf][Herlihy and Wing, Linearizability (1990)]]
+provides the invocation/effect/response distinction. Applying it here requires
+a mapping from each allocator/index event to the proposed abstract history.
+It does not make two different native services a single atomic operation or
+supply recovery from an unrecorded side effect. These are design inferences,
+not results proved by the paper for Gambit.
+
+* RESEARCH Executable model and evidence chain
+:PROPERTIES:
+:CUSTOM_ID: ticket-model-chain
+:END:
+
+[[file:models/sysml/allocation-ticket-handoff.sysml][SysML authority]] defines
+source anchors, issuers, component/action/proof routes, obligations, C23
+publication requirements, and benefit rows. The native SysML evaluator produces
+structured rows; Python orchestrates tools and exact hash checks, not SysML parsing.
+[[file:../../modeling/ascent/allocation-ticket-handoff.rules.scm][ASCENT DSL]]
+joins component ownership, exact source evidence, QNT action, compiled Lean lemma,
+issuer observation, scope, digest, and receipt. File proximity is insufficient.
+Only synthetic complete receipts can yield the synthetic candidate. Current
+native receipts remain absent even when every formal route is linked.
+
+[[file:models/quint/allocation_ticket_handoff.qnt][Quint]] models one attempt,
+including metadata rejection, cancellation before invocation, a distinct
+unrecorded return, captured private ownership, uncertain index outcome,
+commit query, known rollback, and quarantined allocator/free outcomes.
+The module has no transition from unknown allocator/free back to invocation.
+This is safety by retained responsibility; it is not liveness or recovery.
+An outcome-unknown index may resolve absent or committed because its original
+native transaction result is outside this finite model.
+
+The [[file:../../modeling/tools/allocation-ticket-handoff-projection.py][restricted projector]]
+uses typed QNT IR to generate [[file:models/lean/AllocationTicketAst.lean][Lean AST]].
+[[file:models/lean/AllocationTicket.lean][Lean]] proves all action preservation,
+step preservation, finite reachable-state safety, retained unknown custody,
+and per-attempt single allocation/free invocation. Four corrupt-IR controls
+must be rejected. Three altered update controls exhibit invariant violations.
+
+The state invariant enumerates canonical finite configurations. It does not
+establish arbitrary concurrent pool correctness, unbounded OperationId generation,
+actual pointer/root payloads, allocator recovery, C23 instruction refinement,
+or native caller closure. The AST extractor, JSON parser, toolchain, and route
+checker remain trusted. The parent RC model has separate assumptions; no product
+refinement has been proved. In particular phase-5 root transfer here must map to
+parent root=1/known=1 before its source root can be released.
+
+#+begin_src python :eval never
+# Research/formal tools only; no generated runtime is compiled or executed.
+# Run from the actual gambit-SMP checkout using its installed virtual environment.
+# .venv/bin/python dev/modeling/tools/allocation-ticket-handoff-study.py
+#+end_src
+
+See [[file:../../../evidence/research/allocation-ticket-handoff/checks.json][scoped checks]],
+[[file:../../../evidence/research/allocation-ticket-handoff/ascent-results.json][ASCENT scenarios]],
+[[file:../../../evidence/research/allocation-ticket-handoff/input.json][source/formal input bindings]],
+and [[file:../../../evidence/research/allocation-ticket-handoff/artifacts.json][artifact hashes]].
+Historical parent receipts are referenced, never rewritten. The current
+composition differs from the parent snapshot in =_mem/configuration.inc=;
+[[file:../../../evidence/research/allocation-ticket-handoff/parent-composition-drift.json][the drift receipt]]
+records both hashes. Current composition is rebound without reusing a historical
+configuration qualification. In particular current static assertions do not
+qualify a Darwin binary or a pool lifecycle.
+
+* RESEARCH Retirement and net return
+:PROPERTIES:
+:CUSTOM_ID: ticket-net-return
+:END:
+
+The [[file:allocation-ticket-handoff-matrix.org][SysML-derived matrix]] distinguishes
+mechanism counts from native performance. Issuance can require zero metadata
+allocator calls only with a complete pre-reserved bundle. The model bounds an
+attempt to one native allocation and at most one private free invocation; it
+cannot estimate how often real workloads would otherwise duplicate work.
+
+The old successful fast path already has malloc plus constant-time list append.
+New ticket claim, capture, index admission, result record and GC-carrier protocol
+add work. CPU net return requires avoided repeated/unsafe coordination work to
+exceed those additions. Reserved metadata bytes have the symbolic bound
+=T * ticketBytes + I * indexBytes + C * carrierBytes + G * guardBytes + R * replyBytes=
+for separately stored classes; intrusive/shared fields must not be counted twice.
+No concrete byte size is asserted before layouts and capacities are generated.
+Memory occupancy and blocked time are separate axes;
+quarantine may make both worse without a recovery/liveness policy. No speedup,
+macOS/Linux ratio, or reduction in generated C work follows from this study.
+
+C23 can express all proposed support. Zig would still need the same stable
+identity, source roots, nonlocal-exit control, capacity policy, and outcome ledger.
+No incremental Zig runtime return has been established. This shared contract
+advances the mandatory modern-C refactor without committing to a second language.
+
+Retirement order: qualify pool and source-root bootstrap; qualify invocation to
+capture; implement result-aware index/private abort and GC adapter; migrate Tcl,
+closure, conversion and indirect users; drain unknown/legacy aliases; remove
+unmanaged public allocation/register paths only after ABI and caller closure.
+The native allocator remains an underlying service. Whole RC-chain/root cleanup
+cannot retire merely because ticket issuance is modeled. Current retired paths: 0.
+
+* OPEN Remaining closure obligations
+:PROPERTIES:
+:CUSTOM_ID: ticket-open
+:END:
+
+| Obligation | Required evidence | Current boundary |
+|------------+-------------------+------------------|
+| Pool issuer | Stable VM lifetime, all resource classes, nested capacity, wrap policy | Proposed; finite arithmetic only |
+| Capture guard | Effective allocator body and every escape/cancellation crossing | Unrecorded result cannot be recovered from ticket alone |
+| Root product | Source carrier to every-round scan and known target root | Current mark_rc only covers its registered chain |
+| Index query | Same-operation commit and query linearization, response retention | Finite outcome model; no native index |
+| Private abort | Exact allocator base, absent publication, no escaped borrowers | Existing linked release cannot substitute |
+| Retirement | Late queries, observers, processor exit and VM transfer | No recyclable pool or shutdown liveness proof |
+| C23/Darwin | Effective configured ABI and memory-order refinement | Not compiled, preprocessed, or natively tested |

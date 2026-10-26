@@ -1,0 +1,135 @@
+{
+  "schema": "staged-growth-workers.patch-plan.v1",
+  "status": "proposed-not-applied",
+  "decision": "native-shell staging; no full inactive Scheme pstate across ordinary GC",
+  "nativeControl": [
+    "VM/transaction/slot incarnation",
+    "one-shot WAIT/GO/ABORT and gate epoch",
+    "native_created and original handle",
+    "parked acknowledgement",
+    "resource phase mask",
+    "fixed join lane",
+    "actual join result",
+    "VM lifetime pin",
+    "native reader/creator leases",
+    "typed Scheme root token"
+  ],
+  "resourceBits": [
+    "NATIVE_CONTROL_READY",
+    "PROCEDURAL_MUTEX_READY",
+    "OS_IO_READY",
+    "ACTLOG_READY",
+    "SYNC_READY",
+    "NATIVE_CREATED",
+    "PARKED",
+    "SECTION_BUNDLE_RESERVED",
+    "PSTATE_EMPTY_READY",
+    "COUNT_COMMITTED",
+    "TLS_BOUND",
+    "SCHEME_READY",
+    "JOIN0",
+    "BORROWERS_DRAINED"
+  ],
+  "functions": [
+    {
+      "actual": "os_thread.c:427 start_pthread_thread /493 ___thread_create",
+      "proposed": "___growth_spawn_shell / ___staged_worker_main",
+      "order": [
+        "initialize native control and root token",
+        "spawn with native gate start_fn",
+        "parent publish real created handle",
+        "child PARKED then predicate wait, no pstate/TLS/Scheme/GC",
+        "GO acquire after common count commit or ABORT native return"
+      ],
+      "forbidden": [
+        "read unpublished parent handle",
+        "PARKED as exit proof",
+        "copy movable thunk into native control"
+      ]
+    },
+    {
+      "actual": "setup.c:5069 ___setup_pstate /4919 setup_os_and_mem helpers",
+      "proposed": "___growth_prepare_native_resources / ___growth_reserve_pstates",
+      "order": [
+        "native fallible resource preparation and masks outside final interval",
+        "all actual shells PARKED",
+        "old-cohort direct GC/common outcome",
+        "GC-excluded checked msection reservation",
+        "empty pstate/register/frame initialization",
+        "count/native-domain commit",
+        "GO release"
+      ],
+      "notProven": "precise native/GC-owned split and all failure cleanup bits"
+    },
+    {
+      "actual": "setup.c:980 start_processor_execution",
+      "proposed": "factored activated worker entry",
+      "order": [
+        "validate same-generation GO",
+        "bind initialized TLS",
+        "startup NOOP collective",
+        "resolve current typed rooted thunk after GC-capable startup sync",
+        "enter ___run",
+        "exact READY before stable-new handoff"
+      ],
+      "requirements": [
+        "stage control retained through actual worker lifetime unless early handoff proved",
+        "one native join capability, no copied mutex/condvar structs"
+      ]
+    },
+    {
+      "actual": "mem.c:4787 setup,3565 GC section assignment,5307 cleanup",
+      "proposed": "___abort_pstate_reservation / ___abort_unpublished_pstate",
+      "order": [
+        "prove no GO or borrower publication",
+        "rollback only newly reserved section bundles/accounting",
+        "checked resource-prefix cleanup",
+        "old ABORT ACK/reader grace",
+        "stable-old service cut"
+      ],
+      "forbidden": [
+        "whole memory snapshot restore",
+        "ordinary cleanup assumed to undo allocator",
+        "GC over unregistered inactive sections"
+      ],
+      "rollbackFailure": "terminal GC-excluded retention or separately proved inactive registry; old-GC availability not proved"
+    },
+    {
+      "actual": "setup.c:489 ___raise_procedural_interrupt_pstate",
+      "proposed": "checked owner/phase admission before request accepted",
+      "requirements": [
+        "exclude unpublished stage incarnation",
+        "no silently dropped accepted request from void API",
+        "migrate raw callers or refuse unsupported slot/context"
+      ]
+    },
+    {
+      "actual": "existing stable cohort service-debt protocol",
+      "proposed": "___growth_complete_abort / stable-new HANDOFF",
+      "requirements": [
+        "VM demand/ACK watermark survives retry epoch",
+        "native-only retained join error may be serviced without freeing resource debt",
+        "full reservation rollback failure cannot falsely certify stable",
+        "post-GO startup failure not precommit abort"
+      ]
+    }
+  ],
+  "finalConsumers": {
+    "nativeStageControl": "creator + worker/bootstrap + real keyed join0 + control readers",
+    "rootCarrier": "current GC and deferred thunk/error native/Scheme consumers",
+    "unpublishedSectionBundle": "reservation owner only until commit or checked undo; GC excluded",
+    "VM": "all active workers, stage controls and blocked join lanes pinned",
+    "serviceDebt": "stable cohort snapshot ACK, separate from resource cleanup"
+  },
+  "modelLimits": [
+    "empty initial pstate/root assumptions",
+    "two stage epochs",
+    "C11/frame-map refinement absent",
+    "native signal/gate/wait failure analysis incomplete",
+    "custom allocator reserve/release unsupported without proof",
+    "post-GO Scheme startup failure remains",
+    "partial cleanup flags and checked OS failures not implemented"
+  ],
+  "runtimeModified": false,
+  "nativeAdmitted": false
+}

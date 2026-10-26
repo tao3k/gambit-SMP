@@ -869,7 +869,116 @@
      return ___FIX(___SFUN_HEAP_OVERFLOW_ERR);
 --- a/lib/mem.c
 +++ b/lib/mem.c
-@@ -507,6 +507,11 @@
+@@ -19,8 +19,108 @@
+ 
+ #include <stdlib.h>
+ #include <string.h>
++#include <fcntl.h>
++#include <sys/mman.h>
++#include <unistd.h>
++
++/*
++ * Optional first-fault carrier.  GAMBIT_GC_ORIGIN names a file.  Each
++ * processor commits the tagged scan word before the header load.  The
++ * load is not skipped: an invalid word still faults, and the mapping
++ * keeps that word.  Absence of the variable leaves the carrier unused.
++ */
++
++typedef struct gc_origin_rec
++  {
++    volatile ___U64 seq;
++    ___U64 ra;
++    ___U64 cell;
++    ___U64 word;
++    ___U64 scan_start;
++    ___U64 remain;
++    ___U32 proc;
++    ___U32 kind;
++    volatile ___U64 commit;
++  } gc_origin_rec;
++
++#define GC_ORIGIN_SLOTS 64
++
++static gc_origin_rec *gc_origin_log = 0;
++
++static void gc_origin_open (void)
++{
++  const char *path = getenv ("GAMBIT_GC_ORIGIN");
++  int fd;
++  size_t bytes;
++
++  if (gc_origin_log != 0 || path == 0 || path[0] == '\0')
++    return;
++
++  fd = open (path, O_RDWR | O_CREAT, 0600);
++  if (fd < 0)
++    return;
++
++  bytes = sizeof (gc_origin_rec) * GC_ORIGIN_SLOTS;
++  if (ftruncate (fd, (off_t)bytes) != 0)
++    {
++      close (fd);
++      return;
++    }
++
++  gc_origin_log =
++    ___CAST(gc_origin_rec*,
++            mmap (0, bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0));
++  close (fd);
++  if (gc_origin_log == ___CAST(gc_origin_rec*,MAP_FAILED))
++    gc_origin_log = 0;
++}
++
++static void gc_origin_pre_header
++   ___P((___processor_state ps,
++         void *ra,
++         ___WORD *cell,
++         ___WORD obj,
++         ___WORD *scan_start,
++         ___WORD remain),
++        (ps,
++         ra,
++         cell,
++         obj,
++         scan_start,
++         remain)
++___processor_state ps;
++void *ra;
++___WORD *cell;
++___WORD obj;
++___WORD *scan_start;
++___WORD remain;)
++{
++  int id;
++  gc_origin_rec *rec;
++  ___U64 seq;
+ 
++  if (gc_origin_log == 0)
++    return;
+ 
++  id = ___PROCESSOR_ID(ps, ___VMSTATE_FROM_PSTATE(ps));
++  if (id < 0 || id >= GC_ORIGIN_SLOTS)
++    return;
++
++  rec = &gc_origin_log[id];
++  seq = rec->seq + 1;
++  rec->commit = 0;
++  rec->seq = seq;
++  rec->ra = ___CAST(___U64,ra);
++  rec->cell = ___CAST(___U64,cell);
++  rec->word = ___CAST(___U64,obj);
++  rec->scan_start = ___CAST(___U64,scan_start);
++  rec->remain = ___CAST(___U64,remain);
++  rec->proc = ___CAST(___U32,id);
++  rec->kind = 1;
++  __atomic_store_n (&rec->commit, seq, __ATOMIC_RELEASE);
++}
++
++
+ /*---------------------------------------------------------------------------*/
+ 
+ #ifdef ___DEBUG_GARBAGE_COLLECT
+@@ -507,6 +607,11 @@
  
  #define compute_nb_msections_min(processor_count) \
  (___MIN_NB_MSECTIONS_PER_PROCESSOR * processor_count)
@@ -881,7 +990,7 @@
  
  /*---------------------------------------------------------------------------*/
  
-@@ -1240,14 +1245,148 @@
+@@ -1240,14 +1345,148 @@
  }
  
  
@@ -993,7 +1102,7 @@
 +  ___SIZE_T count;
 +  int i;
 +  ___glo_sublist_struct *sl;
- 
++
 +#ifndef ___SINGLE_VM
 +  ___virtual_machine_state vms;
 +  ___SCMOBJ err = ___FIX(___NO_ERR);
@@ -1023,7 +1132,7 @@
 +      vms = vms->next;
 +    }
 +  while (vms != &___GSTATE->vmstate0);
-+
+ 
 +  glo->val = count;
 +#endif
 +
@@ -1033,7 +1142,7 @@
    glo->next = 0;
  
    if (sl->head == 0)
-@@ -1256,6 +1395,16 @@
+@@ -1256,6 +1495,16 @@
      sl->tail->next = glo;
  
    sl->tail = glo;
@@ -1050,7 +1159,7 @@
  }
  
  
-@@ -1387,11 +1536,13 @@
+@@ -1387,11 +1636,13 @@
  
  #ifdef ___SINGLE_VM
        glo->val = ___UNB1;
@@ -1067,7 +1176,7 @@
  
        ___PRMCELL(glo->prm) = ___FAL;
  
-@@ -3302,7 +3453,10 @@
+@@ -3302,7 +3553,10 @@
  
  #ifndef ___SINGLE_THREADED_VMS
        ___SPINLOCK_UNLOCK(heap_chunks_to_scan_lock);
@@ -1078,23 +1187,24 @@
  #endif
      }
  }
-@@ -3523,6 +3677,15 @@
+@@ -3503,6 +3757,7 @@
+   ___PSGET
+   ___WORD *alloc = alloc_heap_ptr;
+   ___WORD *limit = alloc_heap_limit;
++  void *gc_origin_ra = __builtin_return_address (0);
+ 
+ #ifdef ENABLE_CONSISTENCY_CHECKS
+   mark_array_call_line = line;
+@@ -3523,6 +3778,8 @@
              int head_typ;
              int subtype;
  
-+            /*
-+             * ___MEM_ALLOCATED is the low tag bit.  A raw f64 such as
-+             * the thread quantum 0.02 has that bit set and is not a
-+             * pointer.  Real objects on this ABI are canonical low
-+             * addresses; do not load a header from the other pattern.
-+             */
-+            if ((___CAST(___UWORD,___UNTAG(obj)) >> 48) != 0)
-+              continue;
++            gc_origin_pre_header (___ps, gc_origin_ra, cell, obj, start, n);
 +
  #ifdef ENABLE_CONSISTENCY_CHECKS
              if (___DEBUG_SETTINGS_LEVEL(___GSTATE->setup_params.debug_settings) >= 1)
                validate_old_obj (___PSP obj);
-@@ -4343,6 +4506,7 @@
+@@ -4343,6 +4600,7 @@
  
  #ifndef ___SINGLE_THREADED_VMS
        ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
@@ -1102,7 +1212,7 @@
  #endif
  
        while ((hcsh=heap_chunks_to_scan_head) != heap_chunks_to_scan_tail)
-@@ -4366,6 +4530,7 @@
+@@ -4366,6 +4624,7 @@
  
  #ifndef ___SINGLE_THREADED_VMS
            ___SPINLOCK_LOCK(heap_chunks_to_scan_lock);
@@ -1110,7 +1220,7 @@
  #endif
          }
  
-@@ -4606,6 +4771,10 @@
+@@ -4606,6 +4865,10 @@
    ___virtual_machine_state ___vms = ___VMSTATE_FROM_PSTATE(___ps);
    ___SCMOBJ err;
  
@@ -1121,7 +1231,7 @@
    /*
     * Setup processor's activity log.
     */
-@@ -4620,8 +4789,17 @@
+@@ -4620,8 +4883,17 @@
    tospace_offset = ___PSTATE_FROM_PROCESSOR_ID(0,___vms)->mem.tospace_offset_;
  
  #ifndef ___SINGLE_THREADED_VMS
@@ -1139,7 +1249,7 @@
  
    /*
     * Allocate processor's stack and heap.
-@@ -4730,52 +4908,84 @@
+@@ -4730,52 +5002,85 @@
  
    ___SIZE_TS init_heap_size;
    int init_nb_sections;
@@ -1152,6 +1262,7 @@
 +#endif
  
 +  the_msections = 0;
++  gc_origin_open ();
 +#ifndef ___SINGLE_VM
 +  ___vms->glos = 0;
 +#endif
@@ -1238,7 +1349,7 @@
  #endif
  
    /*
-@@ -4828,13 +5038,17 @@
+@@ -4828,13 +5133,17 @@
    init_nb_sections = compute_nb_msections_needed(init_heap_size >> ___LWS);
  
    SET_MAX(init_nb_sections,
@@ -1258,7 +1369,7 @@
  
    occupied_words_movable = 0;
    occupied_words_still = 0;
-@@ -4859,11 +5073,104 @@
+@@ -4859,11 +5168,104 @@
  
    return ___FIX(___NO_ERR);
  
@@ -1363,12 +1474,10 @@
  ___SCMOBJ ___setup_mem ___PVOID
  {
    if (___GSTATE->setup_params.min_heap == 0)
-@@ -4923,7 +5230,58 @@
- 
-   return ___FIX(___NO_ERR);
+@@ -4925,6 +5327,57 @@
  }
-+
-+
+ 
+ 
 +/* The caller has joined the donor and completed GC/queue borrower drain. */
 +void ___transfer_mem_pstate
 +   ___P((___processor_state ___ps,
@@ -1416,13 +1525,14 @@
 +      donor->next = donor;
 +      donor->prev = donor;
 +    }
- 
++
 +  MISC_MEM_UNLOCK();
 +}
- 
++
  void ___cleanup_mem_pstate
     ___P((___processor_state ___ps),
-@@ -4932,6 +5290,14 @@
+         (___ps)
+@@ -4932,6 +5385,14 @@
  {
    free_still_objs (___ps);
    cleanup_rc (___ps);
@@ -1437,7 +1547,7 @@
  }
  
  
-@@ -4981,6 +5347,8 @@
+@@ -4981,6 +5442,8 @@
      prev->next = next;
    }
  
@@ -1446,11 +1556,10 @@
  #endif
  
  #undef ___VMSTATE_MEM
-@@ -5129,10 +5497,29 @@
-   ___SIZE_TS words = ___HD_WORDS(body[-1]);
+@@ -5130,9 +5593,28 @@
    int size2 = words - ___GCHASHTABLE_KEY0;
    int i;
-+
+ 
 +  /* Allocation tags are scratch markers only for a uniform key kind. */
 +  for (i=size2-2; i>=0; i-=2)
 +    {
@@ -1467,7 +1576,7 @@
 +          return;
 +        }
 +    }
- 
++
 +  /* Scheme tables may use a hash other than the collector's pointer hash. */
    body[___GCHASHTABLE_FLAGS] =
 -    ___FIXAND(body[___GCHASHTABLE_FLAGS],
@@ -1478,7 +1587,7 @@
  
    if (!___FIXZEROP(___FIXAND(body[___GCHASHTABLE_FLAGS],
                               ___FIX(___GCHASHTABLE_FLAG_UNION_FIND))))
-@@ -6184,6 +6571,13 @@
+@@ -6184,6 +6666,13 @@
    int size2 = words - ___GCHASHTABLE_KEY0;
    int i;
  
@@ -1492,7 +1601,7 @@
    if (___FIXZEROP(___FIXAND(body_src[___GCHASHTABLE_FLAGS],
                              ___FIX(___GCHASHTABLE_FLAG_UNION_FIND))))
      {
-@@ -6246,7 +6640,7 @@
+@@ -6246,7 +6735,7 @@
  
    alloc_stack_ptr = p2;
  
@@ -1501,29 +1610,30 @@
                  -___FIRST_BREAK_FRAME_STACK_MSECTION,
                  ___CAST(___WORD,
                          ___CAST(___msection*,NULL))) /* not a stack section overflow */
-@@ -6338,6 +6732,13 @@
+@@ -6337,6 +6826,13 @@
+   SET_MAX(lower_bound_nb_sections,
            (compute_nb_msections_needed(occupied_words_movable) +
             nb_msections_stacks));
- 
++
 +  lower_bound_nb_sections += compute_nb_msections_allocation_headroom();
 +
 +  /* Copying can assign sections beyond the initial processor floor. */
 +  SET_MAX(lower_bound_nb_sections,
 +          nb_msections_assigned +
 +          compute_nb_msections_allocation_headroom());
-+
+ 
    /*
     * Use the recent target heap space history to avoid shrinking the
-    * heap size abruptly.
-@@ -6392,13 +6793,14 @@
+@@ -6391,6 +6887,8 @@
+                            nb_msections_stacks;
  
        upper_bound_nb_sections = target_nb_sections;
- 
-+      SET_MAX(target_nb_sections, lower_bound_nb_sections);
 +
++      SET_MAX(target_nb_sections, lower_bound_nb_sections);
+ 
        if (___GSTATE->setup_params.max_heap > 0)
          {
-           upper_bound_nb_sections =
+@@ -6398,7 +6896,6 @@
              ((___GSTATE->setup_params.max_heap >> ___LWS) -
               occupied_words_still) / ___MSECTION_SIZE;
  
@@ -1531,7 +1641,7 @@
            SET_MIN(target_nb_sections, upper_bound_nb_sections);
          }
  
-@@ -6634,14 +7036,27 @@
+@@ -6634,14 +7131,27 @@
  #else
  
    {
@@ -1565,7 +1675,7 @@
    }
  
  #endif
-@@ -6708,6 +7123,7 @@
+@@ -6708,6 +7218,7 @@
                /* only try stealing when chunk FIFO is non-empty */
  
                ___SPINLOCK_LOCK(ps->mem.heap_chunks_to_scan_lock_);
@@ -1573,7 +1683,7 @@
  
                if ((hcsh=ps->mem.heap_chunks_to_scan_head_) !=
                    ps->mem.heap_chunks_to_scan_tail_)
-@@ -6737,6 +7153,24 @@
+@@ -6737,6 +7248,24 @@
  
        ___MUTEX_LOCK(scan_termination_mutex);
  
@@ -1598,7 +1708,7 @@
        if (--(*workers_count) == 0)
          {
            /* Scan has terminated */
-@@ -6846,9 +7280,10 @@
+@@ -6846,9 +7375,10 @@
      {
        mark_vm_scmobj (___PSPNC);
        mark_symkey_tables (___PSPNC);
@@ -1610,17 +1720,17 @@
    mark_global_variables (___PSPNC);
  
    mark_continuation (___PSPNC);
-@@ -6860,6 +7295,9 @@
-   mark_type_cache (___PSPNC);
+@@ -6861,6 +7391,9 @@
  
    mark_processor_scmobj (___PSPNC);
-+
+ 
 +  /* Complete root-phase frame copying before another processor scans it. */
 +  BARRIER();
- 
++
    mark_reachable_from_marked (___PSPNC);
  
-@@ -7236,6 +7674,10 @@
+ #ifdef ENABLE_GC_ACTLOG_PHASES
+@@ -7236,6 +7769,10 @@
  
        ___FP_ADJFP(alloc_stack_ptr,___FIRST_BREAK_FRAME_SPACE)
  

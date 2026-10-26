@@ -1,0 +1,423 @@
+{
+  "policy": [
+    {
+      "key": "marker-audit",
+      "identity": "activation-generation",
+      "roots": "scanned-slots",
+      "executor": "closed-writers-fresh-audit-epoch"
+    }
+  ],
+  "writer": [
+    {
+      "key": "initial-count",
+      "kind": "direct field write",
+      "anchor": "mem.c:1683",
+      "target": "fresh still allocation",
+      "admission": "count set to 1 before publication",
+      "status": "not a retained old marker rewrite"
+    },
+    {
+      "key": "native-inc",
+      "kind": "direct arithmetic writer",
+      "anchor": "mem.c:1447-1453",
+      "target": "arbitrary still object argument",
+      "admission": "guarded managed writer or reject alias",
+      "status": "no intrinsic marker/private-token check"
+    },
+    {
+      "key": "native-dec",
+      "kind": "direct arithmetic writer",
+      "anchor": "mem.c:1461-1467",
+      "target": "arbitrary still object argument",
+      "admission": "owned credit and admitted write role",
+      "status": "plain non-idempotent decrement"
+    },
+    {
+      "key": "marker-kill",
+      "kind": "specialized caller",
+      "anchor": "c_intf.c:6555-6562; setup.c:3415; gambit.h.in:10047,10053,10059",
+      "target": "actual marker from make_sfun_stack_marker",
+      "admission": "old tail and auditor cannot overlap",
+      "status": "known in-tree marker decrement route"
+    },
+    {
+      "key": "generic-release",
+      "kind": "indirect decrement caller",
+      "anchor": "mem.c:1730-1737; gambit.h.in:10194-10645",
+      "target": "allocated still SCMOBJ argument",
+      "admission": "prove temporary distinct from marker or refuse alias",
+      "status": "conversion macros and Tcl use generic API; marker alias not excluded by function"
+    },
+    {
+      "key": "scheme-primitives",
+      "kind": "indirect inc/dec callers",
+      "anchor": "_kernel.scm:2411-2417; _kernel.c:18157,18187; pthread/mylib.scm:26-31",
+      "target": "Scheme object argument",
+      "admission": "restrict marker access to unsafe native-count operations",
+      "status": "real caller example uses counter, not observed marker"
+    },
+    {
+      "key": "native-exports",
+      "kind": "function-pointer exposure",
+      "anchor": "setup.c:5931-5944; gambit.h.in:13281-13300,14624-14643",
+      "target": "external native code can pass encoded object",
+      "admission": "admitted embedding/profile closure",
+      "status": "export declaration is capability, not observed marker invocation"
+    },
+    {
+      "key": "raw-layout",
+      "kind": "unbounded potential bypass",
+      "anchor": "mem.c:525,1452,1466; gambit.h.in body/object macros",
+      "target": "native pointer or encoded object alias",
+      "admission": "reject unmanaged body/header writes",
+      "status": "symbol census cannot enumerate arbitrary C pointer arithmetic"
+    },
+    {
+      "key": "gc-and-cleanup",
+      "kind": "read/lifecycle consumers",
+      "anchor": "mem.c:4221,4387-4451,4928-4935",
+      "target": "still chain storage and metadata",
+      "admission": "transfer scan/sweep/storage responsibility before exit",
+      "status": "GC reads count; cleanup frees without count check, not another arithmetic writer"
+    },
+    {
+      "key": "fresh-body-copy",
+      "kind": "distinct allocation consumer",
+      "anchor": "_kernel.scm:2390-2398",
+      "target": "new result object from still-copy",
+      "admission": "track object identity, do not count as marker rewrite",
+      "status": "payload copy and new-result drop are not evidence of old marker count mutation"
+    },
+    {
+      "key": "continuation-access",
+      "kind": "possible alias exposure",
+      "anchor": "setup.c:3340; _kernel.scm:3145-3152,3415-3501; _io.scm:11690-11726",
+      "target": "captured frames and generic slot access",
+      "admission": "private-marker proof must cover introspection/serialization/native forwarding",
+      "status": "source exposes mechanisms; exact executable marker extraction remains unproved"
+    }
+  ],
+  "memory": [
+    {
+      "key": "close-admission",
+      "writer": "stable VM directory closes native writer generation",
+      "publication": "SC gate transition; candidate acq_rel CAS",
+      "reader": "old and late requesting writers",
+      "observation": "acquire same closed generation; no unchecked increment after separate open test",
+      "lifetime": "raw bypass aliases must be excluded by admitted profile"
+    },
+    {
+      "key": "writer-drain",
+      "writer": "last admitted writer completes ordinary count/body accesses",
+      "publication": "release write-lease decrement",
+      "reader": "collector/audit coordinator",
+      "observation": "acquire drained same gate after close; preserve reads-from chain",
+      "lifetime": "counter zero is meaningful only with closed admission and complete writer set"
+    },
+    {
+      "key": "join-result",
+      "writer": "OS thread termination and exact join result",
+      "publication": "platform termination synchronization; capture native return code",
+      "reader": "guardian",
+      "observation": "successful matching join; errors/unknown retain lease and custody",
+      "lifetime": "native thread death alone does not transfer arena or roots"
+    },
+    {
+      "key": "arena-transfer",
+      "writer": "old storage owner publishes retained still-list/accounting handoff",
+      "publication": "release immutable StorageHandoffReceipt",
+      "reader": "target VM storage/scanner owner",
+      "observation": "acquire same generation before old cleanup",
+      "lifetime": "old free_still_objs cannot run on transferred retained chain"
+    },
+    {
+      "key": "gc-cut",
+      "writer": "coordinator parks producers and scanner/auditor in disjoint phases",
+      "publication": "release epoch/root snapshot and matching acknowledgement",
+      "reader": "collector then exclusive auditor",
+      "observation": "acquire complete cut; no global root lock across GC wait",
+      "lifetime": "count-zero marker remains ordinary root-reachable"
+    },
+    {
+      "key": "audit-read",
+      "writer": "exclusive auditor with proven native credit baseline",
+      "publication": "plain count and marker reads after HB/quiescence",
+      "reader": "same auditor",
+      "observation": "fresh observation under active lease only",
+      "lifetime": "no atomic cast on mixed plain fields; no extra native still reference for audit pin"
+    },
+    {
+      "key": "audit-write",
+      "writer": "exclusive auditor performs missing invalidation/drop",
+      "publication": "plain writes then release accounting receipt",
+      "reader": "query/custodian",
+      "observation": "acquire same audit/marker generation",
+      "lifetime": "if auditor exits before receipt, keep roots and establish a fresh cut before reread"
+    },
+    {
+      "key": "replacement",
+      "writer": "prior auditor exits, then guardian confirms cessation and visibility",
+      "publication": "release/drain prior audit lease and invalidate old observation",
+      "reader": "next auditor",
+      "observation": "acquire fresh epoch-qualified receipt before touching count",
+      "lifetime": "lost response is not cessation; no helper overlap"
+    },
+    {
+      "key": "retirement",
+      "writer": "physical caller and reader/root grace obligations settle",
+      "publication": "release Done/root-domain retirement",
+      "reader": "VM guardian",
+      "observation": "acquire complete retirement receipt",
+      "lifetime": "no free based on count zero, invalid marker, join or audit accounting alone"
+    }
+  ],
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "mem.c:4210-4248,4432-4451,4928-4935",
+      "actionName": "retireRoots",
+      "lemmaName": "retirementNeedsCallerDone",
+      "guardName": "s.callerDone",
+      "duty": "Accounting completion is not physical caller completion; close roots only after caller and reader/GC grace evidence; audit pin never silently increments marker count",
+      "status": "VM guardian retains failed/unknown audit custody"
+    },
+    {
+      "key": "execution-owner",
+      "anchor": "setup.c:931-979; mem.c:4432-4451",
+      "actionName": "closeWriters",
+      "lemmaName": "closingDoesNotDrain",
+      "guardName": "s.session",
+      "duty": "Close generation-aware write admission before drain; pre-admitted original and alias writers retain obligations until stopped or acknowledged",
+      "status": "current direct writers lack this gate"
+    },
+    {
+      "key": "writer-closure",
+      "anchor": "mem.c:1447-1480,1730-1737; _kernel.scm:2411-2417; gambit.h.in:13294-13300",
+      "actionName": "admitClosedProfile",
+      "lemmaName": "extraCreditDefeatsInference",
+      "guardName": "not(s.foreignWrite)",
+      "duty": "Exact count=1-ownedDrop requires zero unaccounted native credits; strict private-marker profile rejects generic/reference aliases and raw metadata writes",
+      "status": "syntactic census is not alias-complete proof"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "setup.c:931-979,4666-4673; mem.c:4928-4935",
+      "actionName": "reclaim",
+      "lemmaName": "joinDoesNotTransferArena",
+      "guardName": "s.rootGrace",
+      "duty": "Transfer still arena, scanner ownership and accounting before old PSTATE cleanup; successful join alone cannot preserve already-freed marker storage",
+      "status": "existing cleanup order must change for retained markers"
+    },
+    {
+      "key": "audit-receipt",
+      "anchor": "mem.c:1475-1480; os_thread.c:546-556",
+      "actionName": "certifyAudit",
+      "lemmaName": "qualificationNeedsAll",
+      "guardName": "qualified",
+      "duty": "Receipt binds generation, closed writer set, confirmed exit/visibility, root/arena handoff and GC cut; count alone and timeout do not certify",
+      "status": "new source-closed proof-carrying admission"
+    },
+    {
+      "key": "auditor-transfer",
+      "anchor": "os_thread.c:546-556; setup.c:979",
+      "actionName": "confirmAuditExit",
+      "lemmaName": "unknownKeepsCustody",
+      "guardName": "not(s.auditLive)",
+      "duty": "Lost response retains audit write lease; replacement only after exact auditor cessation and visibility plus fresh GC cut and reread",
+      "status": "no takeover based on unknown or failed join"
+    },
+    {
+      "key": "single-drop",
+      "anchor": "c_intf.c:6555-6562; mem.c:1461-1480",
+      "actionName": "auditDrop",
+      "lemmaName": "dropPreserves",
+      "guardName": "s.drops==0",
+      "duty": "At exclusive cut, count 1 permits only missing decrement and count 0 permits recording; invalidation and decrement have separate progress",
+      "status": "no full-kill replay after zero count"
+    },
+    {
+      "key": "gc-cut",
+      "anchor": "mem.c:4210-4248,4387-4451; setup.c:931-979",
+      "actionName": "beginGcCut",
+      "lemmaName": "exclusiveAuditExcludesScan",
+      "guardName": "writersDrained",
+      "duty": "Serialize plain refcount/body audit with collector; preserve independent scanned root at count zero and keep old storage owned",
+      "status": "no global lock held across GC participation wait"
+    }
+  ],
+  "gain": [
+    {
+      "key": "private-marker-audit",
+      "avoided": "Recover unlogged owned decrement with existing count representation under verified exclusive baseline",
+      "added": "Writer-profile closure, same-generation directory, join/visibility and root/arena/GC handoff",
+      "condition": "Current code does not establish a universal single-reference marker invariant; unsafe/open alias paths reject audit"
+    },
+    {
+      "key": "repeatable-audit",
+      "avoided": "A replacement can reread zero after prior auditor decremented but did not record",
+      "added": "Keep guardian root/session; confirm auditor stopped, refresh cut and discard old observation",
+      "condition": "Failed join or response loss cannot release prior lease or authorize another writer"
+    },
+    {
+      "key": "storage-preservation",
+      "avoided": "Allow processor exit while retained marker remains valid in VM-owned storage",
+      "added": "Scanner ownership and still capacity/accounting handoff before cleanup; independent root registration",
+      "condition": "Join-only or ordinary root pin does not override free_still_objs; cleanup path must be refactored"
+    },
+    {
+      "key": "modern-c-net-benefit",
+      "avoided": "Reuse allocator count and shared root/admission machinery instead of forcing token representation for every eligible marker",
+      "added": "Stop/drain/GC latency, verification and unknown retention remain; token path still alternative",
+      "condition": "Net gain depends on a genuinely closed private-marker domain and shared support; no runtime speed or Zig-specific saving established"
+    }
+  ],
+  "gate": [
+    {
+      "key": "reference-writer-closure",
+      "qualified": false,
+      "duty": "Generic C, Scheme primitive, exported function-table and raw native alias writers are closed or marker profile is rejected; census cannot certify this universally"
+    },
+    {
+      "key": "stop-and-visibility",
+      "qualified": false,
+      "duty": "Exact old writer and every auditor cessation, admitted join result, happens-before, no late leased writer; current shrink ignores join error"
+    },
+    {
+      "key": "arena-handoff",
+      "qualified": false,
+      "duty": "Still list, scanner/sweep and capacity census transfer before cleanup_pstate/free_still_objs; root registration alone is insufficient"
+    },
+    {
+      "key": "audit-qualification",
+      "qualified": false,
+      "duty": "Known one-credit baseline, independent root pin without still increment, stable generation, excluded raw aliases, no corrupt/torn state"
+    },
+    {
+      "key": "auditor-retirement",
+      "qualified": false,
+      "duty": "No overlap or stale observation after audit helper exit; read leases and root/session guardian outlive unknown outcomes"
+    },
+    {
+      "key": "c11-source-refinement",
+      "qualified": false,
+      "duty": "Gate close/drain, ordinary-field quiescence, collector exclusion and native join semantics are mapped to concrete instructions"
+    },
+    {
+      "key": "darwin-native",
+      "qualified": false,
+      "duty": "Static SDK macro parity only; installed pthread/GC/SMP object and full source/native registration remain open"
+    }
+  ],
+  "profile": [
+    {
+      "key": "installed-darwin-source",
+      "driver": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/bin/gambuild-C",
+      "header": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/include/gambit.h",
+      "compiler": "/opt/homebrew/bin/gcc-16",
+      "declaredMode": "C; SINGLE_HOST; INLINE_JUMPS; TRUST_C_TCO; header default SINGLE_THREADED_VMS",
+      "macroParity": "Nine literal macro spans match template; effective branch and object relation remain open",
+      "sourceMatch": false,
+      "status": "static installed declarations; no effective argv or SMP object match"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "writer-closure",
+      "prerequisite.key": "execution-owner",
+      "reason": "Close admission before writer-profile closure receipt"
+    },
+    "1": {
+      "dependent.key": "gc-cut",
+      "prerequisite.key": "execution-owner",
+      "reason": "Drain pre-admitted writers before collector cut"
+    },
+    "2": {
+      "dependent.key": "audit-receipt",
+      "prerequisite.key": "writer-closure",
+      "reason": "Count inference needs complete writer/credit provenance"
+    },
+    "3": {
+      "dependent.key": "audit-receipt",
+      "prerequisite.key": "gc-cut",
+      "reason": "Audit receipt includes collector and root storage cut"
+    },
+    "4": {
+      "dependent.key": "auditor-transfer",
+      "prerequisite.key": "audit-receipt",
+      "reason": "Replacement needs identity-specific audit authority"
+    },
+    "5": {
+      "dependent.key": "single-drop",
+      "prerequisite.key": "audit-receipt",
+      "reason": "Only qualified exact-credit observation permits missing decrement"
+    },
+    "6": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "single-drop",
+      "reason": "Accounting settlement precedes physical root retirement"
+    },
+    "7": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "auditor-transfer",
+      "reason": "No unresolved auditor lease at retirement"
+    },
+    "8": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "derived-credit",
+      "reason": "Storage reclaim follows caller and root retirement"
+    },
+    "9": {
+      "dependent.key": "audit-receipt",
+      "prerequisite.key": "execution-owner",
+      "reason": "Closed gate and successful cessation precede qualification"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "MAQ-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/marker_audit_quiescence.qnt",
+      "subjectScope": "safe: closed marker writer admission, old join and arena/GC handoff, exact credit audit, late writers, auditor exit and fresh-cut replacement",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "MAQ-I",
+      "kind": "induction",
+      "subjectPath": "models/build/MarkerAuditQuiescence.lean",
+      "subjectScope": "count-plus-owned-credit induction, extra-credit counterexample, qualification prerequisites and persistent keeper custody",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "MAQ-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/marker-audit-quiescence-design.org",
+      "subjectScope": "all named refcount writes and API/primitive/alias routes, marker caller identity, processor cleanup order and quiescent audit integration",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "MAQ-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/marker-audit-quiescence-design.org",
+      "subjectScope": "C11 closed gate/drain, ordinary field read/write quiescence, exact join status, GC/arena handoff and Darwin/SMP qualification",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "MAQ-S",
+      "prerequisite.obligationId": "MAQ-H"
+    },
+    "1": {
+      "dependent.obligationId": "MAQ-S",
+      "prerequisite.obligationId": "MAQ-I"
+    },
+    "2": {
+      "dependent.obligationId": "MAQ-S",
+      "prerequisite.obligationId": "MAQ-E"
+    },
+    "3": {
+      "dependent.obligationId": "MAQ-S",
+      "prerequisite.obligationId": "RCC-S"
+    }
+  }
+}

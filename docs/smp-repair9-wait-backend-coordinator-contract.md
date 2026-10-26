@@ -48,3 +48,32 @@ Validation must wait for the live production lock's natural release, then bind e
 
 
 Verifier guard receipt: `.cache/tasks/repair-9-12/processes/audit/runs/55d334ba6e0b4ce4b6cf4dec4793ec53/outputs/wait-fault-composition-checks/receipt.json`. Production custody remains live; verificationLaunched=false, allAccepted=null, no checker/trajectory rows. The combined model, tests and runner are maintained in the repository, not a temporary-only draft. The old temporary model copy was removed after repository publication; old bytes remain in immutable audit outputs. No runtime implementation or native verification was performed while the peer lease was held.
+
+
+## Real model checks completed (2026-10-23)
+
+The user explicitly requested direct testing now. Only the repository-owned QNT verifier was enabled in registered audit scope during the observed production lease; no production custody was acquired/bypassed, source applied, native program launched or peer operated. Earlier guard-deferred receipts remain immutable; the updated runner and its authorization receipt are separately hashed.
+
+[Actual validation](../evidence/research/smp-retirement-study/wait-fault-exit-composition-validation.json) records27 TLC profiles plus8 selected TypeScript trajectories,35 accepted checks. Four safety/fair-completion candidates each generate61 states/42 distinct; opaque/join/native-close retention profiles have29/37/37 distinct states and safety checks only. All20 mutations have decoded distinguishing witnesses. Total checker/trajectory time179.227179s; original30s/check and12-worker/1GiB/8MiB caps retained. No separate typecheck command is counted.
+
+The negative witnesses cover P-held coordinator claim, internal device deadline, original-deadline overwrite, unregistered/wrong-P0/duplicate coordinator, missing VM/frame/error/suffix roots, early shrink/private-work loss, stale wait ack, returnable marker kill, writer-active free, opaque fake exit and device-group early free. This closes the finite model experiment for these exact bytes, not source refinement: registration, independent return, caller unlock, invocation nonreturnability and private-work handoff transitions still need actual C/Scheme implementation and fault injection. The native failure generation, first-eight gates and native8/12 result are unchanged. Production lock remained held at final read; no compilation or native injection was run. No additional commit, staging or push.
+
+
+## Implemented backend and native controls (2026-10-23)
+
+The independent-return slice is now applied and compiled in the original c86dff86
+workspace under normal task and workspace custody. The actual GSI completed bare
+wait returns and a250ms semantic-deadline control. Six native Darwin interpose
+controls exercised ordinary, one-EINTR and persistent-EBADF nonblocking self-pipe
+writes, including GC/root-value/deadline progress; every run completed with exit0
+and measured write attempts. See
+[the source/artifact-bound validation summary](../evidence/research/smp-retirement-study/native-wait-backend-validation.json).
+The initial Nix-PATH relink failure is retained; continuation restored the exact
+original configure-proof tool environment and deducted already-used build/link
+seconds from the original caps. This establishes native execution of the slice,
+not the proposed full typed plan/outcome, fault publication or coordinator.
+Permanent wake errors are still ignored by the old abort writer. P0 control-fiber
+registration, matching fault ownership, post-unlock dispatch and exit/last-consumer
+root closure remain required; independent return alone cannot recover a node lost
+from both interrupt queues. Source-core/runtime admission stays false and native
+qualification stays8/12.

@@ -1,0 +1,100 @@
+#+TITLE: Callback producer — benefit, issuer and closure matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitCallbackProducer
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| eval-producer | no pre-enumeration of all callbacks from arbitrary Scheme/Tcl scripts | one retained producer plus O(C) active child records | fresh root ingress closed; authorized existing eval/pump continues until it returns | conditional |
+| landing-once | 0 admitted stale-ticket or duplicate cleanup replays | stable identity ledger and explicit cleanup-inflight/unknown custody | known cleanup receipt; marker false is not completion receipt | conditional-model |
+| result-lifetime | 0 premature provider/storage releases solely on callback return | O(R) outstanding results and unknown operation records | Tcl disposal route and original free provider remain live | unresolved-native |
+| existing-hook | reuse ordinary release_string -> release_rc | no assumed Scheme reentry for this selected hook; other free hooks classified separately | effective target and origin binding qualified | source-bound |
+| closure | 0 current runtime paths retired; no measured speedup | admission wrapper, identity mapping and cleanup/result receipt adapters | native caller and exception closure required | design-only |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| admitted-eval | eval-entry | arbitrary command sequence may enter multiple callbacks | retained eval producer across root close | no proof all scripts terminate; forced bounded fuel changes semantics |
+| event-pump | event-entry | DoOneEvent can dispatch independent or nested event callbacks | separate owner-affine pump permit | cannot inherit authority from unrelated eval automatically |
+| command-dispatch | dispatch | proc/clientData called then argv freed | Tcl active invocation plus managed source and VM permit | Command refcount is not RC payload root ownership |
+| common-landing | sfun-end | return RC borrow, owner release, kill marker | exact active native invocation until cleanup acknowledged | repeated native cleanup can double release; no idempotence inferred |
+| replace-result | set-result | new result installed, old callback then object reset | both old disposal and new result ownership across callout | old hook can reenter/escape; publication is not old cleanup completion |
+| free-reset | free-result | custom callback before freeProc zero | owner-affine interpreter plus result disposal record | escaping callback may leave stale raw freeProc |
+| interpreter-delete | delete-result | eventual delete then namespace/variable cleanup then result free | native preservation and owner thread until actual deletion | DeleteInterp request return is not blanket all-resource receipt |
+| saved-result-owner | saved-result | SaveResult moves freeProc/result; Restore resets current then transfers back; Discard calls saved hook | external Tcl_SavedResult holds provider/storage even if interpreter field cleared | all producers and aliases of save tokens not yet enumerated |
+| object-result-conversion | object-result | SetObjResult and nonempty GetObjResult invoke native free hook; SaveInterpState invokes GetObjResult | result owner and release target through conversion | one model result does not prove whole object/legacy snapshot product |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| eval-owner | eval-entry | VM entry plus interpreter generation and owner-thread scope before Tcl_Eval | existing adapter provides no stable receipt |
+| pump-owner | event-entry | separate admitted event-pump producer and dispatch scope | Scheme event mutex alone does not prove Tcl OS-thread ownership |
+| command-owner | command-registration | command/source identity lease before ClientData snapshot | registration itself is not dynamic invocation authority |
+| landing-owner | sfun-landing | exact InvocationId and cleanup completion, independent of multishot Scheme frame | end_sfun and marker kill have no idempotence token |
+| result-owner | result-publish | ResultId and original provider/storage hold until authoritative release | delete/reset return and raw freeProc fields are not durable receipts |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| producer-safety | conditional-model | pre-admitted eval/event-pump remains producer until no child or unknown cleanup |
+| tcl-ordering | source-bound | pinned local Tcl source; not loaded Darwin library identity |
+| producer-issuer | unresolved | stable owner/interpreter generation plus eval/pump entry and source command permit |
+| exact-landing | unresolved | per-invocation receipt outside captured Scheme frames; cleanup result known before done |
+| native-result | unresolved | old free hook reentry/escape, provider/source lifetime and same-operation disposal receipt |
+| c23-refinement | unresolved | native close/producer/dispatch synchronization and actual loaded ABI |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| closeRoots | CallbackProducer.closeRootsPreserves | dispatch | producer-safety |
+| dispatchChild | CallbackProducer.dispatchChildPreserves | dispatch | producer-safety |
+| landingFirst | CallbackProducer.landingFirstPreserves | dispatch | producer-safety |
+| landingSecond | CallbackProducer.landingSecondPreserves | dispatch | producer-safety |
+| beginCleanup | CallbackProducer.beginCleanupPreserves | marker-decrement | producer-safety |
+| loseCleanup | CallbackProducer.loseCleanupPreserves | marker-decrement | producer-safety |
+| cleanupReceiptFirst | CallbackProducer.cleanupReceiptFirstPreserves | marker-decrement | producer-safety |
+| settleFirst | CallbackProducer.settleFirstPreserves | marker-decrement | producer-safety |
+| settleSecond | CallbackProducer.settleSecondPreserves | marker-decrement | producer-safety |
+| sealProducer | CallbackProducer.sealProducerPreserves | dispatch | producer-safety |
+| publishResult | CallbackProducer.publishResultPreserves | set-result | producer-safety |
+| beginResultRelease | CallbackProducer.beginResultReleasePreserves | set-result | producer-safety |
+| loseResultRelease | CallbackProducer.loseResultReleasePreserves | set-result | producer-safety |
+| resultReleaseReceipt | CallbackProducer.resultReleaseReceiptPreserves | set-result | producer-safety |
+| settleResultRelease | CallbackProducer.settleResultReleasePreserves | set-result | producer-safety |
+| retireDomain | CallbackProducer.retireDomainPreserves | dispatch | producer-safety |
+| cleanupReceiptSecond | CallbackProducer.cleanupReceiptSecondPreserves | marker-decrement | producer-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| eval-entry | vendor/gambit/examples/tcltk/tcltk.scm | else if (Tcl_Eval (tcl_interp, cmd) != TCL_OK) | existing admitted caller candidate; no native producer receipt |
+| event-entry | vendor/gambit/examples/tcltk/tcltk.scm | Tcl_DoOneEvent (TCL_DONT_WAIT) | event pump is a separate producer; not necessarily nested under tcltk_eval |
+| command-registration | vendor/gambit/examples/tcltk/tcltk.scm | ___result = ___BOOLEAN (Tcl_CreateCommand | defines proc/ClientData/delete hook; not per-eval authorization |
+| dispatch | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | result = cmdPtr->proc(cmdPtr->clientData, interp, objc, argv); | actual string-command callback selection; argv freed on return |
+| marker-decrement | vendor/gambit/lib/c_intf.c | ___still_obj_refcount_dec (marker); | marker false does not make repeated decrement idempotent |
+| sfun-end | vendor/gambit/lib/c_intf.c | if (bank) { ___return_rc_root(bank); ___release_rc(bank); } | cleanup uses actual bank; no per-TicketId stable receipt |
+| sfun-landing | vendor/gambit/lib/c_intf.c | call_sfun_with_cleanup | known throw landing versus arbitrary foreign escape |
+| result-publish | vendor/gambit/examples/tcltk/tcltk.scm | ___CAST(Tcl_FreeProc*,___EXT(___release_string)) | native result storage owner crosses callback return |
+| set-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | oldFreeProc(oldResult); | new result installed before old custom callback executes |
+| free-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | Tcl_FreeResult( | custom free callback precedes freeProc clear |
+| reset-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | Tcl_ResetResult( | custom free callback precedes final reset assignments |
+| delete-interp | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | Tcl_EventuallyFree(interp, DeleteInterpProc); | deletion request is not necessarily immediate reclamation |
+| delete-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | Tcl_FreeResult(interp); | after namespace/variable cleanup in DeleteInterpProc |
+| release-string | vendor/gambit/lib/c_intf.c | ___release_rc (x); | selected result hook is RC storage release; Scheme reentry not shown |
+| parent-model | dev/refactoring/modern-c/models/quint/cleanup_ingress.qnt | action reserveChild= | earlier bounded pre-close child policy is sufficient only for finite declared child work |
+| saved-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | statePtr->freeProc = iPtr->freeProc; | SaveResult moves custom result ownership; interp freeProc zero is not disposal |
+| object-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | Tcl_SetObjResult( | SetObjResult and GetObjResult conversion can also free native string result |
+| discard-result | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | statePtr->freeProc(statePtr->result); | saved result discarded outside interpreter; source holder census remains required |

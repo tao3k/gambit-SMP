@@ -1,0 +1,189 @@
+#+TITLE: Real Sync-Op Participants, Completion Guards and RC Cleanup Custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and architecture ownership
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-decision
+:AUTHORITY: SyncOpGuardCustody
+:MAINLINE: modern-generated-C
+:STATUS: proposed-integration-with-local-model-checks
+:END:
+
+A scan-ready FFI activation stops mutating its root cells while its attached processor remains able to execute the real sync-op protocol. The allocating requester participates in GC; it is not replaced by an OS-sleeping root holder. GC callback return, sync-loop return, guard completion, native storage transfer, processor retirement and OS/PSTATE generation reuse each require their own evidence.
+
+The modern C redesign integrates activation root frames with the current sync-op dispatcher, then replaces implicit exception and bulk-cleanup authority with explicit guarded outcomes and collective retirement permissions. This extends the frozen [[file:ffi-scan-ready-handoff-design.org][root handoff protocol]]. It does not implement or natively qualify any runtime path.
+
+[[file:models/sysml/syncop-guard-custody.sysml][Native SysML]] owns the component/action/lemma/dependency/status data. Python invokes the native CLI, projects the [[file:syncop-guard-custody-matrix.org][matrix]] and [[file:diagrams/syncop-guard-custody.svg][D2]], and checks actual [[file:../../modeling/ascent/syncop-guard-custody.rules.scm][ASCENT rules]], [[file:../../../models/build/syncop_guard_custody.qnt][QNT protocol]] and [[file:../../../models/build/SyncOpGuardCustody.lean][Lean obligations]]. Shared framework and previous evidence remain unchanged.
+
+* RESEARCH Source integration map
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-source
+:OBLIGATION: SGC-S
+:END:
+
+** Requesting and servicing the same selected operation
+
+[[file:../../../vendor/gambit/lib/setup.c::1182][garbage_collect]] builds =OP_GARBAGE_COLLECT= and calls [[file:../../../vendor/gambit/lib/setup.c::1132][on_all_processors]]. The latter raises =___INTR_SYNC_OP= on the VM and enters =execute_sync_op_loop= itself. Peers enter [[file:../../../vendor/gambit/lib/setup.c::1117][service_sync_op]], which supplies an initial NOOP request but participates in the same selection loop.
+
+The [[file:../../../vendor/gambit/lib/setup.c::542][tree barrier]] captures current =processor_count= and routes selected operations through the old tree. The dispatcher [[file:../../../vendor/gambit/lib/setup.c::1028][executes garbage_collect_pstate]] on the participating processors. A requester on processor 1 therefore must release root-enrollment locks and execute this dispatcher after publishing its stop/root record. Sleeping on a root-ready condition variable while counting itself as a required processor would block the tree.
+
+This source also contains an explicit [[file:../../../vendor/gambit/lib/setup.c::781][post-Scheme-return service loop]]: a nonzero processor reports its error to processor 0, then services future synchronous operations indefinitely because termination/cleanup themselves require a synchronous operation. Scheme evaluation returning does not prove the processor has left the roster. [[file:../../../vendor/gambit/lib/setup.c::819][Thread startup binding]] sets PSTATE and joins the initiating resize operation before running its thunk. Foreign ingress needs a separately proved attachment/binding contract; none is inferred from root registration alone.
+
+** Two GC entry routes
+
+| Entry | Real source route | Root/guard obligation |
+|-------+-------------------+-----------------------|
+| selected GC request | mem.c allocator -> setup.c garbage_collect -> on_all_processors -> execute_sync_op | handoff before request; old roster continues dispatching |
+| resize's internal GC | [[file:../../../vendor/gambit/lib/setup.c::900][vm_resize_pstate capacity branch]] -> garbage_collect_pstate directly | handoff and root coverage over old population, before processor_count changes |
+
+A guard inserted only around the public =garbage_collect= wrapper would miss the second route. The model's =initResize= labels this second entry; it does not model actual capacity arithmetic, combining-add requested words or a complete resize rollback.
+
+*** Higher-priority resize must not wait for its blocked caller
+
+The [[file:../../../vendor/gambit/lib/setup.c::483][operation definitions]] give resize priority 2 and GC priority 3, with smaller operation code winning selection. Therefore a GC requester may participate in a selected resize before its own GC request is served. If that resize waits for the requester's FFI guard to finish, while the guard waits for the sync loop to return, preflight has recreated the original cycle.
+
+The modern C resize handler must publish a common deferred/busy result under the old effective roster when a live activation still needs its processor. It must return from this selected operation instead of waiting for that activation to complete. After the loop releases the activation and its guard settles, a later topology transaction may commit. The model treats that later commit as a separate admitted plan, not success of the earlier deferred request.
+
+An internal resize GC uses =requested_words_still=0 and does not by itself consume a different caller's pending GC request. The actual [[file:../../../vendor/gambit/lib/setup.c::1101][result matcher]] clears only the matching winning/combined operation. The =initCollision= trace therefore retains the pending GC after resize deferral, reselects GC over the same old roster, scans the next relocation epoch, acknowledges the original GC request and only then permits final NOOP/owner reload. A negative control rejects treating the internal GC as request completion.
+
+This is a concrete refactoring of request disposition and topology authority. Raw requested-count branches cannot implement it by a local early return. Shared effective topology, typed deferred outcome and retained request identity must replace them together. Arbitrary interleavings of multiple resize/error/FDSET requests remain outside this finite model.
+
+** GC callback return is not sync-loop completion
+
+The source loop has these separate events:
+
+1. [[file:../../../vendor/gambit/lib/setup.c::1068][barrier_sync_op]] selects an operation and its winner.
+2. On the first iteration, [[file:../../../vendor/gambit/lib/setup.c::1070][the sync flag is reset synchronously]]. Moving this reset independently can lose or misalign notification; clearing the flag is not root closure.
+3. The selected callback executes, or a processor-zero error is retained locally for later delivery.
+4. A winning/combined request [[file:../../../vendor/gambit/lib/setup.c::1101][receives its result and clears its pending operation]]. Other requesters may still have work pending.
+5. Only a suitable later [[file:../../../vendor/gambit/lib/setup.c::1081][NOOP selection]] leaves the loop; the comment explicitly requires at least the first-iteration reset discipline.
+6. [[file:../../../vendor/gambit/lib/setup.c::1112][Processor zero can throw the retained error after loop exit]]. Normal caller continuation cannot be assumed merely because GC ran.
+
+The redesign's =SyncLoopReturnReceipt= binds VM/PSTATE generation, old roster epoch, accepted request identity, selected result, reset discipline and final loop exit. It is not a new wire protocol requirement by itself: its fields may be derived from existing control flow only after source refinement. It does not grant native storage retirement.
+
+* RESEARCH GC recovery and exception completion guard
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-guard
+:END:
+
+The activation guard and stable root frame must exist before an allocating helper enters either GC route. On normal loop return, verify VM/PSTATE binding and generation, then reload moved procedure/candidate values through the root adapter. The old C local cannot be used to initialize the returned marker. A rejected topology change leaves the old owner/roster in force; a live C activation is not migrated by moving its roots.
+
+** Collective failure and unwind placement
+
+Recoverable status inside a collective must not throw one participant out of an unfinished barrier. Record a rooted/deferred status, let every admitted participant finish the required collective/loop, then deliver the status to a completion guard. Current source already defers =OP_PROCESSOR_0_THROW_ERROR= until loop exit; it does not prove that every callback or foreign release obeys that discipline.
+
+A partially corrupted heap, fatal runtime error or uncooperative foreign longjmp cannot be converted into a recoverable status by this design alone. Those profiles remain rejected/unresolved. No GC rollback proof is supplied.
+
+The model includes a proposed deferred local failure delivered after processor-1 loop return but before normal owner restoration. This is a modern C integration requirement, not a claim that the current processor-zero-only error branch already sends the same local status to processor 1. Normal value-dependent continuation is blocked when that deferred failure is present.
+
+** Stable guard, catcher restoration and exact outcome
+
+[[file:../../../vendor/gambit/include/gambit.h.in::9981][BEGIN_TRY/END_TRY]] in the C setjmp configuration installs a catcher, receives =longjmp_err= and restores the previous catcher. [[file:../../../vendor/gambit/lib/setup.c::3383][call may rethrow]] before normal marker cleanup. [[file:../../../vendor/gambit/include/gambit.h.in::10001][ON_THROW_AUX]] is a real existing catch-side hook, but its existence does not prove coverage of every allocating entry and nonlocal exit.
+
+The generated modern C guard must:
+
+- Keep mutable guard/error/marker state in stable native storage; preserve the original catcher and managed outcome roots under the configured setjmp rules.
+- Distinguish marker-never-allocated from initialized marker. Invalidate and release only the marker actually owned by this activation.
+- Record the original error/result and unwind destination before any fallible cleanup. With an existing primary failure, cleanup diagnostics cannot overwrite it. If cleanup fails after an otherwise successful call, report a failure explicitly rather than leaving a false success outcome.
+- Hand rooted outcome and any retained native resources to an acknowledged VM custodian before unwinding past their C frame. A root-transfer receipt does not make a dead C activation callable again.
+- Restore the proper outer catcher and rethrow only after the collective is safe and outcome custody is accepted. Admitted cleanup bookkeeping must be nonallocating/nonthrowing or transfer its pending work; arbitrary foreign destructors do not belong in that leaf guard.
+
+Exact dynamic-wind ordering, managed exception object identity, native stack-trip modes, all helper/generator exits and C longjmp ABI remain source/platform obligations. The finite error tags in the model represent primary identity and destination; they are not a full Scheme exception semantics model.
+
+** Guard exit can precede physical storage release
+
+After a known unwind, a VM custodian may retain root/frame/RC storage while a reader or native pin drains. Propagation can then continue without pretending storage is free. Unknown execution or transfer results retain custody and block withdrawal/exit permission. A response timeout is not proof that a callback stopped, that a child activation ended or that a root/domain transfer failed before commit.
+
+This separates an unwind-safe activation completion from full storage retirement. It also prevents waiting for reader cleanup while holding locks or processor participation needed by that cleanup. Old root and native storage cannot disappear merely because the original guard's C stack frame was unwound. VM custody also requires the VM heap and scanning facilities to remain alive. An unknown shutdown outcome may require retaining/quarantining the whole VM rather than only a small native root record; cross-VM Scheme object migration is not assumed.
+
+* RESEARCH Cleanup and topology handoff order
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-cleanup
+:END:
+
+** Actual cleanup callers and side effects
+
+| Current caller | Source evidence | Modern C admission |
+|----------------+-----------------+--------------------|
+| shrink of a live processor | [[file:../../../vendor/gambit/lib/setup.c::930][cleanup_pstate then thread_exit]]; processor 0 later joins | collective live-owner exit permit; no outstanding C activation requiring that owner |
+| setup/growth rollback | [[file:../../../vendor/gambit/lib/setup.c::946][failed setup cleans newly prepared state]] | preactivation/empty-domain cleanup receipt, not an unnecessary live-activation drain |
+| global shutdown | [[file:../../../vendor/gambit/lib/setup.c::4843][setup_state transition and cleanup_all_interrupt_handling before resize]]; then cleanup_pstate | whole-VM preflight before entering teardown state; successful reduction cannot be assumed from a requested target |
+
+There is also a direct VM-memory wrapper: [[file:../../../vendor/gambit/lib/mem.c::4938][cleanup_mem_vmstate]] destroys allocation locks and scan-termination mutex/condition variable, then calls processor-zero =cleanup_mem_pstate= and frees msections. It bypasses a guard placed only at =cleanup_pstate=. Whole-VM preflight must precede this wrapper, including all possible foreign release and future-GC dependencies. A processor exit permit does not grant VM teardown.
+
+[[file:../../../vendor/gambit/lib/setup.c::4665][cleanup_pstate]] calls =cleanup_interrupts_pstate= then =cleanup_os_and_mem_pstate=. The former [[file:../../../vendor/gambit/lib/setup.c::396][releases the procedural interrupt queue]] under its mutex. It is not, in this source, destruction or disabling of every sync-op mutex/condition variable or GC facility. The model's =disableInterrupts= action denotes a proposed withdrawal of producer/servicing authority after a permit; it is not an assertion that the existing function has that effect.
+
+[[file:../../../vendor/gambit/lib/mem.c::4928][cleanup_mem_pstate]] calls =free_still_objs= before =cleanup_rc=. The [[file:../../../vendor/gambit/lib/mem.c::4432][still cleanup]] can call =release_foreign=, and [[file:../../../vendor/gambit/lib/mem.c::684][RC cleanup]] frees the whole chain without testing its ordinary reference counts. Preflighting only at =cleanup_rc= is too late if earlier cleanup spawned work or invalidated resources needed to finish custody transfer.
+
+Arbitrary foreign release is a producer, not an inert free operation. It needs owner/thread-affinity classification and either completion while the old serviceable owner exists or acknowledged task/root transfer. Delayed/destructor-generated work must be accounted before declaring that producer closed. The model takes =drainForeign= as such an external receipt; it does not execute a destructor or prove its liveness/reentrant GC behavior.
+
+** Proposed ordered permissions
+
+1. Close new external FFI/borrow/owner-exit admission for a common topology plan while existing participants and cleanup producers remain serviceable. Derived child work needed by an accepted parent requires an accounted child-admission rule; blocking it indiscriminately can prevent that parent from draining. Child producer refinement remains open in this model.
+2. Finish the selected GC and sync-loop obligations. Resolve supported guard exits or hand rooted results/resources to the VM custodian. Preserve original errors.
+3. Drain accepted native pins/readers and live child activations, or qualify an explicit storage-only transfer. Moving roots does not move a live C continuation; a shrink that needs its original processor must remain pending or fail explicitly.
+4. Close or transfer foreign release producers. Reentrant GC from admitted cleanup must still use the old roster and root-ready protocol. A safe leaf-only remainder is required for subsequent raw cleanup.
+5. Commit RC/still/native ownership, scan-domain membership and required capacity/census transfer to the target. A lost reply leaves the source frozen and storage retained; query the original transfer identity rather than moving/freeing again.
+6. Issue one effective topology decision and obtain all required old-participant acknowledgements. Existing branches based directly on requested =target_processor_count= cannot remain independent authorities after a deferred/rejected plan.
+7. Close old topology message tails and retained-tree obligations. Only then withdraw the relevant producer/service authority and run approved inert cleanup.
+8. Owner invokes thread exit. Known OS join/stop evidence permits generation reuse. A failed or unknown join retains the OS/PSTATE slot even when the owner has already freed its approved inert local memory.
+
+Storage handoff includes physical RC links, still chains, foreign ownership and capacity/census; merely changing a root-registry owner label is insufficient. That full transfer remains unimplemented and conditionally linked to the earlier runtime research.
+
+A rejected/deferred shrink preserves the old effective roster for every participant. Returning an explicit busy/failure result is an API policy choice requiring specification; silently reporting success at the requested count is forbidden. Existing root/GC barriers may support parts of preflight, but no local veto may strand peers on another barrier tree after count publication.
+
+** Sender tails, retained convergence and generation reuse
+
+[[file:../../../vendor/gambit/lib/setup.c::517][SYNC_SEND_MSG]] stores the field under the destination mutex, unlocks, then signals its condition variable. A receiver's observation is not an acknowledgement that every sender has finished using its destination state. [[file:../../../vendor/gambit/lib/setup.c::649][OP_SET_PROCESSOR_COUNT]] also changes the count during the winning tree round before the result propagates to children.
+
+The root-level [[file:../../../models/gambit/sync_retirement_round_closure.qnt][round closure model]] treats old send tails and following retained-tree convergence separately. This DEV model deliberately uses a stronger all-old-sender-tail receipt plus retained convergence before teardown. It does not prove that an additional full barrier is required or that current tree control flow already supplies the minimal receipt. Intercepting cleanup without closing generation reuse would leave this lifetime gap.
+
+[[file:../../../vendor/gambit/lib/setup.c::978][The current shrink join ignores errors]]. The root-level [[file:../../../models/gambit/cleanup_resize_error_contract.qnt][cleanup error model]] separates count reduction from exit evidence. Preserve unknown outcomes; neither a reduced count nor an attempted join may authorize reinitializing the same native/PSTATE generation.
+
+* RESEARCH Model scope, composition and proof obligations
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-models
+:END:
+
+The new QNT model uses two old participants, an activation owned by processor 1, direct GC, resize-nested GC, or higher-priority resize followed by the still-pending GC, loop/result/NOOP acknowledgements, stable guard outcome, native pin/reader custody, foreign cleanup receipt, storage transfer, common shrink decision, sender-tail/retained convergence and known/unknown OS join.
+
+Thirty-four scenarios include nineteen negative controls. Positive paths distinguish callback return from loop return, preserve primary unwind with a secondary diagnostic, convert a cleanup failure into a reported error, allow rooted outcome propagation before physical free, defer shrink while GC is active and retain storage after unknown handoff/join. Negative controls cover an OS-blocked required participant, skipped flag reset, premature resume/unwind, overwritten primary error, early cleanup, incomplete votes, sender tails, late foreign work and unknown-join reuse.
+
+Three bounded random campaigns use direct GC, resize GC and priority-collision entries. They check modeled safety, not scheduler fairness or a full native concurrent execution. The model collapses tree rounds, capacity calculation, marker still tracing, reader multiplicity and foreign producer execution into stated premises. The direct-resize case explicitly defers the selected resize under the old roster; the collision case serves the residual GC before loop release. It does not establish arbitrary operation-priority composition or public API compatibility of deferred outcomes.
+
+Seventeen Lean conditional lemmas express readiness without callback return, service availability, loop return prerequisites, primary-error preservation, rooted outcome before propagation, collective unwind refusal, nonconsumption of a pending GC by an internal collection, exit prerequisites, pins, every required vote/tail and known join. They are not a full source simulation or unbounded inductive proof of the entire model.
+
+Native SysML owns nineteen component action/lemma links and four prior-model mappings. Actual ASCENT joins these mappings and source routes with hashed/scoped model receipts, blocks missing roots/actions/anchors/dependencies and false admission gates. Ten local control scenarios admit only a synthetic fully-qualified candidate; current runtime is never admitted. Four prior models are checked as exact subjects and linked to concrete actions/invariants/lemmas, without rerunning or relabeling their historical evidence.
+
+* RESEARCH Benefits, new overhead and retirement
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-benefit
+:END:
+
+| Design | Eliminated work or failure | New work / limits | Positive condition |
+|--------+---------------------------+-------------------+--------------------|
+| reuse sync-op participant path | a separate FFI waiter that cannot execute its own GC role | ready/stop binding and exact loop-return record | current dispatcher can service the admitted native context; fairness/attachment are proved |
+| explicit completion guard | duplicate cleanup, lost primary unwind and replay after uncertain delivery | rooted result/error record, per-activation cleanup and custody transfer | every allowed runtime exit reaches guard or a proved VM custodian |
+| collective exit preflight | freeing state still needed by callbacks, GC or foreign cleanup | O(P) participant/domain acknowledgements; possible deferred resize | old roster stays serviceable until all dependencies close |
+| storage and topology tail separation | count/receiver/join mistaken for complete resource retirement | transfer metadata, sender/retained receipt, known OS join | actual old paths are replaced by one authority; no hidden additional graph scan |
+
+For P participants and A live/retained activations, additional control metadata is O(P+A) plus root slots, retained outcomes and per-resource records. During unresolved whole-VM shutdown, retained memory can include the entire VM heap H, not merely O(A) descriptor metadata. Root tracing and selected GC work remain necessary. Unknown outcomes need bounded retention and failed admission/backpressure, not silent freeing. No milliseconds, speedup ratio, zero-extra-barrier assertion or person-days are inferred.
+
+Retire in dependency order: unmanaged native ingress; guardless allocating/callback exits; processor-zero-only authority for admitted RC roots; raw requested-target branches; bulk RC/still cleanup without lifetime permissions; ignored join as slot-reuse authority. Reuse valid tracing walkers, operation selection/servicing, supported runtime catcher machinery and verified barriers. No runtime path has actually retired in this study.
+
+* RESEARCH Closure matrix boundary and reproduction
+:PROPERTIES:
+:CUSTOM_ID: syncop-guard-custody-closure
+:END:
+
+Closed structurally: requester/peer service routes, nonzero post-Scheme service loop, selected callback versus result/NOOP source order, resize's direct GC entry, catcher/marker cleanup ordering, three PSTATE cleanup contexts plus the direct VM-memory wrapper, foreign release before bulk RC free, sender's post-unlock signal tail and ignored shrink join result.
+
+Closed in local model scope: the guarded order and refusal controls above. Open: complete root/error schemas, generated exits and actual C catcher ABI, precise interrupt/tree memory order, selected-operation error recovery, foreign producer closure, physical storage/capacity transfer, arbitrary reader/worker counts, cross-model simulation and native qualification. All seven end-to-end admission gates remain false.
+
+#+begin_src text
+.venv/bin/python dev/modeling/tools/syncop-guard-custody-study.py
+#+end_src
+
+[[file:../../../evidence/research/syncop-guard-custody/checks.json][Structured checks]] and [[file:../../../evidence/research/syncop-guard-custody/prior-model-alignment.json][prior obligations]] bind exact dirty-source hashes. Raw transcripts remain task-cache-local; previous model/evidence hashes are preserved.

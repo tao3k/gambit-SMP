@@ -41,6 +41,15 @@ class WorkspaceTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     runtime_output(self.root, ".cache/../src")
 
+    def test_build_entry_reconciles_its_owner_without_global_retention(self):
+        w.start(self.root,'modern-c',adopt=True)
+        with patch.object(w,'collect') as collect, \
+                patch.object(w,'transition_check',wraps=w.transition_check) as check:
+            with w.execution_scope(self.root,'modern-c'):
+                pass
+        collect.assert_not_called()
+        self.assertTrue(any(call.kwargs.get('takeover') is True for call in check.call_args_list))
+
     def test_run_passes_task_context_and_keeps_exit_status(self):
         w.start(self.root, "repair", adopt=True)
         command = [sys.executable, "-c", "import os; assert os.environ['GAMBIT_SMP_TASK_ID']=='repair'; raise SystemExit(7)"]

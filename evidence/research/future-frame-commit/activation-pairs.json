@@ -1,0 +1,359 @@
+{
+  "reserve": {
+    "n": "reserveSplit",
+    "p": "claimSplit",
+    "guard": "(s.n_decision==0 and s.n_done==0 and s.n_admitted==1) and (s.p_phase==0 and s.p_eligible==1 and s.p_claims==0 and s.p_childDone==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_decision": "1",
+      "n_claims": "s.n_claims+1",
+      "p_phase": "1",
+      "p_claims": "s.p_claims+1"
+    }
+  },
+  "allocate": {
+    "n": "allocateRootedCopy",
+    "p": "allocateCopy",
+    "guard": "(s.n_decision==1 and s.n_destRoot==0 and s.n_gate==0 and s.n_admitted==1) and (s.p_phase==1 and s.p_copyRoot==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_destRoot": "1",
+      "p_copyRoot": "1",
+      "p_placeholder": "1",
+      "p_materialized": "1"
+    }
+  },
+  "enter": {
+    "n": "enterRuntime",
+    "p": null,
+    "guard": "(s.n_gate==0 and s.n_admitted==1 and s.n_decision>=1)",
+    "updates": {
+      "n_gate": "1",
+      "n_lease": "s.n_lease+1",
+      "n_grantGen": "s.n_generation"
+    }
+  },
+  "resolve": {
+    "n": "resolveCanonical",
+    "p": null,
+    "guard": "(s.n_gate==1 and s.n_grantGen==s.n_generation)",
+    "updates": {
+      "n_viewRev": "s.n_revision",
+      "n_viewGen": "s.n_generation",
+      "n_viewLease": "s.n_lease"
+    }
+  },
+  "initialize": {
+    "n": "initializeCopy",
+    "p": "initializeCopy",
+    "guard": "(s.n_decision==1 and s.n_destRoot==1 and s.n_copyReady==0 and s.n_sourceRoot==1 and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==1 and s.p_copyRoot==1 and s.p_sourceRoot==1 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_copyReady": "1",
+      "n_copyRev": "s.n_revision",
+      "n_copyOps": "s.n_copyOps+1",
+      "n_patchReady": "0",
+      "p_phase": "2",
+      "p_ready": "1"
+    }
+  },
+  "validate": {
+    "n": "validateCopy",
+    "p": null,
+    "guard": "(s.n_decision==1 and s.n_destRoot==1 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision)",
+    "updates": {
+      "n_validations": "s.n_validations+1",
+      "n_patchReady": "0"
+    }
+  },
+  "prepare": {
+    "n": "prepareReturn",
+    "p": null,
+    "guard": "(s.n_decision==1 and s.n_destRoot==1 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision)",
+    "updates": {
+      "n_patchReady": "1",
+      "n_patchRev": "s.n_revision",
+      "n_patchGen": "s.n_generation",
+      "n_patchLease": "s.n_lease"
+    }
+  },
+  "sendPublication": {
+    "n": null,
+    "p": null,
+    "guard": "(s.n_decision==1 and s.p_phase==2 and (s.publication==0 or s.publication==3))",
+    "updates": {
+      "publication": 1
+    }
+  },
+  "publicationUnknown": {
+    "n": null,
+    "p": null,
+    "guard": "(s.publication==1)",
+    "updates": {
+      "attempts": "s.attempts+1"
+    }
+  },
+  "acceptPublication": {
+    "n": null,
+    "p": "publishReady",
+    "guard": "(s.p_phase==2 and s.p_ready==1 and s.p_copyRoot==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.publication==1)",
+    "updates": {
+      "p_phase": "3",
+      "p_queueRoot": "1",
+      "publication": 2
+    }
+  },
+  "rejectPublication": {
+    "n": null,
+    "p": null,
+    "guard": "(s.publication==1 and s.p_phase==2)",
+    "updates": {
+      "publication": 3
+    }
+  },
+  "commit": {
+    "n": "commitSplit",
+    "p": "commitSplit",
+    "guard": "(s.n_decision==1 and s.n_copyReady==1 and s.n_destRoot==1 and s.n_copyRev==s.n_revision and s.n_patchReady==1 and s.n_patchRev==s.n_revision and s.n_patchGen==s.n_generation and s.n_patchLease==s.n_lease and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==3 and s.p_ready==1 and s.p_copyRoot==1 and s.p_queueRoot==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.publication==2 and s.active==0)",
+    "updates": {
+      "n_decision": "2",
+      "n_sourceRoot": "0",
+      "p_phase": "4",
+      "p_sourceRoot": "0",
+      "p_split": "1",
+      "p_parentOwner": "1"
+    }
+  },
+  "activationFailed": {
+    "n": null,
+    "p": null,
+    "guard": "(s.n_decision==2 and s.p_phase==4 and s.active==0)",
+    "updates": {
+      "attempts": "s.attempts+1"
+    }
+  },
+  "activate": {
+    "n": null,
+    "p": null,
+    "guard": "(s.n_decision==2 and s.p_phase==4 and s.active==0 and s.n_gate==0)",
+    "updates": {
+      "active": 1
+    }
+  },
+  "wakeFailed": {
+    "n": null,
+    "p": null,
+    "guard": "(s.active==1)",
+    "updates": {
+      "attempts": "s.attempts+1"
+    }
+  },
+  "dequeue": {
+    "n": null,
+    "p": "dequeueParent",
+    "guard": "(s.p_phase==4 and s.p_queueRoot==1 and s.p_split==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1 and s.n_gate==0)",
+    "updates": {
+      "p_phase": "5",
+      "p_queueRoot": "0",
+      "p_restoreRoot": "1",
+      "p_parentOwner": "2"
+    }
+  },
+  "restore": {
+    "n": null,
+    "p": "restoreParent",
+    "guard": "(s.p_phase==5 and s.p_copyRoot==1 and s.p_restoreRoot==1 and s.p_ready==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.n_gate==0)",
+    "updates": {
+      "p_phase": "7",
+      "p_contextRoot": "1",
+      "p_copyRoot": "0",
+      "p_restoreRoot": "0",
+      "p_parentOwner": "3"
+    }
+  },
+  "doneLocal": {
+    "n": "childDone",
+    "p": "localChildDone",
+    "guard": "(s.n_done==0 and s.n_gate!=2) and (s.p_phase==0 and s.p_childDone==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_done": "1",
+      "n_resultRoot": "1",
+      "p_phase": "6",
+      "p_childDone": "1",
+      "p_resultRoot": "1"
+    }
+  },
+  "doneSplit": {
+    "n": "childDone",
+    "p": "childDoneInSplit",
+    "guard": "(s.n_done==0 and s.n_gate!=2) and (((s.p_phase>=1 and s.p_phase<=5) or s.p_phase==7) and s.p_childDone==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_done": "1",
+      "n_resultRoot": "1",
+      "p_childDone": "1",
+      "p_resultRoot": "1"
+    }
+  },
+  "closeLocal": {
+    "n": "closeLocal",
+    "p": null,
+    "guard": "(s.n_decision==0 and s.n_done==1 and s.n_gate==0)",
+    "updates": {
+      "n_decision": "3"
+    }
+  },
+  "abort": {
+    "n": "abortSplit",
+    "p": "abortPrivate",
+    "guard": "(s.n_decision==1 and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and ((s.p_phase==1 or s.p_phase==2) and s.p_queueRoot==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.publication==0 or s.publication==3)",
+    "updates": {
+      "n_decision": "3",
+      "n_destRoot": "0",
+      "n_copyReady": "0",
+      "n_copyRev": "0",
+      "n_patchReady": "0",
+      "p_phase": "0",
+      "p_copyRoot": "0",
+      "p_placeholder": "0",
+      "p_ready": "0"
+    }
+  },
+  "finishAborted": {
+    "n": null,
+    "p": "localAfterAbortDone",
+    "guard": "(s.p_phase==0 and s.p_childDone==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.n_decision==3)",
+    "updates": {
+      "p_phase": "6"
+    }
+  },
+  "publishResult": {
+    "n": null,
+    "p": "publishResult",
+    "guard": "(s.p_split==1 and s.p_childDone==1 and s.p_resultRoot==1 and s.p_resultPublished==0 and s.p_phase<8 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "p_resultPublished": "1"
+    }
+  },
+  "runPrefix": {
+    "n": null,
+    "p": "runParentPrefix",
+    "guard": "(s.p_phase==7 and s.p_parentOwner==3 and s.p_prefixRuns==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1)",
+    "updates": {
+      "p_prefixRuns": "1"
+    }
+  },
+  "grantLocal": {
+    "n": "grantLocal",
+    "p": "runLocalParent",
+    "guard": "(s.n_decision==3 and s.n_done==1 and s.n_localGrants==0 and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==6 and s.p_childDone==1 and s.p_parentRuns==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_localGrants": "s.n_localGrants+1",
+      "p_prefixRuns": "1",
+      "p_parentRuns": "1"
+    }
+  },
+  "grantRemote": {
+    "n": "grantRemote",
+    "p": "consumeSplitResult",
+    "guard": "(s.n_decision==2 and s.n_done==1 and s.n_remoteGrants==0 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==7 and s.p_prefixRuns==1 and s.p_resultPublished==1 and s.p_parentRuns==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1)",
+    "updates": {
+      "n_remoteGrants": "s.n_remoteGrants+1",
+      "p_parentRuns": "1"
+    }
+  },
+  "leave": {
+    "n": "leaveRuntime",
+    "p": null,
+    "guard": "(s.n_gate==1)",
+    "updates": {
+      "n_gate": "0"
+    }
+  },
+  "gcEnter": {
+    "n": "enterGc",
+    "p": "closeGc",
+    "guard": "(s.n_gate==0 and s.n_admitted==1) and (s.p_gcOpen==1)",
+    "updates": {
+      "n_gate": "2",
+      "n_grantGen": "s.n_generation",
+      "p_gcOpen": "0"
+    }
+  },
+  "gcFreeze": {
+    "n": null,
+    "p": "freezeRoots",
+    "guard": "(s.p_gcOpen==0 and s.p_frozen==0)",
+    "updates": {
+      "p_frozen": "1",
+      "p_vSource": "s.p_sourceRoot",
+      "p_vCopy": "s.p_copyRoot",
+      "p_vQueue": "s.p_queueRoot",
+      "p_vRestore": "s.p_restoreRoot",
+      "p_vContext": "s.p_contextRoot",
+      "p_vResult": "s.p_resultRoot",
+      "p_vCapture": "s.p_captureRoot"
+    }
+  },
+  "gcBegin": {
+    "n": null,
+    "p": "beginScan",
+    "guard": "(s.p_frozen==1 and s.p_scanning==0 and s.p_scanned==0)",
+    "updates": {
+      "p_scanning": "1"
+    }
+  },
+  "forwardNoCopy": {
+    "n": "forwardNoCopy",
+    "p": null,
+    "guard": "(s.n_gate==2 and s.n_copyReady==0) and (s.p_scanning==1)",
+    "updates": {
+      "n_revision": "s.n_revision+1",
+      "n_sourceHeap": "1"
+    }
+  },
+  "forwardWithCopy": {
+    "n": "forwardWithCopy",
+    "p": null,
+    "guard": "(s.n_gate==2 and s.n_copyReady==1 and s.n_destRoot==1) and (s.p_scanning==1)",
+    "updates": {
+      "n_revision": "s.n_revision+1",
+      "n_copyRev": "s.n_revision+1",
+      "n_sourceHeap": "1"
+    }
+  },
+  "gcEnd": {
+    "n": null,
+    "p": "endScan",
+    "guard": "(s.p_scanning==1)",
+    "updates": {
+      "p_scanning": "0",
+      "p_scanned": "1"
+    }
+  },
+  "gcLeave": {
+    "n": "leaveGc",
+    "p": "resumeGc",
+    "guard": "(s.n_gate==2) and (s.p_frozen==1 and s.p_scanning==0 and s.p_scanned==1)",
+    "updates": {
+      "n_gate": "0",
+      "p_frozen": "0",
+      "p_gcOpen": "1",
+      "p_scanned": "0",
+      "p_epoch": "s.p_epoch+1"
+    }
+  },
+  "closeDomain": {
+    "n": "closeDomain",
+    "p": null,
+    "guard": "(s.n_admitted==1)",
+    "updates": {
+      "n_admitted": "0"
+    }
+  },
+  "resetDomain": {
+    "n": "resetDomain",
+    "p": null,
+    "guard": "(s.n_admitted==0 and s.n_gate==0)",
+    "updates": {
+      "n_generation": "s.n_generation+1",
+      "n_admitted": "1"
+    }
+  }
+}

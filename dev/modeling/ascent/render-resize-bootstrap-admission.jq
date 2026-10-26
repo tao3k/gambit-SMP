@@ -1,0 +1,38 @@
+# Presentation only: all obligations, transitions, source rows, costs and topology come from native SysML.
+if $view=="d2" then
+ "direction: down", "vars: { d2-config: { theme-id: 0 } }",
+ (.nodes[]|"n_\(.nodeId): { label: \(.labelText|@json) }"),
+ (.diagramEdges[]|"n_\(.producer.nodeId) -> n_\(.consumer.nodeId): \((.labelText|split(" ")|. as $w|[range(0;($w|length);3) as $i|$w[$i:$i+3]|join(" ")]|join("\n"))|@json)")
+else
+ "#+TITLE: Modern C Resize Bootstrap Admission and Peak Matrix", "#+LANGUAGE: en", "#+PROPERTY: header-args :eval never", "#+OPTIONS: toc:2 num:nil", "",
+ "* Existing requested-capacity arithmetic", "Source constants; wordBytes=8 is an explicit arithmetic case, not measured RSS or added allocation.",
+ "| Processors | Min sections each | Words per section | Word bytes | Min words | Capacity payload bytes |", "|---+---+---+---+---+---|",
+ (.capacityPayload|to_entries[]|"| "+([.value.processors,.value.minSectionsPerProcessor,.value.sectionWords,.value.wordBytes,.value.minWords,.value.payloadBytes]|map(tostring)|join(" | "))+" |"), "",
+ "* Safe carrier slot arithmetic", "Illustrative K carriers, not a measured live-copy count or current unsafe baseline.",
+ "| Carriers | Word bytes | Separate bytes | Shared bytes | Slot savings |", "|---+---+---+---+---|",
+ (.rootPayload|to_entries[]|"| "+([.value.carriers,.value.wordBytes,.value.separateBytes,.value.sharedBytes,.value.slotSavingBytes]|map(tostring)|join(" | "))+" |"), "",
+ "* Complete root-view inventory", "| Need | Category | Source | Actual location | Existing coverage | Required adaptation |", "|---+---+---+---+---+---|",
+ (.views[]|"| "+([.need.obligationId,.viewId,.sourceAnchors,.actualLocation,.existingCoverage,.requiredAdaptation]|join(" | "))+" |"), "",
+ "* Membership roles", "| Need | Role | Source | Current responsibility | Target contract | Boundary |", "|---+---+---+---+---+---|",
+ (.membershipRoles[]|"| "+([.need.obligationId,.roleId,.sourceAnchors,.currentResponsibility,.targetContract,.boundary]|join(" | "))+" |"), "",
+ "* Native-evaluated admission cuts", "Conditional predicate evaluations over illustrative cut records; no proof of source events, full requirements or native admission.",
+ "| Cut | Can admit root | Root covered | Can commit members | Can reclaim child |", "|---+---+---+---+---|",
+ (.admissionCuts|to_entries[]|"| "+([.key,.value.canAdmitRoot,.value.rootCovered,.value.canCommit,.value.canReclaim]|map(tostring)|join(" | "))+" |"), "",
+ "* Creation and exit transitions", "| Need | From | To | QNT action | Guard and custody | Conditional Lean law | Source |", "|---+---+---+---+---+---+---|",
+ (.transitions[]|"| "+([.need.obligationId,.fromPhase,.toPhase,.qntStep,.guardContract,.leanLaw,.sourceAnchors]|join(" | "))+" |"), "",
+ "* Source routes", "| Need | Source | Refinement duty | Failure custodian | Status |", "|---+---+---+---+---|",
+ (.sourceRoutes[]|"| "+([.need.obligationId,.sourceAnchors,.projection,.failureCustodian,.status]|join(" | "))+" |"), "",
+ "* Actual producers and run callers", "| Family | Source | Actual chain | Change | Admission |", "|---+---+---+---+---|",
+ (.callers[]|"| "+([.callerId,.sourceAnchors,.actualChain,.hazard,.replacement]|join(" | "))+" |"), "",
+ "* Custody paths", "| Path | Source | Current | Required | Failure | Custodian |", "|---+---+---+---+---+---|",
+ (.allocators[]|"| "+([.pathId,.sourceAnchors,.actualPath,.contract,.failure,.custodian]|join(" | "))+" |"), "",
+ "* C memory order", "| Edge | Required order | Rejected shortcut |", "|---+---+---|",
+ (.orders[]|"| "+([.edgeId,.orderContract,.rejectedShortcut]|join(" | "))+" |"), "",
+ "* Benefit and peak matrix", "| Capability | Removed work | Quantified boundary | Added support | Positive condition or falsifier |", "|---+---+---+---+---|",
+ (.costs[]|"| "+([.capability,.removedWork,.bound,.addedCost,.condition]|join(" | "))+" |"), "",
+ "* Closure matrix", "| Component | Need | Kind | Exact scope | Premise | Status |", "|---+---+---+---+---+---|",
+ (.needs[]|.obligationId as $id|"| "+([.owner.componentId,.obligationId,.kind,.subjectScope,.premise,(if ($observation[0].qualifiedSlice|any(.[2]==$id)) then "Conditional local model checked" else "OPEN: source or C memory refinement" end)]|join(" | "))+" |"), "",
+ "* Dependencies", "| Dependent | Prerequisite |", "|---+---|",
+ (.dependencies[]|"| \(.dependent.obligationId) | \(.prerequisite.obligationId) |"), "",
+ "* Research gates", "| Gate | Required need |", "|---+---|", (.gateNeeds[]|"| \(.gate.gateId) | \(.need.obligationId) |"), "", "* Evidence boundary", "Only RB-H and RB-I qualify locally. No complete component is admitted. The all-scoped ASCENT case is a synthetic policy control, not source evidence. No runtime implementation, native test, retired runtime path or measured speedup."
+end

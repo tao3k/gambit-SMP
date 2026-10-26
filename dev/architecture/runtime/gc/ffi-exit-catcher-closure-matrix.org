@@ -1,0 +1,129 @@
+#+TITLE: FFI Exit, Catcher Restore, Benefits and Peak-Memory Matrix
+#+PROPERTY: header-args :eval never
+
+* Execution scope
+Repository Evidence/ASCENT queries completed for the exact selected source bundle; source and C-memory obligations remain open. No runtime admission.
+
+* Inherited native layout arithmetic
+These are aligned-wrapper requests, not backend pages, usable size or RSS.
+| Word bytes | Candidate subtype | SCMOBJ slots | Raw key bytes | Body bytes | Object bytes | Wrapper request | Delta from SMP |
+|---+---+---+---+---+---+---+---|
+| 4 | 16 | 2 | 24 | 32 | 56 | 67 | 24 |
+| 8 | 16 | 2 | 24 | 40 | 88 | 103 | 24 |
+
+* Source caller matrix
+#+NAME: root-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| sfun-generator-order | gsc/_ptree2.scm:2840-3030,3145-3187;include/gambit.h.in:10043-10059 | Recursive conversion wrappers surround SFUN_CALL; error loop can call Scheme again, result conversion then marker kill then propagate | Call return or result assignment leaves conversion/marker/error effects | Generate acquisition/disposition/exit plan per three SFUN families, shared off-stack guarded exit service |
+| sfun-conversion-releases | include/gambit.h.in:10186-10255;lib/mem.c:1715-1739 | END_SFUN numeric/foreign argument conversions release still SCMOBJ after body; longjmp can bypass those lexical ends | All acquired conversions cannot be inferred from uninitialized or changed C locals after jump | Record acquisition after successful conversion; normal/exceptional path consumes each exact cleanup duty once |
+| cfun-generator-raw-return | gsc/_ptree2.scm:3239-3329 | build-c-lambda wraps optional cleanup TRY and AT_END; ___return uses goto local label; raw C text remains possible | Arbitrary return/longjmp/spawn bypasses local label or cleanup | Typed effect/exit manifest and managed return form; otherwise refuse controlled-cohort admission |
+| cfun-inline-ool-selection | gsc/_t-c-2.scm:124-218,239;include/gambit.h.in:10325-10380 | Generator defaults inline false; OOL avoids setjmp interfering with C TCO; caller spills/restores and inspects temp1 after cproc return | Callee close cannot release caller fp/register/status borrow or impose setjmp on every GVM host | Separate callee exit ticket and caller postlude ticket; keep qualified out-of-line boundary for TCO |
+| cfun-try-and-at-end | include/gambit.h.in:10382-10400;gsc/_ptree2.scm:3240-3321 | AT_END appears inside protected body before END_TRY then R_ALL_INL; an earlier throw skips AT_END | Moving AT_END after catch would newly execute user effects, not automatically preserve semantics | Record original execution condition; separate guaranteed service cleanup from optional user AT_END; explicit opt-in for changed semantics |
+| cfun-conversion-error-routes | include/gambit.h.in:10353-10397 | CFUN_CONV_ERROR excludes NO_ERR and UNWIND; ordinary errors set temp fields then inline jump/OOL return before subsequent propagate_error | Blanket claim every error executes propagate_error or END_CFUN misses real exits | Distinct handler-return and UNWIND propagation tickets; outer caller remains pinned through read/reload/dispatch |
+| cfun-native-release-helpers | include/gambit.h.in:10473-10525;lib/c_intf.c:1731-1802;lib/mem.c:756-825 | END_CFUN function/string conversions release RC-backed native values; string-list release can release child strings | Conversion lexical scope includes cleanup after user body/AT_END; skipping duplicates loses roots/resources | Acquired-only cleanup ledger with native/root/code ownership; exact helper effect profile, no speculative cleanup replay |
+| try-catcher-stack | include/gambit.h.in:9981-10007,11699-11700;lib/setup.c:4755 | TRY saves old catcher, installs local jbuf, reads longjmp_err on jump and END restores old pointer; setup initializes catcher0 | Stack jbuf and saved predecessor require live target/thread; restoration is PSTATE write | Pin exact catcher chain and native activation; restore before source borrow release; off-stack service state |
+| propagate-and-throw | lib/setup.c:839-865;include/gambit.h.in:9987 | NO_ERR propagate returns; otherwise throw_error executes THROW setting longjmp_err and jumping via catcher | Seal before propagation misses a physical PSTATE write; replay can jump twice or to dead target | Reserve successor propagation debt and target pin before close; only original qualified thread executes jump |
+| call-match-rethrow-trampoline | lib/setup.c:3355-3390 | Local TRY exits restore catcher; trampoline trip can repeat; only matching marker UNWIND restores fp/R0, nonmatch rethrows | Treating trampoline trip as final exit or dropping outer target pin loses live activation | Keep guard for internal trips; matching return has explicit postlude; nonmatch hands debt outward before jump |
+| run-kill-skipped | lib/setup.c:3395-3420;lib/c_intf.c:6509-6564 | ___run marker kill is inside TRY normal path; marker construction may allocate with input-root TODO | A thrown ___call can skip kill; new universal cleanup cannot free a marker still borrowed elsewhere | Guarded acquisition and canonical retirement result; protect proc before allocation; root/return-right duties remain separate |
+| gvm-reload-consumers | include/gambit.h.in:6802-6803,10325-10380;gsc/_t-c-2.scm:213-218 | CFUN context reload and temp1/handler dispatch lead to JUMPRET; exact host macros depend on target | R_ALL or temp publication after callee seal remains source PSTATE access | Keep caller ticket until final source access or explicit GVM successor handoff; no whole-PSTATE0 from local guard |
+| foreign-cleanup-callback | lib/mem.c:4387-4451;lib/c_intf.c:1683-1715;gsc/_ptree2.scm:2590-2670 | Sweep/cleanup clears foreign release fields and calls release_fn; generator emits release wrappers or supplied id | Native side effect may outlive wrapper or throw; cleared fields alone do not prove disposition | Reserve callback task/root/native/code duty before destructive detach, only admitted exception/thread/effect profiles |
+| interrupt-cleanup-callback | lib/setup.c:143-204,365-419 | Normal service invokes execute_fn outside queue lock; cleanup invokes execute_fn(intr,false) while holding lock | Release callback reentrant enqueue can need same mutex; queue empty is not external admission closed | Close producers and reserve work before callback; do not wait/reenter under lock; source adaptation remains open |
+| cleanup-and-native-lifetime | lib/setup.c:924-980,4569-4599,4665-4672,4834-4875;lib/mem.c:4928-4964;lib/os_thread.c:546-592 | Shrink/rollback/shutdown destroy PSTATE memory; ignored join follows shrink; VM later destroys shared facilities | An exception-close receipt does not retain physical backing or prove native thread termination | Require VM acceptance, independent root/domain and all pins0 before data cleanup; failed/unknown join keeps native envelope |
+| setjmp-profile-boundary | include/gambit.h.in:1618-1668,8590,9981-9987;lib/setup.c:5319;examples/tcltk/tcltk.scm:124-194 | Header selects compiler builtin/library/dynamic import; BEGIN_TRY assigns setjmp return to err; real native callbacks exercise wrappers | ISO context/local/thread rules and GCC builtin constraints differ; unqualified raw longjmp/foreign ABI cannot be inferred safe | Modern C emitter gives explicit backend profile; standard setjmp in permitted context; portable guard state and no cross-thread helper jump |
+
+* Benefit and peak-memory matrix
+#+NAME: root-costs-native
+| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |
+|---+---+---+---+---|
+| Exit issuer precision | Remove guessed closure after SFUN_CALL, END_SFUN or result delivery | 0 existing full issuers; 2 distinct observations: ActivationExitReady versus whole DataWriteClosed | Typed exit plans, acquired cleanup bits and scoped receipts | All conversion/error/restore/callback effects covered; raw escape refuses qualification |
+| Catcher lifetime | Avoid stale jbuf and changed automatic-state recovery | Exact predecessor/thread/frame identity; 0 helper-thread longjmp in selected protocol | Pinned catcher chain and off-stack exit/result state | Library/builtin/dynamic-import C profiles separately qualified; no blanket volatile or fence proof |
+| Propagation handoff | Remove zero-borrow gap between original exit and outer exception receiver | Register receiver before source release; transfer preserves owed work and source borrow count | Receiver ticket, target/root/code pin and conditional restore endpoint | Late or unknown propagation retains ticket; no rethrow replay from missing ACK |
+| CFUN caller postlude | Avoid dropping PSTATE while caller reloads registers or reads temp1 | Separate OOL callee and caller obligations; caller pin lasts through final read/dispatch | Generated caller ticket; preserve existing TCO-friendly OOL placement | Inlining setjmp into GVM hot host is not assumed free; standard-C ABI qualification open |
+| Conversion cleanup | Avoid skipped or repeated release_scmobj/function/string/list cleanup | 1 disposition per acquired conversion; no cleanup for a conversion that never succeeded | Acquisition ledger and guarded normal/exception exit | Exactly-once service decision requires original native outcome evidence; unknown effects cannot simply retry |
+| AT_END semantics | Preserve original user cleanup execution condition | 0 automatic promotion of optional AT_END to universal finally | Separate user text from guaranteed runtime-service cleanup | Running skipped user text after throw is a semantic change requiring explicit admission |
+| Cleanup child debt | Keep finalizer/interrupt callbacks counted after parent exit | Reserve before child exposure/parent discharge; moving child off PSTATE does not reduce data debt | Root/native/code tickets, callback profile and admission gate | Closed enrollment rejects new child or uses separately counted successor cohort; no seal reopening |
+| Source cleanup versus GC | Allow independent VM callback after source data cleanup, without premature freeze | Source pins0 can coexist with owed callback>0; whole seal requires all current data debt0 or qualified unstarted future-epoch gate; future task debt retained | Independent physical backing/root scan view and domain closure census | Unqualified managed callback thread/GC state remains blocked; no arbitrary-death progress proof |
+| Conditional saved work | Avoid response-loss replay of throw/cleanup/refund | 0 native jump/free/allocation replay from selected observation query | Canonical protected lookup and retained unknown outcomes | Positive net requires avoided duplicate effects/waits exceed ticket and retention costs; no measured speedup |
+| Peak memory | Retain one result/marker backing across exit and custody transfer | Inherited marker +24*M(t); exit metadata O(A+J+K); Peak=max_t(H+P+N+Q) | A activation records, J receiver/caller tickets, K cleanup debts, retained roots/code/native envelopes | Metadata sizeof/alignment unqualified; unknown outcomes may retain Q indefinitely; no peak decrease proved |
+| Retirement conditions | Replace managed END/error/cleanup scatter with generated exit service | 0 production paths retired today; one semantic source emits both exit and caller-postlude contracts | Generator, runtime typed ABI, all loaded-module effect manifests and source simulation | Only managed qualified cohort retires raw paths; legacy uncontrolled C cannot be silently included |
+| Modern C mainline | Preserve Gambit Scheme continuation/TCO and C portability with explicit ownership | No language-specific GC/stop proof; 0 Zig-only necessary-support saving established | Portable C/backend profiles and same root/custody/exception obligations | Architecture benefit comes from compositional ownership and generated contracts; native performance still unknown |
+
+* Obligations and imported open premises
+#+NAME: root-needs-native
+| Need | Kind | Exact scope | Premise |
+|---+---+---+---|
+| EX-H | interleaving | ffi_exit_catcher_closure:37-named-histories;admitted;SFUN+CFUN-OOL;seed=17;each100x100 | One original activation, propagation receiver, OOL caller and cleanup callback; separate local close, source pins, callback custody, future-epoch nonexecution gate and whole current-data seal; SFUN and CFUN profiles; correct catcher identity, complete effect manifest, target thread lifetime and atomic transitions are premises; not source, ABI, weak-memory, full nested continuation or liveness proof |
+| EX-I | induction | GambitSMP.FfiExitCatcherClosure:catcherRequired;registersRequired;propagationReceiverRequired;conversionPendingRejects;markerPendingRejects;missingResultRootRejects;receiverTransferPreserves;receiverTransferKeepsBorrowCount;receiverTransferNeverZero;callbackReservePreserves;callbackReserveAddsDebt;callbackMovePreserves;callbackMoveDoesNotDischarge;sourceFinishPreserves;receiverFinishPreserves;callbackFinishPreserves;stepPreserves;tracePreserves;pendingReceiverBlocksCleanup;independentDebtBlocksSeal;zeroSourcePinsNotDataClosed;dataClosedHasNoDebts;admissionCloseDoesNotDrain;futureTaskStillOwed;futureSealNeedsExecutionGate;deferredSealHasNoCurrentBorrowers | 26 conditional declarations: exit prerequisites, accounted debt Step/Trace, propagation transfer preserves borrow count, callback transfer retains debt zero source pins do not imply whole data closure, and DeferredSeal retains future task debt under nonexecution gate; not all QNT actions or C refinement |
+| EX-EXIT | source-refinement | EX-EXIT:actual-source-refinement | Scheme generator emits typed exit plans for void/SCMOBJ/typed SFUN and inline/OOL CFUN, including acquire-completed conversion cleanup bits and result/root disposition; ActivationExitReady follows final local effects, marker retirement and relevant own restore (OOL caller reload remains on a separate ticket), but DataWriteClosed is signed only by coordinator after current propagated/caller/callback effects drain and admission closes; an unstarted future task may remain only under VM-independent custody and a qualified current-epoch nonexecution gate; no existing END macro alone is a valid full issuer |
+| EX-CATCHER | source-refinement | EX-CATCHER:actual-source-refinement | Saved catcher identity and native frame/thread incarnation are pinned before installing local guard; restoring the exact predecessor is a write under source borrow before dropping that guard; generated state used after jump lives in protected off-stack storage, not changed nonvolatile automatic locals; borrowed jmp_buf remains a live same-thread target and is never handed to GC/helper worker for longjmp; builtin/library/dynamic-import profiles require separate C/backend qualification |
+| EX-PROPAGATE | source-refinement | EX-PROPAGATE:actual-source-refinement | propagate_error NO_ERR returns but still reads native context, nonzero calls throw_error and THROW writes longjmp_err then jumps; reserve propagation receiver and root/code/PSTATE duty before original close/drop; matching ___call restores frame after local catcher restoration, nonmatching rethrows to outer target; trampoline-only trips keep original guard alive; ordinary CFUN conversion errors return/jump to handler before propagate_error, UNWIND_C_STACK can reach it; no arbitrary replay of throw |
+| EX-BORROW | source-refinement | EX-BORROW:actual-source-refinement | PSTATE pins cover catcher/longjmp_err, conversion temps, fp/R0 restore, W_ALL/R_ALL and CFUN_OOL caller status reads; local close cannot set total borrow count to zero while outer receiver/caller/nested activation remains; source cleanup permit needs all source pins zero plus observed VM acceptance and physical unlink/root-view evidence; activation identity is not processor or reused stack address |
+| EX-CALLBACK | source-refinement | EX-CALLBACK:actual-source-refinement | Conversion release helpers, AT_END text, release_foreign and procedural interrupt execute_fn are separate effect producers; register child cleanup duty before callback exposure or parent discharge; invoke only admitted origin/thread/effect profile, transfer root/native/code custody before dropping source pin, and keep child data debt after VM-independent transfer; deferral of unstarted child into a successor epoch additionally needs no current write authority or queued native invocation, closed admission and future reentry gate, preserving task/root/native debt; unknown acceptance or callback longjmp retains duty, cannot guess completion or refund |
+| EX-RETIRE | source-refinement | EX-RETIRE:actual-source-refinement | Replace managed generated END/cleanup exits and raw marker retirement with one off-stack exit service and exactly-once disposition, route shrink/rollback/shutdown/exported cleanup through permit; cleanup callback registration competes with final admission cut atomically; callback added after cut must refuse or enter a separately counted successor cohort before domain freeze, never reopen old seal; failed/unknown native join retains thread/TLS/code envelope independently of data closure |
+| EX-ORDER | native-memory-order | EX-ORDER:actual-C-and-native-order-refinement | Original-to-receiver and parent-to-callback ticket publication precedes source release with one canonical authority; coordinator acquire sees all closures and zero outstanding effects; cleanup acquires accepted VM view and exact zero source-pin census under admission exclusion; native C emitter preserves standard setjmp call context, lifetime and local-value rules or qualified builtin profile, and atomic/lock implementation, layout and compiler code-motion remain unproved |
+| DW-ENDPOINT | source-refinement | DW-ENDPOINT:actual-source-refinement | Original writer endpoint is after argument/result conversion, all conversion-error retry calls and generated release/conversion helpers, marker physical clear, exactly-once refcount handoff, result/root custody and final managed effect, but before a no-managed-reentry postlude; nonmatching ___call rethrow and ___run TRY escape require off-stack exceptional guard; AT_END is selected source text, not a universal finally; propagate_error/THROW and TRY catcher restoration remain effect or PSTATE-pin obligations, not assumed harmless epilogues; each nested activation closes only its own identity; borrowed stack/TLS/PSTATE pins remain separate |
+| DW-ENROLL | source-refinement | DW-ENROLL:actual-source-refinement | Every native helper, queued task and callback descendant registers its debt before parent can discharge its effect responsibility; one atomic admission cut orders helper registration against enrollment close; registered but not enqueued/dequeued helpers remain owed until completed or cancellation proves no effect; certify only after all members close and issued effects drain; helper work after certificate requires a newly counted cohort before domain freeze, never reopening an old seal |
+| DW-ESCROW | source-refinement | DW-ESCROW:actual-source-refinement | VM service prepares canonical operation/root/domain/code/ticket backing before accepting custody with one authoritative decision and stable identity; acceptance survives lost response and query does not replay; backing audit rejects pointers to PSTATE list sentinels, stack roots, current closure TLS or locks still destroyed by source cleanup; transfer ownership without copying whole heap; source duty persists until exact acceptance observed; join failure or unknown never refunds debt or drops VM roots |
+| DW-CLEANUP | source-refinement | DW-CLEANUP:actual-source-refinement | Before cleanup_pstate, transfer controlled nodes and RC payload roots to VM-owned canonical domain and scan view, unlink transferred nodes from destructive source walks under excluded scan/sweep access, close original writes and drain source PSTATE pins; native postlude/thread/TLS envelope remains until its own stop and reader proof; cleanup_interrupts and free_still release_foreign can spawn effects, so classify and transfer finalizer/interrupt work before seal or open a separately registered cleanup cohort; procedural interrupt cleanup calls external execute_fn(intr,false) while holding its queue mutex, so reentrant enqueue cannot be drained under that lock; no synchronous owner/GC wait cycle |
+| DW-JOIN | source-refinement | DW-JOIN:actual-source-refinement | Record exact native join return and target incarnation, with at most one join authority; successful native termination can support original stop but cannot certify helper closure, operation outcome, physical backing survival or whole-VM drain; failed/unknown join preserves native envelope and canonical VM custody; separately proven cooperative data closure may allow GC without native join; no blind second join on a reused identifier or destruction of TLS/code/locks still borrowed |
+| DW-ORDER | native-memory-order | DW-ORDER:actual-C-memory-refinement | One synchronization domain orders registration, membership-close and seal; producer release closure follows every last effect and coordinator acquire sees all participants; VM acceptance release follows initialized independent backing/root scan registration and cleanup acquires canonical acceptance; source unlink and target scan view commit share exclusion; no plain/atomic access mix, compiler motion or arbitrary native cancellation silently assumed safe |
+
+#+NAME: root-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| EX-EXIT | EX-H |
+| EX-EXIT | EX-I |
+| EX-EXIT | EX-ORDER |
+| EX-CATCHER | EX-H |
+| EX-CATCHER | EX-I |
+| EX-CATCHER | EX-ORDER |
+| EX-PROPAGATE | EX-H |
+| EX-PROPAGATE | EX-I |
+| EX-PROPAGATE | EX-ORDER |
+| EX-BORROW | EX-H |
+| EX-BORROW | EX-I |
+| EX-BORROW | EX-ORDER |
+| EX-CALLBACK | EX-H |
+| EX-CALLBACK | EX-I |
+| EX-CALLBACK | EX-ORDER |
+| EX-RETIRE | EX-H |
+| EX-RETIRE | EX-I |
+| EX-RETIRE | EX-ORDER |
+| EX-ORDER | EX-H |
+| EX-ORDER | EX-I |
+| EX-ORDER | DW-ORDER |
+| EX-EXIT | DW-ENDPOINT |
+| EX-EXIT | EX-CATCHER |
+| EX-CATCHER | DW-ENDPOINT |
+| EX-PROPAGATE | EX-CATCHER |
+| EX-PROPAGATE | DW-ENROLL |
+| EX-BORROW | EX-PROPAGATE |
+| EX-BORROW | DW-ESCROW |
+| EX-BORROW | DW-CLEANUP |
+| EX-CALLBACK | EX-BORROW |
+| EX-CALLBACK | DW-ENROLL |
+| EX-CALLBACK | DW-ESCROW |
+| EX-RETIRE | EX-EXIT |
+| EX-RETIRE | EX-CALLBACK |
+| EX-RETIRE | DW-JOIN |
+
+* Scoped closure observations
+#+NAME: root-closure-observed
+| Need | Current evidence | Source/runtime boundary |
+|---+---+---|
+| EX-H | Checked task-local formal slice | Conditional model only; no C simulation |
+| EX-I | Checked task-local formal slice | Conditional model only; no C simulation |
+| EX-EXIT | Unresolved source or native-order obligation | No source-simulation root |
+| EX-CATCHER | Unresolved source or native-order obligation | No source-simulation root |
+| EX-PROPAGATE | Unresolved source or native-order obligation | No source-simulation root |
+| EX-BORROW | Unresolved source or native-order obligation | No source-simulation root |
+| EX-CALLBACK | Unresolved source or native-order obligation | No source-simulation root |
+| EX-RETIRE | Unresolved source or native-order obligation | No source-simulation root |
+| EX-ORDER | Unresolved source or native-order obligation | No C-memory/platform refinement root |
+| DW-ENDPOINT | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ENROLL | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ESCROW | Unresolved source or native-order obligation | No source-simulation root |
+| DW-CLEANUP | Unresolved source or native-order obligation | No source-simulation root |
+| DW-JOIN | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ORDER | Unresolved source or native-order obligation | No source-simulation root |

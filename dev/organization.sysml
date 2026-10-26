@@ -1,6 +1,12 @@
 /* Authored architecture/model definition only. No behavior, satisfaction or native acceptance asserted. */
 package GambitDevelopmentOrganization {
     private import ScalarValues::*;
+    part evidenceCustody {
+        attribute orgReferences : String = "Repository-owned source, models, pinned external sources and retained byte-verified evidence";
+        attribute executionStorage : String = "Local task workspaces are mutable execution state and never documentary evidence dependencies";
+        attribute retention : String = "Publish original bytes and hashes before replacing a source reference; original observation paths are historical labels";
+        attribute replayBoundary : String = "Archived byte verification does not execute native work, prove currentness or grant runtime admission";
+    }
     part def Area {
         attribute relativePath : String;
         attribute purpose : String;

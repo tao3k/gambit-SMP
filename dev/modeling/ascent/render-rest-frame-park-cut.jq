@@ -1,0 +1,22 @@
+# Presentation only: topology, obligations, costs and callers come from SysML.
+if $view=="d2" then
+ "direction: down",
+ (.nodes[]|.labelText|=gsub("\\\\n";"\n")|"n_\(.nodeId): { label: \(.labelText|@json) }"),
+ (.diagramEdges[]|"n_\(.producer.nodeId) -> n_\(.consumer.nodeId): \((.labelText|split(" ") | . as $w | [range(0; ($w|length); 4) as $i | $w[$i:$i+4] | join(" ")] | join("\n"))|@json)")
+else
+ "#+TITLE: Rest Frame Park Cut, Benefits and Peak-Memory Matrix", "#+PROPERTY: header-args :eval never", "",
+ "* Execution scope", "Repository Evidence/ASCENT queries completed for the exact selected source bundle; source and C-memory obligations remain open. No runtime admission.", "", "* Inherited native layout arithmetic", "These are aligned-wrapper requests, not backend pages, usable size or RSS.", "| Word bytes | Candidate subtype | SCMOBJ slots | Raw key bytes | Body bytes | Object bytes | Wrapper request | Delta from SMP |", "|---+---+---+---+---+---+---+---|",
+ (.layouts[]|"| "+([.wordBytes,.subtypeCandidate,.rootWords,.keyBytes,.bodyBytes,.objectBytes,.allocatorRequest,.deltaFromSmp]|map(tostring)|join(" | "))+" |"), "",
+ "* Native-evaluated repair capacity examples", "Arithmetic only; actual physical reservation and current-host generated frame/ABI admission remain open.", "| Profile | Actual args | Formal count | Remaining after first CONS | Pair words | Vector words | Repair words | Repair bytes |", "|---+---+---+---+---+---+---+---|",
+ (.repairBounds|to_entries[]|"| "+([.key,.value.actual,.value.formal,.value.remaining,.value.pairWords,.value.vectorWords,.value.completionWords,.value.completionBytes]|map(tostring)|join(" | "))+" |"), "",
+ "* Source caller matrix", "#+NAME: root-callers-native", "| Family | Source | Actual chain | Hazard | Replacement |", "|---+---+---+---+---|",
+ (.callers[]|"| "+([.callerId,.sourceAnchors,.actualChain,.hazard,.replacement]|join(" | "))+" |"), "",
+ "* Benefit and peak-memory matrix", "#+NAME: root-costs-native", "| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |", "|---+---+---+---+---|",
+ (.restCosts[]|"| "+([.capability,.removedWork,.bound,.addedCost,.condition]|join(" | "))+" |"), "",
+ "* Obligations and imported open premises", "#+NAME: root-needs-native", "| Need | Kind | Exact scope | Premise |", "|---+---+---+---|",
+ (.needs[]|"| "+([.obligationId,.kind,.subjectScope,.premise]|join(" | "))+" |"), "",
+ "#+NAME: root-dependencies-native", "| Dependent | Prerequisite |", "|---+---|",
+(.dependencies[]|"| \(.dependent.obligationId) | \(.prerequisite.obligationId) |"), "",
+ "* Scoped closure observations", "#+NAME: root-closure-observed", "| Need | Current evidence | Source/runtime boundary |", "|---+---+---|",
+ (.needs[]|.obligationId as $id | "| "+$id+" | "+(if ($observation[0].qualifiedSlice|any(.[];.[2]==$id)) then "Checked task-local formal slice" else "Unresolved source or native-order obligation" end)+" | "+(if ($id=="RF-H" or $id=="RF-I") then "Conditional model only; no C simulation" elif $id=="RF-ORDER" then "No C-memory/platform refinement root" else "No source-simulation root" end)+" |")
+end

@@ -1,0 +1,140 @@
+#+TITLE: Size-family conversion ownership and net return matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projections
+:PROPERTIES:
+:CUSTOM_ID: size-family-hold-matrix
+:AUTHORITY: GambitSizeFamilyHoldBalance
+:END:
+These rows are evaluated by native SysML. Formal routes do not qualify native issuers.
+
+** Profile
+
+| key | bits | fixWidth | minimum | maximum | unsignedMax | signedMin | signedMax | status |
+|---+---+---+---+---+---+---+---+---|
+| Darwin-default | 64 | 61 | -1152921504606846976 | 1152921504606846975 | 18446744073709551615 | -9223372036854775808 | 9223372036854775807 | static conditional; overrides and binary cohort unresolved |
+| two-tag-override | 64 | 62 | -2305843009213693952 | 2305843009213693951 | 18446744073709551615 | -9223372036854775808 | 9223372036854775807 | alternative; not effective-default claim |
+| NAN-or-32bit-fixnum | profile-dependent | 30 | -536870912 | 536870911 | native-type-dependent | native-type-dependent | native-type-dependent | alternative; reject receipt with default boundaries |
+
+** Releaser
+
+| key | effect | identity | decision |
+|---+---+---+---|
+| release_scmobj | still count decrement; immediate/permanent no-op | the exact converted object | required on successful native-held conversion |
+| raw still refcount dec | unconditional decrement | only same still object and explicit owner | not safe for fixnum; duplicate/manual drops forbidden |
+| generated END | three SFUN close-only + three CFUN empty | same converted object | missing effect in closed generated scope |
+| SFUN_ARG / CFUN_RESULT / backend return | root assignment / GC map / register reload | converted value | does not decrement native hold |
+| GC setup / sweep | nonzero held objects remain roots; unmarked freed | same still object | cannot fix leaked count1 |
+| marker invalidation | marker decrement | distinct marker identity | cannot settle numeric argument |
+| cleanup_rc / release_rc | RC payload/free linked native cell | different allocation/header | cannot settle numeric bignum |
+| foreign release callback | foreign subtype destructor | bignum has no foreign payload | cannot settle numeric bignum |
+| free_still_objs | whole storage teardown | all remaining still objects | ends VM lifetime, not per-call balance |
+| custom C / Scheme decrement | arbitrary explicit effect | identity must be proven | exclude or transfer single ownership; open-world aliases unresolved |
+
+** Need
+
+| key | status | condition |
+|---+---+---|
+| numeric-boundaries | conditional formal | named LP64 profile; actual predefines/overrides unobserved |
+| closed-source-mismatch | source path argument | nonnull ps boxed success and no explicit manual owner; not native leak test |
+| ownership-preservation | formal | one stable attempt; critical section cannot be abandoned; root publication truthful |
+| native-guard-issuer | unresolved | actual guard must survive unwind and own scanner-visible root |
+| C23-GC-exclusion | unresolved | plain old counter not atomic; root freeze/GC and owner thread handshake required |
+| generated-cohort | unresolved | current header/runtime/generated binary not proven same cohort |
+| all-custom-writers | unresolved | public/custom FFI may manually change count |
+| retirement | unresolved | descriptors/code/live captures/old modules must drain before removal |
+
+** Gain
+
+| key | benefit | cost | condition | refutation |
+|---+---+---+---+---|
+| retained-native-holds | B successful boxed conversions can discharge B extra holds | one release decision per N conversions; B physical decrements | same object; unique owner; no explicit manual double drop | no boxed conversions B=0; arbitrary user-owned decrements admitted |
+| GC-root-pressure | remove B accidental native roots after true last use | language roots/captured continuations still scanned as required | otherwise unreachable objects; k later collections gives at most B*k avoided root visits | live captured objects cannot be skipped; not a time or RSS estimate |
+| generated-contract | one direction-aware plan replaces six inconsistent size-family END responsibilities | success/failure/root/escape metadata and generator validation | producer and consumer same ABI; all generated users migrated | old modules or handwritten converters bypass plan |
+| language-choice | C23 solves this ownership defect without a second runtime language | guard and root/GC integration remain explicit in C or Zig | required modern C mainline | Zig syntax or no-GC property does not discharge Scheme holds |
+
+** Memory
+
+| key | order | premise | obligation |
+|---+---+---+---|
+| guard-publication | release publish; acquire receive; source retains until ACK | stable carrier rooted before abandonment; GC participation synchronized | native-guard-issuer |
+| physical-drop | exclusive owner and GC freeze; ordinary decrement inside no-abandon interval | no callback/allocation/cancel/longjmp between effect and record | C23-GC-exclusion |
+| receipt-observation | release completed record; acquire lookup by same attempt | unknown reply cannot authorize replay; storage/code lease remains | retirement |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| ffi-conversion | size_family_hold_balance.selectSizeMax | SizeHold.selectSizeMaxPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.selectSignedMin | SizeHold.selectSignedMinPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.selectSignedMax | SizeHold.selectSignedMaxPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.selectAboveFix | SizeHold.selectAboveFixPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.selectAtFix | SizeHold.selectAtFixPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.selectMinFix | SizeHold.selectMinFixPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.selectBelowFix | SizeHold.selectBelowFixPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.convertBoxed | SizeHold.convertBoxedPreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.convertImmediate | SizeHold.convertImmediatePreserves | signed-boundary | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.conversionFailure | SizeHold.conversionFailurePreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.publishRoot | SizeHold.publishRootPreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.captureArgument | SizeHold.captureArgumentPreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.finishNative | SizeHold.finishNativePreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.enterDrop | SizeHold.enterDropPreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.physicalDrop | SizeHold.physicalDropPreserves | physical-effect | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.commitDrop | SizeHold.commitDropPreserves | physical-effect | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.loseReply | SizeHold.loseReplyPreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.recoverReply | SizeHold.recoverReplyPreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.dropCapture | SizeHold.dropCapturePreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.dropRoot | SizeHold.dropRootPreserves | emit-scope | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.beginGc | SizeHold.beginGcPreserves | gc-roots | ownership-preservation |
+| ffi-conversion | size_family_hold_balance.finishGc | SizeHold.finishGcPreserves | gc-roots | ownership-preservation |
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| type-registry | vendor/gambit/gsc/_parms.scm | (cons size_t-sym | three built-in c-type vectors choose forward/back converters; cleanup false |
+| alias-resolution | vendor/gambit/gsc/_ptree2.scm | (define (c-type-converter to-scmobj? typ from to) | vector 2/3 selected by direction; aliases recurse |
+| emit-scope | vendor/gambit/gsc/_ptree2.scm | (define (c-convert-representation sfun? to-scmobj? typ from to i body) | BEGIN wraps body then END; no inference from cleanup bit |
+| arg-direction | vendor/gambit/gsc/_ptree2.scm | (c-convert-representation sfun? sfun? typ from to i body) | SFUN parameter is C to Scheme |
+| result-direction | vendor/gambit/gsc/_ptree2.scm | (not sfun?) /            result-typ | CFUN result is C to Scheme |
+| cleanup-boolean | vendor/gambit/gsc/_ptree2.scm | (define (type-needs-cleanup? typ-source) | CFUN parameter error cleanup does not fix missing result/input END |
+| wrapper-size | vendor/gambit/lib/c_intf.c | return ___U64_to_SCMOBJ (___ps, ___U64_from_ULONGLONG (___CAST(___ULONGLONG,x)), obj, arg_num); | no-width-loss premise <=64 bits |
+| wrapper-signed | vendor/gambit/lib/c_intf.c | return ___S64_to_SCMOBJ (___ps, ___S64_from_LONGLONG (___CAST(___LONGLONG,x)), obj, arg_num); | ssize_t and ptrdiff_t forward signed |
+| signed-boundary | vendor/gambit/lib/c_intf.c | if (___S64_fits_in_width (x, ___FIX_WIDTH)) | inside fixnum vs fresh still bignum |
+| unsigned-boundary | vendor/gambit/lib/c_intf.c | if (___U64_fits_in_width (x, ___FIX_WIDTH-1)) | unsigned fixnum uses one fewer sign bit |
+| conversion-owner | vendor/gambit/lib/c_intf.c | a still object with a reference count of 1 allocated in that | nonnull ps owns one native hold; null ps permanent |
+| count-created | vendor/gambit/lib/_mem/object-allocation.inc | base[___STILL_REFCOUNT] = 1; | initial count, not language-root counter |
+| release-primitive | vendor/gambit/lib/_mem/object-allocation.inc | ___EXP_FUNC(___SCMOBJ,___release_scmobj) | only still object decremented; immediate/permanent no-op |
+| physical-effect | vendor/gambit/lib/_mem/still-refcount.inc | ___BODY0(obj)[___STILL_REFCOUNT-___STILL_BODY]--; | plain decrement; no C23 concurrent ownership proof |
+| gc-roots | vendor/gambit/lib/_mem/object-scanning.inc | if (base[___STILL_REFCOUNT] == 0) | nonzero count is root independent of language reachability |
+| sweep | vendor/gambit/lib/_mem/still-sweep.inc | if (base[___STILL_MARK] == -1) | sweep not per-call release; bignum not foreign payload |
+| whole-teardown | vendor/gambit/lib/_mem/still-sweep.inc | ___HIDDEN void free_still_objs | whole-runtime reclamation not balanced conversion hold |
+| rc-separate | vendor/gambit/lib/_mem/rc-allocation.inc | ___HIDDEN void cleanup_rc | RC allocation list not still-bignum identity |
+| marker-separate | vendor/gambit/lib/c_intf.c | ___still_obj_refcount_dec (marker); | marker is distinct object |
+| sfun-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_SIZE_T_TO_SCMOBJ(c,s,i)} | close only; all three audited |
+| cfun-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_CFUN_SIZE_T_TO_SCMOBJ(c,s) | empty; all three audited |
+| result-root | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___CFUN_RESULT ___PSR1 | converted result writes PSR1 before native release |
+| arg-root | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___SFUN_ARG(i,arg)___PSSTK | argument stack publication is not a count decrement |
+| backend-return | vendor/gambit/gsc/_t-c-2.scm | (define (targ-scan-c-procedure | return GC-map/stack work is not native hold retirement |
+| native-types | vendor/gambit/include/_gambit/value_types.h.in | #define ___SIZE_T size_t | standard headers or explicit fallback; macros overridable |
+| fix-width | vendor/gambit/include/_gambit/utilities.h.in | #define ___FIX_WIDTH | non-NAN object bits minus fixnum tag bits |
+| tag-default | vendor/gambit/include/_gambit/object_tags.h.in | #define ___USE_3_TAG_BITS | default 64-bit three-tag profile, not arbitrary overrides |
+| shift-test | vendor/gambit/include/_gambit/native_platform.h.in | #define ___S64_fits_in_width(val,width) | GCC sign-extending signed shift premise |
+| configured-command | vendor/gambit/config.status | '--disable-smp' | historical configured defaults; not SMP/native ABI qualification |
+| configured-width | vendor/gambit/config.log | ac_cv_sizeof_long=8 | also voidp 8; aarch64 Darwin; configured GCC16.2 |
+| configured-build | vendor/gambit/bin/gambuild-C | /opt/homebrew/Cellar/gcc/16.2.0/bin/gcc-16 | default command; invocation env/overrides unobserved |
+| generated-cohort | vendor/gambit/include/gambit.h | #define ___END_SFUN_SIZE_T_TO_SCMOBJ(c,s,i)} | relevant conversion macro agreement not whole cohort identity |
+| sdk-arm | /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/arm/_types.h | typedef long                    __darwin_ssize_t; | ssize signed long; ptrdiff builtin or long under LP64 |
+| sdk-ssize | /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/sys/_types/_ssize_t.h | typedef __darwin_ssize_t        ssize_t; | sys/types route |
+| gcc-stddef | /opt/homebrew/Cellar/gcc/16.2.0/lib/gcc/current/gcc/aarch64-apple-darwin25/16/include/stddef.h | typedef __SIZE_TYPE__ size_t; | builtin/default unsigned long; ptrdiff signed long, predefines unobserved |
+| gambit-paper | evidence/research/sfun-converter-use-closure/primary-paper.json | A Portable Implementation of First-Class Continuations | Feeley 2000 interoperability motivation; not proof of this defect |
+| sdk-machine | /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/machine/_types.h | #include "arm/_types.h" | architecture dispatch to arm types |
+| sdk-size | /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/sys/_types/_size_t.h | __need_size_t | SDK stddef delegation or Darwin fallback |
+| sdk-ptrdiff | /Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/sys/_types/_ptrdiff_t.h | typedef __darwin_ptrdiff_t ptrdiff_t; | SDK ptrdiff exported type |
+| builtin-int64 | vendor/gambit/include/_gambit/compiler.h.in | #define ___BUILTIN_64BIT_INT_TYPE | builtin S64/U64 selection; emulated override is separate profile |
+| platform-width | vendor/gambit/include/_gambit/platform.h.in | #define ___VOIDSTAR_WIDTH @CONF_VOIDSTAR_WIDTH@ | configured pointer bits plus LONG_MAX/LLONG_MAX width selection |
+| default-at-end | vendor/gambit/gsc/_ptree2.scm | (define (c-preproc-define-default-empty id body) | CFUN AT_END can be body-defined; otherwise empty, not an implicit release |
+| prepare-once | vendor/gambit/lib/_mem/collection-round.inc | setup_still_objs_to_scan(work,context); | per-participant PREPARE enrollment; benefits conditional on unique claimed tasks |
+| paper-fulltext | evidence/research/sfun-converter-use-closure/feeley-sfp-paper.txt | return to C frames | continuation versus C activation lifetime; damaged glyphs not quoted as repaired text |

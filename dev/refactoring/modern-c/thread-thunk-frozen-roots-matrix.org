@@ -1,0 +1,109 @@
+#+TITLE: Thread Thunk, Frozen Root Admission and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: thread-thunk-frozen-roots-matrix
+:AUTHORITY: GambitThreadThunkFrozenRoots
+:STATUS: conditional-models-only; source-and-platform-open
+:END:
+
+** Route
+
+| key | sourcePath | needle | obligation |
+|---+---+---+---|
+| resize-request-copy | vendor/gambit/lib/setup.c | sop.arg[0] = thunk; | Raw sync request word is not automatically a moving root; use a rooted startup handle |
+| resize-collection | vendor/gambit/lib/setup.c | if (___garbage_collect_pstate (___ps, 0)) | Capacity GC can precede thread payload publication |
+| thread-payload-publish | vendor/gambit/lib/setup.c | t->data_scmobj = thunk; | Initialize VM-owned rooted startup record before thread launch |
+| startup-local-copy | vendor/gambit/lib/setup.c | ___SCMOBJ thunk = self->data_scmobj; | Raw local precedes startup sync; root handles must survive and be resolved after sync |
+| startup-sync | vendor/gambit/lib/setup.c | execute_sync_op_loop (___PSP &sop, 0); | Loop can execute real sync operations including GC rather than only a no-op |
+| sync-dispatch-gc | vendor/gambit/lib/setup.c | case OP_GARBAGE_COLLECT: | Actual collective dispatcher reaches garbage_collect_pstate |
+| roster-count-cut | vendor/gambit/lib/setup.c | if (sop.op == OP_SET_PROCESSOR_COUNT) | Existing barrier algorithm depends on processor_count; pending roots must not be invented GC workers |
+| frozen-root-view | vendor/gambit/lib/mem.c | participant->context = ___ps->context; | Freeze snapshots exact context and root provider membership |
+| context-root-scan | vendor/gambit/lib/mem.c | mark_execution_roots (work, | Current scan reaches frozen execution context; pending startup directory is proposed additional source |
+| worker-view-drain | vendor/gambit/lib/mem.c | BARRIER(); /* no worker may retain a stopped root view past this cut */ | Source retirement waits for old scanner leases and restored phase |
+| thread-create-call | vendor/gambit/lib/os_thread.c | if (pthread_create (&thread_id, | Successful platform creation and service acknowledgement are different observations |
+| thread-common-success | vendor/gambit/lib/os_thread.c | ___HIDDEN ___SCMOBJ thread_init_common | Current helper returns NO_ERR; do not invent a post-creation helper failure |
+
+** Contract
+
+| key | owner | accountable.moduleId | counterpart.moduleId | actionName | invariant | gap |
+|---+---+---+---+---+---+---|
+| rooted-resize-request | control/roots | control | roots | registerStartup launch syncCollect | Thunks travel as VM-owned root handles across collective request and OS launch | Raw sync words thread payload and copied locals need real caller migration |
+| pending-start-roots | roots/execution | roots | execution | activate releaseSource | Pending startup roots are scanned independently of whether their execution thread is ready | No current pending startup root directory or GC consumer is established |
+| frozen-manifest | collector/roots | collector | roots | stage freeze scan restore | Frozen manifest is immutable; late arrivals are staged and retain source roots | Actual root provider union assignment and backend publication remain open |
+| persistent-next-round | roots/release | roots | release | activate queryReceipt releaseSource | Receipt certifies persistent future membership not merely current scan or queued acceptance | Source release only in running phase after old scan leases drain |
+| startup-failure-custody | release/control | release | control | launchUnknown resolveLaunch rejectCreate | Known rejection retains parent; unknown service result retains parent and startup record | Platform reject is not an ambiguous started thread; actual cancellation and stop closure open |
+| typed-evidence | build/semantic | build | semantic | activate restore releaseSource | Actual selected IR expressions and exact receipt scope bind model evidence | Full composition startup-to-root-manifest and C11 source bridge remain unproved |
+
+** Obligation
+
+| key | status | scope | counterexample |
+|---+---+---+---|
+| frozen-round-admission | bounded-checked | One root provider two GC rounds source-target registration and late admission | Queued registration is not current or future root coverage |
+| startup-root-handle | bounded-checked | One startup parent pending root OS entry and sync collection | Old local can be stale after sync even while root handle remains valid |
+| release-guard | conditional-proved | Frozen phase missing future membership and unknown receipt block source release | Receipt validity must persist until target retirement |
+| scan-drain-order | conditional-proved | Old worker last use precedes restored phase and source release given HB embedding | Event ordering is not a C11 execution proof |
+| actual-ir | conditional-proved | Actual activate restore releaseSource guard/update meaning | Parser and restricted emitter remain trusted |
+| runtime-composition | open | Actual sync operation handle pending root manifest all source users and two-model relation | Neither root lifetime nor OS creation certifies participant readiness |
+| json-domain | partially-proved | 91 checked reference rows finite environment and guard mutation refusal | Actual compiler root-map extraction remains open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| no-raw-thunk-copies | Repeated protection rules for raw thunk copies in sync payload thread payload and ___run | One persistent rooted startup handle resolution and generated entry-root contract | Every managed request and caller resolves handle under correct collector access |
+| pending-roots-not-workers | Making root coverage depend on execution thread startup readiness | VM pending-root directory plus A root locations per pending startup | Collector can enumerate data providers independently of closed worker roster |
+| persistent-membership | Keeping duplicate source registration after target coverage is known | Registration receipt and old scan-lease drain; short overlap may scan twice | Future-round membership preserved; command/source ownership is a separate obligation |
+| defer-frozen-arrivals | Expensive rescanning or reopening a finished round for every late registration | Queue metadata and retain existing source until running-phase admission | Source remains visible to current GC; no unrooted foreign raw object admission |
+| modern-c-system | A second language is unnecessary for typed root requests and snapshot contracts | Modern C ownership maps atomic publication and cohort lifecycle proof | Zig benefit must be independently shown; none follows from these root obligations |
+
+** Binding
+
+| key | qntAction | leanLemma | refinement | guardLemma | updateLemma |
+|---+---+---+---+---+---|
+| guard | activate | unstagedRejectsActivation | Selected actual expression certified; runtime source relation remains open | activateGuardMeaning | activateNextMeaning |
+| roots | restore | scannerBlocksRestore | Selected actual expression certified; runtime source relation remains open | restoreGuardMeaning | restoreNextMeaning |
+| release | releaseSource | noFutureRejectsRelease | Selected actual expression certified; runtime source relation remains open | releaseSourceGuardMeaning | releaseSourceNextMeaning |
+
+** Flow
+
+| fromNode | toNode | reason |
+|---+---+---|
+| c0 | c1 | Register pending roots before launch |
+| c1 | c2 | Freeze active root providers independently of worker readiness |
+| c2 | c3 | Restored admission certifies future membership |
+| c3 | c4 | Only known ownership can retire creator source |
+| c0 | o1 | Thread local reload after sync |
+| c1 | o0 | Persistent pending-root enumeration |
+| c2 | o0 | Late stage cannot change frozen manifest |
+| c3 | o2 | Future coverage and phase guard |
+| c2 | o3 | Old scan views drain before restore |
+| c5 | o4 | Actual typed action meanings |
+| c5 | o6 | Finite JSON lookup evidence |
+| c4 | o1 | Unknown launch retains source |
+| o4 | o5 | Selected meaning is not full simulation |
+| c1 | o5 | New pending-root consumer needs actual source refinement |
+| c3 | c5 | Receipt identity and evidence scope |
+| c4 | o5 | Actual launch cancellation stop and join obligations |
+
+** Endorsement
+
+| roleName | scope | issuer | sourcePath | needle |
+|---+---+---+---+---|
+| semantic | Startup handle remains rooted across sync and marker allocation | Startup root and execution context owner | vendor/gambit/lib/setup.c | ___SCMOBJ thunk = self->data_scmobj; |
+| foreign | OS launch outcome service reply and creator-child lifetime settled | Thread lifecycle adapter owner | vendor/gambit/lib/os_thread.c | if (pthread_create (&thread_id, |
+| resident | Frozen provider views drained persistent registry covers next round | VM root directory and collector coordinator | vendor/gambit/lib/mem.c | BARRIER(); /* no worker may retain a stopped root view past this cut */ |
+
+** Model admission scopes
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| TF-H | interleaving | dev/refactoring/modern-c/models/quint/frozen_bundle_admission.qnt | One root provider two frozen GC rounds persistent future coverage and scan lease drain |
+| TF-B | interleaving | dev/refactoring/modern-c/models/quint/thread_thunk_root.qnt | VM pending startup root handle survives OS launch sync collection and ambiguous service reply |
+| TF-I | induction | dev/refactoring/modern-c/models/lean/ThreadThunkFrozenRoots.lean | Admission and release guard exclusions coverage preservation and conditional ordering |
+| TF-X | induction | dev/refactoring/modern-c/models/lean/ThreadThunkFrozenAst.lean | Actual activate restore releaseSource expressions and finite reference environment |
+| TF-S | source-refinement | dev/refactoring/modern-c/thread-thunk-frozen-roots-design.org | Raw sync request startup handle pending directory and complete caller relation OPEN |
+| TF-E | environment-refinement | dev/refactoring/modern-c/thread-thunk-frozen-roots-design.org | C11 frozen manifests backend barriers platform create and scan view reclamation OPEN |

@@ -1,0 +1,6 @@
+from pathlib import Path
+import importlib.util
+SPEC={'module': 'source_pin_handoff', 'namespace': 'SourcePinAst', 'fields': {'gate': 'int', 'alive': 'int', 'sourceRoot': 'int', 'epoch': 'int', 'gc': 'int', 'pin0': 'int', 'pin1': 'int', 'accepted0': 'int', 'accepted1': 'int', 'carrier0': 'int', 'carrier1': 'int', 'value0': 'int', 'value1': 'int', 'guard0': 'int', 'guard1': 'int', 'ack0': 'int', 'ack1': 'int', 'dups': 'int', 'rejected': 'int'}, 'actions': ['pinOuter', 'pinNested', 'closeSource', 'rejectLatePin', 'copy0', 'refresh0', 'enroll0', 'reserveGuard0', 'commitGuard0', 'lostReservation0', 'resolveCommitted0', 'resolveFailed0', 'queryAck0', 'returnPin0', 'repeatReturn0', 'abortBeforeGuard0', 'outerExit0', 'retireCarrier0', 'copy1', 'refresh1', 'enroll1', 'reserveGuard1', 'commitGuard1', 'lostReservation1', 'resolveCommitted1', 'resolveFailed1', 'queryAck1', 'returnPin1', 'repeatReturn1', 'abortBeforeGuard1', 'outerExit1', 'retireCarrier1', 'retireSource', 'freezeGc', 'finishGcNone', 'finishGcOuter', 'finishGcNested', 'finishGcBoth']}
+def generate(ir):
+ p=Path(__file__).with_name('chunk-capacity-charge-projection.py');s=importlib.util.spec_from_file_location('scalar',p);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+ return m.generate(ir,SPEC['module'],SPEC['fields'],SPEC['actions'],SPEC['namespace'])

@@ -1,0 +1,35 @@
+# Presentation only; typed topology, guards, contracts, ownership and costs come from native SysML.
+if $view=="d2" then
+ "direction: down", "vars: { d2-config: { theme-id: 0 } }",
+ (.nodes[]|"n_\(.nodeId): { label: \(.labelText|@json) }"),
+ (.diagramEdges[]|"n_\(.producer.nodeId) -> n_\(.consumer.nodeId): \((.labelText|split(" ")|. as $w|[range(0;($w|length);3) as $i|$w[$i:$i+3]|join(" ")]|join("\n"))|@json)")
+else
+ "#+TITLE: Modern C Activation Binding and VM Routing Matrix", "#+LANGUAGE: en", "#+PROPERTY: header-args :eval never", "#+OPTIONS: toc:2 num:nil", "",
+"* Fixed admission support counts", "Counts are proposed capacity parameters, not measured ABI bytes or end-to-end savings.",
+"| Profile | VM slots | Base origin journals | Activation cells | Embedded child journals | Admin cells | Historical identity maps | Post-bind control allocations |", "|---+---+---+---+---+---+---+---|",
+(.capacity|to_entries[]|"| "+([.key,.value.vmSlots,.value.rootJournals,.value.activationCells,.value.embeddedChildJournals,.value.adminCells,.value.separateHistoryMaps,.value.postBindControlAllocations]|map(tostring)|join(" | "))+" |"), "",
+"* Native-evaluated lifecycle cuts", "Local predicates only: full source/child/root/reader closure is a separate prerequisite.",
+"| Cut | User allowed | Status allowed | Admin allowed | Can detach | Can free | Extra history maps |", "|---+---+---+---+---+---+---|",
+(.admissionCuts|to_entries[]|"| "+([.key,.value.userAllowed,.value.statusAllowed,.value.adminAllowed,.value.canDetach,.value.canFree,.value.extraHistoryMaps]|map(tostring)|join(" | "))+" |"), "",
+ "* Identity and custody", "| Need | Field | Source | Contract | Invalid shortcut | Custodian |", "|---+---+---+---+---+---|",
+ (.fields[]|"| "+([.need.obligationId,.fieldId,.sourceAnchors,.valueContract,.invalidShortcut,.failureCustodian]|join(" | "))+" |"), "",
+ "* Modeled transitions", "| Need | From | To | QNT actions | Guard | Conditional Lean law | Actual source duty |", "|---+---+---+---+---+---+---|",
+ (.transitions[]|"| "+([.need.obligationId,.fromPhase,.toPhase,.qntStep,.guardContract,.leanLaw,.sourceAnchors]|join(" | "))+" |"), "",
+ "* Source routes", "| Need | Source | Projection | Failure custodian | Status |", "|---+---+---+---+---|",
+ (.sourceRoutes[]|"| "+([.need.obligationId,.sourceAnchors,.projection,.failureCustodian,.status]|join(" | "))+" |"), "",
+ "* Real generator and callers", "| Family | Source | Actual chain | Required change | Admission boundary |", "|---+---+---+---+---|",
+ (.callers[]|"| "+([.callerId,.sourceAnchors,.actualChain,.hazard,.replacement]|join(" | "))+" |"), "",
+ "* Root and control paths", "| Path | Source | Current | Contract | Failure boundary | Custodian |", "|---+---+---+---+---+---|",
+ (.allocators[]|"| "+([.pathId,.sourceAnchors,.actualPath,.contract,.failure,.custodian]|join(" | "))+" |"), "",
+ "* C memory ordering", "| Edge | Required order | Rejected shortcut |", "|---+---+---|",
+ (.orders[]|"| "+([.edgeId,.orderContract,.rejectedShortcut]|join(" | "))+" |"), "",
+ "* Benefit and peak matrix", "| Capability | Avoided support/work | Quantified boundary | New support | Positive condition or falsifier |", "|---+---+---+---+---|",
+ (.costs[]|"| "+([.capability,.removedWork,.bound,.addedCost,.condition]|join(" | "))+" |"), "",
+ "* Closure", "| Component | Need | Kind | Exact scope | Premise | Status |", "|---+---+---+---+---+---|",
+ (.needs[]|.obligationId as $id|"| "+([.owner.componentId,.obligationId,.kind,.subjectScope,.premise,(if ($observation[0].qualifiedSlice|any(.[2]==$id)) then "Conditional local model checked" else "OPEN: source or C memory refinement" end)]|join(" | "))+" |"), "",
+ "* Dependencies", "| Dependent | Prerequisite |", "|---+---|",
+ (.dependencies[]|"| \(.dependent.obligationId) | \(.prerequisite.obligationId) |"), "",
+ "* Research gates", "| Gate | Required need |", "|---+---|",
+ (.gateNeeds[]|"| \(.gate.gateId) | \(.need.obligationId) |"), "",
+ "* Boundary", "Only AV-H and AV-I qualify locally. Source binding, origin bootstrap, router lifecycle, teardown and C-order gates remain closed. Synthetic all-scoped evidence is a policy control; no runtime implementation, native test, total measured benefit or retired path."
+end

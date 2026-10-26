@@ -1,0 +1,154 @@
+#+TITLE: Restore Entry and Stable Completion Guard
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: decision
+:BASELINE: C23
+:STATUS: conditional-model; source-refinement-open
+:AUTHORITY: GambitRestoreEntryGuard
+:END:
+
+The modern generated-C runtime needs an intent-qualified restore gateway and a stable completion owner. A TicketId belongs to a semantic execution, not to every physical frame restoration. This is a shared control/GC/FFI contract, not a Zig prerequisite. Scheme keeps continuation and winding semantics; the Scheme/GVM generator declares intent and live values; modern C owns native admission, rooting, carrier handoff and completion. No runtime implementation or native test is part of this study.
+
+The [[file:models/sysml/restore-entry-guard.sysml][SysML model]] is the sole maintained routing and matrix source. Python invokes the native SysML query tool and projects its rows into [[file:restore-entry-guard-matrix.org][Org tables]] and [[file:diagrams/restore-entry-guard.d2][D2]]. The [[file:../../modeling/ascent/restore-entry-guard.rules.scm][ASCENT DSL]] joins component ownership, exact source hashes, source anchors, action/lemma bindings and scoped receipts. Matching filenames alone cannot discharge a need.
+
+This refines [[file:ticket-capability-retirement-design.org][exact-ticket retirement]]. Its phrase “before thread restoration” is an insertion boundary, not a rule that all scheduler resumes create new tickets. Historical receipts remain unchanged.
+
+* RESEARCH Actual callers and destructive boundaries
+:PROPERTIES:
+:CUSTOM_ID: callers
+:EVIDENCE: source snapshots and lexical slices; not a complete semantic call graph
+:END:
+
+** Four intents must remain distinct
+
+| Intent | Actual source producer | Ticket rule | Native obligation |
+|---+---+---+---|
+| New continuation invocation | reified continuation / continuation-return-aux, direct admitted no-winding or graft | Fresh external AttemptId | Reserve before destination frame/denv switch; classify old execution custody |
+| Winding navigation | continuation-unwind-wind calls internal graft and user before/after hooks | Same restore transaction | User hook escape retains owner; hook return is not completion |
+| Scheduler resume | local queue, stealing queue, non-SMP scheduler use macro-thread-restore! | Same suspended activation | Transfer carrier and roots; preserve applicable processor affinity |
+| Native callback | Tcl scheme_call_cmd → tcltk_call → c-define body | New nested child or new top-level host entry | Root before marker allocation; restore parent binding on exit |
+
+[[file:../../../vendor/gambit/lib/_thread.scm][Thread source]] has local and stealing scheduler restore calls, the stealing affinity check, duplicate configuration-specific wrappers, and a same-dynamic-wind fast path. A Scheme before hook therefore cannot be the universal issuer. The [[file:../../../vendor/gambit/lib/_thread#.scm][scheduler syntax]] directly expands to the primitive. The [[file:../../../vendor/gambit/gsc/_t-c-2.scm][jump inliner]] emits THREAD_RESTORE, CONTINUATION_GRAFT_NO_WINDING and CONTINUATION_RETURN_NO_WINDING while changing stack/pcontext state. Instrumenting a public Scheme wrapper alone misses these actual emitter paths.
+
+The [[file:../../../vendor/gambit/include/gambit.h][native macros]] reset FP, replace continuation links, denv/caches and current-thread state. Ticket reservation, stable ownership and incoming-root publication must precede these destructive writes. An intent token must originate from a qualified caller; guessing intent from a shared primitive name is unsound. Complete indirect/raw caller classification is still open.
+
+** SFUN is not synonymous with each ___call
+
+[[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][Tcl's callback]] is a concrete native-to-Scheme producer: it obtains data_rc and applies a Scheme closure. It demonstrates an entry family, not that default GSC compilation invokes Tcl.
+
+The SFUN conversion-error loop can invoke ___call again using the same marker. The proposed contract distinguishes HostEntryId, internal OperationId and nested child TicketId. Conversion retries inside one logical host invocation must not blindly mint another top-level ticket. Genuine nested callbacks get their own guard and parent link. The current two-ticket model covers one nested child; arbitrary nesting and conversion-operation composition remain separate proof obligations.
+
+[[file:../../../vendor/gambit/lib/setup.c][___call]] checks the unwind destination and propagates unmatched unwinds outward. ___run kills a marker after its TRY block and publishes managed-startup outcome. The C TRY macro restores the old catcher at END_TRY; nonlocal paths need their actual outer owner to establish restoration. A Scheme body return, one local cleanup statement or a dynamic-wind after hook cannot stand in for that outer evidence.
+
+** GC and return-to-C constraints
+
+[[file:../../../vendor/gambit/lib/c_intf.c][make_sfun_stack_marker_from_root]] allocates and then reloads *proc_root. The helper requires a genuine registered/scannable root; passing a C local address does not create registration. The legacy wrapper explicitly documents that limitation. The new guard must root incoming closure, continuation and arguments before any allocating marker slow path, and keep result/error values rooted through completion. FrameSpec/PointId root maps must cover generated slow paths; a Boolean model flag is not a compiled map receipt.
+
+[[file:../../../vendor/gambit/lib/_kernel.scm][Return-to-C handling]] rejects a dead C activation and handles the wrong-processor destination. Scheme multi-shot continuation semantics cannot revive a killed C marker. A scheduler may move an ordinary activation only under a qualified carrier/affinity contract; a live foreign return chain needs its existing affinity constraints preserved. The model's ordinary carrier change does not prove foreign-stack migration.
+
+* RESEARCH Stable storage and identity protocol
+:PROPERTIES:
+:CUSTOM_ID: identity
+:END:
+
+#+NAME: restore-entry-protocol
+#+BEGIN_EXAMPLE
+TicketId = (SessionNonce, DomainId, Generation, AttemptId)
+GuardId  = (TicketId, GuardSerial, OwnerGeneration)
+RestoreEntrySpec = (Intent, SourcePointId, DestinationFrameSpec,
+                    IncomingRootMap, ParentGuard, CaptureLineage)
+
+reserve native guard -> publish scan-visible incoming roots
+ -> allocate/reload marker if foreign -> commit carrier binding
+ -> destructive restore -> execute
+ -> observe native return/unwind -> restore catcher/parent/owner binding
+ -> invalidate host marker when required -> retain rooted result
+ -> issue exact GuardId ExitWitness -> commit terminal outcome -> reply
+#+END_EXAMPLE
+
+Guard storage belongs to a stable VM/native execution-context owner. A capture may contain an immutable old GuardId as data, but it cannot own the mutable current-binding authority. The record cannot live solely in a copied Scheme frame, restored denv, stack-local C cleanup object or OS-thread TLS. Scheduler migration hands off the same record; nested foreign entry pushes a child binding and restores its parent. Direct raw restoration without a qualifying intent remains semantically available through a non-optimized fallback, without a fabricated retirement receipt.
+
+A new semantic invocation is issued outside the restored graph even if it targets the same CaptureId. Internal graft navigation and normal scheduler resumption preserve the existing ticket. For a nonlocal cross restore, the old activation is not declared complete merely because a new ticket is running: it remains in UNKNOWN custody with roots until a real outer owner supplies exit evidence.
+
+A receipt always carries its original immutable GuardId. Lookup and settlement use that identity, never an ambient currentTicket, reused slot, payload hash or captured mutable counter. An old receipt may query its old outcome, be rejected or leave an unresolved old record retained. It cannot be relabeled with the new current guard. The generic Lean dispatch deliberately ignores the ambient binding; mismatched ticket, owner or serial cannot settle a guard. Real witness provenance and finite native ID allocation are not established by equality algebra.
+
+* RESEARCH Failure and completion custody
+:PROPERTIES:
+:CUSTOM_ID: custody
+:END:
+
+| Cut | Responsible owner | Required outcome | Forbidden inference |
+|---+---+---+---|
+| Guard allocation fails before admission | Restore caller | Failure without destructive switch | No runnable ticket was accepted |
+| Roots published, marker allocation fails | Stable host owner | Exact failed-entry outcome; root handoff retained until acknowledged | Allocation failure does not authorize untracked raw roots |
+| Before/after hook escapes or foreign unwind destination differs | Old stable guard / outer catcher owner | UNKNOWN retains guard and roots | New current activation means old execution finished |
+| Body returns but parent/catcher binding not restored | Completion owner | Await restoration proof | Body return signs completion |
+| Binding restored, marker still live | Completion owner | Close marker under original C-return semantics | Catcher restoration alone signs foreign completion |
+| Terminal outcome committed, reply lost | Exact ledger owner | Query original immutable outcome | Retry Scheme execution to discover outcome |
+| Old receipt arrives during new execution | Old record owner | Old outcome or defined rejection | Translate old identity to currentTicket |
+| Guard owner migrates/exits | Source owner until acknowledged handoff | Rooted stable record survives unknown target result | Stack unwinding or processor exit proves absence |
+
+Completion guard registration itself may allocate. The bootstrap must either use pre-reserved stable storage before GC can occur or start with a separately qualified incoming-root carrier. The model abstracts reservation as atomic; it does not solve this bootstrap by assuming C locals are roots. Exhaustion/overflow rejects admission without switching frames, or uses a qualified non-optimized path. Unknown records require an explicit capacity and reconciliation policy; no eventual drain or bounded retention theorem is claimed.
+
+* RESEARCH C23 refinement obligations
+:PROPERTIES:
+:CUSTOM_ID: c23
+:END:
+
+The baseline is [[file:language-baseline-design.org][C23]]. Use a single qualified owner critical section for reservation/binding/outcome publication where practical; alternatively specify atomics and their release/acquire edges explicitly. Publication of initialized guard/root metadata must happen-before admitted readers consume it. Root-slot movement still requires the collector protocol; atomics alone do not make a slot a GC root. No lock crosses Scheme execution, winding hooks, FFI or a GC wait.
+
+Terminal outcome and custody publication linearize before acknowledgement. Exact-key reads pin the record against generation reuse and reclamation. Destructive frame switching and outer cleanup must be non-abandonable at their commit cuts, or leave an externally retained recovery record. C setjmp/catcher paths and the generated macro configuration require their own effective-platform proof; an unselected C++ cleanup branch is not a C23 completion guarantee.
+
+There is a visible source-correspondence gap: current setup.c uses context-owned fields while header macro slices contain older direct PSTATE field accesses. This study snapshots both; it does not assert they form one matching generated Darwin executable. The prior Darwin configuration/generation admission remains required. Neither C23 publication nor the mathematical ledger proves crash-durable exactly-once effects.
+
+* RESEARCH Executable formal chain and its limits
+:PROPERTIES:
+:CUSTOM_ID: formal
+:END:
+
+[[file:models/quint/restore_entry_guard.qnt][QNT]] contains 35 actions, two explicit tickets and 13 history checks. It separates reserved, running, suspended, body-return-pending, observed-exit, terminal and unknown states. Root publication precedes marker allocation and entry; marker invalidation precedes the foreign exit witness. Cross restoration retains the old ticket. Old receipt and wrong-guard histories preserve the new execution.
+
+The restricted typed-IR projector checks symbol/reference identity, field kinds and the complete action roster, then generates [[file:models/lean/RestoreEntryAst.lean][Lean AST]]. [[file:models/lean/RestoreEntry.lean][Lean]] proves initial safety and preservation for every modeled action, then induction for arbitrary-length reachable traces of this two-ticket transition system. It also proves identity preservation for scheduling/navigation, at-most-once settlement, unknown guard retention and old/new nonce separation. Root presence remains an abstract premise; arbitrary real GC source simulation is open.
+
+[[file:models/lean/RestoreGuardAlgebra.lean][Generic guard algebra]] imports the prior full TicketId key and proves wrong-ticket/serial/owner retention, marker/restoration prerequisites, idempotence, ambient-binding independence and other-guard noninterference for arbitrary keys. This is not an unbounded nested scheduler/GC/FFI product refinement. A trusted ExitWitness is an input, not an already located native signer.
+
+Negative controls reject four typed-IR corruptions. Removing the live-marker exit guard breaks preservation; removing exact identity checks or retargeting dispatch across guard records breaks the corresponding algebra. Early model attempts also exposed missing invariant links between child state, parent binding and current custody. Their raw failures are retained, followed by strengthened invariants; this is model validation, not evidence of an existing native bug.
+
+ASCENT requires matching component ownership, actual action and lemma names, exact source hashes, issuer classifications and scoped receipts. Only a synthetic scenario with all premises supplied can become candidate. Current formal/algebra receipts do not close source intent, real exit signer, roots, platform or emission equivalence. The [[file:../../../evidence/research/restore-entry-guard/checks.json][check receipt]] states those gaps explicitly.
+
+* RESEARCH Migration and retirement gates
+:PROPERTIES:
+:CUSTOM_ID: migration
+:END:
+
+1. Classify actual semantic invocation, internal navigation, scheduling and host-entry callers; generate RestoreEntrySpec together with FrameSpec roots and PointId mappings. Keep default Scheme semantics.
+2. Establish registered incoming carriers and stable owner records before allocator/marker calls. Cover nonzero processors, nested entries and exceptional propagation.
+3. Introduce native outer completion guards with parent/catcher restoration and marker/affinity handling. Every exceptional exit needs a real issuer or retained UNKNOWN owner.
+4. Connect immutable full-key settlement/query to the previous capability-retirement protocol. Qualify finite IDs, reclamation and the actual Darwin/generated ABI.
+5. Only then consider retiring frame-local completion inference, duplicate wrapper-only entry hooks and the second normalization. Existing marker liveness/processor checks remain until an equivalent replacement is proved; they are not redundant with tickets.
+
+No old native path retires in this study. The architecture can replace scattered mutable completion bookkeeping, but its existence and hot-path cost must be qualified before claiming savings.
+
+* RESEARCH Net benefit and falsification
+:PROPERTIES:
+:CUSTOM_ID: benefit
+:END:
+
+Let E be true new semantic invocations, F logical foreign entries, H internal graft hops, S scheduler resumes, Q keyed retries, U unresolved guards, and D the cost of one redundant resource normalization traversal. Intended ticket allocation count is E+F, not E+F+H+S. For three internal grafts and two resumes, the model issues one ticket rather than six under the rejected per-hop policy. This is a model operation count, not measured native instructions or speedup.
+
+The prospective normalization gain is positive only if D exceeds all marginal intent checks, guard/root publication, completion synchronization, query, pin and retained-memory costs. Shared RootRegistry/owner/ledger support is charged once, but its integration, ABI invalidation and scan cost cannot be treated as free. UNKNOWN retention contributes a separate memory term proportional to U and retained roots; no finite global bound is established here.
+
+| Mechanism | Potential work eliminated | Necessary added work | Positive condition / falsifier | Evidence status |
+|---+---+---+---+---|
+| Intent-qualified ticket issuance | H+S needless fresh ticket records | H intent checks and S ownership handoffs | Caller classification complete; false semantic classification invalidates result | Modeled; source census open |
+| Immutable receipt target | Mis-settlement and re-execution after lost reply | Exact-key lookup, outcome retention | Native IDs never reused while observable; stale generation breaks safety | Algebra proved; native refinement open |
+| Stable host completion | Parent corruption and early root retirement | F guards, rooted values and outer cleanup | Every exceptional path has an owner; raw SFUN root gap blocks admission | Conditional model |
+| Shared native custody | Duplicate component-specific bookkeeping | Shared ABI, scanner and lifecycle support | Reuse must replace actual old responsibilities | Architecture; no native retirement |
+| Second normalization removal | At most one redundant traversal D | Complete creator/capability/drain proof and marginal accounting | D larger than total marginal runtime costs; otherwise retain traversal | Not qualified; zero claimed native savings |
+
+Zig is not needed for these semantic or C23 protocol benefits. Introducing it would need independent incremental evidence beyond this mandatory modern-C redesign. Stronger continuation, safe multicore ownership and compiler-session reuse are the shared architectural objective, not a language switch.

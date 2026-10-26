@@ -1,0 +1,208 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-entry-custody-bootstrap",
+  "scope": "Modern C fixed-slot startup identity, explicit Scheme readiness, cooperative GC participation, known-join slot closure, inherited frame/copy custody and compile-time native collision scheduling controls. No heap increase or repair patch imports. Full-round packing, native unknown-owner recovery and C refinement remain open. Full bootstrap and native host-budget qualification; no admission inferred.",
+  "budgetSeconds": 600,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/modern-c-bootstrap/entry-custody-source.lock.json",
+    "evidence/research/modern-c-bootstrap/entry-custody-source-overlay.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/research/modern-c-bootstrap/hash-index-host.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/modern-c-bootstrap/entry-custody-intent.json",
+    "vendor/gambit/tests/frame-continuation.scm",
+    "vendor/gambit/tests/frame-continuation-roots.scm",
+    "evidence/research/modern-c-bootstrap/historical-log-restoration.json",
+    "evidence/research/modern-c-bootstrap/entry-custody-causal-review.json",
+    "dev/refactoring/modern-c/models/sysml/copy-custody.sysml"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [
+
+      ],
+      "arguments": {
+        "sourceLock": "evidence/research/modern-c-bootstrap/entry-custody-source.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "bootstrapHost": "evidence/research/modern-c-bootstrap/hash-index-host.json"
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "intent": "evidence/research/modern-c-bootstrap/entry-custody-intent.json",
+        "target": "bootstrap"
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "seed",
+        "review"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "map",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "bootstrap"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "bootstrap",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "bootstrap",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation.scm",
+        "stdout": "FRAME-CONTINUATION-PASS\nHASH-INDEX-OWNER-PASS\n",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "wide-map",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "bootstrap"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "bootstrap",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "bootstrap",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation-roots.scm",
+        "stdout": "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "wide-map-host",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "bootstrap"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "bootstrap",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "bootstrap",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation-roots.scm",
+        "stdout": "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "review",
+        "bootstrap",
+        "map",
+        "wide-map",
+        "wide-map-host"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": [
+
+          ]
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

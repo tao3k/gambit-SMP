@@ -375,19 +375,27 @@ class LeasedTreeChecks:
         self.roots = {}
         self.checked = {}
         self.full_reads = self.reused = self.final_reads = 0
+        self.read_seconds = self.reuse_seconds = self.verify_seconds = 0.0
+
+    def costs(self):
+        return {name: getattr(self, name) for name in
+                ('full_reads', 'reused', 'final_reads', 'read_seconds', 'reuse_seconds', 'verify_seconds')}
 
     def identity(self, path):
+        started = time.monotonic()
         self.check_root(path)
         before = _tree_stamp(path)
         previous = self.checked.get(path)
         if previous is not None and before == previous[0]:
             self.reused += 1
+            self.reuse_seconds += time.monotonic() - started
             return deepcopy(previous[1])
         result = _tree_identity_uncached(path)
         self.full_reads += 1
         if before != _tree_stamp(path):
             raise ValueError("leased tree changed during hashing")
         self.checked[path] = (before, deepcopy(result))
+        self.read_seconds += time.monotonic() - started
         return result
 
     def check_root(self, path):
@@ -396,12 +404,16 @@ class LeasedTreeChecks:
             raise ValueError("workspace replaced while leased")
 
     def verify(self):
-        for path, (stamp, expected) in self.checked.items():
-            self.check_root(path)
-            actual = _tree_identity_uncached(path)
-            self.final_reads += 1
-            if actual != expected or _tree_stamp(path) != stamp:
-                raise ValueError("leased tree changed before final verification")
+        started = time.monotonic()
+        try:
+            for path, (stamp, expected) in self.checked.items():
+                self.check_root(path)
+                actual = _tree_identity_uncached(path)
+                self.final_reads += 1
+                if actual != expected or _tree_stamp(path) != stamp:
+                    raise ValueError("leased tree changed before final verification")
+        finally:
+            self.verify_seconds += time.monotonic() - started
 
 
 def tree_identity(path, *, broken_links=None):
@@ -1082,6 +1094,7 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                                                min(deadline, time.monotonic() + step["budgetSeconds"]),
                                                outcomes, receipt, receipt["tools"], workspace_scope=workspace_scope)
                     context.planned_steps = tuple(steps)
+                    validation_before = context.leased_tree_checks.costs()
                     try:
                         result.update(capability.executor(step["arguments"], context))
                         context.remaining()
@@ -1101,6 +1114,9 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                         result.update(outcome="DENY", reason=str(error), errorType=type(error).__name__)
                         (directory / "capability-error.log").write_text(traceback.format_exc())
                     finally:
+                        validation_after = context.leased_tree_checks.costs()
+                        result['treeValidationCost'] = {key: validation_after[key] - value
+                                                       for key, value in validation_before.items()}
                         if any(row.get("processGroupQuiescent") is False for row in context.commands):
                             from gambit_smp.artifact_storage import quarantine_workspace
                             for workspace in context.leased_workspaces:

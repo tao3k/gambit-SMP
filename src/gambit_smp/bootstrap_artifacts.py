@@ -2,6 +2,7 @@
 import json
 import hashlib
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -42,7 +43,40 @@ def preserve(source, destination):
                 atomicPublication=True, purpose='completed-output-preservation')
 
 
-def derived_source(ctx, source, role):
+def private_activation(ctx):
+    """An admitted producer instance, never a caller-chosen output directory.
+
+    Immutable output identity remains content based. A writable constructor's
+    identity additionally binds its durable producer, so a later admitted
+    operation cannot alias the constructor changed by an earlier operation.
+    Native-build history admission and original budgets remain independent.
+    """
+    journal = getattr(ctx, 'receipt', {}).get('journal')
+    if journal is None:
+        return None
+    header_path = Path(journal['path'])
+    if (header_path.is_symlink() or digest(header_path) != journal['sha256']
+            or not header_path.resolve().is_relative_to(ctx.root.resolve())
+            or ctx.directory.parent.resolve() != (header_path.parent / 'run').resolve()):
+        raise ValueError('private constructor requires its bound producer header')
+    from gambit_smp.recipes import read_json
+    header = read_json(header_path)
+    engine = ctx.receipt.get('engine')
+    if (not isinstance(engine, dict) or not isinstance(engine.get('engineId'), str)
+            or re.fullmatch(r'[0-9a-f]{64}', engine['engineId']) is None
+            or header.get('schema') != 'research-run-header.v1'
+            or not isinstance(header.get('runId'), str)
+            or re.fullmatch(r'[0-9a-f]{32}', header['runId']) is None
+            or header.get('executionCompleted') is not False
+            or header.get('engineId') != engine['engineId']
+            or header.get('recipe') != ctx.receipt.get('recipe')
+            or ctx.directory.name not in {step['id'] for step in header.get('declaration', {}).get('steps', [])}):
+        raise ValueError('private constructor producer identity differs')
+    ctx.bind([header_path])
+    return dict(producerSha256=journal['sha256'], step=ctx.directory.name)
+
+
+def derived_source(ctx, source, role, *, activation=None):
     """A stable registered build generation, never an attempt-local fixture."""
     from gambit_smp.workspace import build_output
     from gambit_smp.recipes import tree_identity
@@ -50,8 +84,11 @@ def derived_source(ctx, source, role):
     incoming = tree_identity(source)
     ctx.lease_workspace(source, incoming)
     key = hashlib.sha256(json.dumps(incoming, sort_keys=True).encode()).hexdigest()
+    derivation = dict(role=role, inputSha256=key)
+    if activation is not None:
+        derivation['activation'] = activation
     build = build_output(ctx.root, 'gambit-core', compiler=config['compiler'], flags=config['flags'],
-                         derivation=dict(role=role, inputSha256=key))
+                         derivation=derivation)
     derived = json.loads((build / 'configuration.json').read_text())
     if any(derived[name] != config[name]
            for name in ('compiler', 'compilerSha256', 'flags', 'environment')):
@@ -63,7 +100,8 @@ def derived_source(ctx, source, role):
 def private_copy(ctx, source, role):
     from gambit_smp.recipes import tree_identity
     from gambit_smp.artifact_storage import transfer_tree
-    destination, incoming = derived_source(ctx, source, role)
+    activation = private_activation(ctx)
+    destination, incoming = derived_source(ctx, source, role, activation=activation)
     if destination.exists():
         if tree_identity(destination) != incoming:
             raise ValueError('private build generation changed; explicit recovery required')
@@ -73,7 +111,44 @@ def private_copy(ctx, source, role):
     if tree_identity(source) != incoming or tree_identity(destination) != incoming:
         raise ValueError('private input copy drift')
     ctx.lease_workspace(destination, incoming)
-    return destination, storage
+    return destination, dict(storage, constructorActivation=activation,
+                             inputIdentityUnchanged=True, priorGenerationRewritten=False)
+
+
+def incremental_consumer(ctx, source, *, mutable=()):
+    """One task-owned development tree, not one writable tree per run.
+
+    The completed generation origin selects the stable workspace. Existing
+    incremental-source custody owns all later updates and interrupted states.
+    Only explicit independent controls use private_copy; no implicit clean or
+    replacement copy repairs a failed development tree.
+    """
+    from gambit_smp.workspace import sync_build_source, paths, task_output, write
+    from gambit_smp.artifact_storage import transfer_tree
+    from gambit_smp.recipes import tree_identity
+    _, cache, _ = paths(ctx.root, os.environ['GAMBIT_SMP_TASK_ID'])
+    route = task_output(ctx.root, cache / 'cohort/native-development-workspace.json')
+    if route.is_symlink():
+        raise ValueError('development workspace routing cannot be an alias')
+    origin = dict(source=str(source.relative_to(ctx.root)), identity=tree_identity(source))
+    previous = json.loads(route.read_text()) if route.exists() else None
+    if previous is not None and previous.get('origin') != origin:
+        raise ValueError('development origin changed; explicit fixed-workspace rebase required')
+    destination, incoming = derived_source(ctx, source, 'working-consumer')
+    if previous is not None and previous.get('workspace') != str(destination.relative_to(ctx.root)):
+        raise ValueError('development workspace routing changed; no replacement tree permitted')
+    if previous is None:
+        route.parent.mkdir(parents=True, exist_ok=True)
+        write(route, dict(origin=origin, workspace=str(destination.relative_to(ctx.root))))
+    ctx.bind([route])
+    initial = not (destination.parent / 'source-state.json').exists()
+    changes = sync_build_source(ctx.root, destination.parent, source,
+        inventory=incoming, mutable=mutable,
+        initial_transfer=(lambda: transfer_tree(source, destination, dirs_exist_ok=True))
+          if initial else None)
+    ctx.lease_workspace(destination, tree_identity(destination))
+    return destination, dict(initialImport=initial, sourceCopies=int(initial),
+        stableWorkspace=True, delta=changes, automaticClean=False)
 
 
 def freeze(ctx, source, role):

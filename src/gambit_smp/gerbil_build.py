@@ -4,10 +4,42 @@ import hashlib
 from pathlib import Path
 import shutil
 import tarfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from gambit_smp.framework import digest, relative, available_processors
 
 STAGES = ('boot-gxi', 'stage0', 'stage1', 'stdlib', 'libgerbil', 'lang', 'tools')
+
+
+def _withdraw_stage1_outputs(ctx, source):
+    """Unpublished core outputs must not shadow the completed bootstrap.
+
+    build.sh puts build/lib first in GERBIL_LOADPATH. A failed stage1 can
+    leave .ssi/.scm files there before their queued native jobs have run.
+    Move those owned outputs out of lookup, retaining their actual bytes in
+    this attempt's evidence directory. This is an inode move, not a new source
+    checkout, and is called only after the owned workspace is leased.
+    """
+    from gambit_smp.workspace import write
+    targets = ['build/lib/gerbil', 'build/lib/static',
+               'build/bin/gerbil', 'build/bin/gxi', 'build/bin/gxc']
+    retained = ctx.directory / 'unpublished-stage1'
+    moved = []
+    for name in targets:
+        path = source / name
+        if not path.exists() and not path.is_symlink():
+            continue
+        destination = retained / name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.exists() or destination.is_symlink():
+            raise ValueError('unpublished stage1 custody already exists: ' + name)
+        path.rename(destination)
+        moved.append(name)
+    write(ctx.directory / 'stage1-output-withdrawal.json', dict(
+        schema='gerbil.unpublished-stage1-custody.v1', moved=moved,
+        completedBootstrapPreserved=True, sourceCopies=0,
+        reason='Unqualified frontend files must not shadow completed bootstrap modules',
+        runtimeAdmitted=False))
 
 
 def validate(args, inputs):
@@ -83,7 +115,8 @@ def _install_runtime(runtime, source):
     copies = [('gsi/gsi', 'bootstrap/bin/gsi'), ('gsc/gsc', 'build/bin/gsc'),
               ('bin/gambuild-C', 'build/bin/gambuild-C')]
     for folder, pattern, target in (
-        ('include', 'gambit*.h', 'build/include'), ('lib', '*#.scm', 'build/lib'),
+        ('include', 'gambit*.h', 'build/include'),
+        ('lib', '*#.scm', 'build/lib'),
         ('gsc', '*#.scm', 'build/lib'), ('lib', '_define-syntax.scm', 'build/lib'),
         ('lib', '_gambit.c', 'build/lib')):
         copies.extend((str(path.relative_to(runtime)), target + '/' + path.name)
@@ -147,16 +180,17 @@ def _stage0_modules(ctx, work, source, parent):
     plan = dict(configuration=parent,inputs={path.relative_to(source).as_posix():
         dict(sha256=digest(path),mode=path.stat().st_mode & 0o777) for path in copy_sources})
     plan_path = work/'gerbil-stage0-inputs.json'
-    if plan_path.exists() and json.loads(plan_path.read_text()) != plan:
-        raise ValueError('retained bootstrap input-copy plan changed')
-    if not plan_path.exists():write(plan_path,plan)
+    previous_plan = json.loads(plan_path.read_text()) if plan_path.is_file() else {}
     def copy_current(origin, target):
         if origin.is_symlink():raise ValueError('bootstrap input aliases are unsupported')
         if target.is_symlink():raise ValueError('bootstrap output aliases are unsupported')
         if target.exists():
             if (target.is_file() and digest(origin) == digest(target)
                     and origin.stat().st_mode & 0o777 == target.stat().st_mode & 0o777):return
-            raise ValueError('bootstrap input target has unreviewed drift')
+            prior = previous_plan.get('inputs',{}).get(origin.relative_to(source).as_posix(),{})
+            if (not target.is_file() or digest(target) != prior.get('sha256')
+                    or target.stat().st_mode & 0o777 != prior.get('mode')):
+                raise ValueError('bootstrap input target has unreviewed drift')
         target.parent.mkdir(parents=True,exist_ok=True)
         pending = target.with_name(target.name+'.module-pending')
         if pending.exists() or pending.is_symlink():
@@ -173,11 +207,21 @@ def _stage0_modules(ctx, work, source, parent):
         if origin.is_dir():target.mkdir(parents=True,exist_ok=True)
         elif origin.is_file():copy_current(origin,target)
         else:raise ValueError('unsupported bootstrap input')
+    # Copy-plan completion is independent of the compiler action context. Keep
+    # the previous plan until every input replacement finishes; an interrupted
+    # replacement may then match either the new source or the witnessed old
+    # target, never arbitrary drift. No Scheme code consumes these boot files
+    # before the completed stage0 proof is published.
+    for origin in (source/'src/gerbil/boot').glob('*.scm'):
+        copy_current(origin,source/'bootstrap/lib'/origin.name)
+    copy_current(source/'src/gerbil/boot-gxi',source/'bootstrap/bin/boot-gxi')
+    write(plan_path,plan)
     flags = 'p1,~~bin='+str(source/'build/bin')+',~~lib='+str(source/'build/lib')+',~~include='+str(source/'build/include')
     argv0 = [source/'build/bin/gsc', '-:'+flags]
     count = ctx.require('gerbil-stage0-processors', [*argv0, '-e', '(write (##current-vm-processor-count))'],
                         source/'src', min(10,ctx.remaining())).strip()
     if count != '1':raise ValueError('actual bootstrap compiler processor budget differs')
+    pending = []
     for origin in module_files:
         name = origin.relative_to(originals).as_posix()
         target = target_root/name
@@ -187,34 +231,59 @@ def _stage0_modules(ctx, work, source, parent):
         if _current(source,previous,inputs,stage=stage,root=ctx.root,witnesses=witnesses):
             entries[name] = previous
             continue
+        pending.append((origin,name,inputs,stage))
+    # Each independent GSC uses one Scheme processor and can invoke one native
+    # compiler. Reserve a controller slot; this bounds the scheduling envelope,
+    # rather than claiming to constrain every OS thread created by a tool.
+    jobs = min(len(pending),max(1,(available_processors()-1)//2))
+    def compile_module(item):
+        origin,name,inputs,stage = item
+        target = target_root/name
         # A STARTED record exists before GSC overwrites any unproved partial .o1.
         output = target.with_suffix('.o1')
-        ctx.require('gerbil-'+stage, [*argv0,'-o',output,'-e','(include "~~lib/_gambit#.scm")',target],
-                    source/'src', ctx.remaining())
+        code,log,timeout,_ = ctx.run('gerbil-'+stage,
+            [*argv0,'-o',output,'-e','(include "~~lib/_gambit#.scm")',target],source/'src',ctx.remaining())
+        if timeout:raise TimeoutError('gerbil-'+stage+' timed out')
+        if code != 0:raise ValueError('gerbil-'+stage+' failed with exit '+str(code))
         if _module_input(parent,name,origin) != inputs or digest(target) != digest(origin):
             raise ValueError('bootstrap module input changed during actual compilation')
-        command = ctx.commands[-1]
+        # A sibling may finish between run() and this check. Never borrow the
+        # shared last command/stdout as this module's completion authority.
+        command = next(row for row in ctx.commands if row['stage'] == 'gerbil-'+stage)
         if (command.get('parentReaped') is not True or command.get('processGroupQuiescent') is not True
                 or not output.is_file() or output.is_symlink()):
             raise ValueError('bootstrap module has no completed process/output proof: '+name)
         raw = (ctx.directory/('gerbil-'+stage+'.process.json')).read_text()
         relative_name = output.relative_to(source).as_posix()
-        entries[name] = dict(inputsSha256=inputs,outputs={relative_name:digest(output)},
+        proof = dict(inputsSha256=inputs,outputs={relative_name:digest(output)},
             modes={relative_name:output.stat().st_mode & 0o777},links={},command=command,
             receiptBytes=raw,receiptSha256=hashlib.sha256(raw.encode()).hexdigest())
+        return name,stage,proof
+    def retain_completed(name,stage,proof):
         from gambit_smp.research_kernel import retain_run_record
         header = json.loads(Path(journal['path']).read_text())
         payload = dict(schema='gerbil-bootstrap-module-observation.v1',header=journal,
-            runId=header['runId'],moduleProof=entries[name],runtimeAdmitted=False)
+            runId=header['runId'],moduleProof=proof,runtimeAdmitted=False)
         reference = retain_run_record(ctx.root,ctx.directory/(stage+'.completed.json'),journal['scope'],payload,header['inputs'])
-        entries[name].update(completion=reference,completionRun=str(Path(journal['path']).parent))
-        retained[name] = entries[name]
+        proof.update(completion=reference,completionRun=str(Path(journal['path']).parent))
+        entries[name] = proof
+        retained[name] = proof
         write(store,retained)
-    # Match upstream finalize_stage0 after every requested module really closes.
-    for origin in (source/'src/gerbil/boot').glob('*.scm'):
-        copy_current(origin,source/'bootstrap/lib'/origin.name)
-    copy_current(source/'src/gerbil/boot-gxi',source/'bootstrap/bin/boot-gxi')
-    return entries
+    if pending:
+        # Serialize publication while preserving every completed sibling even
+        # when another module fails. Queued work still uses the original whole
+        # stage deadline; a partial object never acquires a completion witness.
+        failure = None
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            futures = [pool.submit(compile_module,item) for item in pending]
+            for future in as_completed(futures):
+                try:retain_completed(*future.result())
+                except Exception as error:
+                    if failure is None:failure = error
+        if failure is not None:raise failure
+    return entries,dict(modules=len(module_files),reused=len(module_files)-len(pending),
+                        compiled=len(pending),jobs=jobs,compilerProcessors=1,
+                        schedulingEnvelope=2*jobs+1 if jobs else 1)
 
 
 def build(args, ctx):
@@ -236,13 +305,14 @@ def build(args, ctx):
     check_runtime(runtime, read_json(identity))
     ctx.bind([identity])
     compiler(ctx)
-    # The Git revision binds unmodified core inputs. Only declared core overlay
-    # bytes alter the compiler namespace; stdlib edits stay incremental.
+    # The pinned base/runtime/tools own the physical workspace. Declared core
+    # source deltas invalidate action proofs below, rather than forking another
+    # checkout. Keep the existing empty base field in the workspace identity.
     core = {name: value for name, value in lock.get('files', {}).items()
             if name.startswith(('src/gerbil/', 'src/bootstrap/', 'src/build/'))
             or name in {'src/build.sh', 'build.sh', 'configure'}}
     configuration = dict(revision=lock['revision'], runtimeSha256=digest(identity),
-        compilerInputs={path: sha for path, sha in ctx.extra_inputs.items() if path != str(identity)}, coreInputs=core,
+        compilerInputs={path: sha for path, sha in ctx.extra_inputs.items() if path != str(identity)}, coreInputs={},
         tools={name: digest(Path(path)) for name, path in ctx.tools.items() if name in {'gcc', 'as', 'ld', 'sh', 'make'}})
     work = build_output(ctx.root, 'gerbil', compiler=ctx.tools['gcc'],
                         flags=[json.dumps(configuration, sort_keys=True)])
@@ -256,12 +326,19 @@ def build(args, ctx):
                       | set(previous.get('pendingOverlayFiles', []))) if partial else []
     for name in selected:source_name(name)
     archive = ctx.directory / 'gerbil-source.tar'
-    ctx.require('gerbil-archive', [ctx.tools['git'], '-C', checkout, 'archive',
-        '--output=' + str(archive), lock['revision'], '--', *selected], ctx.root, min(30, ctx.remaining()))
     staged = ctx.directory / 'gerbil-inputs'
-    from gambit_smp.artifact_storage import extract_archive
-    extract_archive(archive,staged,ctx,stage='gerbil-extract',preserve_modes=False)
-    archive.unlink()
+    archive_skipped = partial and not selected and 'patch' not in lock
+    if archive_skipped:
+        # The owned configuration already binds this pinned Git revision.
+        # Let the normal source synchronizer validate existing inputs against
+        # its checkpoint; no full-tree transport is needed for an empty delta.
+        staged.mkdir()
+    else:
+        ctx.require('gerbil-archive', [ctx.tools['git'], '-C', checkout, 'archive',
+            '--output=' + str(archive), lock['revision'], '--', *selected], ctx.root, min(30, ctx.remaining()))
+        from gambit_smp.artifact_storage import extract_archive
+        extract_archive(archive,staged,ctx,stage='gerbil-extract',preserve_modes=False)
+        archive.unlink()
     if 'patch' in lock:
         if lock['patch'] not in ctx.receipt['declaredInputs']:
             raise ValueError('Gerbil overlay must be a declared input')
@@ -288,27 +365,36 @@ def build(args, ctx):
         for folder in ('bin', 'lib', 'include'):
             (source / prefix / folder).mkdir(parents=True, exist_ok=True)
     payloads = _install_runtime(runtime, source)
+    jobs=max(1,(available_processors()-1)//2)
     ctx.env.update(GERBIL_PREFIX=str(work / 'prefix'), GERBIL_VERSION=lock['revision'],
-        GERBIL_VERSION_STRING=lock['revision'], GERBIL_BUILD_CORES='1',
+        GERBIL_VERSION_STRING=lock['revision'], GERBIL_BUILD_CORES=str(jobs),
+        GAMBOPT='p1,file-settings=lf',
         GERBIL_PATH=str(work / 'user'),
         CC=str(ctx.tools['gcc']), GERBIL_GCC=str(ctx.tools['gcc']))
     proofs_path = work / 'gerbil-stages.json'
     proofs = read_json(proofs_path) if proofs_path.is_file() else {}
     reuse = []
+    module_schedule = None
     for stage in STAGES:
         # Only actual completed bootstrap stages with current exact artifacts
         # can be consumed. The downstream dependency-aware builders always run.
         dependencies = {name: proofs[name]['outputs'] for name in ('boot-gxi', 'stage0')
                         if name in proofs and STAGES.index(name) < STAGES.index(stage)}
         inputs = hashlib.sha256(json.dumps(dict(configuration=digest(work / 'configuration.json'),
-            runtime=payloads, dependencies=dependencies), sort_keys=True).encode()).hexdigest()
+            runtime=payloads, dependencies=dependencies, coreInputs=core,
+            # The pinned bootstrap/compiler scripts use build cores to schedule
+            # independent actions. Keep that execution budget in observations,
+            # not the native module's semantic input identity.
+            compilerContext={'GAMBOPT':ctx.env.get('GAMBOPT')}), sort_keys=True).encode()).hexdigest()
         if stage in {'boot-gxi', 'stage0', 'stage1'} and _current(source, proofs.get(stage), inputs, stage=stage, root=ctx.root):
             reuse.append(stage)
             continue
         modules = None
         if stage == 'stage0':
-            modules = _stage0_modules(ctx,work,source,inputs)
+            modules,module_schedule = _stage0_modules(ctx,work,source,inputs)
         else:
+            if stage == 'stage1':
+                _withdraw_stage1_outputs(ctx, source)
             ctx.require('gerbil-' + stage, [ctx.tools['sh'], './build.sh', stage],
                         source / 'src', ctx.remaining())
             if (ctx.commands[-1].get('parentReaped') is not True
@@ -342,8 +428,11 @@ def build(args, ctx):
         raise ValueError('Gerbil build did not produce its executable')
     checkpoint_build_source(source, phase='ready')
     check_runtime(runtime, read_json(identity))
-    observation = dict(workspace=str(source), sourceDelta=delta, bootstrapReused=reuse,
-        compilerResourcePlan=dict(workers=1,stage0CompilerProcessors=1,hostCpuCapacity=available_processors()),
+    observation = dict(workspace=str(source), sourceDelta=delta, sourceArchiveSkipped=archive_skipped, bootstrapReused=reuse,
+        compilerResourcePlan=dict(workers=jobs,stage0CompilerProcessors=1,
+            compilerRuntimeOptions=ctx.env['GAMBOPT'],schedulingEnvelope=2*jobs+1,
+            hostCpuCapacity=available_processors(),enforcedOsThreadQuota=False),
+        stage0Schedule=module_schedule,
         runtimePayloads=payloads, executableSha256=digest(executable), runtimeAdmitted=False,
         configurationSha256=digest(work / 'configuration.json'),
         workspaceIdentitySha256=hashlib.sha256(json.dumps(tree_identity(source),sort_keys=True).encode()).hexdigest())

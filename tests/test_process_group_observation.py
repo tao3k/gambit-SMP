@@ -6,6 +6,41 @@ from gambit_smp.process_observation import probe_group, capture_batch, capture, 
 
 
 class ProcessGroupObservationTests(unittest.TestCase):
+    def test_batch_retains_completed_siblings_before_a_slow_job_settles(self):
+        import threading
+        from gambit_smp.process_observation import Observation
+        release = threading.Event()
+        retained = []
+        def observe(argv, cwd, budget, environment):
+            if argv == ["slow"]:
+                if not release.wait(2):
+                    raise AssertionError("fast result was hidden by input order")
+            return Observation(argv[0], "", 0, False, 0, 1, "start", "end", True)
+        def retain(index, row):
+            retained.append(index)
+            # Mutating a caller's retained copy cannot rewrite the batch result.
+            row["observation"]["exit"] = 99
+            if index == 1:
+                release.set()
+        jobs = [dict(argv=[name], cwd=".", environment={}, budget=3)
+                for name in ("slow", "fast")]
+        with patch("gambit_smp.process_observation.capture", side_effect=observe):
+            result = capture_batch(jobs, workers=2, budget=3, completed=retain)
+        self.assertEqual([1, 0], retained)
+        self.assertEqual(["slow", "fast"], [row["observation"]["stdout"] for row in result["runs"]])
+        self.assertEqual([0, 0], [row["observation"]["exit"] for row in result["runs"]])
+
+    def test_batch_observer_failure_does_not_drop_later_failure_evidence(self):
+        jobs = [dict(argv=["missing"], cwd=".", environment={}, budget=3)] * 2
+        retained = []
+        def retain(index, row):
+            retained.append((index, row["launchError"]["type"]))
+            raise RuntimeError("retention failed")
+        with patch("gambit_smp.process_observation.capture", side_effect=FileNotFoundError("missing")):
+            with self.assertRaisesRegex(RuntimeError, "retention failed"):
+                capture_batch(jobs, workers=2, budget=3, completed=retain)
+        self.assertEqual([(0, "FileNotFoundError"), (1, "FileNotFoundError")], sorted(retained))
+
     def test_invalid_process_budget_cannot_start_or_journal_a_child(self):
         for budget in (float("nan"), float("inf"), -float("inf"), True, False, 0, -1):
             with self.subTest(budget=budget), patch("gambit_smp.process_observation._task_spawn") as spawn:

@@ -1,0 +1,20 @@
+module abort_lifetime_tests {
+ import abort_fd_last_consumer.* from "./abort_fd_last_consumer"
+ run retryKeepsFdLeaseAcrossRetirement=initEintr.then(acquireWriter).then(firstWrite)
+ .then(retireIntent).then(acquireControl).then(cancellationWrite).then(selectorReturn)
+ .then(freezeAdmission).expect(safe and s.wref and s.w==2 and not(s.gate) and s.open)
+ .then(retryWrite).then(recordOutcome).then(releaseWriter).then(releaseLocks)
+ .then(finishWriter).then(closeFd).then(resetInstance).expect(done and safe)
+ run faultIsSavedBeforeLocksAreReleased=initHardFault.then(firstWrite).then(recordOutcome)
+ .then(releaseWriter).expect(safe and s.saved and s.fault and s.locks and not(s.observed))
+ .then(releaseLocks).then(handleFault).then(finishWriter)
+ .expect(faultRetained and safe and not(done))
+ run closedFdCanBeReusedOnlyAfterConsumers=initLive.then(acquireWriter).then(firstWrite)
+ .then(recordOutcome).then(releaseWriter).then(releaseLocks).then(finishWriter)
+ .then(selectorReturn).then(retireIntent).then(freezeAdmission).then(closeFd)
+ .then(resetInstance).expect(done and safe and s.instance==2)
+ run lateFaultCannotPoisonNewInstance=initRecordAfterRelease.then(acquireWriter)
+ .then(firstWrite).then(releaseWithoutRecord).then(retireIntent).then(freezeAdmission)
+ .then(closeFd).then(resetInstance).then(recordTooLate)
+ .expect(not(safe) and s.instance==2 and s.faultInstance==1)
+}

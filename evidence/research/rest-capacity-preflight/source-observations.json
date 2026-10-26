@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "dynamic-apply-wrapper",
+    "sourceAnchors": "lib/_kernel.scm:2989-3060",
+    "finding": "apply wrapper may splice own rest list before app; app immediately POP_ARGS2 then PUSH each car while walking cdr, finally jump target",
+    "hazard": "Collecting reserve inserted inside raw PUSH loop would expose partial incoming argument frame; retrying wrapper can repeat mutation",
+    "proposedReplacement": "New CallInputView cut at Scheme app boundary before inline C pops/expansion, after original evaluation/splice; logical inputs preserved",
+    "nativeWitness": false
+  },
+  {
+    "caller": "apply-count-and-stability",
+    "sourceAnchors": "lib/_kernel.scm:3004-3024;lib/mem.h:63-65",
+    "finding": "Current app counts na while pushing, detects >MAX_NB_ARGS, removes pushed args then tail raises limit exception",
+    "hazard": "No existing count-before-expand descriptor or stable snapshot; two-pass count can change mutable input observations",
+    "proposedReplacement": "Stable input profile or scan-safe single-read CallArgPacket staging; retain target and spine/prefix roots; preserve invalid-input/error read order",
+    "nativeWitness": false
+  },
+  {
+    "caller": "direct-gvm-jump",
+    "sourceAnchors": "gsc/_gvm.scm:466-473;gsc/_t-c-2.scm:1316-1390",
+    "finding": "Jump carries opnd/ret/nargs/poll/frame; emitter may overwrite R0 or spare destination, emit block checks, adjust stack then jump",
+    "hazard": "Late-bound global target lookup also cannot be hoisted across collecting callbacks; reserve at final jump may already follow destructive operand moves",
+    "proposedReplacement": "Scheme semantic completion emits pre-shuffle CallInputView and final grant/consume region; source producer placement proof remains open",
+    "nativeWitness": false
+  },
+  {
+    "caller": "block-checks-and-specialization",
+    "sourceAnchors": "gsc/_t-c-2.scm:1120-1143,1331-1390,2490-2499;tests/test5.ok:15750-15800",
+    "finding": "Compile-time reserved counters drive checks; jump inline/direct dispatch may bypass generic rest entry",
+    "hazard": "Compiler reserved count and passing POLL do not reserve an exclusive physical interval; late poll can invalidate grant",
+    "proposedReplacement": "Run required collecting checks with complete view first, then final noncollecting grant; specialize exact body/argument contract instead of blanket rest charge",
+    "nativeWitness": false
+  },
+  {
+    "caller": "native-conversion-producer",
+    "sourceAnchors": "gsc/_ptree2.scm:2902-2930,3145-3187;include/gambit.h.in:10043-10071",
+    "finding": "c-make-function converts parameters, generated make-body emits SFUN_ARG stores then SFUN_CALL; BEGIN allocates marker earlier",
+    "hazard": "Converted SCMOBJ locals and raw outgoing stores are not automatically a complete GC view before ___call",
+    "proposedReplacement": "Typed NativeCallInputView/root frame before raw stores; preserve conversion order, error/result ABI and same invocation leases",
+    "nativeWitness": false
+  },
+  {
+    "caller": "native-call-frame",
+    "sourceAnchors": "lib/setup.c:3276-3360",
+    "finding": "___call assumes C caller already placed args above fp, builds return marker frame, pops regs and sets target",
+    "hazard": "Collecting capacity request inside ___call before reconstructing rooted outgoing inputs is not automatically safe",
+    "proposedReplacement": "Preflight at staged native caller; keep return-to-C frame construction noncollecting under exact stack lease",
+    "nativeWitness": false
+  },
+  {
+    "caller": "marker-input-root-gap",
+    "sourceAnchors": "lib/c_intf.c:6509-6564;include/gambit.h.in:10043-10064",
+    "finding": "Marker allocator uses make_vector before copying proc, source TODO for protecting input; SFUN conversion errors may call Scheme",
+    "hazard": "Native staging cannot claim safe preflight if marker/proc roots already unprotected",
+    "proposedReplacement": "Root target before marker allocation, all-domain handles and complete ancestor native root/exit plan; inherited gap stays open",
+    "nativeWitness": false
+  },
+  {
+    "caller": "heap-msection-data-range",
+    "sourceAnchors": "lib/mem.c:3315-3325,3395-3407;lib/mem.h:63-71",
+    "finding": "set_heap_msection selects tospace half; prepare leaves two end marker words, writes first link word and starts data chunk",
+    "hazard": "Raw half-section size overcounts client data; allocating a logical window must not skip uninitialized prefix",
+    "proposedReplacement": "Grant current hp-to-dataHi offsets after metadata; fresh separate half has 65533 candidate data words by source arithmetic only",
+    "nativeWitness": false
+  },
+  {
+    "caller": "shared-stack-heap-layout",
+    "sourceAnchors": "lib/mem.c:3140-3174,3330-3356",
+    "finding": "Shared msection changes both limits with fudge and 1/4-versus-3/4 split",
+    "hazard": "Independent heap/stack scalar capacity can double-promise intersecting bytes",
+    "proposedReplacement": "Grant actual disjoint intervals and guard budget under one layout incarnation, or use separately owned sections",
+    "nativeWitness": false
+  },
+  {
+    "caller": "chunk-lifecycle",
+    "sourceAnchors": "lib/mem.c:3238-3270,3395-3407,3540-3623,3740-3800",
+    "finding": "Current scanner/allocation tracks chunk start, markers and initialized allocation prefix",
+    "hazard": "Publishing an uninitialized gap as a scannable copying chunk is unqualified; collector-copy chunk limits and mutator data bounds are different roles",
+    "proposedReplacement": "Cursor-window lease leaves hp unchanged; write complete objects and advance only initialized prefix; chunk transitions must join plan or be excluded",
+    "nativeWitness": false
+  },
+  {
+    "caller": "heap-limit-can-reassign",
+    "sourceAnchors": "lib/mem.c:7428-7505,4525-4567;lib/_kernel.scm:536-590",
+    "finding": "heap_limit can take free msection or get next section, prepare new hp/limits, or signal GC need",
+    "hazard": "A ticket for prior hp/layout does not remain valid across this helper even without GC",
+    "proposedReplacement": "Replace admitted repair path with lease-local noncollecting budget/need-GC check, close lease at full frame before normal collector",
+    "nativeWitness": false
+  },
+  {
+    "caller": "stack-limit-migration",
+    "sourceAnchors": "lib/mem.c:7115-7208,7380-7388",
+    "finding": "stack_limit may allocate/reuse msection and migrate frames/stack break; old section can join free list",
+    "hazard": "Same GC epoch does not imply unchanged stack interval/cursor or live pointer locations",
+    "proposedReplacement": "Layout generation changes invalidate unused grants; qualify stack-demand FrameSpec and prohibit migration inside leased shuffle",
+    "nativeWitness": false
+  },
+  {
+    "caller": "gc-flip-and-reset",
+    "sourceAnchors": "lib/mem.c:2194-2198,3413-3450",
+    "finding": "setup_stack_heap_vmstate flips tospace offset, resets per-PSTATE free list/section/cursors/chunk queues",
+    "hazard": "Old capacity receipt cannot survive semispace flip/reset; addresses can later repeat",
+    "proposedReplacement": "Cancel unused grants and settle active constructors before GC, use epoch+layout+serial and reissue against new actual intervals",
+    "nativeWitness": false
+  },
+  {
+    "caller": "round-context-reload",
+    "sourceAnchors": "lib/mem.c:7003-7085,4525-4567;lib/os_thread.c:697-710",
+    "finding": "GC phases/resize/fudge then prepare context, with notification before preparation; TLS binding is separate",
+    "hazard": "GC interrupt/result alone does not authorize new raw cursor use or stale root access",
+    "proposedReplacement": "Whole-round result, exact owner/context binding and relocated CallInputView handle reload before new grant or completed packet resume",
+    "nativeWitness": false
+  },
+  {
+    "caller": "actual-rest-consumers",
+    "sourceAnchors": "tests/mix.scm:703-706,775-782;examples/tcltk/test.scm:9-33;examples/tcltk/tcltk.scm:221-228,673-674",
+    "finding": "f3 generic rest source and real Tcl setter -> variadic tcl caller provide zero/one-required four-arg shapes",
+    "hazard": "Direct specialization/generic slow execution and physical pressure are conditional; no native run receipt",
+    "proposedReplacement": "Front-load all four/three pair costs plus fallback packet; retain existing single native invocation and nargs=-1 completed-packet resume",
+    "nativeWitness": false
+  },
+  {
+    "caller": "locks-ownership-and-cleanup",
+    "sourceAnchors": "lib/mem.c:376-383,4928-4964;lib/setup.c:924-980;lib/os_thread.c:546-592",
+    "finding": "alloc_mem_lock protects selected section operations; PSTATE cleanup frees resources before later join result handling",
+    "hazard": "Allocation lock is not a complete per-call ticket/GC exclusion protocol; unknown stop cannot retire active writer",
+    "proposedReplacement": "VM canonical reservation records, no GC-critical lock held while waiting, known stop/final-effect evidence before range reclamation",
+    "nativeWitness": false
+  }
+]

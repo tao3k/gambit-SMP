@@ -1,0 +1,177 @@
+#+TITLE: Stable Source Owners, Writer Closure and Collector Coverage
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: decision
+:BASELINE: C23
+:AUTHORITY: GambitSourceOwnerRegistry
+:STATUS: conditional-owner-writer-round-safety; native-issuers-open
+:END:
+
+Stable source ownership is a registry contract, not a renamed RC list entry. A source must have a private initialized descriptor and admitted root before its handle is exposed. Closing registration excludes new members; closing a source excludes new pins and writes. Neither close operation settles work already accepted.
+
+This extends [[file:source-pin-handoff-design.org][source pin handoff]]. [[file:models/sysml/source-owner-registry.sysml][SysML]] owns source anchors, issuer boundaries, memory/cost rows and component/action/proof routes. Native SysML queries generate [[file:source-owner-registry-matrix.org][Org matrices]] and [[file:diagrams/source-owner-registry.d2][D2]]. [[file:../../modeling/ascent/source-owner-registry.rules.scm][ASCENT]] checks the actual action/theorem/source/owner joins and exact scoped receipts. No runtime implementation or native test is introduced.
+
+A correction to the conservative prior policy is necessary: a round-scoped scan receipt and a persistent root-registration receipt have different lifetimes. A new GC invalidates a receipt that certifies only the old round. It need not invalidate a stronger descriptor-generation receipt whose admitted contract guarantees that every round updates the same registered slot. That stronger native coverage has not yet been established.
+
+* RESEARCH Source-grounded writer and cleanup inventory
+:PROPERTIES:
+:CUSTOM_ID: writers
+:SCOPE: vendor/gambit lib,include,examples; c,h,inc,scm
+:LIMIT: complete literal enumeration of stated corpus; indirect authority remains open
+:END:
+
+| Role | Actual source chain | Admission consequence |
+|---+---+---|
+| Native RC initialization | alloc_rc_no_register initializes data to FAL; alloc_rc then register_rc inserts context links | Root and owner publication are distinct; initial native allocation is not stable source admission |
+| Direct semantic payload install | Tcl set_data_rc(cd,vect); os_dyn set_data_rc(c_closure,proc) | Concrete producers found; init-only behavior at these sites does not close the public setter |
+| Collector relocation write | mark_rc invokes mark_array on the address of h->data | GC updates representation, not semantic payload generation; native readers need root-access exclusion |
+| Public indirect mutation/registration | setup.c exports set_data_rc/register_rc through GSTATE; gambit.h exposes API entries | Native extensions can bypass any source-only direct-caller census; migrate or deny managed admission |
+| Conditional function retain/release | c_intf release_function/addref_function → is_a_c_closure → RC API | Raw pointer lifetime, identity and platform-dependent closure handling require ownership evidence |
+| Native-buffer and effectful users | C string wrappers, TLS context release, Xlib examples use RC lifetime API | Not every RC block is a Scheme-bearing source; do not impose a generic Scheme-root carrier on all native buffers |
+| Bulk RC destruction | cleanup_mem_pstate → free_still_objs then cleanup_rc | Must be behind closed source/writer/scanner/storage domains, not used as a live-lease helper |
+| Failed resize growth | setup.c joins created threads; known success cleans/rolls back, unknown join retains | Existing retained-result pattern is reusable; it is not a complete SourceOwner manifest |
+| Successful shrink | join → transfer_retired_still → cleanup_pstate | Backing storage handoff precedes cleanup; external RC refusal remains an admission boundary |
+| Whole-VM cleanup | resize checks and retained source-request checks → PSTATE/VM cleanup | Existing request checks cover their own records, not all future registered/escaped source handles |
+
+The driver hashes the searched file roster and retains every literal site, including declarations, exports and comments. This is not proof that all code using a function pointer or raw header is known. Unknown out-of-tree writers, loader inputs and alias casts remain blockers. The managed path needs typed source operations and opaque stable handles; retaining an unmanaged conservative path is a scope boundary, not permission to label its writers closed.
+
+[[file:../../../vendor/gambit/lib/memory/configuration.inc][rc_head]] resolves to context memory. [[file:../../../vendor/gambit/lib/memory/rc-allocation.inc][register_rc]] mutates ordinary links; the setter assigns data directly. Neither issues a VM-stable source identity, generation-bound pin or all-round coverage receipt. [[file:../../../vendor/gambit/include/gambit.h][The inspected public header]] spells register_rc with a pointer return type while the implementation is void. Effective header/profile correspondence remains unqualified; no new compilation or claim of an observed binary failure is made.
+
+* RESEARCH Three distinct coordinates and their issuers
+:PROPERTIES:
+:CUSTOM_ID: identities
+:END:
+
+#+NAME: owner-identities
+#+BEGIN_EXAMPLE
+SourceId = (VM, SourceSlotId, ownerGeneration)
+WriteId = (SourceId, WriteOperationId)
+PayloadVersion = semantic object/binding generation
+CollectorRound = round scheduling identity
+CarrierId = (RootSlotId, descriptorGeneration, bound PayloadVersion)
+CoverageReceipt = RoundScan(CarrierId, CollectorRound, scanOwner)
+               or PersistentEnrollment(CarrierId, rootDomainGeneration)
+#+END_EXAMPLE
+
+Semantic replacement changes PayloadVersion. Moving GC changes representations in registered slots without changing that semantic version. CollectorRound governs frozen views and task ownership. These values must not be substituted for each other or inferred from object-address equality.
+
+There are real partial round signers in current source: [[file:../../../vendor/gambit/lib/memory/heap-sections.inc][GC setup]] checks epoch exhaustion, increments epoch, freezes origins and publishes tasks; [[file:../../../vendor/gambit/lib/memory/collection-round.inc][collection]] claims/finishes tasks with epoch and owner, requires thaw, then crosses a final stopped-view barrier. They qualify existing round tasks at their source boundaries. They do not automatically enroll a newly created source/carrier or attest its semantic writer closure.
+
+| Proposed receipt | Issuer responsibility | Current evidence boundary |
+|---+---+---|
+| SourceRegistered | VM registry owner publishes fully initialized descriptor and root | No complete native SourceOwner registration identified |
+| PinAccepted | Source adapter validates stable handle, open gate, writer status and generation | Raw data/refcount APIs do not supply it |
+| WriteAccepted/Outcome | Managed setter owner retains rooted candidate and exact WriteId | Direct setter and exported API exist; keyed writer service absent |
+| RoundScan | Current origin/task owner plus collector grace cut | Existing epoch/claim/finish/thaw mechanisms located; generic carrier mapping open |
+| PersistentEnrollment | Root-domain owner proves descriptor lifetime and every-round update coverage | Stronger certificate is a conditional design, not an existing native signer |
+| SourceCleanup | Registry manifest, source drain, scanner grace and storage owners | Partial cleanup checks located; complete global permit absent |
+
+* RESEARCH Registry publication and close protocol
+:PROPERTIES:
+:CUSTOM_ID: registration
+:END:
+
+#+NAME: registry-protocol
+#+BEGIN_EXAMPLE
+reserve stable private descriptor and generation
+ -> initialize admitted source root and immutable source classification
+ -> publish SourceId lookup with its root-domain binding
+ -> accept pins or rooted writer operations through the source owner
+
+close new source registration
+ -> finish/resolve already accepted registration attempts
+ -> close each member's new pin/write admission
+ -> seal the complete member manifest
+ -> settle accepted writers and pins; retain unknown outcomes
+ -> drain scan readers and establish backing-storage custody
+ -> permit destructive cleanup for that exact closed manifest
+#+END_EXAMPLE
+
+Registration may allocate before exposure, but the later pin fast path must use stable pre-reserved metadata. A lost publication reply cannot be treated as absence or retried under a new identity: the registry owner must retain the pending descriptor/root until the exact operation outcome is known. The finite model does not implement unknown registration publication; that branch remains an explicit real-registry obligation.
+
+Closing the registry and sealing its manifest are separate operations. An accepted private registration cannot publish after close without being accounted for in the closed cohort. An unbounded registry proof must show every accepted member is in the manifest or retained separately, and that unregister cannot erase unknown ownership. The model covers one member; it does not prove a complete native VM census.
+
+A source close is nonblocking metadata publication. It cannot wait inside a deletion callback for a callback that needs that same owner, nor hold a lock across allocation or GC. Accepted participants remain in the old roster until their root/storage handoff is acknowledged. Existing can_retire_pstate refusal for external RC remains in force until this proof exists.
+
+* RESEARCH Managed writers and old snapshots
+:PROPERTIES:
+:CUSTOM_ID: write-protocol
+:END:
+
+The setter first obtains an already-rooted candidate and immutable WriteId. Acceptance transfers or retains that candidate root; it does not magically turn a raw val C local into a root. The model's beginWrite abstracts this precondition. All allocating candidate preparation and failed acceptance paths require an earlier qualified carrier, as in the parent study.
+
+An accepted writer excludes new source pins. Existing pins must drain before semantic replacement, preserving their source view. Source close prevents new writers but allows an accepted writer to commit or abort under its original owner. Unknown status retains both the old source root and the candidate root; clearing a writer count is not settlement. Completion uses the exact WriteId. A late old outcome cannot commit the next accepted write, and query never re-executes mutation.
+
+After source pins return, already committed carriers may keep the old payload generation while the source installs a new generation. This avoids serializing every source update until all old Scheme executions finish. Their independently registered slots and backing storage remain owned. This binds the value installed in the source slot; it does not deep-freeze a mutable Scheme object graph or prove all mutations through aliases. Such mutations retain their ordinary Scheme/GC contracts and require separate authority analysis where stable contents are assumed. A simple source-global pin count or mutable currentPayload pointer cannot substitute for those generation-bound targets.
+
+The current model serializes a single writer and two fixed pin identities. Arbitrary writer queues, retries with cached terminal outcomes, partial external effects, all raw setter aliases and persistent storage are not proved. In particular, an unknown partially applied external mutation cannot be declared aborted merely by receiving a timeout. The native writer owner must reconcile its actual commit cut.
+
+* RESEARCH Round-scoped versus persistent coverage
+:PROPERTIES:
+:CUSTOM_ID: coverage
+:END:
+
+| Profile | Validity rule | GC transition | Work implication |
+|---+---+---+---|
+| Round-scoped | Receipt names current round and target descriptor | Reconfirm after round changes before returning source pin | Conservative extra acknowledgements |
+| Persistent root-domain | Same generation-bound slot remains registered, updated every round and pinned against retirement/reuse | Reuse enrollment while the lifetime certificate remains valid | Can avoid acknowledgement renewal solely due to GC |
+
+Persistent coverage requires source-to-manifest completeness, descriptor lifetime, exact deregistration, migration handoff and slot-reuse exclusion. It does not follow from publishing a pointer or finishing one old task. The model's qualifyPersistentCoverage action is a trusted premise, with native qualification explicitly false. It demonstrates the consequences of that stronger contract, not its implementation.
+
+For either profile, target values must be reloaded after GC from the registered slot before native use. A persistent enrollment removes repeated admission acknowledgement; it does not remove collector updates, root-access synchronization or actual scanner grace at retirement. Root-domain deregistration or generation reuse revokes the lifetime certificate regardless of the last GC round.
+
+* RESEARCH C23 and destructive cleanup boundary
+:PROPERTIES:
+:CUSTOM_ID: c23
+:BASELINE: C23
+:END:
+
+Initialization must happen-before published handle lookup. Close and accept use one qualified owner decision or combined atomic protocol; checking open and updating a separate counter later leaves a deletion race. Finite operation IDs, generations, counters and round exhaustion must reject before reuse/overflow. A C23 atomic pointer alone provides neither native header lifetime nor GC membership.
+
+Semantic payload updates and collector relocation writes require an explicit root-access exclusion/handshake. Never race ordinary h->data loads/stores with GC updates or serialize them using a mutex the stopped participant holds while waiting for GC. Root candidate publication, source replacement, writer outcome and pin admission have separate commit cuts; their joint custody must survive an unknown result.
+
+Bulk cleanup requires closed registration, a complete member manifest, settled writers/pins, admitted scan-reader grace and storage handoff. The existing successful-join and retained-resize paths are partial predecessors. The model's storageReceipt is external evidence, not something cleanup_rc may issue for itself. Whole-VM cleanup still needs all-source, all-context coverage rather than checking only the already implemented resize-request slots.
+
+* RESEARCH Actual formal chain and open obligations
+:PROPERTIES:
+:CUSTOM_ID: formal
+:END:
+
+[[file:models/quint/source_owner_registry.qnt][QNT]] models private/rooted owner publication, registration close, source close, accepted and unknown writes, exact write identity, two pins, old payload targets, GC round acknowledgements and destructive cleanup. It also includes the conditional persistent-coverage profile. Thirteen histories inspect stale round denial, persistent-profile reuse, closing with an unknown writer, nested callback drain and source replacement while an old target remains live.
+
+[[file:models/lean/SourceOwner.lean][Lean]] proves initial safety, preservation for every modeled action and reachable safety. Derived results cover old write-key rejection, unknown writer cleanup exclusion, accepted writer retention across close, nested-pin exclusion, old-target preservation and round-scoped stale acknowledgement rejection. Four corrupted typed-IR controls check the restricted extractor contract. Removing writer drain at the storage-permit issuance cut breaks state safety; removing the round check breaks the round-scoped rejection theorem. Earlier proof-tactic diagnostics are retained; they are not reported as native counterexamples.
+
+[[file:models/lean/SourceOwnerBridge.lean][Explicit relations]] derive prior source-pin, carrier reservation and cleanup guards. Round-scoped and persistent carrier relations remain distinct. They deliberately do not identify semantic payload generation with the prior model's relocation revision. Prior safety and actual root enrollment remain premises; there is no full two-way native trace refinement.
+
+ASCENT joins twelve component/action/source/proof routes and requires exact proof names and source hashes. Only formal/bridge needs receive current proof receipts. Native owner registration, pin/guard outcome signers, actual root coverage, exported writer closure, C23/profile correspondence and storage cleanup remain open. Synthetic all-premises candidate success is not native evidence. See [[file:../../../evidence/research/source-owner-registry/checks.json][checks]].
+
+* RESEARCH Net benefit, migration and falsification
+:PROPERTIES:
+:CUSTOM_ID: benefit
+:END:
+
+| Change | Potentially removed work | Added cost / positive condition |
+|---+---+---|
+| Selective Scheme-root index | N_RC minus N_payload root-slot visits per GC in a fully admitted domain | Classification, promotion/demotion and scan-grace costs; unknown writers require conservative coverage |
+| Persistent carrier enrollment | Per-GC admission acknowledgement renewal | All-round update and generation-lifetime proof; actual scanning remains |
+| Existing RC root reuse | Unnecessary target copying for qualified owner-bound sources | Pin and source lifetime checks; independent carrier still needed for detached execution |
+| Generation-bound targets | Waiting for every old execution before source replacement | Additional retained old payload roots and backing storage |
+| Shared registry/write/close service | Actual duplicated support retired across FFI and compiler services | Common ABI, rooted candidate, keyed results and manifest maintenance |
+| Resource normalization retirement | At most one redundant metadata traversal | All marginal pin/write/root/query/reclaim costs and remaining semantic gates must be paid |
+
+Current mark_rc visits each RC header's data slot, including native-only blocks initialized with FAL. The proposed selective index is a conditional structural gain, not a count of measured removable work. TLS/string/other native-resource release still needs its own lifecycle and effect handling. Unknown legacy writers stay in a conservative domain; sparse scanning cannot simply omit them.
+
+#+BEGIN_EXAMPLE
+DeltaW = removedTraversalWork + retiredDuplicateSupport
+         + admittedRootVisitsAvoided + acknowledgementRenewalsAvoided
+         - [registryAndWriterWork + pinAndCoverageChecks
+            + extraTargetScanning + queries + deferredCleanup + reclamation]
+RetainedMemory includes rooted candidates and all old/unknown payload targets.
+#+END_EXAMPLE
+
+Positive benefit fails if classification is incomplete, both old/new paths remain, lifetime certificates require equivalent per-round work, source writer serialization dominates, or unknown/old targets retain unbounded memory. No numerical speedup, runtime implementation or old native-path retirement is claimed. Modern C owns these architectural benefits; introducing another systems language would require separate marginal evidence.

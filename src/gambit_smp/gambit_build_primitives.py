@@ -1,5 +1,6 @@
 """Build-system contracts, with no experiment dispatch or patch generation."""
 from pathlib import Path
+import json
 import re
 import shlex
 import shutil
@@ -26,6 +27,34 @@ def build_capacity(cpus):
 
 class BootstrapPhaseProgress:
     """A next phase closes the preceding attempt; final success is separate."""
+    def __init__(self, *, clock=time.monotonic, observation_path=None):
+        self.clock = clock
+        self.started = clock()
+        self.boundaries = []
+        self.observation_path = observation_path
+        self.streams = {"stdout": "", "stderr": ""}
+
+    def checkpoint(self, stdout, stderr):
+        if self.observation_path is None:
+            return
+        changed = False
+        for name, value in (("stdout", stdout), ("stderr", stderr)):
+            previous = self.streams[name]
+            if not value.startswith(previous):
+                raise ValueError("phase observer requires cumulative stream prefixes")
+            if len(value) > len(previous):
+                with self.observation_path.with_name("from-scratch.partial." + name).open("a") as output:
+                    output.write(value[len(previous):])
+                self.streams[name] = value
+                changed = True
+        if not changed and self.observation_path.exists():
+            return
+        pending = self.observation_path.with_suffix(".pending")
+        pending.write_text(json.dumps({"basis": "first observer receipt of make phase announcements; buffered output and polling may coalesce boundaries",
+            "boundaries": self.boundaries, "nativeStageDurationsMeasured": False,
+            "completionObserved": False}, indent=2) + "\n")
+        pending.replace(self.observation_path)
+
     def __call__(self, stdout, stderr):
         expected = (1, 2, 3, 4, 1, 2, 3, 4)
         reached = 0
@@ -35,6 +64,12 @@ class BootstrapPhaseProgress:
             if reached >= len(expected) or line != f"*** making phase{expected[reached]}":
                 break
             reached += 1
+        if reached > len(self.boundaries):
+            observed = self.clock() - self.started
+            for index in range(len(self.boundaries), reached):
+                self.boundaries.append({"pass": index // 4 + 1,
+                    "phase": expected[index], "firstObservedSeconds": observed})
+        self.checkpoint(stdout, stderr)
         return max(0, reached - 1)
 
 

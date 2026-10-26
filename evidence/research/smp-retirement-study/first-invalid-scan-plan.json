@@ -1,0 +1,236 @@
+{
+  "schema": "smp-first-invalid-scan-plan.v1",
+  "date": "2026-10-23",
+  "status": "DESIGN_ONLY_NOT_ACTIVATED",
+  "nativeAcceptance": "8/12",
+  "sourceBindings": {
+    ".cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/retained-artifacts/lib/mem.c": "dc25c274c1f35a35f45f6f97bfe66c1c60a24536b33c48ed787a8d7589cd2f44",
+    ".cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/retained-artifacts/lib/mem.h": "44fbf6f339afd325e396a894272c7ce2d101756a798f2f0a38e474f27df96ab2",
+    ".cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/retained-artifacts/include/gambit.h": "15f39cfda23d945d393b10786a9b7030899de75cc98467989cd3cfe6fffd4802",
+    ".cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/retained-artifacts/lib/_thread.c": "1dd389bae153ca343cc29219180f45a5522cca9254b744dffc95db43f173b81d",
+    ".cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/retained-artifacts/lib/_thread.scm": "691c0930ea7de9e43d4ed166349511b14619879d986b9237bd00ba8abd9cb308",
+    ".cache/tasks/repair-9-12/processes/audit/runs/f41ad62f11d049ee96c824b3a4587878/outputs/tfib-crash-binding/retained-artifacts/lib/_thread#.scm": "40b0826dafe72eaea4adfe1f841c797312f6cbcaf700fa9222f6cdfa08ed1c60",
+    "vendor/gambit/lib/os_setup.c": "df72976936ef3226c85220af1f6e77dae84d666fab7a2dfd48da0b59dce5b2aa"
+  },
+  "diagnosticFields": [
+    {
+      "group": "identity",
+      "fields": [
+        "run/gsi SHA/UUID",
+        "vm/pstate/processor",
+        "local GC sequence and phase",
+        "operation sequence",
+        "record version/presence/commit sequence"
+      ],
+      "capture": [
+        "setup_mem_vmstate",
+        "setup_mem_pstate",
+        "garbage_collect_pstate at admitted collective boundary"
+      ],
+      "existing": [
+        "pstate/VM identity",
+        "traverse_weak_refs",
+        "tospace_offset",
+        "advisory nb_gcs"
+      ],
+      "proposed": [
+        "diagnostic operation/GC sequence",
+        "record completeness and commit metadata"
+      ],
+      "rule": "Do not substitute startup/scheduler epochs or completed floating GC statistic for allocation generation"
+    },
+    {
+      "group": "entry_and_cursor",
+      "fields": [
+        "original root category/call ID",
+        "current role",
+        "start/count/cell/index",
+        "parent body/header/type/words",
+        "selected branch/prefix",
+        "tail copy parent/destination"
+      ],
+      "capture": [
+        "all direct entry sites in mark-array-entry-map",
+        "scan_and_advance pair branch",
+        "mark_array before goto again"
+      ],
+      "rule": "Root origin survives; dynamic current parent must change"
+    },
+    {
+      "group": "cell_pending",
+      "fields": [
+        "CELL_PENDING",
+        "cell address and admitted interval",
+        "rawWordPresent=false"
+      ],
+      "capture": [
+        "mark_array immediately before obj=*cell"
+      ],
+      "rule": "Commit without reading the cell to build the record"
+    },
+    {
+      "group": "header_pending",
+      "fields": [
+        "HEADER_PENDING",
+        "original tagged raw bits",
+        "compiled tag/word ABI",
+        "computed header address",
+        "rawWordPresent=true"
+      ],
+      "capture": [
+        "mark_array after tag acceptance and before head=body[-1]"
+      ],
+      "rule": "Commit before header access; unavailable header stays unavailable"
+    },
+    {
+      "group": "frame",
+      "fields": [
+        "fp/saved fp/stack_break",
+        "raw RA and internal-return actual RA",
+        "fs/link/map/nextgcmap",
+        "current map-word source/index",
+        "run j/i",
+        "frame generation or unknown"
+      ],
+      "capture": [
+        "mark_continuation before/after descriptor decode",
+        "mark_captured_continuation copy boundary",
+        "scan sFRAME before descriptor decode",
+        "mark_frame before selected run and map-word transition"
+      ],
+      "rule": "Save raw descriptors already read; never probe unknown nextgcmap for diagnostics; frame-route finding is not a compiler-map bug finding"
+    },
+    {
+      "group": "writer",
+      "fields": [
+        "site/target/width",
+        "region/section/reservation",
+        "allocation serial/generation or unknown",
+        "covered cell relation",
+        "demonstrated ordering",
+        "coverage/truncation"
+      ],
+      "capture": [
+        "optional targeted SET_STK/FP_SET_STK",
+        "constructor heap burst",
+        "mark_array copy loop",
+        "mark_captured_continuation copy"
+      ],
+      "rule": "Same address is insufficient; same generation plus overlap plus preceding relation required; local worker sequence is not a cross-worker clock"
+    }
+  ],
+  "proposedPrivateHelpers": [
+    "gc_diag_begin_context",
+    "gc_diag_note_frame",
+    "gc_diag_note_tail",
+    "gc_diag_pre_cell",
+    "gc_diag_pre_header",
+    "gc_diag_commit"
+  ],
+  "existingDebugFields": {
+    "referenceLocation": "include/gambit.h:11464",
+    "containerBody": "include/gambit.h:11465",
+    "markArrayCallLine": "include/gambit.h:11466",
+    "storage": "per-pstate",
+    "limitations": [
+      "No dynamic tail parent",
+      "Pair fast path may bypass scan context",
+      "No selected cell/raw input/complete frame snapshot",
+      "No crash-surviving carrier"
+    ]
+  },
+  "carrier": {
+    "proposed": "bounded preallocated shared mapping, separate pstate slots, sequence/footer commit, reader after process quiescence",
+    "scope": "existing source-bound diagnostic output artifact, not a new framework",
+    "gcPath": [
+      "no allocation",
+      "no lock",
+      "no per-object syscall/log",
+      "no unknown-object dereference/pretty printer"
+    ],
+    "flags": [
+      "torn",
+      "stale",
+      "owner mismatch",
+      "missing metadata",
+      "truncated",
+      "unavailable allocation generation",
+      "unknown ordering",
+      "carrier unavailable"
+    ],
+    "nativeOrderingProofRequired": true,
+    "persistenceProofRequired": true,
+    "noNewCrashHandlerPreferred": true
+  },
+  "minimalEditSurfaces": [
+    {
+      "files": [
+        "include/gambit.h.in",
+        "lib/mem.c"
+      ],
+      "functions": [
+        "setup_mem_vmstate",
+        "setup_mem_pstate",
+        "cleanup_mem_pstate",
+        "cleanup_mem_vmstate"
+      ],
+      "purpose": "diagnostic-only raw record state and carrier lifetime"
+    },
+    {
+      "files": [
+        "lib/mem.c"
+      ],
+      "functions": [
+        "mark_* roots",
+        "scan",
+        "scan_and_advance",
+        "mark_frame",
+        "mark_continuation",
+        "mark_captured_continuation"
+      ],
+      "purpose": "origin/current-cursor/frame context"
+    },
+    {
+      "files": [
+        "lib/mem.c"
+      ],
+      "functions": [
+        "mark_array"
+      ],
+      "purpose": "pre-cell, pre-header, successful header and tail transition stamps"
+    },
+    {
+      "files": [
+        "include/gambit.h.in",
+        "lib/mem.c"
+      ],
+      "functions": [
+        "SET_STK/FP_SET_STK",
+        "BEGIN/END_ALLOC_STRUCTURE/F64VECTOR",
+        "mark_array copy",
+        "mark_captured_continuation copy"
+      ],
+      "purpose": "conditional later targeted first-write diagnostic after origin is identified"
+    }
+  ],
+  "admissionRules": [
+    "Run/binary UUID/SHA and actual fault operation/PC must match",
+    "Check owner/GC/sequence/operation and complete commit",
+    "Do not call a timeout a proven faulting load",
+    "Do not skip/clamp/resume after invalid input",
+    "Root/frame/heap category does not by itself identify the first writer",
+    "Matched writer requires allocation generation, exact byte overlap and preceding relation",
+    "Unknown provenance remains UNKNOWN"
+  ],
+  "coverageBoundary": "first captured failing operation on a pstate, not earliest globally illegal read/write across all workers",
+  "unproven": [
+    "native store-before-load ordering",
+    "Darwin shared-carrier survival",
+    "instrumentation overhead inside original budget",
+    "all allocator/lifetime paths",
+    "actual missing TFIB scan-cell origin"
+  ],
+  "nativeExecuted": false,
+  "runtimeModified": false,
+  "implemented": false
+}

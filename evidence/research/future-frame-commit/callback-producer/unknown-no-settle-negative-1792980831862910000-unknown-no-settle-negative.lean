@@ -1,0 +1,10 @@
+import CallbackProducer
+open CallbackProducerAst
+def witness : State := loseCleanupNext (beginCleanupNext (landingFirstNext (dispatchChildNext (initial))))
+example : dispatchChildGuard (initial) := by simp [dispatchChildGuard,initial]
+example : landingFirstGuard (dispatchChildNext (initial)) := by simp [landingFirstGuard,initial,dispatchChildNext]
+example : beginCleanupGuard (landingFirstNext (dispatchChildNext (initial))) := by simp [beginCleanupGuard,initial,dispatchChildNext,landingFirstNext]
+example : loseCleanupGuard (beginCleanupNext (landingFirstNext (dispatchChildNext (initial)))) := by simp [loseCleanupGuard,initial,dispatchChildNext,landingFirstNext,beginCleanupNext]
+example : Safe witness := by simp [Safe,witness,initial,dispatchChildNext,landingFirstNext,beginCleanupNext,loseCleanupNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]
+example : ¬ (settleFirstGuard witness) := by simp [Safe,witness,initial,dispatchChildNext,landingFirstNext,beginCleanupNext,loseCleanupNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]
+example : settleFirstGuard witness := by simp [Safe,witness,initial,dispatchChildNext,landingFirstNext,beginCleanupNext,loseCleanupNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]

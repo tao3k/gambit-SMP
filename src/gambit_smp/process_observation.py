@@ -1,5 +1,5 @@
 """Bounded process observations with distinct stdout, stderr and final exit."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -199,17 +199,24 @@ def capture(argv, cwd, budget, environment, *, diagnostic=None, progress=None, r
                        process.pid, timestamp, datetime.now(timezone.utc).isoformat(), quiescent, probes)
 
 
-def capture_batch(jobs, *, workers, budget):
+def capture_batch(jobs, *, workers, budget, completed=None):
     """Threaded process transport under one deadline, including queue time.
 
     Each job supplies argv/cwd/environment/budget. Threads only supervise
     independent child processes; no Library runtime crosses an OS thread.
     A queued job that misses the deadline has no invented exit or PID.
+    The optional coordinator callback receives (input_index, observation) as
+    each job settles, including failures. It may retain evidence before slower
+    siblings finish. Returned runs remain in input order. Callback/worker
+    exceptions are raised only after all siblings have settled; they do not
+    discard other completed observations or grant process admission.
     """
     if type(workers) is not int or workers <= 0:
         raise ValueError("positive worker count required")
     if isinstance(budget, bool) or not math.isfinite(budget) or budget <= 0:
         raise ValueError("positive finite batch budget required")
+    if completed is not None and not callable(completed):
+        raise ValueError("callable batch completion observer required")
     jobs = list(jobs)
     for job in jobs:
         ceiling = job["budget"]
@@ -237,8 +244,21 @@ def capture_batch(jobs, *, workers, budget):
                 "observation": asdict(observed)}
 
     if jobs:
+        runs = [None] * len(jobs)
+        failure = None
         with ThreadPoolExecutor(max_workers=min(workers, len(jobs))) as pool:
-            runs = list(pool.map(launch, jobs))
+            futures = {pool.submit(launch, job): index for index, job in enumerate(jobs)}
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    runs[index] = future.result()
+                    if completed is not None:
+                        completed(index, deepcopy(runs[index]))
+                except Exception as error:
+                    if failure is None:
+                        failure = error
+        if failure is not None:
+            raise failure
     else:
         runs = []
     return {"workers": min(workers, len(jobs)), "budgetSeconds": budget,
@@ -272,7 +292,15 @@ def main():
                      "environment": dict(os.environ), "budget": job["budgetSeconds"]})
     args.out.mkdir(parents=True, exist_ok=False)
     (args.out / "request.json").write_text(json.dumps(value, indent=2) + "\n")
-    result = capture_batch(jobs, workers=min(available_processors(), len(jobs)), budget=value["budgetSeconds"])
+    def retain(index, row):
+        target = args.out / ("job-" + str(index) + ".json")
+        pending = target.with_suffix(".pending")
+        with pending.open("x") as stream:
+            json.dump(dict(job=index, **row), stream, indent=2)
+            stream.write("\n")
+        pending.replace(target)
+    result = capture_batch(jobs, workers=min(available_processors(), len(jobs)),
+                           budget=value["budgetSeconds"], completed=retain)
     result.update(scope="process-observation-only", runtimeAdmitted=False)
     (args.out / "receipt.json").write_text(json.dumps(result, indent=2) + "\n")
     for index, row in enumerate(result["runs"]):

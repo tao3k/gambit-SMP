@@ -1,0 +1,97 @@
+#+TITLE: Snapshot Lifetimes, Batch/Shard Conditions and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: snapshot-observer-refinement-matrix
+:AUTHORITY: GambitSnapshotObserverRefinement
+:STATUS: conditional-models-only; source-and-platform-open
+:END:
+
+** Route
+
+| key | sourcePath | needle | obligation |
+|---+---+---+---|
+| existing-local-queues | vendor/gambit/lib/mem.c | heap_chunks_to_scan_tail = new_tail; | Per-processor FIFO is already distributed; a new global ledger is not an existing runtime facility |
+| claim-before-scan | vendor/gambit/lib/mem.c | scan_complete_heap_chunk (___PSP ptr+1); | Dequeued work still owns payload and may derive tasks |
+| global-cut | vendor/gambit/lib/mem.c | if (--(*workers_count) == 0) | Mutex/worker termination is not a snapshot/observer grace period |
+| descriptor-borrow | vendor/gambit/lib/mem.c | descriptor = ___decode_frame_descriptor (___LABEL_DESCR_GET(actual_ra), 1); | Trailing OFD map pointer remains borrowed after decoder returns |
+| phase-gc-storage | vendor/gambit/lib/mem.c | ___HIDDEN void free_unmarked_still_objs | Scheme collector ownership and native snapshot reclamation are distinct contracts |
+| native-final-use | vendor/gambit/lib/os_dyn.c | dlclose (p->descr); | Global unload needs old activation/root/inspection/native closure; snapshot zero alone is insufficient |
+| exception-cleanup | vendor/gambit/include/gambit.h.in | ___ps->catcher = ___old_catcher | Snapshot pin cannot be lost through an exception or multi-shot callback |
+| lookup-producer | /opt/homebrew/Cellar/quint/0.33.0/libexec/lib/node_modules/@informalsystems/quint/dist/src/names/resolver.js | this.table.set(id, def); | Occurrence-ID witness requires exact canonical declaration |
+| lookup-consumer | /opt/homebrew/Cellar/quint/0.33.0/libexec/lib/node_modules/@informalsystems/quint/dist/src/runtime/impl/builder.js | const def = builder.table.get(expr.id); | Lookup function must have no fabricated bindings beyond selected witness rows |
+| json-gate | dev/modeling/tools/typed-binding-witness.py | refs.append(dict(occurrence=oid,target=target | Pinned input gate is executable checking, not a verified parser |
+| parent-environment | dev/refactoring/modern-c/models/lean/DerivationReceiptEnvironment.lean | theorem checkedEnvironment | Reuse existing row-to-function theorem, then prove converse finite-domain direction |
+| frozen-input | evidence/research/reti-ofd-semantics/typed-ir.json | "typechecking" | 91 map witness rows remain a separate input from snapshot protocol IR |
+
+** Contract
+
+| key | owner | accountable.moduleId | counterpart.moduleId | actionName | invariant | gap |
+|---+---+---+---+---+---+---|
+| snapshot-pin | native/roots | native | roots | publishPin validatePin scan freeSnapshot | Publish pin then revalidate same generation; final dereference precedes pin clear | Reference SC order and stable slot roster must be refined to actual C11 |
+| observer-lifetime | release/build | release | build | beginObserver closeObservers freeReceipt | Admission close prevents new readers; old readers and pending delivery drain separately | Receipt identity directory and terminal tombstones require real source users |
+| code-detachment | release/native | release | native | certifyDetached freeCode | Data-only observer may outlive code only with a semantic detachment certificate | Idle execution or zero debt alone cannot sign certificate |
+| batch-refinement | collector/roots | collector | roots | batch reserveA reserveB | Disjoint updates commute; batch serializes legal guarded per-ticket operations | Arbitrary batches effects failures and observer histories remain open |
+| shard-cut | collector/control | collector | control | reserveTarget releaseSource sealA sealB retire | Target reservation overlaps source debt; closed target rejects transfer without dropping source | Split target/source atomic steps need TaskId receipts and unknown-response refinement; complete global cut open |
+| finite-domain | modeling/build | build | semantic | buildEnv tableCheck | Lookup result iff matching admitted row under tableCheck | Authentic JSON row construction and field-slot mapping remain trusted |
+
+** Obligation
+
+| key | status | scope | counterexample |
+|---+---+---+---|
+| pin-order | conditional-proved | SC event-order cycle impossible under stable slots no ABA and no early clear | Release/acquire alone on unrelated atomics does not establish the needed order |
+| three-lifetimes | bounded-checked | One old snapshot one observer one cohort; detached certificate is an explicit premise | Free receipt with an admitted observer or free code with an undetached observer |
+| batch-algebra | conditional-proved | Two disjoint debt updates commute and equal explicit batch update | Cross-task read/effect or partial failure invalidates this argument |
+| transfer-overlap | conditional-proved | Two-shard reservation overlap preserves logical ownership; finite transfer cases checked | Release source before reserve target loses ownership |
+| actual-guards | conditional-proved | Three actual snapshot QNT guard/update expressions match Lean PinFlat | Parser/emitter trusted; no whole protocol history proof |
+| c11-source | open | Hazard membership ABA native aliases root/FFI cleanup actual final use and target memory model | SC arithmetic theorem is not a C11 race-freedom proof |
+| json-meaning | partially-proved | 91-row environment consistency plus exact finite-domain theorem | Consistently forged rows still require independent JSON witness validation |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| pin-reclamation | Permanent retention of every detached metadata snapshot | Pin publication validation scan of stable slots retired lists and controlled free work | Unknown or stalled holders keep storage; no bounded memory claim |
+| receipt-detachment | Keeping old code solely for terminal data-only queries | Separate observer leases and certificate that no old code Scheme value or OFD can be accessed | Certificate must cover future as well as active observers |
+| batch-head-writes | k*(D-ceil(D/b)) child-phase successful global commits may be removed | Membership freeze per-ticket result vector waiting and reclaim-tail work | Only k legal batchable phases among four; no elapsed-time percentage |
+| shard-contention | One mandatory global head on every local operation | Transfer overlap two reservations close/seal coordination and imbalance | Maximum shard load and global cut cost must beat centralized serialization |
+| existing-reuse | Replacing already distributed FIFO with a new contention point | Preserve current local queue structure while changing ownership and cut contracts | No existing queue or counter retires until actual consumer refinement |
+
+** Binding
+
+| key | qntAction | leanLemma | refinement | guardLemma | updateLemma |
+|---+---+---+---+---+---|
+| pin | publishPin | pinOrderCannotMiss | Generated guard/update relation checked; SC order premises remain external | publishPinGuardMeaning | publishPinNextMeaning |
+| validation | validatePin | pinOrderCannotMiss | Actual revalidation guard checked; full C11 lifetime still open | validatePinGuardMeaning | validatePinNextMeaning |
+| receipt | freeReceipt | observerBlocksReceipt | Current guard rejects admitted observer; source lease coverage still open | freeReceiptGuardMeaning | freeReceiptNextMeaning |
+
+** Flow
+
+| fromNode | toNode | reason |
+|---+---+---|
+| c0 | o0 | SC order obligation |
+| c0 | o4 | Actual typed-IR guards |
+| c1 | o1 | Admission and late-reader histories |
+| c2 | o1 | Separate code and receipt lifetimes |
+| c2 | o5 | Certificate needs source closure |
+| c3 | o2 | Batch commutation proof |
+| c4 | o3 | Transfer accounting proof |
+| c4 | o5 | All shard producers must close |
+| c5 | o6 | Exact finite-domain proof |
+| o4 | o5 | Actual syntax certificate is not C11 proof |
+| o2 | c4 | Sharding must preserve legal task histories |
+| c1 | c2 | Observer admission controls possible future code access |
+
+** Model admission scopes
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| SO-H | interleaving | dev/refactoring/modern-c/models/quint/snapshot_observer.qnt | Finite SC pin and three-lifetime admission/retirement protocol |
+| SO-B | interleaving | dev/refactoring/modern-c/models/quint/shard_retirement_cut.qnt | Two-shard overlap handoff closed-target rejection and final seal cut |
+| SO-I | induction | dev/refactoring/modern-c/models/lean/SnapshotObserverRefinement.lean | SC order arithmetic batch/transfer algebra and exact finite-domain lookup |
+| SO-X | induction | dev/refactoring/modern-c/models/lean/SnapshotObserverAst.lean | Actual three snapshot action guard/update certificates and 91-row witness |
+| SO-S | source-refinement | dev/refactoring/modern-c/snapshot-observer-refinement-design.org | All actual roots snapshots observers shard producers and JSON/source relation OPEN |
+| SO-E | environment-refinement | dev/refactoring/modern-c/snapshot-observer-refinement-design.org | C11 hazard slot roster ABA directory and target/runtime evidence OPEN |

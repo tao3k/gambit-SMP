@@ -1,0 +1,241 @@
+#+TITLE: VM Execution, GC Participants and Collector Work in Modern C
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: IMPLEMENTED CHECKED | OPEN RETIRED
+
+* IMPLEMENTED Source responsibility replacement :modern_c:gc:control:
+:PROPERTIES:
+:CUSTOM_ID: runtime-role-realization
+:AUTHORITY: GambitRuntimeRoleRealization
+:VENDOR_BRANCH: modern-c
+:VENDOR_COMMIT: 8d2b4034
+:STATUS: SOURCE-IMPLEMENTED; C-OBJECT-CHECKED; COHORT-AND-LIFETIME-OPEN
+:END:
+This realizes the existing [[file:modernization-target.org][execution/participation decision]] on the current
+synchronous collector path. It physically removes execution roots and memory,
+collector FIFO/cursor/weak work from PSTATE. The VM owns distinct context,
+participant and worker arrays; the carrier keeps bindings. This is a change to
+storage and actual consumers, not an additional gate around unchanged fields.
+
+The [[file:models/sysml/runtime-role-realization.sysml][native SysML authority]] references existing canonical module owners and the
+whole architecture decision. [[file:runtime-role-matrix.org][The replacement/cost matrix]] and [[file:diagrams/runtime-role-realization.d2][D2]] derive from
+its native evaluation. [[file:../../modeling/ascent/runtime-role-realization.request.scm][The ASCENT request]] uses the existing shared rule DSL
+with exact artifact, method and scope bindings. All models remain in SMP/dev.
+
+** Reference evidence is not replacement source
+Bazel supplies the configuration contract. SMP patch candidates and their
+recorded failures explain pressures and preserve counterexamples. They are not
+assumed present in vendor REV and their implementation is not the target.
+The mistakenly imported reference commit and its revert were removed from the
+local branch at the user's direction. The resulting parent tree is exactly
+=dfec5508=; no reference patch is imported by this realization.
+The earlier [[file:frame-consumers.org][frame-consumer study]] and its source-import receipt are historical
+observations of that abandoned local route, not current branch qualification.
+
+The reason for the replacement is observable in that parent: =processor_state=
+held registers, stack/heap positions, saved roots, type caches, the Scheme
+processor object and =pstate_mem=. The latter combined execution allocation,
+RC/still roots with collector queues, chunk bounds and scan cursors. Collector
+kernels obtained state through optional PSTATE/TLS propagation. Scan partitioning
+read =processor_count=; only processor zero assigned the local GC overflow result.
+Changing a queue or join branch cannot remove these ownership dependencies.
+
+* Delivery order and scope correction :process:ownership:
+:PROPERTIES:
+:CUSTOM_ID: responsibility-delivery-order
+:AUTHORITY: GambitRuntimeRoleRealization DeliveryStep DeliveryDependency deliveryBoundary
+:STATUS: PARTITION-REQUIRED; NO-STEP-ACCEPTED
+:END:
+
+The full architecture is a programme, not one commit. The current private
+candidate combines organization, role storage, round ownership, lifecycle and
+foreign-writer changes. Repeatedly chasing a failing GC/FFI scenario expands
+that candidate without establishing a completed architectural step. Stop adding
+runtime changes until its hunks and producer/consumer dependencies are assigned
+to coherent submission units.
+
+The next action is a read-only partition of the existing candidate, starting
+with the lossless organization boundary. A pure organization cut must exclude
+semantic edits. The subsequent role cut keeps the synchronous adapter while
+replacing ownership and all affected accessors. If two cuts cannot produce a
+valid intermediate tree, record their concrete coupling and combine only those
+cuts before testing. File boundaries alone do not establish independence.
+
+#+BEGIN: sysml-view :kind delivery-order :source models/sysml/runtime-role-realization.sysml
+| Step | Responsibility | Exit / scope limit | Status |
+|---+---+---+---|
+| organization | C23 baseline and lossless private header/memory organization; unchanged public namespaces and generated semantics | Exact reconstruction and complete build-input/distribution closure; current bootstrap and applicable header/frame consumers; no semantic changes hidden in a mechanical split; excludes: New collector, CFFI policy, scheduler and frontend optimization | source-present-unpartitioned |
+| role-ownership | VM-owned execution, root-participant and collector-work storage with complete real accessor/caller migration under the existing synchronous adapter | Old carrier payload fields removed; admitted synchronous root/frame/RC consumers coherent; storage controls, real multi-shot map/GC and scoped W/R observations on the exact submitted tree; excludes: Independent worker threads, live context migration, general owner-death recovery and a redesigned foreign interface | source-present-unpartitioned |
+| round-ownership | Closed root census, unique copy/scan authority, physical worker/context capacity and one restoration outcome for the admitted synchronous round | Complete concrete capacity/copy/scan handoff and unchanged multi-shot restoration; finite schedules and source refinement discharge their distinct premises; excludes: Generational skipping, arbitrary worker death and universal foreign writers | source-present-unpartitioned |
+| lifecycle | Membership/resize/exit ownership and explicit per-VM retirement to global reclamation; known success versus retained failure or unknown result | No ignored refusal can grant free; real admitted owners, concurrent registry access and scoped join/cleanup histories; retained debt remains attributable without claiming recovery; excludes: Forced cleanup of an arbitrary native owner and complete CFFI resource-service redesign | source-present-unpartitioned |
+| foreign-ownership | Foreign roots/borrows, blocking participation, nested callbacks, exception/continuation exits and owner-affine release as a complete service replacement | Actual supported producer/consumer inventory and root/exit/resource custody close; ungoverned aliases are explicitly rejected or covered; excludes: Changing Scheme multi-shot semantics or declaring unsupported native aliases safe | later-service-cut |
+| generations | Generational allocation, promotion and remembered edges including continuation/denv/FFI writers; independent worker service only after its lifecycle prerequisites | Writer-complete admitted classes, overflow/failure ownership, physical promotion reserve and measured work-versus-barrier/peak-memory benefit; excludes: Assuming copying alone implies generations or copying OCaml's one-shot control restriction | later-collector-cut |
+| whole-smp-qualification | Compose accepted cuts against the twelve SMP dimensions, current Gerbil integration and declared progress/scalability workloads | Exact-source complete campaign plus safety/progress/benefit evidence; historical patch success is problem evidence, not inherited acceptance; excludes: Using this programme exit as the unconditional requirement for every earlier structural commit | programme-acceptance |
+#+END:
+
+The five submission gates apply to the selected exact tree and its stated
+claims. Complete CFFI, independent worker death recovery, generational GC and
+the twelve-milestone aggregate remain programme requirements. They do not
+automatically block an earlier structural cut which neither changes nor claims
+them. Conversely, moving an obligation to a later step does not authorize an
+unsafe adapter still included in the earlier tree, erase a required failure,
+or convert an unresolved result into a pass.
+
+Map capture, repeated continuation restoration, dynamic-wind and GC root safety
+are semantic invariants throughout this sequence. Existing Gambit parallel
+collection is the starting point. The architectural gain is explicit ownership
+and independently replaceable services; a growing count of repaired SMP cases
+does not measure that gain.
+
+[[file:diagrams/delivery-order.d2][The delivery view]] and
+[[file:../../../evidence/research/revision-admission/delivery-results.json][the actual ASCENT routing result]] show review order and open dependencies.
+They cannot grant commit admission. Existing QNT schedules and Lean conditional
+laws retain separate duties; no new formal state machine is needed for this
+delivery correction.
+
+* Full current synchronous path
+:PROPERTIES:
+:CUSTOM_ID: runtime-role-path
+:END:
+1. =setup.c:___setup_pstate= binds VM-owned context and worker storage before
+   stack, root or allocator use. The early primordial interrupt path also binds
+   its context. Embedded C in =_kernel=, =_io=, =_num= and =_system= and native
+   call/catcher/trampoline consumers use the new context fields. No old-field
+   compatibility aliases are provided; generated C must be rebuilt.
+2. =mem.c:___garbage_collect_pstate= saves fp/hp, publishes the participant's
+   root origin and FROZEN phase, and closes membership at the existing collective
+   barrier. Processor zero stores the census before that barrier; the store by
+   itself is not the publication cut. The context remains VM-resident.
+3. =mark_execution_roots(work, participant)= checks FROZEN, takes the root origin
+   from the participant and visits continuation, registers, saved roots, type
+   caches, the processor Scheme object and that context's RC chain. Three old
+   carrier-local register/cache visitors and master-only RC selection retire.
+   This changes the consumer; it does not prove every foreign writer is frozen.
+4. Copying, captured-frame materialization, chunk publication/dequeue and weak
+   discovery receive explicit worker arguments. Queue/cursor state is VM-owned
+   worker storage; stealing chooses from the closed worker census. The copying
+   region belongs to an execution context. Allocation and actlog still borrow
+   the synchronous carrier, and entry checks that binding. Live migration,
+   worker death and detached collector threads are not admitted by this change.
+5. Strong and weak barriers precede their next phases. Weak, cleanup and return
+   consumers check the expected participant phase. Foreign cleanup remains the
+   existing inline effect route; it is not made safe for independent workers by
+   moving the worker record. Nested GC while frozen is rejected by the phase
+   contract; supported callback/effect refinement remains an open obligation.
+6. Processor zero publishes capacity into =gc_round.overflow=. Every participant
+   copies it locally after the result barrier, prepares the original context,
+   and reaches the added final acknowledgement barrier. Return uses the local
+   copy, so a next round cannot overwrite an unconsumed shared result.
+
+** Reuse the existing native module admission boundary
+=___BEGIN_MOD_SYM_KEY= already emits module/global/VM/PSTATE structure sizes.
+=setup_module_fixup= checks those sizes before performing fixups. The measured
+parent/new VM and PSTATE sizes differ, so an old parent module is rejected by
+that existing boundary. No parallel ABI-version service is added. Equal-size
+layout changes still need stronger generated ABI manifests and exact cohort
+identity; size checks alone are not a universal layout proof.
+
+** What is retired, and what is not
+Removed physical fields: PSTATE's GVM roots/stack/heap pointers and =mem=;
+context memory's collector FIFO, cursor, copy-chunk bounds and weak-discovery
+fields. Removed behavior: three private root visitors, GC peer-queue access
+through another PSTATE's memory, mutable-carrier-count GC partitioning and the
+processor-local-only capacity outcome. Public Scheme semantics, multi-shot
+continuations, tail calls and public C access macros remain capabilities.
+The native structure ABI changes and requires complete dependent regeneration.
+
+The current carrier assignment remains synchronous and one-to-one. Old PSTATE
+slots were already VM-embedded: this source change does not extend the lifetime
+of their backing allocation. The native clear-carrier control checks storage
+isolation, not a legal thread-death or cleanup scenario. =cleanup_pstate= still
+reaches context-resource cleanup; independent context retirement is not yet
+implemented. Allocator/actlog borrows still require a live admitted carrier. Existing resize/OS join, old-handler, native callback,
+release-function and shutdown protocols are not replaced by this source cut.
+VM-owned bytes do not themselves establish root freeze, last-user reclamation,
+join recovery, whole-source safety or progress. Those larger obligations remain
+explicitly open, not reclassified as successful repair or architecture adoption.
+
+* Conditional proof and counterexamples
+:PROPERTIES:
+:CUSTOM_ID: runtime-role-proof
+:END:
+[[file:models/quint/runtime_roles.qnt][QNT]] models two participants and the sequence freeze, collective publication,
+root visitation, strong/weak/cleanup completion, public result, local consumption,
+context preparation and final acknowledgement. It abstracts completed private
+copy work and existing barrier semantics as premises. It does not implement a
+forwarding, queue-termination or C weak-memory proof. Positive success/overflow
+histories and sampled traces are separate from exhaustive model checking.
+Four negative steps preserve premature close, wrong root origin, early resume
+and a public result overwritten after only one consumer.
+
+[[file:models/lean/RuntimeRoles.lean][Lean]] proves six universal laws: empty coverage, freeze preservation,
+scanning only frozen origins, origin-set extension, local result delivery and
+final-ack implication. These do not certify pointer validity or native barriers.
+The source refinement must bind: context field writes before FROZEN; the actual
+collective release/acquire cut; exact generated frame/root coverage; completed
+private strong/weak work; callback exclusion; preparation before acknowledgement;
+and a local scalar result read before shared storage can be reused.
+
+The [[file:../../../evidence/research/modern-c-runtime-roles/verification.json][verification receipt]] binds actual source, configuration projection, native
+controls, formal scopes, source failures and the remaining frontier. ASCENT must
+reject stale artifact digests, wrong scopes and a native receipt forged as the
+whole Lean/source obligation. Policy-complete scenarios are synthetic DSL
+controls, not invented native qualification.
+
+* Measured representation cost and benefit conditions
+:PROPERTIES:
+:CUSTOM_ID: runtime-role-cost
+:EVIDENCE_CLASS: matched-header-representation; not-performance
+:END:
+On the same retained 64-bit Bazel configuration with 64 configured slots:
+
+| Representation | Parent bytes | New bytes | Meaning |
+|---+---+---+---|
+| PSTATE | 1224 | 640 | Payload moved; this is not a total-memory saving |
+| VM | 79528 | 82608 | +3080 bytes including all moved storage and alignment |
+| Execution context | — | 512 | One new physical owner; payload was previously in PSTATE |
+| Collector worker | — | 104 | Includes moved queue/cursor fields and borrowed bindings |
+| GC participant | — | 16 | Root origin and enforced phase |
+
+The net VM increase is =48*64+8= bytes on this configuration. Do not multiply
+only active workers while ignoring the configured arrays. Other word widths,
+feature sets and alignment must be measured independently. The new path adds
+root-access indirection, phase checks and one final collective barrier per GC.
+It adds no nursery, remembered set or new per-Scheme-object field.
+
+Immediate benefit is a retired representation/consumer coupling and one shared
+capacity outcome, not fewer live-word scans. Net runtime benefit is still open:
+future avoided duplicate orchestration, improved placement or independent work
+must exceed added indirection, synchronization, metadata and retention. Carrier
+size reduction alone, faster compilation of one C file or finite safety cannot
+supply that inequality.
+
+* Validation boundaries and retained failures
+Bazel profile bytes remain the existing typed snapshot. Its SMP/multiple-VM and
+multiple-threaded-VM goal flags, C O1 and RTS O3 are retained. The check borrows
+only stable config/status/header inputs read-only and projects the new header;
+it never edits a repair producer or imports its runtime. Six canonical C units
+compile to objects with the recorded GNU RTS flags. This is not a linked or
+source-generated runtime cohort. Storage/public-accessor, removed-field and
+306 frame bitmap controls are narrower native observations.
+
+The original host PATH selected a linker that failed to resolve libc; it is
+retained. The controlled compiler run binds Apple tool lookup through PATH
+without changing optimization/profile flags. An independent Clang sanitizer
+control needs C23 because the GNU-configured header selected =thread_local=;
+its initial default-language rejection is retained. It is not a profile change.
+The multiple-VM GC-debug syntax check still exposes the same two errors in the
+matched parent and candidate; no debug-profile pass is claimed.
+
+The registered SMP evidence remains =8/12= across its own historical producers.
+Join-error recovery, raw handler quiescence, GC/FFI inventory, downstream Gerbil
+faults and release performance are not inherited. The numeric C-phase timeout
+also remains a build-architecture constraint; the new role storage does not
+explain or solve it. No unchanged failed full-suite or bootstrap route is rerun.
+
+#+NAME: runtime-role-model
+#+INCLUDE: "models/sysml/runtime-role-realization.sysml" src sysml
+#+NAME: runtime-role-flow
+#+INCLUDE: "diagrams/runtime-role-realization.d2" src d2

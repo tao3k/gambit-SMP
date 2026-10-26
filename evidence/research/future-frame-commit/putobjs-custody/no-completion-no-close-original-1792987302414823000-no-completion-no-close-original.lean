@@ -1,0 +1,7 @@
+import PutObjsCustody
+open PutObjsCustodyAst
+def witness : State := trimLocalNext (admitOwnerNext (initial))
+example : admitOwnerGuard (initial) := by simp [admitOwnerGuard,initial]
+example : trimLocalGuard (admitOwnerNext (initial)) := by simp [trimLocalGuard,initial,admitOwnerNext]
+example : Safe witness := by simp [Safe,witness,initial,admitOwnerNext,trimLocalNext,takePublishedBatchGuard,admitOwnerGuard,chooseEmptyGuard,chooseNonemptyGuard,trimLocalGuard,loadLocalHeadGuard,assignLastGuard,advanceCursorGuard,loopAgainGuard,cutLocalGuard,lockKnownGuard,lockUnknownGuard,linkOldTailGuard,publishSharedHeadGuard,updateEmptySharedTailGuard,keepSharedTailGuard,addSharedCountGuard,unlockKnownGuard,unlockUnknownGuard,fixLocalLastGuard,publishReceiptGuard,escapeGuard,loseReceiptAckGuard,acceptReceiptGuard,closeAdmissionGuard,readersDetachedGuard,attestFinalizationGuard,reuseAddressGuard]
+example : ¬ (closeAdmissionGuard witness) := by simp [Safe,witness,initial,admitOwnerNext,trimLocalNext,takePublishedBatchGuard,admitOwnerGuard,chooseEmptyGuard,chooseNonemptyGuard,trimLocalGuard,loadLocalHeadGuard,assignLastGuard,advanceCursorGuard,loopAgainGuard,cutLocalGuard,lockKnownGuard,lockUnknownGuard,linkOldTailGuard,publishSharedHeadGuard,updateEmptySharedTailGuard,keepSharedTailGuard,addSharedCountGuard,unlockKnownGuard,unlockUnknownGuard,fixLocalLastGuard,publishReceiptGuard,escapeGuard,loseReceiptAckGuard,acceptReceiptGuard,closeAdmissionGuard,readersDetachedGuard,attestFinalizationGuard,reuseAddressGuard]

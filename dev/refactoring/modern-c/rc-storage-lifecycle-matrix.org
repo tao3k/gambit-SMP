@@ -1,0 +1,173 @@
+#+TITLE: RC Allocation and Storage Index — Benefits, Costs and Closure
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: storage-index-matrix
+:AUTHORITY: GambitRcStorageLifecycle
+:END:
+Rows below are evaluated from SysML. Formal routes locate proposed replacements; they do not assert existing native implementation.
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| failed-allocation | preserve existing NULL to zero registrations; add checked overflow rejection, not a new NULL fast path | checked add and stable attempt slot; O(n) reference overlap check versus current O(1) context append | ordinary synchronous path can add work; required lifecycle safety and actual retry frequency must justify it; unknown delivery is not NULL |
+| private-abort | avoid invalid linked release of unregistered header | separate private abort and foreign effect permit | new path replaces responsibility; no current in-tree misuse claimed |
+| retry | one physical allocation and one publish for repeated same-operation delivery | result records query handling and retained candidate storage | r requests imply one effect plus r-1 queries only with stable issuer and same request |
+| root-and-storage | one VM-owned canonical storage/root authority across processor exit | VM root enumeration descriptor pins and source handoff | only if generic scan coverage replaces context-only ownership; no scan-byte reduction proved |
+| native-release | exact once reference settlement without premature physical free | close admission drain native leases effect completion and scan grace | zero RC count is insufficient; all raw callers migrate or remain excluded |
+| address-reuse | reject old token without dereferencing freed header | generation-bearing handle or externally proved lifetime confinement | pointer-only ABI cannot supply this property by internal lookup |
+| cleanup | retain unknown publication instead of unconditional bulk free | u unresolved allocations and associated root/backing records remain live | capacity backpressure required; no eventual resolution or bounded u proved |
+| modern-C-versus-Zig | one shared C23 contract and generated ABI schema | both languages still maintain provenance GC bridge token ledger and foreign cleanup | no additional Zig return demonstrated by this component |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| allocation | preallocate stable attempt metadata before allocator call | record returned native base in a nonabandonable owner interval | no Scheme callback or moving allocation inside index lock; native return-to-record gap remains unproved | one control record; allocator call outside lock |
+| register | revalidate allocator provenance and reserve occupied extent under owner transaction | publish root descriptor and immutable result together; acquire only with lifetime pin | source/private roots precede Scheme allocation; old void ABI has no unknown outcome representation | short serialized reserve and publish mutations |
+| release | exact generation OperationId and LeaseId settle under same owner | closed admission excludes future retains; accepted native references still accounted | reference count itself neither lifetime pin nor completion receipt | exact result ledger; no blind duplicate decrement |
+| free | withdraw root-use view but retain physical extent; scan/code/native grace then free | stable owner records free completion or quarantines unknown effect | never free twice after lost acknowledgement; free-return-to-record window requires completion guard proof | retained poisoned identity on unknown outcome |
+| cleanup | VM owner accepts roots backing descriptor and unresolved results before context disappears | cleanup can reclaim only receipt-authorized nodes; walk saves next before free | mixed legacy-managed chain needs separate ownership traversal; do not reset head then consult unknown nodes | VM arena census and result-aware drain |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| extent | allocator attempt owner | alloc_rc_no_register plus alloc_mem | native allocation exists; StorageId issuer absent | Record checked total bytes and original header base before exposing payload |
+| reservation | unified storage index owner | register_rc context list insertion | proposed managed owner; not present | Atomic exclusive reservation and exact OperationId result |
+| root | VM RootRegistry and round owner | mark_rc context chain and root origin barrier | VM generic scan adapter absent | Pin each distinct root cell and retain descriptor through scan grace |
+| release | exact native lease owner | addref_rc release_rc and string list wrappers | plain counter/list helpers exist; exact token ledger absent | Distinguish caller reference release from physical free permit |
+| cleanup | VM storage and foreign effect owners | cleanup_rc and TLS destructor | bulk free and foreign destruction are separate; no global receipt | Retain unknown outcomes and transfer roots/backing before context exit |
+| reuse | allocator incarnation owner | malloc may reuse freed address; public pointer APIs | no expected generation in old raw API | No admission based on address lookup alone; refuse untracked stale raw aliases |
+| ABI | C23 profile and API schema owner | register_rc void body versus void pointer declarations | effective ABI not qualified | Resolve signature and exported callers before managed migration |
+
+** Need
+
+| key | kind | path | scope | owner.componentId |
+|---+---+---+---+---|
+| RC-formal | formal | dev/refactoring/modern-c/models/quint/rc_storage_lifecycle.qnt | one allocation cohort; two generations and exact fixed extra lease; safety only | storage |
+| RC-bridge | bridge | dev/refactoring/modern-c/models/lean/RcStorage.lean | restricted typed IR; all actions and reachable-state induction; trusted projection | storage |
+| RC-storage | native | vendor/gambit/lib/_mem/rc-allocation.inc | allocator identity extent and pre-index allocation custody; no stable signer implemented | storage |
+| RC-roots | native | vendor/gambit/lib/_mem/rc-roots.inc | every-GC VM registry coverage and source-before-allocation protection unproved | storage |
+| RC-writers | native | vendor/gambit/lib/setup.c | exported allocation registration setter retain release and raw caller closure incomplete | storage |
+| RC-platform | native | vendor/gambit/include/_gambit/runtime_protocols.h.in | C23 checked arithmetic atomic/mutex effective Darwin ABI including register return type open | storage |
+| RC-lifetime | native | vendor/gambit/lib/_mem/memory-lifecycle.inc | unknown outcomes retained beyond processor lifetime; real free and foreign effects signers incomplete | storage |
+| RC-execution | native | vendor/gambit/examples/tcltk/tcltk.scm | native callbacks continuations exceptions and stable guard product open | storage |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| storage | rc_storage_lifecycle.begin | RcStorage.beginPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.beginZero | RcStorage.beginZeroPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.beginTooLarge | RcStorage.beginTooLargePreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.ticketFailure | RcStorage.ticketFailurePreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.checkSize | RcStorage.checkSizePreserves | rc-allocation | RC-platform |
+| storage | rc_storage_lifecycle.rejectSize | RcStorage.rejectSizePreserves | rc-allocation | RC-platform |
+| storage | rc_storage_lifecycle.allocNull | RcStorage.allocNullPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.allocSuccess | RcStorage.allocSuccessPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.saveKey | RcStorage.saveKeyPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.reserveIndex | RcStorage.reserveIndexPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.prepareRoot | RcStorage.prepareRootPreserves | rc-scan | RC-roots |
+| storage | rc_storage_lifecycle.publish | RcStorage.publishPreserves | rc-register | RC-execution |
+| storage | rc_storage_lifecycle.queryCommit | RcStorage.queryCommitPreserves | rc-register | RC-execution |
+| storage | rc_storage_lifecycle.releaseSource | RcStorage.releaseSourcePreserves | rc-scan | RC-roots |
+| storage | rc_storage_lifecycle.retainExtra | RcStorage.retainExtraPreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.releaseExtra | RcStorage.releaseExtraPreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.releaseBase | RcStorage.releaseBasePreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.borrow | RcStorage.borrowPreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.returnBorrow | RcStorage.returnBorrowPreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.nativePin | RcStorage.nativePinPreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.nativeReturn | RcStorage.nativeReturnPreserves | retain-counter | RC-writers |
+| storage | rc_storage_lifecycle.scan | RcStorage.scanPreserves | rc-scan | RC-roots |
+| storage | rc_storage_lifecycle.finishScan | RcStorage.finishScanPreserves | rc-scan | RC-roots |
+| storage | rc_storage_lifecycle.closeEntry | RcStorage.closeEntryPreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.requestCleanup | RcStorage.requestCleanupPreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.handoffVM | RcStorage.handoffVMPreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.exitContext | RcStorage.exitContextPreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.settleEffects | RcStorage.settleEffectsPreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.abortPrivate | RcStorage.abortPrivatePreserves | alloc-wrapper | RC-storage |
+| storage | rc_storage_lifecycle.unpublish | RcStorage.unpublishPreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.scanGrace | RcStorage.scanGracePreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.startFree | RcStorage.startFreePreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.finishFree | RcStorage.finishFreePreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.loseFreeOutcome | RcStorage.loseFreeOutcomePreserves | rc-cleanup | RC-lifetime |
+| storage | rc_storage_lifecycle.reuseAddress | RcStorage.reuseAddressPreserves | allocator-malloc | RC-storage |
+| storage | rc_storage_lifecycle.queryOld | RcStorage.queryOldPreserves | rc-register | RC-execution |
+| storage | rc_storage_lifecycle.rejectOldRelease | RcStorage.rejectOldReleasePreserves | retain-counter | RC-writers |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| checkedTotal | RcStorageBoundary.checkedTotal |
+| zeroPayloadStillOwnsHeader | RcStorageBoundary.zeroPayloadStillOwnsHeader |
+| staleKeyNotCurrent | RcStorageBoundary.staleKeyNotCurrent |
+| addressOnlyCannotSeparate | RcStorageBoundary.addressOnlyCannotSeparate |
+| metadataDoesNotFixMissingExpectedIdentity | RcStorageBoundary.metadataDoesNotFixMissingExpectedIdentity |
+| unregisteredNeedsPrivateAbort | RcStorageBoundary.unregisteredNeedsPrivateAbort |
+| countZeroAloneInsufficient | RcStorageBoundary.countZeroAloneInsufficient |
+| unknownOutcomeCannotFree | RcStorageBoundary.unknownOutcomeCannotFree |
+| unknownNativeBorrowCannotFree | RcStorageBoundary.unknownNativeBorrowCannotFree |
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Raw data_rc copy before generated entry; no explicit lease here |
+| tcl-delete-native | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (___CAST(void*,client_data)); | Delete adapter must close admission and defer physical release while leased |
+| tcl-install | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Tcl caller initializes payload before command publication; raw setter remains public |
+| rc-register | vendor/gambit/lib/_mem/rc-allocation.inc | tail->next = h; | Plain list insertion requires owner and collector exclusion |
+| rc-free | vendor/gambit/lib/_mem/rc-allocation.inc | if (--h->refcount == 0) | Nonatomic decrement and unlink are not safe arbitrary-thread admission |
+| rc-write | vendor/gambit/lib/_mem/rc-allocation.inc | h->data = val; | All semantic writers must join freeze/generation protocol or deny admission |
+| rc-cleanup | vendor/gambit/lib/_mem/rc-allocation.inc | ___HIDDEN void cleanup_rc | Bulk cleanup frees chain independent of per-entry leases |
+| rc-scan | vendor/gambit/lib/_mem/rc-roots.inc | mark_array (work, &h->data, 1); | Actual GC slot update; target private carrier is not implicitly scanned |
+| retire-refuse | vendor/gambit/lib/_mem/capacity-resize.inc | return 0; /* no freeze receipt for external RC/native borrowers */ | Current processor retirement refuses nonempty RC rather than manufacturing a lease |
+| pstate-cleanup | vendor/gambit/lib/_mem/memory-lifecycle.inc | free_still_objs (___ps); | cleanup_mem_pstate frees still storage before cleanup_rc; not an active-lease release helper |
+| setter-export | vendor/gambit/lib/setup.c | = ___set_data_rc; | Public GSTATE function pointer permits indirect/out-of-tree callers; lexical sites do not close writer authority |
+| register-export | vendor/gambit/lib/setup.c | = ___register_rc; | Public registration ABI is not a stable VM SourceOwner registry |
+| closure-writer | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Concrete semantic payload installer, architecture conditional |
+| view-drain | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | Root view grace cut precedes ordinary execution |
+| vm-root-retained | vendor/gambit/lib/setup.c | return; /* do not erase retained source roots through repeated setup */ | Whole VM cleanup checks resize source requests; generic SourceRegistry not covered |
+| header-config | vendor/gambit/include/makefile.in | HEADER_CONFIG = | Ordered configured header composition; generated artifact provenance open |
+| mem-order | vendor/gambit/lib/mem.c | #include "_mem/rc-allocation.inc" | Bind new implementation inclusion path/order |
+| rc-layout | vendor/gambit/include/_gambit/memory_state.h.in | typedef struct ___rc_header_struct | Links/refcount/data do not contain VM storage identity or extent |
+| rc-allocation | vendor/gambit/lib/_mem/rc-allocation.inc | ___ALLOC_MEM(bytes + sizeof (___rc_header)) | Allocation lacks durable identity and checked-extent receipt |
+| rc-address | vendor/gambit/lib/_mem/rc-allocation.inc | return ___CAST(void*,h+1); | Native payload address is not root-cell address |
+| allocator-export | vendor/gambit/lib/setup.c | = ___alloc_rc_no_register; | Indirect allocation authority remains public |
+| public-register | vendor/gambit/include/_gambit/runtime_protocols.h.in | ___IMP_FUNC(void*,___register_rc) | Public declaration and implementation spelling require effective ABI qualification |
+| tcl-allocation | vendor/gambit/examples/tcltk/tcltk.scm | void *cd = ___EXT(___alloc_rc) (0); | Zero payload allocation still owns a root-bearing header |
+| string-resource | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(void,___release_string) | Native strings share RC allocator; classify Scheme payload separately |
+| alloc-default | vendor/gambit/lib/_mem/rc-allocation.inc | h->data = ___FAL; | Private native storage initially contains no Scheme payload; list links are not initialized here |
+| alloc-wrapper | vendor/gambit/lib/_mem/rc-allocation.inc | if (ptr != 0) ___register_rc (___PSP ptr); | Synchronous local NULL return excludes registration in this wrapper |
+| release-links | vendor/gambit/lib/_mem/rc-allocation.inc | next->prev = prev; | Ordinary release requires an already linked header; cannot abort never-registered allocation |
+| retain-counter | vendor/gambit/lib/_mem/rc-allocation.inc | h->refcount++; | Public retain must join native-borrow admission and exact release identity |
+| cleanup-head | vendor/gambit/lib/_mem/rc-allocation.inc | rc_head.next = &rc_head; | Bulk detach is not a result-aware transaction or destructor walk |
+| allocator-malloc | vendor/gambit/lib/os_base.c | ptr = malloc (bytes); | Default branch calls allocator; effective Darwin selection still must be qualified |
+| allocator-free | vendor/gambit/lib/os_base.c | free (ptr); | Physical free is a distinct irreversible effect after unpublish and grace |
+| allocator-macro | vendor/gambit/include/_gambit/runtime_protocols.h.in | #define ___ALLOC_MEM(bytes)___EXT(___alloc_mem) (bytes) | Exported allocation arithmetic reaches native allocator |
+| register-function-table | vendor/gambit/include/_gambit/global_state.h.in | void *(*___register_rc) | Declaration returns pointer while implementation returns void; ABI reconciliation prerequisite |
+| closure-install | vendor/gambit/lib/os_dyn.c | C_CLOSURE_CODE_SIZE)) | Architecture-conditional allocation and installation; code publication separate from root publication |
+| closure-release | vendor/gambit/lib/os_dyn.c | ___release_rc (c_closure); | Native trampoline and code borrow lifetime must join free permit |
+| string-last-ref | vendor/gambit/lib/c_intf.c | if (___refcount_rc (x) == 1) | Nested string list release traverses elements before parent release; pure header cleanup cannot replace it |
+| tls-destructor | vendor/gambit/lib/os_io.c | SSL_CTX_free (c->tls_ctx); | Native destructor effects precede RC free; context chain cleanup does not run this destructor |
+| tls-rc-release | vendor/gambit/lib/os_io.c | ___release_rc(c); | Real resource adapter must issue effect completion only after child releases and native destructor settle |
+| tcl-vector-fail | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (cd); | Caller failure rollback is linked because alloc_rc already registered cd |
+| vm-cleanup-scope | vendor/gambit/lib/_mem/memory-lifecycle.inc | /*TODO: other processors?*/ | VM cleanup text names processor zero; not a complete VM-owned registry drain proof |
+
+** Closure observation
+
+| Obligation | Status |
+|---+---|
+| RC-formal | scoped conditional formal receipt |
+| RC-bridge | scoped conditional formal receipt |
+| RC-storage | unresolved native integration |
+| RC-roots | unresolved native integration |
+| RC-writers | unresolved native integration |
+| RC-platform | unresolved native integration |
+| RC-lifetime | unresolved native integration |
+| RC-execution | unresolved native integration |

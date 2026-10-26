@@ -1,0 +1,415 @@
+{
+  "route": [
+    {
+      "key": "data-rc-load",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "return h->data;",
+      "obligation": "RC data load returns a plain value; owning root and source borrow are separate"
+    },
+    {
+      "key": "rc-payload-scan",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, &h->data, 1);",
+      "obligation": "Current collector updates RC data slot through the frozen execution context"
+    },
+    {
+      "key": "frozen-context-roots",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "require_gc_phase (participant, ___GC_ROOTS_FROZEN);",
+      "obligation": "Root publication must join the collector membership/freeze cut"
+    },
+    {
+      "key": "context-rc-all-participants",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_rc (work, context);",
+      "obligation": "Current checkout scans RC in each execution root context; do not inherit processor-zero-only claim"
+    },
+    {
+      "key": "tcl-still-source",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "counted object that contains a ___STILL Scheme vector",
+      "obligation": "Vector address is stable; contained procedure may move and root lifetime still needs a lease"
+    },
+    {
+      "key": "tcl-read-entry",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "char *result = tcltk_call (___EXT(___data_rc)",
+      "obligation": "Borrow native header before root handshake and load protected payload under collector coordination"
+    },
+    {
+      "key": "tcl-delete-release",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___EXT(___release_scmobj) (___EXT(___data_rc)",
+      "obligation": "Deletion must defer root/header reclamation until nested borrows drain"
+    },
+    {
+      "key": "run-processor-caller",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "___err = ___run (___PSP thunk);",
+      "obligation": "Direct run helper receives a value; replace with owned carrier or qualified protected handoff"
+    },
+    {
+      "key": "thread-thunk-source",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "___SCMOBJ thunk = self->data_scmobj;",
+      "obligation": "Thread payload copy precedes sync participation; no independent thread field scan proved"
+    },
+    {
+      "key": "bootstrap-thunk-source",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "___MODULE_DESCR_THUNK));",
+      "obligation": "Bootstrap thunk comes from program descriptors; exact freeze and root lease still need qualification"
+    },
+    {
+      "key": "still-root-release",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "___EXP_FUNC(___SCMOBJ,___release_scmobj)",
+      "obligation": "Still refcount decrement is distinct from retiring a root view or freeing RC header"
+    },
+    {
+      "key": "retained-result-code",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___CAST(Tcl_FreeProc*,___EXT(___release_string))",
+      "obligation": "Result destructor code lease can outlive RC header independently"
+    }
+  ],
+  "contract": [
+    {
+      "key": "source-carrier",
+      "owner": "foreign/roots",
+      "accountable.moduleId": "foreign",
+      "counterpart.moduleId": "roots",
+      "actionName": "beginCut readSource",
+      "invariant": "Source native and Scheme lifetimes remain protected before any value load",
+      "gap": "Raw SCMOBJ and VM storage borrow alone do not prove root freshness"
+    },
+    {
+      "key": "target-root-publication",
+      "owner": "roots/collector",
+      "accountable.moduleId": "roots",
+      "counterpart.moduleId": "collector",
+      "actionName": "registerTarget publishTarget",
+      "invariant": "Initialize target from current source under collector cut then make scanner visible",
+      "gap": "Root adapter must join context freeze and future GC membership; distinct writable slots or one canonical scanner"
+    },
+    {
+      "key": "overlap-custody",
+      "owner": "release/roots",
+      "accountable.moduleId": "release",
+      "counterpart.moduleId": "roots",
+      "actionName": "publishUnknown queryReceipt releaseSource",
+      "invariant": "Release source registration only after exact target receipt; unknown retains source",
+      "gap": "Source registration release is not a still decrement RC free or code unload"
+    },
+    {
+      "key": "nested-native-lifetime",
+      "owner": "foreign/control",
+      "accountable.moduleId": "foreign",
+      "counterpart.moduleId": "control",
+      "actionName": "enterChild requestDelete leaveChild dropRoot",
+      "invariant": "Parent exit and deletion do not clear child native borrow or Scheme root",
+      "gap": "Real nested Tcl behavior and late callback closure require owner-side evidence"
+    },
+    {
+      "key": "run-source-family",
+      "owner": "execution/roots",
+      "accountable.moduleId": "execution",
+      "counterpart.moduleId": "roots",
+      "actionName": "readSource registerTarget",
+      "invariant": "Bootstrap descriptors thread data and caller handles keep source identity through all safepoints",
+      "gap": "Complete public run callers and thread data alias scan closure remain open"
+    },
+    {
+      "key": "evidence-publication",
+      "owner": "build/semantic",
+      "accountable.moduleId": "build",
+      "counterpart.moduleId": "semantic",
+      "actionName": "registerTarget publishTarget releaseSource",
+      "invariant": "Actual guard/update meaning and source-bound endorsements need exact identity",
+      "gap": "C11 extraction and all-action simulation remain unproved"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "handoff-coverage",
+      "status": "bounded-checked",
+      "scope": "One source target and bounded GC validity stamps; successful and unknown publication",
+      "counterexample": "Source-first release and stale target after collection lose admitted coverage"
+    },
+    {
+      "key": "nested-custody",
+      "status": "bounded-checked",
+      "scope": "One parent child deletion unknown exit and independent result destructor",
+      "counterexample": "Parent return or delete notification cannot release child lifetime"
+    },
+    {
+      "key": "release-coverage",
+      "status": "conditional-proved",
+      "scope": "Source release guard preserves target root coverage; stale values reject registration",
+      "counterexample": "Assumes collector cut and authentic target receipt"
+    },
+    {
+      "key": "c11-order",
+      "status": "conditional-proved",
+      "scope": "Publication observation precedes source release given HB embedding",
+      "counterexample": "No C11 memory-model execution or effective backend proof"
+    },
+    {
+      "key": "actual-expressions",
+      "status": "conditional-proved",
+      "scope": "Actual registerTarget publishTarget releaseSource expressions",
+      "counterexample": "Restricted JSON projector remains trusted"
+    },
+    {
+      "key": "source-bridge",
+      "status": "open",
+      "scope": "Root adapter freeze integration source carrier users and actual exception closure",
+      "counterexample": "Current context RC scan does not prove arbitrary external raw values are rooted"
+    },
+    {
+      "key": "json-domain",
+      "status": "partially-proved",
+      "scope": "91-row checked finite environment and strict projection controls",
+      "counterexample": "Full parser/extractor and source correspondence remain open"
+    }
+  ],
+  "gain": [
+    {
+      "key": "overlap-registration",
+      "avoided": "Redundant retained source registration after known successful target handoff",
+      "added": "One source/target overlap per entry and exact receipt/query on unknown result",
+      "condition": "Target scan coverage and identity proven before source registration release"
+    },
+    {
+      "key": "existing-context-scan",
+      "avoided": "A parallel duplicate RC scanner is unnecessary if current participant adapter qualifies",
+      "added": "Integrate RootBundle membership with frozen execution roots and future round roster",
+      "condition": "Current source includes per-context RC scan but no native carrier API is established"
+    },
+    {
+      "key": "still-vector-reuse",
+      "avoided": "Copying Tcl still vectors solely to stabilize their address",
+      "added": "Native borrow root lifetime and synchronized procedure-field reads still required",
+      "condition": "Still identity already stable; do not invent relocation or remove moving-field scan"
+    },
+    {
+      "key": "independent-result",
+      "avoided": "Retaining RC/Scheme root solely for an independent native string result",
+      "added": "Separate destructor code lease resident decoder and result delivery record",
+      "condition": "No Scheme alias in result; retain actual destructor provider until its last use"
+    },
+    {
+      "key": "modern-c-service",
+      "avoided": "Second-language implementation is unnecessary for carrier registration protocol",
+      "added": "Generated entry root spec resident lease/custody and qualified collector cut",
+      "condition": "Zig does not eliminate source validity nested borrow or GC handshake obligations"
+    }
+  ],
+  "binding": [
+    {
+      "key": "guard",
+      "qntAction": "registerTarget",
+      "leanLemma": "staleLocalRejects",
+      "refinement": "Actual selected action meaning checked with source and C11 premises open",
+      "guardLemma": "registerTargetGuardMeaning",
+      "updateLemma": "registerTargetNextMeaning"
+    },
+    {
+      "key": "roots",
+      "qntAction": "publishTarget",
+      "leanLemma": "noCutRejectsPublish",
+      "refinement": "Actual selected action meaning checked with source and C11 premises open",
+      "guardLemma": "publishTargetGuardMeaning",
+      "updateLemma": "publishTargetNextMeaning"
+    },
+    {
+      "key": "release",
+      "qntAction": "releaseSource",
+      "leanLemma": "releasePreservesCoverage",
+      "refinement": "Actual selected action meaning checked with source and C11 premises open",
+      "guardLemma": "releaseSourceGuardMeaning",
+      "updateLemma": "releaseSourceNextMeaning"
+    }
+  ],
+  "flow": [
+    {
+      "fromNode": "c0",
+      "toNode": "c1",
+      "reason": "Protected source value initializes target"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "c2",
+      "reason": "Target scan visibility precedes source release"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "c3",
+      "reason": "Source-root handoff does not settle nested native borrows"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "c0",
+      "reason": "Run source families require protected carriers"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o0",
+      "reason": "Current epoch and registered root coverage"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o2",
+      "reason": "Guard preserves target coverage"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "o1",
+      "reason": "Nested callback and destructor lifetime checks"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o3",
+      "reason": "Actual release-acquire and collector cut needed"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o4",
+      "reason": "Selected typed action meanings"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o6",
+      "reason": "Exact finite JSON reference domain"
+    },
+    {
+      "fromNode": "o4",
+      "toNode": "o5",
+      "reason": "Expression meaning is not source simulation"
+    },
+    {
+      "fromNode": "c0",
+      "toNode": "o5",
+      "reason": "Raw source identity and public caller closure"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "o5",
+      "reason": "Tcl owner and exception qualification"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "c5",
+      "reason": "Receipt identity and evidence binding"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "o5",
+      "reason": "Thread and bootstrap safepoint coverage"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o5",
+      "reason": "Current frozen participant source integration"
+    }
+  ],
+  "endorsement": [
+    {
+      "roleName": "semantic",
+      "scope": "Source-target root overlap current epoch and exact registered destination",
+      "issuer": "Execution-root and collector adapter owner",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_rc (work, context);"
+    },
+    {
+      "roleName": "foreign",
+      "scope": "All parent child native borrows and deletion effects drained",
+      "issuer": "Tcl command adapter owner",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___HIDDEN void scheme_delete_cmd"
+    },
+    {
+      "roleName": "resident",
+      "scope": "Immutable result delivery and independently retained destructor provider",
+      "issuer": "Resident result and cleanup owner",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___CAST(Tcl_FreeProc*,___EXT(___release_string))"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "IC-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/ingress_carrier_transfer.qnt",
+      "subjectScope": "Source-target overlap GC validity updates target receipts and retained source on failure"
+    },
+    "shards": {
+      "obligationId": "IC-B",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/ingress_nested_custody.qnt",
+      "subjectScope": "Parent child deletion unknown completion and independent result destructor lifetime"
+    },
+    "induction": {
+      "obligationId": "IC-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/IngressCarrierTransfer.lean",
+      "subjectScope": "Source-release coverage stale-value rejection and conditional publication order"
+    },
+    "expression": {
+      "obligationId": "IC-X",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/IngressCarrierAst.lean",
+      "subjectScope": "Actual registerTarget publishTarget releaseSource meanings and finite row domain"
+    },
+    "source": {
+      "obligationId": "IC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/ingress-carrier-transfer-design.org",
+      "subjectScope": "Current context GC source callers nested Tcl and raw run carrier closure OPEN"
+    },
+    "platform": {
+      "obligationId": "IC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/ingress-carrier-transfer-design.org",
+      "subjectScope": "C11 root freeze roster admission storage and object lifetime composition OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "IC-S",
+      "prerequisite.obligationId": "IC-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/ingress_carrier_transfer.qnt",
+      "prerequisite.subjectScope": "Source-target overlap GC validity updates target receipts and retained source on failure"
+    },
+    "1": {
+      "dependent.obligationId": "IC-S",
+      "prerequisite.obligationId": "IC-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/IngressCarrierTransfer.lean",
+      "prerequisite.subjectScope": "Source-release coverage stale-value rejection and conditional publication order"
+    },
+    "2": {
+      "dependent.obligationId": "IC-S",
+      "prerequisite.obligationId": "IC-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/ingress-carrier-transfer-design.org",
+      "prerequisite.subjectScope": "C11 root freeze roster admission storage and object lifetime composition OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "IC-S",
+      "prerequisite.obligationId": "FA-S",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/ffi-scope-root-admission-design.org",
+      "prerequisite.subjectScope": "Actual FFI converters callback deletion continuation and all processor roots OPEN"
+    },
+    "4": {
+      "dependent.obligationId": "IC-S",
+      "prerequisite.obligationId": "IC-X",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/IngressCarrierAst.lean",
+      "prerequisite.subjectScope": "Actual registerTarget publishTarget releaseSource meanings and finite row domain"
+    },
+    "5": {
+      "dependent.obligationId": "IC-S",
+      "prerequisite.obligationId": "IC-B",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/ingress_nested_custody.qnt",
+      "prerequisite.subjectScope": "Parent child deletion unknown completion and independent result destructor lifetime"
+    }
+  }
+}

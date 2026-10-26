@@ -1,0 +1,312 @@
+--- a/lib/os_io.h
++++ b/lib/os_io.h
+@@ -85,6 +85,7 @@
+     struct ___device_struct *prev; /* bidirectional list pointer to previous */
+     struct ___device_struct *next; /* bidirectional list pointer to next */
+     int direction;                 /* ___DIRECTION_RD and/or ___DIRECTION_WR */
++    ___SCMOBJ cleanup_error;       /* sticky immediate error; group retains owner */
+     int close_direction;           /* ___DIRECTION_RD and/or ___DIRECTION_WR */
+     int read_stage;                /* ___STAGE_OPEN ... ___STAGE_CLOSED */
+     int write_stage;               /* ___STAGE_OPEN ... ___STAGE_CLOSED */
+@@ -298,6 +299,9 @@
+ extern ___SCMOBJ ___device_group_setup
+    ___P((___device_group **dgroup),
+         ());
++
++extern ___SCMOBJ ___device_group_cleanup_checked
++   ___P((___device_group *dgroup),());
+ 
+ extern void ___device_group_cleanup
+    ___P((___device_group *dgroup),
+@@ -943,6 +947,7 @@
+ 
+ extern ___SCMOBJ ___setup_io_module ___PVOID;
+ 
++extern ___SCMOBJ ___cleanup_io_module_checked ___PVOID;
+ extern void ___cleanup_io_module ___PVOID;
+ 
+ 
+--- a/lib/os_io.c
++++ b/lib/os_io.c
+@@ -186,18 +186,24 @@
+ }
+ 
+ 
++___SCMOBJ ___device_group_cleanup_checked
++   ___P((___device_group *dgroup),(dgroup)
++___device_group *dgroup;)
++{
++  ___SCMOBJ e;
++  while (dgroup->list != NULL)
++    if ((e = ___device_cleanup (dgroup->list)) != ___FIX(___NO_ERR))
++      return e; /* group, failed device and untouched suffix remain owned */
++  ___FREE_MEM(dgroup);
++  return ___FIX(___NO_ERR);
++}
++
+ void ___device_group_cleanup
+-   ___P((___device_group *dgroup),
+-        (dgroup)
++   ___P((___device_group *dgroup),(dgroup)
+ ___device_group *dgroup;)
+ {
+-  while (dgroup->list != NULL)
+-    if (___device_cleanup (dgroup->list) != ___FIX(___NO_ERR))
+-      break;
+-
+-  ___FREE_MEM(dgroup);
+-}
+-
++  (void)___device_group_cleanup_checked (dgroup);
++}
+ 
+ void ___device_add_to_group
+    ___P((___device_group *dgroup,
+@@ -209,6 +215,7 @@
+ {
+   ___device *head = dgroup->list;
+ 
++  dev->cleanup_error = ___FIX(___NO_ERR);
+   dev->group = dgroup;
+ 
+   if (head == NULL)
+@@ -1687,7 +1694,15 @@
+ ___device *self;
+ int direction;)
+ {
+-  return ___device_close_virt (self, direction);
++  ___SCMOBJ e;
++  if (self->cleanup_error != ___FIX(___NO_ERR))
++    return self->cleanup_error;
++  e = ___device_close_virt (self, direction);
++  /* A close may already have consumed its descriptor before reporting error.
++     Never retry it or trust an already-CLOSED stage as proof of success. */
++  if (e != ___FIX(___NO_ERR) && e != ___ERR_CODE_EAGAIN)
++    self->cleanup_error = e;
++  return e;
+ }
+ 
+ ___HIDDEN void device_transfer_close_responsibility
+@@ -1729,8 +1744,19 @@
+ #endif
+       )
+     {
+-      e = ___device_release_virt (self);
+-      ___FREE_MEM(self);
++      e = self->cleanup_error;
++      if (e == ___FIX(___NO_ERR)) e = ___device_release_virt (self);
++      if (e == ___FIX(___NO_ERR))
++        ___FREE_MEM(self);
++      else
++        {
++          self->cleanup_error = e;
++#ifdef USE_PUMPS
++          InterlockedIncrement (&self->refcount);
++#else
++          self->refcount++;
++#endif
++        }
+     }
+ 
+   return e;
+@@ -1743,11 +1769,13 @@
+ {
+   ___SCMOBJ e;
+   ___device *devs[1];
++  ___device_group *owner = self->group;
+ 
+   if (self->group == NULL)
+     return ___FIX(___UNKNOWN_ERR);
+ 
+-  ___device_remove_from_group (self);
++  if (self->cleanup_error != ___FIX(___NO_ERR))
++    return self->cleanup_error;
+ 
+   for (;;)
+     {
+@@ -1755,12 +1783,12 @@
+       if (e == ___FIX(___NO_ERR))
+         break;
+       if (e != ___ERR_CODE_EAGAIN)
+-        return e;
++        { self->cleanup_error = e; return e; }
+ 
+       devs[0] = self;
+       e = ___device_select (devs, 1, 0, 0, ___time_mod.time_pos_infinity);
+       if (e != ___FIX(___NO_ERR))
+-        return e;
++        { self->cleanup_error = e; return e; }
+     }
+ 
+   for (;;)
+@@ -1769,15 +1797,24 @@
+       if (e == ___FIX(___NO_ERR))
+         break;
+       if (e != ___ERR_CODE_EAGAIN)
+-        return e;
++        { self->cleanup_error = e; return e; }
+ 
+       devs[0] = self;
+       e = ___device_select (devs, 0, 1, 0, ___time_mod.time_pos_infinity);
+       if (e != ___FIX(___NO_ERR))
+-        return e;
+-    }
+-
+-  return ___device_release (self);
++        { self->cleanup_error = e; return e; }
++    }
++
++  ___device_remove_from_group (self);
++  e = ___device_release (self);
++  if (e != ___FIX(___NO_ERR))
++    {
++      /* Failed release retained allocation/ref; restore group ownership but
++         preserve its sticky error (add_to_group initializes fresh devices). */
++      ___device_add_to_group (owner, self);
++      self->cleanup_error = e;
++    }
++  return e;
+ }
+ 
+ 
+@@ -12218,8 +12255,11 @@
+ }
+ 
+ 
+-___HIDDEN void io_module_cleanup ___PVOID
+-{
++___HIDDEN ___SCMOBJ io_module_cleanup ___PVOID
++{
++  ___SCMOBJ e = ___device_group_cleanup_checked (___io_mod.dgroup);
++  if (e != ___FIX(___NO_ERR)) return e;
++  ___io_mod.dgroup = NULL;
+   ___cleanup_child_interrupt_handling ();
+ 
+ #ifdef USE_WIN32
+@@ -12228,7 +12268,7 @@
+ 
+ #endif
+ 
+-  ___device_group_cleanup (___io_mod.dgroup);
++  return ___FIX(___NO_ERR);
+ }
+ 
+ 
+@@ -12259,11 +12299,12 @@
+ }
+ 
+ 
+-void ___cleanup_io_module ___PVOID
++___SCMOBJ ___cleanup_io_module_checked ___PVOID
+ {
+   if (___io_mod.setup)
+     {
+-      io_module_cleanup ();/*****************************/
++      ___SCMOBJ e = io_module_cleanup ();
++      if (e != ___FIX(___NO_ERR)) return e;
+ 
+ #ifdef USE_WIN32
+       CloseHandle (___io_mod.always_signaled); /* ignore error */
+@@ -12277,7 +12318,14 @@
+ 
+       ___io_mod.setup = 0;
+     }
+-}
+-
++  return ___FIX(___NO_ERR);
++}
++
++
++
++void ___cleanup_io_module ___PVOID
++{
++  (void)___cleanup_io_module_checked ();
++}
+ 
+ /*---------------------------------------------------------------------------*/
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -5432,6 +5432,9 @@
+ 
+   if (___vms->processor_count == 0)
+     {
++      err = ___cleanup_io_module_checked ();
++      if (err != ___FIX(___NO_ERR))
++        { cleanup_error = err; cleanup_phase = 2; return err; }
+       /* VM setup already unwound its private prefix, not this global prefix. */
+       cleanup_interrupt_resources_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms));
+ #ifndef ___SINGLE_VM
+@@ -5471,6 +5474,28 @@
+ 
+   if (__atomic_load_n (&___vms->os.wake_fault_errno, __ATOMIC_ACQUIRE) != 0)
+     fprintf (stderr, "SMP-FAULT native-grace writers=0 selectors=0 markers=0\n");
++
++  /* Preflight every native consumer before global IO ownership transfer.
++     Host VM borrows must already be quiescent; the registry is sealed. */
++#ifndef ___SINGLE_VM
++  ___MUTEX_LOCK(___GSTATE->vm_list_mut);
++  {
++    ___virtual_machine_state probe = &___GSTATE->vmstate0;
++    do {
++      if (!vm_native_consumers_clear(probe))
++        {
++          ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++          cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
++          return cleanup_error;
++        }
++      probe = probe->prev;
++    } while (probe != &___GSTATE->vmstate0);
++  }
++  ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++#endif
++  err = ___cleanup_io_module_checked ();
++  if (err != ___FIX(___NO_ERR))
++    { cleanup_error = err; cleanup_phase = 2; return err; }
+ 
+   ___cleanup_pstate (___ps);
+ 
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -3140,18 +3140,37 @@
+           #t)
+         #f)))
+ 
++(define-prim (##fault-control-callback! record item execute)
++  ;; Recovery is outside the winding guard, but still inside the mapped
++  ;; coordinator frame. No public continuation may carry this callback out.
++  (##continuation-capture
++   (lambda (recovery)
++     (let ((live? #t) (returned? #f))
++       (##dynamic-wind
++        (lambda ()
++          (if (##not live?)
++              (##error "fault callback continuation retired")))
++        (lambda ()
++          (##with-exception-catcher
++           (lambda (exc) (##vector-set! record 5 exc))
++           (lambda () (execute item)))
++          (set! returned? #t))
++        (lambda ()
++          (set! live? #f)
++          (if (##not returned?)
++              (begin
++                (##vector-set! record 5 (##vector 'fault-callback-escape item))
++                (##c-code "fprintf(stderr, \"SMP-FAULT callback-escape-contained\\n\");")
++                (##continuation-return recovery #f)))))))))
++
+ (define-prim (##fault-control-cursor! record slot execute)
+   (let loop ()
+     (let ((lst (##vector-ref record slot)))
+       (if (##pair? lst)
+           (let ((item (##car lst)))
+-            ;; Transfer the suffix before the external call; item and caught
+-            ;; error are strong roots through every nested collection.
+             (##vector-set! record slot (##cdr lst))
+             (##vector-set! record 7 item)
+-            (##with-exception-catcher
+-             (lambda (exc) (##vector-set! record 5 exc))
+-             (lambda () (execute item)))
++            (##fault-control-callback! record item execute)
+             (##vector-set! record 7 #f)
+             (loop))))))
+ 

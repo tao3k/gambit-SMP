@@ -1,0 +1,210 @@
+#+TITLE: Restore Entry and Stable Completion Guard Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRestoreEntryGuard
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| scheduler-local | vendor/gambit/lib/_thread.scm | (macro-thread-restore! | Local, stealing and non-SMP scheduling restore an existing suspended activation |
+| scheduler-pinned | vendor/gambit/lib/_thread.scm | (macro-thread-pinned stolen-thread) | Steal admission checks affinity; a guard cannot relax return-to-C affinity |
+| thread-wrapper | vendor/gambit/lib/_thread.scm | (define-prim ##thread-restore! | Rest wrapper applies procedure; not the sole generated inline entry |
+| graft-wrapper | vendor/gambit/lib/_thread.scm | (define-prim ##continuation-graft-no-winding | Direct low-level graft can bypass winding hooks |
+| return-wrapper | vendor/gambit/lib/_thread.scm | (define-prim ##continuation-return-no-winding | Direct return cannot rely on a before hook |
+| wind-before | vendor/gambit/lib/_thread.scm | ((macro-dynwind-before dst)) | Internal graft navigation invokes arbitrary user hook; keep one restore transaction |
+| wind-after | vendor/gambit/lib/_thread.scm | ((macro-dynwind-after src)) | After hook is neither last use nor exact exit witness |
+| fast-return | vendor/gambit/lib/_thread.scm | (if (or (##eq? src dst) ;; check common case (same dynamic-wind context) | Same denv fast path bypasses winding |
+| scheduler-syntax | vendor/gambit/lib/_thread#.scm | (##thread-restore! | Scheduler macro directly targets primitive |
+| emit-thread | vendor/gambit/gsc/_t-c-2.scm | (targ-emit-jump-inline "THREAD_RESTORE" safe? nb-args) | GVM emitter must carry explicit restore intent before destructive jump |
+| emit-graft | vendor/gambit/gsc/_t-c-2.scm | (targ-emit-jump-inline "CONTINUATION_GRAFT_NO_WINDING" safe? nb-args) | FrameSpec root and restore intent needed at actual emitter |
+| emit-return | vendor/gambit/gsc/_t-c-2.scm | (targ-emit-jump-inline "CONTINUATION_RETURN_NO_WINDING" safe? nb-args) | Return point metadata and private guard binding required |
+| native-thread | vendor/gambit/include/gambit.h | #define ___THREAD_RESTORE | Current thread and frame change; guard handoff precedes destructive switch |
+| native-graft | vendor/gambit/include/gambit.h | #define ___CONTINUATION_GRAFT_NO_WINDING | FP, denv and caches replaced; frame-local ticket is insufficient |
+| native-return | vendor/gambit/include/gambit.h | #define ___JUMP_CONTINUATION_RETURN_NO_WINDING2 | Arguments popped and frame replaced; preserve rooted incoming values |
+| catcher | vendor/gambit/include/gambit.h | #define ___END_TRY } ___ps->catcher = ___old_catcher; } | Outer catcher restoration is distinct from Scheme body return |
+| sfun-error | vendor/gambit/include/gambit.h | #define ___SFUN_ERROR_VOID | Conversion handler can call ___call repeatedly with the same marker |
+| sfun-exit | vendor/gambit/include/gambit.h | #define ___END_SFUN_VOID | Kill marker before propagation on shown normal macro path; exceptional census remains open |
+| call-unwind | vendor/gambit/lib/setup.c | stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2] | Mismatched unwind continues outward instead of authorizing local completion |
+| run-root | vendor/gambit/lib/setup.c | ___make_sfun_stack_marker_from_root | Managed startup distinguishes rooted thunk from legacy raw endpoint |
+| run-exit | vendor/gambit/lib/setup.c | ___kill_sfun_stack_marker (marker); | Marker invalidation and startup result publication are distinct duties |
+| root-reload | vendor/gambit/lib/c_intf.c | proc_or_false = *proc_root; /* reload after allocating the marker */ | Root slot must be registered and updated by GC before allocation |
+| legacy-root | vendor/gambit/lib/c_intf.c | Legacy raw SFUN entry is not made a registered-root interface | C local wrapper does not close roots for arbitrary native entry |
+| marker-kill | vendor/gambit/lib/c_intf.c | ___VECTORELEM(marker, 0) = ___FAL; /* invalidate the C stack frame */ | C stack liveness marker is not a completion record |
+| wrong-processor | vendor/gambit/lib/_kernel.scm | ___COVER_RETURN_TO_C_HANDLER_WRONG_PROCESSOR; | Must preserve destination processor semantics |
+| dead-c-frame | vendor/gambit/lib/_kernel.scm | ___COVER_RETURN_TO_C_HANDLER_MULTIPLE_RETURN; | Multi-shot Scheme cannot revive a dead C activation |
+| ffi-caller | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Concrete native callback obtains Scheme payload from data_rc |
+| ffi-body | vendor/gambit/examples/tcltk/tcltk.scm | (c-define (##tcltk-call vect args) | Real callback applies Scheme closure; nested reentry needs child guard |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| ticket | SessionNonce + DomainId + Generation + AttemptId | Mint outside restored graph for each new semantic invocation | Addresses or captured counters do not establish freshness |
+| guard | Full TicketId + GuardSerial + OwnerGeneration | A completion witness names its immutable guard | Never look up destination from ambient currentTicket |
+| semantic | Continuation invoke or admitted raw no-winding transfer | Fresh ticket before restoring; old activation retained until classified | Raw escape or unknown issuer denies optimization receipt |
+| navigation | Internal dynamic-wind graft transaction | Keep same ticket through before/after navigation | Hook may escape; no completion inferred |
+| scheduler | Suspended activation binding | Resume same ticket; transfer carrier under owner protocol | Processor affinity qualification remains separate |
+| foreign | HostEntryId plus optional child TicketId | Nested callback new child; conversion retries retain host identity | Every ___call is not automatically a new SFUN invocation |
+| transport | OperationId plus immutable TicketId and payload binding | Lost reply queries exact record | Same arguments do not identify a fresh execution |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| semantic-entry | Native restore admission owner | no-winding inline emitters and macros identified | Required refactoring; not implemented | Register guard and roots before destructive transfer |
+| intent | Scheme/GVM semantic classifier | Scheduler macros and internal wind grafts share low-level primitives | Caller census incomplete | Distinguish fresh invoke, navigation, scheduling and foreign entry |
+| scheduler | Execution-context owner | Local and stealing scheduler invoke thread-restore | Existing restore located; guard transfer absent | Keep same ticket and roots; obey C affinity |
+| foreign | Stable host entry owner | Tcl callback and SFUN error loop located | Generic managed entry still open | Register child before allocating marker; preserve parent binding |
+| exit | Stable outer completion guard | ___call unwinds and ___run kills marker; catcher macro restores | No trusted keyed guard signer found | Classify exit and restore outer binding before witness |
+| settlement | Per-ticket ledger owner | No new native ledger implemented | Conditional algebra only | Commit exact outcome before ack; query immutable target |
+| roots | VM RootRegistry and context scan owner | Rooted startup helper reloads slot after marker allocation | All callbacks and GVM maps unqualified | Keep rooted payload/result through error and unknown exit |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| same-id | Separate semantic intent from physical jump | Trusted caller classification | No ticket per scheduler hop or winding graft | All raw entry producers remain to be qualified |
+| old-receipt | Immutable full GuardId dispatch | Guard equality and surviving owner record | Old receipt does not modify new guard | Native key allocator and generation overflow open |
+| exit-order | Body return then outer restore then marker close then witness | Real outer catch and root coverage | No early settlement from Scheme return | Native exception and profile refinement open |
+| unknown | Retain old guard and roots across cross restore | No invented absence receipt | New execution cannot erase unclassified old custody | Liveness and bounded retained-memory guarantee open |
+| generic | Arbitrary-key Lean guard map | Faithful full-key equality and trusted witness | Wrong owner, serial or ticket retained; ambient cannot retarget | Finite QNT to arbitrary nested native product not proved |
+| normalization | Use completed capability retirement as admission premise | All metadata writers and late callbacks closed | Second normalization potentially removable | This study retires zero native paths |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| reserve | Owner serializes full key and reserved guard before exposure | Restore gateway sees reserved record | Allocation failure before admission has no runnable ticket | One record per semantic or host entry |
+| roots | RootRegistry publishes live scanned slots before possible GC | Marker allocator reloads rooted incoming values | Release only after scanner and executor handoff acknowledged | Root carrier plus scan lease |
+| switch | Admission joins source and destination owner under stable guard | FP/denv/current-thread switch consumes intent token | No locks across hooks, Scheme, FFI or GC | Short handoff; source guard remains owned on unknown |
+| exit | Outer owner records catcher and parent-binding restoration plus marker status | Exact GuardId witness | Result remains rooted until terminal ownership transfers | One completion transition per logical entry |
+| commit | One owner transaction publishes terminal outcome before acknowledgement | Pinned record queried by immutable key | C23 ordering is not GC rooting or crash durability | Mutex or qualified atomics; avoid unnecessary global CAS |
+| reclaim | Close admission and drain accepted readers and executors | Generation-safe tombstone or non-replay response | No generation wrap or address reuse while stale receipts survive | Retained tombstones and unknown roots require capacity policy |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| navigation | h tickets and ledger entries for h internal grafts | h intent checks; zero fresh tickets | One known restore transaction; user callback new entry classified separately |
+| scheduler | s fresh ticket allocations for s scheduler resumes | s carrier handoffs; zero fresh tickets | Suspended activation ownership and affinity proven |
+| retry | r executions and side effects for r lost replies | r keyed reads; retained outcome | Single surviving ledger; no crash exactly-once claim |
+| foreign | Unsafe early root release and parent mis-settlement | One child guard per logical callback plus outer cleanup | All entry roots and exceptions qualified |
+| shared-support | Duplicate per-component root and outcome custody mechanisms | Shared registry ABI and scanner integration once | Do not count reused support as new implementation savings twice |
+| second-pass | At most one resource normalization traversal | Intent, guard, root and capability accounting | Removed traversal cost must exceed all marginal hot-path and retention costs; currently not qualified |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Scheme GVM intent | Native restore gateway | fresh semantic / navigation / scheduler / foreign |
+| Native restore gateway | Stable owner guard | reserve immutable key outside restored frames |
+| Stable owner guard | GC root carrier | publish and scan before allocating marker |
+| GC root carrier | FP denv thread switch | incoming values remain rooted across transfer |
+| FP denv thread switch | Restored execution | bind current guard from runtime context |
+| Restored execution | Stable owner guard | unknown escape retains old custody |
+| Restored execution | Outer completion | body return alone insufficient |
+| Outer completion | Exact ticket ledger | restore catcher and parent; close marker; commit before ack |
+| Old captured receipt | Exact ticket ledger | immutable old target; never ambient current |
+| Exact ticket ledger | Next semantic invocation | fresh external ID; old outcome remains queryable |
+| Stable owner guard | Scheduler resume | same activation ID; carrier handoff |
+| Scheduler resume | Restored execution | preserve affinity and roots |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| restore_entry_guard.reserveInitial0 | RestoreEntry.reserveInitial0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.publishRoot0 | RestoreEntry.publishRoot0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.enterInitial0 | RestoreEntry.enterInitial0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.internalGraft0 | RestoreEntry.internalGraft0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.suspend0 | RestoreEntry.suspend0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.schedulerResume0 | RestoreEntry.schedulerResume0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.bodyReturn0 | RestoreEntry.bodyReturn0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.restoreOuter0 | RestoreEntry.restoreOuter0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.observeExit0 | RestoreEntry.observeExit0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.settle0 | RestoreEntry.settle0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.reserveSemantic1 | RestoreEntry.reserveSemantic1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.reserveCrossRestore1 | RestoreEntry.reserveCrossRestore1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.reserveForeignChild1 | RestoreEntry.reserveForeignChild1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.publishRoot1 | RestoreEntry.publishRoot1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.allocateMarker1 | RestoreEntry.allocateMarker1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.enter1 | RestoreEntry.enter1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.internalGraft1 | RestoreEntry.internalGraft1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.bodyReturn1 | RestoreEntry.bodyReturn1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.restoreOuter1 | RestoreEntry.restoreOuter1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.invalidateMarker1 | RestoreEntry.invalidateMarker1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.observeExit1 | RestoreEntry.observeExit1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.settle1 | RestoreEntry.settle1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.abortMarkerAllocation1 | RestoreEntry.abortMarkerAllocation1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.unknownForeignExit1 | RestoreEntry.unknownForeignExit1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.confirmOuterCatch1 | RestoreEntry.confirmOuterCatch1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.presentOld | RestoreEntry.presentOldPreserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.presentNew | RestoreEntry.presentNewPreserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.presentOldAsNew | RestoreEntry.presentOldAsNewPreserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.rejectMismatchedGuard | RestoreEntry.rejectMismatchedGuardPreserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.repeatOldReceipt | RestoreEntry.repeatOldReceiptPreserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.rejectUnobservedOldExit | RestoreEntry.rejectUnobservedOldExitPreserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.loseReply0 | RestoreEntry.loseReply0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.query0 | RestoreEntry.query0Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.loseReply1 | RestoreEntry.loseReply1Preserves | typed QNT AST step; source simulation open |
+| restore_entry_guard.query1 | RestoreEntry.query1Preserves | typed QNT AST step; source simulation open |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| schedulerPreservesTicket | RestoreEntry.schedulerPreservesTicket |
+| navigationPreservesTicket | RestoreEntry.navigationPreservesTicket |
+| oldReceiptCannotSettleNew | RestoreEntry.oldReceiptCannotSettleNew |
+| newSettlementNeedsNewGuard | RestoreEntry.newSettlementNeedsNewGuard |
+| oldNonceCannotSettleNew | RestoreEntry.oldNonceCannotSettleNew |
+| completionRequiresRestoration | RestoreEntry.completionRequiresRestoration |
+| unknownRetainsGuard | RestoreEntry.unknownRetainsGuard |
+| queryKeepsInvocation | RestoreEntry.queryKeepsInvocation |
+| atMostOnce | RestoreEntry.atMostOnce |
+| wrongTicketRetained | RestoreGuardAlgebra.wrongTicketRetained |
+| wrongSerialRetained | RestoreGuardAlgebra.wrongSerialRetained |
+| wrongOwnerRetained | RestoreGuardAlgebra.wrongOwnerRetained |
+| markerStillLiveRetained | RestoreGuardAlgebra.markerStillLiveRetained |
+| unrestoredRetained | RestoreGuardAlgebra.unrestoredRetained |
+| acceptIdempotent | RestoreGuardAlgebra.acceptIdempotent |
+| ambientCannotRetarget | RestoreGuardAlgebra.ambientCannotRetarget |
+| otherGuardUntouched | RestoreGuardAlgebra.otherGuardUntouched |
+| step-preservation | RestoreEntry.stepPreserves |
+| reachable-safety | RestoreEntry.reachableSafe |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| entry | restore_entry_guard.reserveInitial0 | RestoreEntry.reserveInitial0Preserves | emit-return | RE-entry |
+| entry | restore_entry_guard.reserveSemantic1 | RestoreEntry.reserveSemantic1Preserves | graft-wrapper | RE-entry |
+| entry | restore_entry_guard.reserveCrossRestore1 | RestoreEntry.reserveCrossRestore1Preserves | native-graft | RE-entry |
+| entry | restore_entry_guard.internalGraft0 | RestoreEntry.internalGraft0Preserves | wind-before | RE-entry |
+| entry | restore_entry_guard.schedulerResume0 | RestoreEntry.schedulerResume0Preserves | scheduler-local | RE-entry |
+| guard | restore_entry_guard.reserveForeignChild1 | RestoreEntry.reserveForeignChild1Preserves | ffi-caller | RE-execution |
+| guard | restore_entry_guard.restoreOuter1 | RestoreEntry.restoreOuter1Preserves | catcher | RE-execution |
+| guard | restore_entry_guard.observeExit1 | RestoreEntry.observeExit1Preserves | sfun-exit | RE-execution |
+| guard | restore_entry_guard.settle1 | RestoreEntry.settle1Preserves | call-unwind | RE-execution |
+| roots | restore_entry_guard.publishRoot1 | RestoreEntry.publishRoot1Preserves | legacy-root | RE-roots |
+| roots | restore_entry_guard.allocateMarker1 | RestoreEntry.allocateMarker1Preserves | root-reload | RE-roots |
+| guard | restore_entry_guard.repeatOldReceipt | RestoreEntry.repeatOldReceiptPreserves | dead-c-frame | RE-execution |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| RE-formal | induction | dev/refactoring/modern-c/models/lean/RestoreEntry.lean | two-ticket intent and completion safety; all modeled steps |
+| RE-algebra | algebra | dev/refactoring/modern-c/models/lean/RestoreGuardAlgebra.lean | arbitrary GuardId dispatch and immutable outcome; trusted witness |
+| RE-entry | source | vendor/gambit/gsc/_t-c-2.scm | complete caller intent and generated point/root/restore mapping |
+| RE-execution | source | vendor/gambit/lib/setup.c | real stable guard and outer exit signer including all exceptional exits |
+| RE-roots | source | vendor/gambit/lib/c_intf.c | all FFI and restored GVM slots rooted across allocating and scan cut |
+| RE-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 locking or atomics, finite IDs and effective Darwin ABI identity |
+| RE-emission | equivalence | dev/refactoring/modern-c/ticket-capability-retirement-design.org | complete late writers and normalization equivalence before retirement |

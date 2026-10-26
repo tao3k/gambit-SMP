@@ -101,7 +101,7 @@ def export(checkout, candidate, lock_path, patch_path, files=FILES, *, overlay=N
             path = target / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        apply_untracked_patch(target, overlay.encode(), selected,
+        apply_untracked_patch(target, overlay.encode(), selected, preserve_whitespace=True,
                               new_files={name for name, row in files.items() if row['baseSha256'] is None})
         if any(digest(target / name) != row["candidateSha256"] for name, row in files.items()):
             raise ValueError("snapshot overlay does not reproduce candidate bytes")
@@ -160,7 +160,7 @@ def _materialize(lock_path, out, *, root=None):
             tree.extractall(source, filter="data")
         for name, row in lock["files"].items():
             verify_source_base(source, name, row)
-        apply_untracked_patch(source, patch_bytes, set(lock["files"]),
+        apply_untracked_patch(source, patch_bytes, set(lock["files"]), preserve_whitespace=True,
                               new_files={name for name, row in lock['files'].items() if row['baseSha256'] is None})
         observed = {name: digest(source_file(source, name)) for name in lock["files"]}
         if any(observed[name] != row["candidateSha256"] for name, row in lock["files"].items()):

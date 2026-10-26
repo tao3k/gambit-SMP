@@ -136,6 +136,30 @@ class CheckpointProcessRecoveryTests(unittest.TestCase):
         self.assertFalse(state["executionAuthorized"])
         self.assertFalse(state["runtimeAdmitted"])
 
+    def test_module_witness_is_not_a_recipe_stage_or_foreign_header_escape(self):
+        import copy
+        from unittest.mock import patch
+        from gambit_smp.step_checkpoint import recovered_resumption
+        process=self.producer(terminal=True)
+        _,error=process.communicate(timeout=20)
+        self.assertEqual(process.returncode,0,error)
+        prefix=history.read_execution_checkpoint(self.root,self.run)
+        baseline=recovered_resumption(self.root,self.run)
+        header=prefix['records'][0]['payload']
+        ref=prefix['records'][1]['payload']['header']
+        child=dict(schema='gerbil-bootstrap-module-observation.v1',header=ref,
+                   runId=header['runId'],moduleProof={},runtimeAdmitted=False)
+        for change in ({},{'runId':'foreign'},{'runtimeAdmitted':True},{'schema':'unknown-child'}):
+            observed=copy.deepcopy(prefix)
+            observed['records'].insert(-1,dict(payload={**child,**change}))
+            with patch('gambit_smp.reasoning_history.read_execution_checkpoint',return_value=observed):
+                if change:
+                    with self.assertRaises(ValueError):recovered_resumption(self.root,self.run)
+                else:
+                    result=recovered_resumption(self.root,self.run)
+                    self.assertEqual(baseline['resumption']['relations'],result['resumption']['relations'])
+                    self.assertEqual(['committed'],result['resumption']['requiredSteps'])
+
     def test_missing_enumeration_witness_stays_unknown_after_cache_cleanup_and_restart(self):
         process = self.producer(terminal=True, omit_witness=True)
         _, error = process.communicate(timeout=20)

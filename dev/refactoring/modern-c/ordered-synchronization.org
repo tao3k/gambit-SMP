@@ -1,0 +1,224 @@
+#+TITLE: Ordered ownership, collective publication and physical GC stop
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+PROPERTY: HEADER-ARGS :eval never
+
+* Responsibility replacement
+:PROPERTIES:
+:CUSTOM_ID: ordered-synchronization
+:AUTHORITY: GambitOrderedSynchronization
+:STATUS: PARTIAL-NATIVE-EVIDENCE; BOOTSTRAP-TIMEOUT; COMMIT-BLOCKED
+:END:
+[[file:models/sysml/ordered-synchronization.sysml][SysML]] owns the six responsibilities, four transfers, six evidence methods
+and three open boundaries. Its native projection drives
+[[file:../../modeling/ascent/ordered-synchronization.rules.scm][ASCENT evidence classification]] and the D2 view. This continues the
+[[file:mailbox-publication.org][mailbox ownership replacement]], rather than treating configuration as the
+runtime architecture. Scheme owns queue semantics; modern C owns ordered
+word access and collective transfer. The collector never takes the Scheme
+mailbox mutex. Full multi-shot continuation semantics remain required.
+
+** Retired authority
+The former ticket wait read volatile =current_ticket= without an acquire.
+The collective had separate =sync_id0/1/2= and =sync_op0/1/2= fields;
+=SYNC_GET_MSG= reset its flag before copying the payload. A full fence after
+writing a flag does not by itself give a volatile reader an acquire edge.
+The replacement uses one ordered word service and three fixed SPSC inboxes.
+It removes the split flags/payload macros and =___sync_wait= entry. It does
+not retire the unrelated legacy CAS APIs or the physical member barrier.
+
+** Real source chain
+| Producer / consumer | Source | Contract |
+|---------------------+--------+----------|
+| Scheme thread/mailbox low-level lock | =include/gambit.h.in= ticket macros; =lib/_thread.scm= | Release of current ticket precedes next owner's acquire admission |
+| Detached send cell / blocked sender | =lib/_thread.scm=; =lib/_fifo#.scm= | Allocate and root before queue ownership; complete graph before unlock |
+| Parent / child collective | =lib/setup.c:barrier_sync_op= | Fixed edge, full payload copy before EMPTY acknowledgement |
+| Frozen execution roots / scanner | =lib/memory/collection-round.inc= | ROOTS_FROZEN precedes physical BARRIER; collective joins member writes |
+| Completed repairs / resumed context | Same collection-round consumer | Final collective precedes resumed mutator access |
+| Legacy mutex RMW | =lib/os_thread.c= | Unsigned arithmetic preserves wrap; empty standalone fence is not authority |
+
+* Conditional memory-order proof
+:PROPERTIES:
+:CUSTOM_ID: ordered-sync-proof
+:PRECONDITIONS: FIXED-MEMBERSHIP; SINGLE-PRODUCER-CONSUMER-PER-EDGE; ALIGNED-WORDS; PHYSICAL-WRITER-EXCLUSION
+:END:
+1. Ticket reservation uses relaxed fetch-add: it allocates an order, not entry
+   permission. The acquire load admitting ticket k reads the release increment
+   from its predecessor; ordinary protected writes happen before the new owner.
+   Trylock first acquires current, then conditionally reserves next. Outstanding
+   tickets must remain below the modulo ticket namespace.
+2. The producer writes the entire slot payload before release-publishing READY.
+   The consumer acquires READY, copies all fields, then release-publishes EMPTY.
+   The next producer acquires EMPTY before overwriting. No payload access races
+   with reuse under this SPSC lifetime. Repeating stamp values is conditional
+   on single-producer/consumer coherence and exclusive initialization, not an
+   admission of arbitrary late readers or migrated workers.
+3. Recipient mutex serializes wait registration and predicate checks. Three
+   inbox predicates share one CV, so both publish and ACK broadcast. A signal
+   could wake a waiter for the wrong predicate and strand the enabled waiter.
+   Spurious wakeups always recheck. Backpressure keeps the local operation
+   owned by the blocked producer. The existing 2000-spin threshold is unchanged.
+4. Upward acquire/release edges propagate every fixed member's frozen roots;
+   downward edges publish the selected operation. Final tree completion joins
+   repairs before resume. This is visibility plus actual arrivals, not a claim
+   that a fence stops a running thread. A slot cannot be reinitialized merely
+   because a join or owner-stop result is unknown.
+
+GCC/Clang =__atomic= builtins on naturally aligned Scheme/native word storage
+are a compiler-extension refinement; these objects are not declared ISO
+=_Atomic=. Native acquire/release orders and the conservative full-RMW backend
+share the API. Only exclusive construction may initialize stamp storage with
+a plain write: a fallback CAS must not read an indeterminate initial value.
+See [[https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html][GCC atomic builtin semantics]] and [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf][C working draft N3220]] for synchronization
+and atomic-coherence premises. Native tests cannot prove every weak-memory
+execution. Generated assembly / LLVM IR confirms emitted orders, not fairness.
+
+* Counterexamples and failure custody
+** Early EMPTY
+If a receiver publishes EMPTY before copying args, the sender can overwrite
+args while the receiver reads. READY visibility alone does not protect reuse.
+The replacement copies under the recipient mutex, then ACKs; kernel evidence
+also exercises the actual slot macros without that additional mutex.
+
+** Initialization and supersession
+The first candidate used a CAS-backed store to initialize unknown storage.
+Static review rejected it. The owned build was stopped before native admission;
+its terminal receipt and missing child receipt remain historical evidence.
+The corrected initializer is an exclusive pre-publication assignment. No
+successful step is inferred from the interrupted attempt.
+
+The framework originally passed that nonexistent child path to its resume
+reader. The transport repair treats a launched, reaped, quiescent attempt as
+accounting only. It still rejects unchanged failures, live groups and expanded
+budgets. Its Python regression tests belong to the existing SMP framework;
+Gambit fixtures and orchestration remain C / native Scheme.
+
+** Unknown owner
+Unknown join, in-flight native writes, member-slot reuse and debug-history
+ownership remain open. Acquiring a stamp cannot establish writer death or
+physical exclusion. Preserve source roots and member storage until the
+existing owner/stop obligations authorize reclamation. No current result
+closes full carrier retirement or independent-worker migration.
+
+* Benefit and added-cost matrix
+:PROPERTIES:
+:CUSTOM_ID: ordered-sync-benefits
+:MEASUREMENT_POLICY: OPERATION-COUNTS-AND-OBSERVED-LAYOUT; NO-TIMING-SPEEDUP-CLAIM
+:END:
+| Responsibility | Removed work / ambiguity | Added work | Positive-benefit condition |
+|----------------+--------------------------+------------+----------------------------|
+| Ticket lock | Volatile ownership; full-order reservation | Acquire poll; relaxed reserve + release handoff | All concurrent accesses use ordered API; backend qualifies |
+| Ticket RMW count | No extra reservation / release operation | Still two RMWs per uncontended lock/unlock | Does not imply a measured speedup |
+| Collective publication | Six split fields; early reuse; implicit flag fence | One receive mutex pair and broadcast per message | Fixed SPSC edges, full copy before ACK |
+| Tree per round, P members | No additional barrier round | Extra 2(P-1) receive mutex pairs and broadcasts | Actual recipient-CV scheduling cost remains measurable |
+| Storage | No unbounded identity table; no per-round allocation | Three fixed slots; native size measured by kernel | Compare actual 64-bit slot with prior pair, not source field count |
+| GC / mailbox interaction | Scanner taking queue lock is unnecessary | Frozen roots, physical member stop remain | Blocked sender roots/reloads and unique scan ownership hold |
+| Continuation | Shared values and repeated resume retained | Existing frame/root refinement obligations remain | Finite semantic native tests pass; no one-shot restriction |
+| Failure handling | Missing-child transport cannot masquerade as reuse | Historical receipt + explicit fresh accounting | Source/engine cause changes; original budgets remain |
+
+No heap override, wait extension, human-day estimate or throughput projection
+is used to establish net benefit. A slower CV path, unqualified backend,
+concurrent raw ticket access or unresolved member lifetime defeats broader
+admission even if a local message fixture passes.
+
+* Evidence ownership and delivery
+The source lock is [[file:../../../evidence/research/ordered-sync/initialization/source.lock.json][the corrected immutable declaration]]. The existing Bazel
+profile is unchanged. Native SysML validation already checks the ordered model
+and its mailbox references; the CI projection now has thirteen independent
+named lanes. Current bootstrap, ordered-kernel, forced-legacy, compiler-output,
+blocked-mailbox/GC and semantic-regression receipts must be bound to this
+source identity before scoped closure. Results are reported separately.
+
+The continuation QNT owner remains CS-SCHEDULE and Lean remains CS-COHERENCE.
+Neither proves weak memory or queue linearizability. No duplicate QNT action,
+Lean theorem, or transferred proof claim is introduced. ASCENT rejects wrong
+source, wrong method and unknown/conflicting observations. Scoped completion
+cannot supply the three unresolved boundaries or architecture acceptance.
+Five commit gates remain authoritative; no commit follows from a local pass.
+
+** Layout measurement boundary
+The kernel prints =sizeof(___sync_slot)= and a test reconstruction of the
+prior =int id + sync_op payload= pair, using the current native word ABI.
+Equality establishes the three-inbox layout comparison on this profile;
+it does not measure total PSTATE size across unrelated refactoring changes,
+heap consumption, resident memory or peak RSS.
+
+** Per-message ordering budget
+The former send macro issued one standalone full fence after setting the flag.
+That explicit fence is removed. Each new message has a READY release and an
+EMPTY release, acquire observations, plus the existing sender mutex and the
+new receive-copy mutex pair. Thus a P-member tree replaces =2(P-1)= explicit
+full fences with =4(P-1)= release stores and its acquire observations, and adds
+=2(P-1)= receive mutex pairs and ACK broadcasts. Publication broadcasts replace
+the former signals. Fallback RMW implementations can be stronger and more
+expensive than those abstract release stores. This operation inventory is a
+mechanism comparison, not a prediction that the new synchronization is faster.
+
+* Current native observations and closure
+:PROPERTIES:
+:CUSTOM_ID: ordered-sync-current-closure
+:STATUS: PARTIAL-NATIVE-EVIDENCE; BOOTSTRAP-TIMEOUT; COMMIT-BLOCKED
+:RAW_AUTHORITY: evidence/research/ordered-sync/validation.json
+:END:
+The original 600-second whole-run limit expired at 600.449 seconds. The hosted
+seed command passed in 157.470 seconds. The full bootstrap command received
+361.521 seconds of remaining budget and was stopped at 361.639 seconds.
+The retained stream contains phase announcements =(2,2,2,1)=: the first pass
+completed, and the second reached phase3; its completion and phase4 are not
+established. The terminal receipt has =timeout=true=, reaped parent and
+quiescent group, and no bound child receipt. No completed-bootstrap producer
+is issued. This is neither a correctness failure diagnosis nor a matched
+performance regression; no heap or deadline was enlarged and the failed
+native route was not repeated.
+
+The interrupted second pass removed the target =gsi/gsi= and =gsc/gsc= while
+rebuilding them. Independent C tests therefore use the immutable previously
+qualified GSI strictly as an orchestrator, compile the actual new configured
+header, and execute their newly compiled C kernel. They do not restore or
+fabricate a target runtime product. The new Scheme GC fixture and the twelve
+other current-source suite lanes have no current native receipt. Earlier
+mailbox/continuation passes remain historical and do not close this source.
+
+#+BEGIN: ascent-view :kind ordered-synchronization-closure
+| Obligation | Method | Current evidence | Closure |
+|------------+--------+------------------+---------|
+| source-ordering | source-refinement | 46 current hashes; real caller anchors; copy before ACK; conditional HB argument | Conditional source evidence supplied |
+| kernel-native | native-kernel | Actual macro fixture: 16384 locked updates, 16384 publications, trylock and wrap | Bounded PASS |
+| kernel-legacy | native-kernel-legacy | Forced GCC conservative backend; same actual fixture and counts | Bounded PASS; other backends open |
+| emitted-orders | compiler-output | Bound compiler/header; GCC assembly and Clang LLVM IR | Supplied; not a weak-memory theorem |
+| mailbox-stop | native-scheme | Fixture and thirteen-lane CI plan exist; current runtime unavailable | UNKNOWN; not supplied |
+| semantic-regression | native-scheme-suite | Full bootstrap incomplete; current map/GC suite unavailable | UNKNOWN; not supplied |
+#+END:
+
+Five ASCENT controls check current partial delivery, wrong source, wrong method,
+conflicting unknown, and synthetic all-scoped delivery. Current supplies four
+of six obligations. Even synthetic six-of-six leaves the three open boundaries
+and architecture authority absent. =osCommitReady= is empty in every control.
+The original continuation QNT/Lean bytes are unchanged and neither was rerun.
+Native SysML checks pass; the D2 responsibility view renders successfully.
+The existing SMP framework's 85 kernel regression tests pass, including explicit
+stop, missing-child, live-group and unchanged-route negative cases. The initial
+sandbox-only framework failures are retained separately from the qualified run.
+
+** Emitted acquire instruction
+The first local checker expected LDAR specifically and rejected the actual
+GCC output. That checker rejection is retained. The compiler selected
+=armv8.5-a= and emitted =LDAPR=, =STLR=, =LDADD= and =LDADDL=; Clang IR contains
+acquire loads, release stores/RMW and monotonic reservation RMW. The corrected
+checker accepts the documented acquire mapping, not an arbitrary load opcode.
+[[https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html][GCC's AArch64 RCpc documentation]] specifies LDAPR for acquire atomic loads;
+[[https://support.arm.com/documentation/dui0801/l/A64-Data-Transfer-Instructions/LDAPR--A64-][Arm's LDAPR definition]] also explains its weaker store-release/load-acquire
+ordering. The protocol relies on C acquire/release synchronization, not an
+unrequested sequentially consistent store-to-load fence. This qualification
+is compiler/target-specific and does not certify every machine execution.
+
+** Next complete validation boundary
+Keep seed completion, destructive source regeneration, full two-pass completion
+and semantic tests distinct. The present run demonstrates that an in-place
+completed seed can be destroyed before a later stage obtains a completion
+receipt. A future producer design must retain exact completed artifacts before
+that destructive cut and bind their immutable identities to consumers; a
+partially rebuilt workspace cannot serve as a reusable completed producer.
+This is a validation/build-ownership gap, not permission to enlarge a timeout,
+copy stale binaries into the workspace, skip a pass or issue a bootstrap seal.
+The first runtime changes remain uncommitted until that boundary and the
+current GC/mailbox/multi-shot acceptance close.

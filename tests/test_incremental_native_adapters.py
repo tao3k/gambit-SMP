@@ -213,6 +213,122 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
         self.lock()
         w.start(self.root, 'repair', adopt=True)
 
+    def test_unpublished_stage1_cannot_shadow_completed_bootstrap(self):
+        from types import SimpleNamespace
+        from gambit_smp.gerbil_build import _withdraw_stage1_outputs
+        import tempfile
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'source'
+            bootstrap = source / 'bootstrap/lib/gerbil/compiler/module.o1'
+            partial = source / 'build/lib/gerbil/compiler/module.scm'
+            runtime = source / 'build/lib/libgambit.a'
+            for path, content in ((bootstrap, b'completed bootstrap'),
+                                  (partial, b'partial frontend, no native module'),
+                                  (runtime, b'published runtime')):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(content)
+            inode = partial.stat().st_ino
+            stage1 = source / 'build/bin/gxi'
+            stage1.parent.mkdir(parents=True)
+            stage1.symlink_to('gerbil')
+            ctx = SimpleNamespace(directory=root / 'attempt')
+            _withdraw_stage1_outputs(ctx, source)
+            retained = ctx.directory / 'unpublished-stage1'
+            self.assertFalse(partial.exists())
+            self.assertFalse(stage1.is_symlink())
+            self.assertEqual(inode, (retained / partial.relative_to(source)).stat().st_ino)
+            self.assertTrue((retained / stage1.relative_to(source)).is_symlink())
+            self.assertEqual(b'completed bootstrap', bootstrap.read_bytes())
+            self.assertEqual(b'published runtime', runtime.read_bytes())
+            proof = json.loads((ctx.directory / 'stage1-output-withdrawal.json').read_text())
+            self.assertEqual(0, proof['sourceCopies'])
+            self.assertFalse(proof['runtimeAdmitted'])
+            # Evidence custody must never overwrite an earlier failed payload.
+            partial.parent.mkdir(parents=True)
+            partial.write_bytes(b'new partial')
+            with self.assertRaisesRegex(ValueError, 'custody already exists'):
+                _withdraw_stage1_outputs(ctx, source)
+            self.assertEqual(b'new partial', partial.read_bytes())
+
+    def test_runtime_install_uses_flat_public_header_without_private_source_dependency(self):
+        from gambit_smp.gerbil_build import _install_runtime
+        self.prepare()
+        fragments = self.payload / 'include/_gambit'
+        fragments.mkdir()
+        fragment = fragments / 'runtime_roles.h.in'
+        fragment.write_text('#define TEST_CONTEXT_WORDS 23\n')
+        # Configure concatenates the private source partition. Installed C
+        # consumers include the flat public aggregate, never source templates.
+        (self.payload / 'include/gambit.h').write_bytes(fragment.read_bytes())
+        installed = self.root / 'installed-runtime'
+        installed.mkdir()
+        payloads = _install_runtime(self.payload, installed)
+        target = installed / 'build/include/gambit.h'
+        self.assertEqual(digest(fragment), payloads['build/include/gambit.h'])
+        self.assertFalse((installed/'build/include/_gambit').exists())
+        stamp = target.stat().st_mtime_ns
+        self.assertEqual(payloads, _install_runtime(self.payload, installed))
+        self.assertEqual(stamp, target.stat().st_mtime_ns)
+        fragment.write_text('#define TEST_CONTEXT_WORDS 29\n')
+        self.assertEqual(payloads,_install_runtime(self.payload,installed))
+        self.assertEqual(stamp,target.stat().st_mtime_ns)
+        (self.payload / 'include/gambit.h').write_bytes(fragment.read_bytes())
+        changed = _install_runtime(self.payload, installed)
+        self.assertNotEqual(payloads[target.relative_to(installed).as_posix()],
+                            changed[target.relative_to(installed).as_posix()])
+        self.assertEqual(fragment.read_bytes(), target.read_bytes())
+
+    def test_pinned_empty_delta_skips_archive_and_still_rejects_source_mutation(self):
+        self.prepare()
+        lock_path = self.root / 'evidence/gerbil.lock.json'
+        lock = json.loads(lock_path.read_text())
+        lock['files'] = {}
+        lock_path.write_text(json.dumps(lock))
+        first, _ = self.build()
+        second, commands = self.build('grok')
+        self.assertEqual(first['observation']['workspace'], second['observation']['workspace'])
+        self.assertFalse(first['observation']['sourceArchiveSkipped'])
+        self.assertTrue(second['observation']['sourceArchiveSkipped'])
+        self.assertNotIn('gerbil-archive', [row['stage'] for row in commands])
+        self.assertNotIn('gerbil-extract', [row['stage'] for row in commands])
+        source = Path(second['observation']['workspace'])
+        (source / 'src/core.c').write_text('int main(void) { return 99; }\n')
+        with self.assertRaises(ValueError):
+            self.build()
+
+    def test_core_source_delta_reuses_workspace_and_replaces_witnessed_bootstrap_input(self):
+        import hashlib
+        self.prepare()
+        cold,_=self.build()
+        source=Path(cold['observation']['workspace'])
+        inode=source.stat().st_ino
+        untouched=source/'build/lib/b.o';stamp=untouched.stat().st_mtime_ns
+        lock_path=self.root/'evidence/gerbil.lock.json'
+        lock=json.loads(lock_path.read_text())
+        name='src/bootstrap/gerbil/module.scm'
+        before=(self.checkout/name).read_text()
+        after='int module(void) { return 23; }\n'
+        delta=self.root/'patches/gerbil.patch';delta.parent.mkdir(exist_ok=True)
+        delta.write_text(''.join(difflib.unified_diff(before.splitlines(True),after.splitlines(True),
+            fromfile='a/'+name,tofile='b/'+name)))
+        lock['files'][name]=hashlib.sha256(after.encode()).hexdigest()
+        lock.update(patch=str(delta.relative_to(self.root)),patchSha256=digest(delta))
+        lock_path.write_text(json.dumps(lock))
+        changed,commands=self.build('grok')
+        self.assertEqual(source,Path(changed['observation']['workspace']))
+        self.assertEqual(inode,source.stat().st_ino)
+        self.assertEqual(after,(source/'bootstrap/lib/gerbil/module.scm').read_text())
+        self.assertEqual(stamp,untouched.stat().st_mtime_ns)
+        self.assertTrue(any(row['stage'].startswith('gerbil-stage0-module-') for row in commands))
+        self.assertTrue(all(row['environment']['GAMBOPT']=='p1,file-settings=lf'
+                            for row in commands if row['stage'].startswith('gerbil-')
+                            and row['stage'] not in {'gerbil-archive','gerbil-extract',
+                                'gerbil-overlay-inventory','gerbil-overlay'}))
+        warm,commands=self.build()
+        self.assertIn('stage0',warm['observation']['bootstrapReused'])
+        self.assertFalse(any(row['stage'].startswith('gerbil-stage0-module-') for row in commands))
+
     def lock(self, edited=False):
         import hashlib
         before = 'int a(void) { return 1; }\n'
@@ -321,13 +437,20 @@ echo stage0 >> "$(dirname "$0")/../../compiled.log"
         self.prepare()
         cold, _ = self.build()
         source = Path(cold['observation']['workspace'])
+        before = (source / 'compiled.log').read_text().splitlines()
+        untouched = (source / 'build/lib/b.o').stat().st_mtime_ns
         alias = source / 'build/bin/gxi'
         alias.unlink(); alias.symlink_to('gsc')
         resumed, commands = self.build('grok')
         self.assertNotIn('stage1', resumed['observation']['bootstrapReused'])
         self.assertIn('gerbil-stage1', [row['stage'] for row in commands])
         self.assertEqual('gerbil', str(alias.readlink()))
-        self.assertEqual(5, len((source / 'compiled.log').read_text().splitlines()))
+        # The unqualified stage1 publication is withdrawn, including its
+        # launcher target; completed bootstrap and independent stdlib objects
+        # remain usable. Merely repairing the alias would retain a rejected
+        # publication rather than execute its producer.
+        self.assertEqual(before + ['core'], (source / 'compiled.log').read_text().splitlines())
+        self.assertEqual(untouched, (source / 'build/lib/b.o').stat().st_mtime_ns)
 
     def test_actual_interrupted_gerbil_stage_consumes_completed_bootstrap_receipts(self):
         self.prepare()

@@ -1,0 +1,201 @@
+{
+  "schema": "integrated-growth.patch-plan.v1",
+  "status": "source-bound-design-not-runtime-applied",
+  "fullKey": [
+    "live VM instance capability",
+    "nonwrapping resize epoch",
+    "slot incarnation"
+  ],
+  "phases": [
+    "NATIVE_PREPARE",
+    "WAIT_PARKED",
+    "PRIVATE_VIEWS",
+    "COUNT_AND_SCAN_COMMITTED",
+    "GO",
+    "SCHEME_READY",
+    "OPEN",
+    "DRAINING",
+    "RETAINED_OR_DRAINED"
+  ],
+  "fields": {
+    "growth_control": [
+      "key",
+      "decision WAIT/GO/ABORT",
+      "created_mask",
+      "resource_mask",
+      "parked_ack",
+      "os_handle",
+      "join_owner",
+      "native_borrows",
+      "vm_pin"
+    ],
+    "reservation": [
+      "key",
+      "allocator_generation",
+      "base_cursor",
+      "base_assigned",
+      "base_stacks",
+      "exact_node_array",
+      "private_view_mask",
+      "committed"
+    ],
+    "slot_admission": [
+      "key",
+      "phase",
+      "admission_mutex",
+      "producer_leases",
+      "queue_owners",
+      "active_handlers",
+      "wake_writers"
+    ],
+    "typed_carrier": [
+      "startup thunk",
+      "primary request/result mutex",
+      "pending route debt",
+      "current error",
+      "root ownership handoff phase"
+    ],
+    "service_ledger": [
+      "VM demand_seq",
+      "captured_cut",
+      "acked_cut",
+      "stable_cohort_key"
+    ]
+  },
+  "orderedChanges": [
+    {
+      "functions": [
+        "___setup bootstrap P0",
+        "setup_interrupts_pstate",
+        "request_open_slot",
+        "___setup_pstate",
+        "cleanup_interrupt_resources_pstate"
+      ],
+      "change": "explicit known VM/slot identity before lookup; native prepare CLOSED with exact failure-prefix cleanup; one record reused through Scheme READY then synchronized OPEN"
+    },
+    {
+      "functions": [
+        "___vm_resize_pstate",
+        "___setup_pstate",
+        "___thread_create"
+      ],
+      "change": "preallocate typed roots/native control; split fallible native prefix; precreate native-only WAIT shells, exact prefix/absolute deadline"
+    },
+    {
+      "functions": [
+        "___reserve_private_pstate_sections",
+        "___init_empty_pstate_from_sections",
+        "___discard_private_pstate_sections"
+      ],
+      "change": "private suffix, no shared allocator mutation; invalidation before exclusion release; no ordinary inverse rollback"
+    },
+    {
+      "functions": [
+        "___commit_private_pstate_sections",
+        "barrier_sync_op",
+        "___vm_registry_close"
+      ],
+      "change": "real reader guard before ALLOC; infallible shared accounting/count/scan commit under common exclusion"
+    },
+    {
+      "functions": [
+        "start_processor_execution",
+        "new native gate entry",
+        "Scheme READY hook"
+      ],
+      "change": "release GO/acquire then TLS/startup collective/fresh rooted thunk; READY then OPEN; post-GO failure retained active-fault path"
+    },
+    {
+      "functions": [
+        "___pstate_request_acquire",
+        "___publish_high_level_interrupt_leased",
+        "___publish_procedural_interrupt_leased",
+        "___pstate_request_close",
+        "___pstate_request_release"
+      ],
+      "change": "atomic owner/key/READY pin; unlock admission before queue; nonrevoked old grant; separate queue/handler/wake consumers"
+    },
+    {
+      "functions": [
+        "##raise-high-level-interrupt",
+        "##thread-intr-notify!",
+        "##thread-intr-wake!",
+        "GSTATE/header imports"
+      ],
+      "change": "checked API migration, typed denial, durable primary route obligation; no raw fallback"
+    },
+    {
+      "functions": [
+        "stable cohort service epilogue",
+        "fixed-owner reaper completion"
+      ],
+      "change": "ACK captured cut; preserve new demand; native-control destruction only after real join0 and last readers; no reuse retained incarnation"
+    }
+  ],
+  "recoveryLaneLifetime": "VM-owned keyed per-child exit/join/cleanup cursor survives return from resize/ABORT; no serial blocking P0 join; blocked lane cannot disable other lanes",
+  "commitToGoCondition": "preallocated release/acquire atomic predicate; notification advisory; bounded independent recheck; never require broken notify to complete counted membership",
+  "nonparticipatingCommittedWorker": "checked native terminal failure without Scheme allocation/GC; retain roots/handles/pins, no healthy VM recovery claim",
+  "memoryOrderObligations": [
+    "mutex initialization/unlock to child lock or explicit release/acquire GO payload",
+    "Scheme READY publication release; admission validation acquire under same native synchronization",
+    "producer pin and close serialized by same admission mutex",
+    "queue publication existing queue lock plus ownership transfer",
+    "last-consumer release observed before reclamation",
+    "common count/scan publication excludes GC and registry readers"
+  ],
+  "rootReleaseNotNativeControlFree": true,
+  "nativeTestsRequired": [
+    "count-GO-READY paused admission",
+    "each create/native/view prefix failure",
+    "old GC with retained join/close failure",
+    "grant-close-publish and asynchronous wake final consumer",
+    "primary-hint denial across migration",
+    "moving startup GC and real generated frame map",
+    "post-GO startup error",
+    "epoch replay/exhaustion",
+    "new demand after captured service cut",
+    "existing39 targeted rows same final completed GSI",
+    "first-eight source/qualification nonregression"
+  ],
+  "observedImplementationCorrections": [
+    "wire real grow branch before claiming staged execution",
+    "setup init is CLOSED; READY/OPEN synchronized",
+    "validate BOTH reserved nodes and consumed pair/view masks before writes",
+    "no silent raw void fallback",
+    "all forwarded-hint errors retain route debt",
+    "VM-owned checked nonwrapping generation"
+  ],
+  "boundary": {
+    "supported": "default allocator, migrated checked clients, finite valid keys",
+    "notProved": [
+      "C11 refinement",
+      "actual generated root maps",
+      "full shrink/reaper internals",
+      "foreign raw-pointer clients",
+      "custom allocator without adapter",
+      "unconditional completion of stuck OS/callback/borrower",
+      "formal9/12 errno contract"
+    ]
+  },
+  "runtimeModified": false,
+  "nativeExecuted": false,
+  "nativeAdmitted": false,
+  "bootstrapPrerequisite": {
+    "path": "evidence/research/smp-retirement-study/bootstrap-admission-regression.json",
+    "sha256": "2beeb4baed2a869d72ccc1db37988b8261198a8d6dc9f936f99cc74700e879a5"
+  },
+  "bootstrapUnifiedProtocol": {
+    "path": "evidence/research/smp-retirement-study/bootstrap-unified-protocol.json",
+    "sha256": "cf148d8bbae1cf76cbb9a56007052be7f0be74eab2c90694a8b774417e8eb210"
+  },
+  "bootstrapReadyLanding": "SMP ##startup-threading! tail after ##fault-control-make!: separate scalar P0 readiness helper; worker collective dispatch excludes target0",
+  "openFailureDisposition": "preserve roots and exact error through original C/Scheme return, then checked reverse initialized prefix cleanup",
+  "setupTicketProtocol": {
+    "path": "evidence/research/smp-retirement-study/setup-ticket-propagation.json",
+    "sha256": "b72e05321c782baf3f636ce00a7b61b5744b19a142e3a858525bec417a085671"
+  },
+  "generatedRootProtocol": {
+    "path": "evidence/research/smp-retirement-study/generated-root-handoff.json",
+    "sha256": "ac0a39eaffd3218c631f4fe1a13888448560ebe74fba591c2dda99cc794fa3db"
+  }
+}

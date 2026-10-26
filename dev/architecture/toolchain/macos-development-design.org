@@ -21,11 +21,320 @@ front-end work, request preparation and serialization. Merely changing language,
 adding a coordinator or introducing another cache layer supplies no such gain.
 Scheme semantic ownership and C interoperability remain core constraints.
 
-[[file:models/sysml/macos-development.sysml][Owned SysML]] defines five duties and separate development acceptance.
+[[file:models/sysml/macos-development.sysml][Owned SysML]] defines the duties and separate development acceptance.
 [[file:macos-development-map.org][The evidence/cost matrix]] and [[file:diagrams/macos-development.svg][D2 architecture dependencies]] derive from it.
 Existing [[file:source-chain-map.org][GSC source/action inventory]], [[file:diagrams/source-chain.svg][source chain]], [[file:correctness-map.org][build correctness matrix]]
 and [[file:stable-view-design.org][stable-view lifecycle]] are reused. This is not a replacement build system,
 a second dynamic-dependency graph or a qualified toolchain configuration.
+
+* RESEARCH Current bootstrap cost and existing Darwin configuration refinement
+:PROPERTIES:
+:CUSTOM_ID: modern-c-bootstrap-cost-reconciliation
+:STATUS: observed-envelope; phase-attribution-and-configuration-equivalence-open
+:END:
+
+The existing [[file:studies/effective-configuration-darwin-gcc.org][effective configuration model]], [[file:studies/darwin-configured-input-design.org][configured-input refinement]],
+[[file:studies/single-source-native-profile.org][single-source ConfiguredNativeModel]] and [[file:studies/native-argv-equivalence-matrix.org][E01-E32 / M2-M8 matrix]] already own
+this problem. [[file:../../refactoring/modern-c/darwin-force-binding-design.org::#darwin-force-profile][The force/binding study]] explicitly records that the retained
+patched Darwin profile already enables macro provenance suppression. It is
+not a new optimization idea. This follow-up binds current implementation
+observations to those existing duties; it does not introduce a competing
+configuration authority or declare the managed runtime-bootstrap mode admitted.
+
+[[file:../../../evidence/research/bootstrap-cost/observations.json][Bound bootstrap observations]] give the following source-specific accounting.
+The 600-second watchdog is a ceiling, never the desired developer latency.
+
+#+NAME: modern-c-bootstrap-cost-accounting
+| Observed interval | Seconds | Meaning and limit |
+|-------------------+---------+-------------------|
+| Successful outer recipe | 465.719 | Includes build and research/validation work; excludes unmeasured request-entry latency |
+| Actual make from-scratch | 366.941 | 78.79% of that envelope; both target builds completed |
+| Other recorded top-level commands | 26.295 | Includes bootclean, tool observations and semantic fixtures; not all removable |
+| Residual outside recorded command intervals | 72.483 | Unattributed; do not relabel all of it copying, hashing, GC or shell overhead |
+
+The actual command was =make -j12 GAMBOPT=p1 from-scratch=. Existing Make
+parallelism and shared CPU budgeting are present. The root recipe explicitly
+cleans, bootstraps, cleans again and builds core; its four global phase boundaries
+also separate generation, semantic link metadata, object work and executable
+linking. These are real ordering constraints to refine, not evidence that every
+phase-wide barrier is necessary. The retained record lacks per-generator and
+per-C-unit timing, critical-path utilization and peak RSS; it cannot establish
+which substage dominates the 366.941 seconds.
+
+The current [[file:../../../src/gambit_smp/native_capabilities.py::568][incremental materializer]] also gives a concrete granularity boundary:
+=configureInputs= includes the locked =.in/.ac/.m4= inputs and participates in
+the registered whole build-product identity. Changing a private header template
+or native Make template therefore changes the configuration generation that
+contains the Scheme-generated C. That is a valid configuration invalidation,
+but not by itself evidence that the Scheme generation result has changed.
+The architecture must separate those artifact projections; dropping header
+inputs from the configuration key would be an incorrect shortcut. C23/ABI/tool
+changes may require native object rebuilds even when generated Scheme C is reusable.
+
+During the later failed candidate, a bounded process snapshot observed one
+=_std.scm= generation job in phase1 with roughly153 seconds elapsed and46 seconds
+accumulated CPU. A separate host snapshot recorded load average59.01, zero idle
+CPU and31GiB used on a32GiB machine. These are unmatched, transient observations,
+not attribution of the earlier successful baseline or evidence that GCC macro
+handling caused that wait. The run subsequently failed on an obsolete memory
+prerequisite path, not a deadline. Do not report its239.650-second incomplete
+from-scratch command as an improvement over a complete366.941-second bootstrap.
+
+** Configuration lineage is part of the performance baseline
+[[file:../../../evidence/research/bootstrap-cost/configuration-lineage.json][Configuration lineage]] distinguishes three actual artifacts:
+
+| Artifact | Macro-tracking suppression | Explicit C23 | Qualification boundary |
+|----------+----------------------------+--------------+------------------------|
+| Retained patched Darwin driver | Present | Absent in these retained flags | Existing design/source evidence; default single-threaded header does not qualify current SMP |
+| Completed modern-c bootstrap makefile | Absent | Absent in retained flags | Actual successful build; GNU compiler defaults are distinct from explicit standard policy |
+| Current modern-c post-configure makefile | Absent | Present in common FLAGS_OBJ | Configuration observed; complete target/native acceptance remains separate |
+
+Reusing Bazel's requested configure arguments is insufficient to establish
+effective equality with its patched Darwin source/default policy. M8 and E02,
+E05, E06, E13 and R8 remain the owning refinement obligations. Ordinary -O1 and
+runtime -O3 are distinct segments. The explicit C23 goal belongs in common
+CFLAGS so both paths receive it; placing it only in ordinary FLAGS_OPT misses
+the RTS path. A typed goal overlay must retain the original profile bytes and
+produce a distinct target identity. No duplicate handwritten Zig/C flag table
+or parser of a finished shell script becomes the future configuration owner.
+
+** Architectural benefit and new work
+| Required change | Work that can disappear | Added work / limitation | Evidence needed before a gain claim |
+|-----------------+-------------------------+-------------------------+------------------------------------|
+| Restore one effective native policy authority | Divergent defaults and repeated option interpretation | Typed producer/renderer validation; preserve ordered duplicates and suppression rules | Existing M8 and E01-E32 equivalence, actual runtime/object argv |
+| C23 stable ABI plus ModuleSpec/FrameSpec | Repeated invariant macro expression work in each generated unit | Tables, helper calls, relocations, source/PointId diagnostics and real layout consumers | Expanded-token/parse cost, actual object/runtime/GC/control parity |
+| Qualified generated-C reuse | Scheme regeneration for a native-only leaf change with unchanged generator/semantic inputs | Complete dynamic read/effect closure and generation identity | Cold, no-change, native-leaf, macro and frame-ABI controls |
+| Object/link dependency projections | Unrelated recompilation or relinking | Complete ABI/header/tool/flag/target closure; genuine ABI changes still fan out | Actual action counts and output/diagnostic/failure equivalence |
+| Separate development feedback from full bootstrap | Unnecessary full two-pass work on an admitted warm developer route | Both passes still required by current full-bootstrap qualification | Distinct receipts; never relabel warm reuse as a fresh complete bootstrap |
+| Private header organization alone | Mixed source ownership and missing module dependencies | Same flat public macro text and preprocessing remain | No macro-expansion speedup attributed to the file split |
+
+The existing historical 15.45-to10.37-second object comparison and GCC-reported
+8915-to97-MiB cumulative allocation are component evidence. They are not peak
+RSS, not a whole-bootstrap speedup and not a justification to multiply the
+allocation figure by the number of make jobs. Likewise, more jobs cannot remove
+a serial prefix or duplicate generation work. Existing QNT owns schedule and
+invalidation histories; the existing Lean inequality owns its separate algebraic
+condition. Neither is rewritten as a duplicate proof of current native timing.
+
+* RESEARCH Native policy replacement and artifact projections
+:PROPERTIES:
+:CUSTOM_ID: darwin-native-policy-replacement
+:STATUS: source-implemented; selected-native-chain-pass; M8-retirement-open
+:MODEL_AUTHORITY: GambitDarwinDevelopment::duty8
+:EVIDENCE_CLASS: current-source-and-bounded-native-observations
+:END:
+
+The modern-c candidate now includes [[file:../../../vendor/gambit/native-profile.m4][native-profile.m4]].
+=configure.ac= invokes its policy, composition and mode-template definitions;
+the previous copies of composition and =BUILD_*= definitions were removed from
+that file. Existing platform/compiler probes still own measured capabilities.
+The new module belongs to the existing ConfiguredNativeModel seam, before
+MF/SH/BAT encodings. It is a concrete producer replacement, not a second list of
+Darwin flags in the SMP runner or a copy of the historical patch.
+
+C23 is a producer requirement, checked by compiling with =-std=c23= and checking
+=__STDC_VERSION__=. It is included in the common object/dynamic flags so the
+ordinary =-O1= and runtime =-O3= modes both inherit it. The retained C23 profile
+overlay is still explicit and identity-bound; it can produce a redundant standard
+word, which must not be silently deduplicated. Removing that transitional overlay
+requires a separate caller migration after producer acceptance.
+
+The =auto= macro-diagnostic policy chooses =-ftrack-macro-expansion=0= only for
+Darwin GNU GCC after an actual option probe. Explicit =compact= or =full= requests
+are rejected for other compiler families; rejected GCC options fail configuration.
+Full mode selects level2 for a future matched control. This removes diagnostic
+macro provenance bookkeeping. It does not remove semantic macro expansion,
+Scheme expansion or descriptor text. Header organization alone has zero credited
+reduction in generated token work. Invariant ModuleSpec/FrameSpec lowering remains
+the architectural path for that larger reduction, with all real consumers covered.
+
+The same configured bindings emit an inert =native-profile.scm= observation.
+Strings are numeric octets, preserving whitespace, quotes, backslashes and dollar
+syntax without evaluating them. Every unparsed command/flag fragment is marked
+=legacy-opaque=, and =managed-executor-admitted= is false. The file is an observation
+of the single producer, not a fully typed argv executor or installation manifest.
+The independent native Scheme test [[file:../../../vendor/gambit/tests/native-profile.scm][native-profile.scm]]
+reads it and compares object, dynamic, executable and optimization fields against
+the actual legacy Make consumer, including the ordinary/runtime distinction.
+Opaque input decoding, all E01-E32 observations, capture overrides, dynamic metadata,
+complete managed modes and coherent installation still block full M8 retirement.
+
+** Correct invalidation is more precise than copying successful-looking files
+
+SysML owns three ArtifactBoundary instances. Their projected dependency closure
+is checked by ASCENT; it cannot issue an actual reuse permit. A generation key
+must bind the complete dynamic read/effect closure, compiler stage and logical
+path semantics. Diagnostic-only native policy is classified separately only when
+it has no generator-visible metadata or effect; an unknown native read remains
+unmapped and blocks reuse qualification.
+
+Current full-bootstrap acceptance still runs both target passes. The previously
+qualified Scheme compiler is reused as a compiler input under its exact identity.
+Its old runtime is not linked into the new target. The incomplete phase3 build is
+retained as failed evidence; its generated C and partial archives are not promoted
+to a complete seed. The whole configured-tree key still binds every actual header
+and Make template. A separate generated-C artifact store is not implemented by
+removing inputs from that key.
+
+| Change | Generation | Compilation | Link | Qualification boundary |
+|--------+------------+-------------+------+------------------------|
+| No changed inputs | Reusable only with complete snapshot and stage receipt | Exact object receipt | Exact linked-output receipt | Dependency emptiness alone authorizes nothing |
+| Diagnostic native policy only | Logically unchanged if all generator-visible inputs/effects are unchanged | Rebuild affected objects | Rebuild affected outputs | Current producer/argv and diagnostics must be accepted |
+| Native C leaf | Unchanged unless its bytes are generator input | Rebuild real consumers | Rebuild affected outputs | Do not infer a smaller dependency set from filename alone |
+| Scheme or shared macro input | Regenerate reached closure | Recompile changed outputs | Relink changed closure | Unknown eval/reader/FFI reads deny a reuse seal |
+| Frame/header ABI | Preserve generation only if emitted metadata is unaffected | Invalidate every actual ABI consumer | Rebind compatible runtime/module closure | Multi-shot continuation, GC and FFI acceptance required |
+| Failed/unknown prior phase | No success credential | No object credential | No runtime credential | Preserve custody and failure; do not hide it with a fresh directory |
+
+** Benefit and added cost admission
+
+| Replacement | Credited benefit now | Remaining benefit to establish | New cost / refusal boundary |
+|-------------+----------------------+--------------------------------+-----------------------------|
+| One M4 composition/template owner | Existing definitions moved once; both outputs read the same bindings | All M8 consumers replaced by equivalent typed recipes | Definition count stays one; no configure-work saving is credited merely to moving files. Probe, serializer, decoder and publication support remain |
+| C23 producer contract | Common ordinary/runtime policy and current two-pass bootstrap accepted | Other supported consumers and managed modes | C23 compiler floor; C++ mode rejected in this branch |
+| Compact GCC macro diagnostics | Current target compiles under the explicit Darwin policy | Current matched TU and whole-request speedup | Reduced macro expansion backtrace detail; full mode remains selectable but is not qualified by this run |
+| Exact completed GSC reuse | Qualified input reused; both new target passes observed; completed target reference exported | Future consumers must independently validate exact identity | Host graph verification and artifact custody remain necessary |
+| Generation/object/link projections | Dependency roles and refusal rules are explicit | Actual complete closure issuer and native-only edit reuse | Separate artifact receipts and validation; no unsafe partial reuse |
+| Fixed _mem prerequisites | Current-source two-pass bootstrap and selected continuation/GC cases pass | Broader SMP retirement and failure-isolation acceptance | Every private fragment remains a real dependency |
+
+Existing QNT owns invalidation/schedule histories; Lean owns the separate
+algebraic/refinement obligations. Neither is rewritten here. ASCENT projects
+SysML dependencies and binds native evidence; it does not re-prove their theorems
+or turn an LLM assessment into native acceptance. Five commit gates stay open until
+tests, architecture rationale, current process, model correspondence and the
+Gambit-specific semantic amplification questions all have their required evidence.
+
+** Current native observations and remaining retirement boundary
+:PROPERTIES:
+:CUSTOM_ID: darwin-native-stage-costs
+:SOURCE_LOCK: evidence/research/darwin-native-policy/source.lock.json
+:COST_RECEIPT: evidence/research/darwin-native-policy/completed-cost/cost.json
+:NATIVE_RECORDS: evidence/research/darwin-native-policy/completed-native-records.json
+:MODEL_BINDING: evidence/research/darwin-native-policy/completed-model-binding.json
+:END:
+
+The =darwin-producer-bootstrap= request completed with exit0, timeout=false and
+whole elapsed =484.579736625= seconds under the unchanged =600= second ceiling.
+Its =make -j12 GAMBOPT=p1 from-scratch= child completed in =349.249032417= seconds;
+all four phase counts are exactly2. The bootstrap stage, including validation and
+preservation, took =376.233688875= seconds. The current 92 locked source paths are
+unchanged after native validation. The original Bazel profile remains retained;
+the explicit identity-bound C23 derivative is the selected profile. No heap or
+watchdog increase was used. The earlier timeout and both constructor refusals
+remain historical failures, not observations of a speedup.
+
+#+NAME: darwin-current-native-acceptance
+| Check | Observed result | Stage seconds | Limit of the evidence |
+|-------+-----------------+---------------+-----------------------|
+| Full target bootstrap | PASS, two target passes, phase1..4 each2 | 376.23 | Native make itself349.25; whole request484.58/600 |
+| map multi-shot continuation | PASS | 10.58 | Real generated native consumer, repeated recovery and dynamic-wind checks |
+| Wide map / managed1 | PASS, forced-GC count11 | 10.04 | Fixture-observed GC, not all GC architectures |
+| Wide map / host-managed11 | PASS, forced-GC count11 | 13.51 | Same semantic fixture on the host topology |
+| Worker roles / managed1 | PASS, epochs3 | 17.87 | Selected handoff fixture |
+| Worker roles / host-managed11 | PASS, epochs3 | 10.81 | Does not close unknown-join isolation or full independent-worker retirement |
+
+The generic =nativeGcPassed= field in the wide-map stage is false; the forced-GC
+claim above is scoped to the fixture's retained =FORCED-GC-COMPLETE count=11=
+output and PASS result. It must not be relabelled as the separate generic GC
+capability or a comprehensive collector qualification. Compile and execution
+processor counts are retained separately in each observation.
+
+The newly completed GSI independently passes
+=gambit.toolchain.configuration.native-profile= using the actual preserved
+profile and =lib/makefile=: =NATIVE-PROFILE-PASS c23 ordinary=O1 runtime=O3
+macro=compact=. Its read-only invocation has a separate 30-second limit. The
+completed-export control module passes49 tests in0.971 seconds, including the
+exact new/old output-set cases. These checks neither rebuild the target nor
+relax prior native admission. The successful research receipt still reports
+=runtimeAdmitted=false= and =releaseAdmitted=false=; PASS denotes the selected
+local observation chain rather than general release approval.
+
+#+NAME: darwin-current-stage-envelopes
+| Observed work envelope, both passes | Seconds | Share of native make | Refactoring implication |
+|------------------------------------+---------+----------------------+-------------------------|
+| Phase1 Scheme-to-C generation | 225.93 | 64.69% | Exact generation reuse matters for native-only development edits |
+| Phase2 metadata/link-file generation | 7.76 | 2.22% | A distinct metadata artifact needs its own complete input key |
+| Phase3 C/object/archive work | 99.00 | 28.35% | Macro diagnostic policy affects only part of this envelope |
+| Phase4 executable linking / handoff / cleanup envelope | 12.47 | 3.57% | Includes observed between-pass work; not an isolated linker timer |
+| Before first observed phase banner | 4.08 | 1.17% | Keep startup visible rather than charging it to preprocessing |
+
+These intervals use the first observed phase banners, including buffered/polled
+output. They are wall-time envelopes, not exclusive CPU, preprocessor, linker or
+per-translation-unit measurements. Even hypothetical elimination of all phase3
+would leave about =250.25= seconds of this make request; it is an upper-bound
+thought experiment, not an achievable macro-only improvement. Conversely,
+=225.93= seconds is an observed generation envelope that a future qualified
+native-only edit path could avoid before validation/copy overhead. It cannot be
+removed from this required two-pass cold acceptance and is not a measured cache
+hit saving. No matched whole-build speedup or peak RSS was measured.
+
+** Immutable input identity and mutable constructor responsibility
+:PROPERTIES:
+:CUSTOM_ID: darwin-constructor-custody
+:MODEL_AUTHORITY: GambitDarwinDevelopment::bootstrapConstructor
+:END:
+
+The first observed refusal exposed a responsibility mismatch: a content-keyed
+bootstrap input had already been mutated by a prior constructor. A new invocation
+could neither reuse its completed receipt nor treat those mutated bytes as the
+original input. Merely changing a directory or ignoring the mismatch would erase
+the failure and bypass input custody.
+
+The replacement distinguishes immutable artifact identity from mutable instance
+identity. Immutable inputs and completed outputs remain keyed by content. A
+working constructor additionally binds the authenticated run-header SHA and its
+declared endpoint; the header binds the actual nested =engine.engineId= and the
+same native-case admission. Same-instance mutation still refuses explicit reuse.
+A successor gets a private copy-on-write instance of the same unchanged input;
+it does not rewrite the predecessor. The native history guard is unchanged.
+The retained =instance-integration.json= is a mid-run custody observation, not
+a terminal success certificate. Terminal success is recorded separately above.
+
+The completed-producer reader also needs the same configuration output-set
+contract as its producer. Legacy generations require the original nine outputs;
+an authenticated =native-profile.m4= input requires =native-profile.scm= as the
+tenth output. Missing, additional, changed or generation-mismatched fields must
+refuse export. This contract is based on the retained source identity, not on
+whatever happens to exist in a live directory. A native PASS does not excuse an
+export-adapter refusal; both receipts remain separate.
+
+After the49 transport controls passed, the unchanged successful bootstrap was
+exported as [[file:../../../evidence/research/darwin-native-policy/completed-producer.json][completed-producer.json]]. It binds engine
+=601741a548411c929e22c0393911b31eee6db5a0377ea009546e5fbcb8cb9aaa=,
+the original outer/child/step receipts, source lock and GCC identity. Export did
+not rerun a build. This permits future consumers to request checked reuse; the
+reference alone does not qualify a changed source tree or reset a budget.
+
+#+NAME: darwin-benefit-and-added-overhead
+| Responsibility replacement | Work actually removed or reused | Added work / cost | Still open |
+|----------------------------+---------------------------------+-------------------+------------|
+| Exact configured-tree reuse | Current configure stage1.71s; no new aclocal/autoconf/configure invocation | Compiler/backend/macro identity probes and output hashing | Matched end-to-end improvement; publication as a coherent install |
+| Completed compiler input | Existing qualified GSC and preserved compiler-input artifact reused | Source/producer validation and private copy-on-write activation | Safe generated-C reuse on native-only edits |
+| Mutable constructor instance | Prior mutated generation retained; no in-place repair or extra seed | Run-header/endpoint identity, private storage, receipts | Cancellation/failure custody outside the selected bootstrap |
+| Native output-set contract | Producer and completed reader share one required-output definition | Byte-hash and exact-set validation | Full typed argv decoder, executor and E01-E32 coverage |
+| C23 / compact diagnostics | Explicit selected producer policy reaches actual target compilation | Compile-option probes; reduced diagnostic provenance | Matched current-TU timing and semantic token lowering |
+| Invariant ABI lowering | No token reduction credited to lossless file splitting | ModuleSpec/FrameSpec generator and consumer migration still required | Retire old per-TU macro/layout responsibilities only after semantic acceptance |
+
+The earlier26 scoped unit controls passed, including actual receipt shape,
+constructor isolation, timeout-prefix preservation and source byte fidelity.
+Native SysML validates nine duties, three artifact boundaries, five C roles and
+one mutable constructor. ASCENT checks five invalidation scenarios and three
+source-evidence scenarios; synthetic cases and actual source-test bindings remain
+distinguishable. Reuse permits, M8 retirement and whole-build gain are not inferred
+from dependency reachability. Existing QNT and Lean owners are reused without a
+second proof of the same obligations.
+
+#+NAME: darwin-commit-closure
+| Gate | Current evidence | Remaining closure |
+|------+------------------+-------------------|
+| Required tests | Selected full native chain PASS; scoped transport controls retained | Broader M8 mode acceptance and independent failure-isolation gates |
+| Architecture learning / advantages | Immutable input vs mutable instance; native policy vs generator inputs | Actual generated-C reuse issuer and semantic macro-work retirement |
+| Current process | modern-c source delta, exact lock, failures and successful terminal receipts | Review complete staged scope without absorbing unrelated work |
+| Models | Native SysML projection drives ASCENT, Org and D2; existing proof owners reused | Obligations marked open remain open |
+| Gambit semantic amplification | Multi-shot map recovery, wide roots and GC retained under C23 policy | General FrameSpec/ModuleSpec consumer retirement and full SMP architecture |
+
+This is a completed selected native acceptance step, not permission to commit
+the unrelated staged tree or report all SMP issues solved. Full M8 retirement
+and the larger responsibility replacement remain open; no commit is admitted.
 
 * RESEARCH Historical evidence must keep its exact scope
 :PROPERTIES:

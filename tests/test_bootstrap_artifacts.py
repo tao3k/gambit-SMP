@@ -1,5 +1,6 @@
 """Storage/typing regressions; no native GC or bootstrap admission."""
 import json
+import copy
 import os
 from pathlib import Path
 import tempfile
@@ -142,9 +143,154 @@ class BootstrapArtifactsTests(unittest.TestCase):
             with self.assertRaises(ValueError):validate_build_derivation(value)
 
 
+class ProducerActivationTests(unittest.TestCase):
+    def fixture(self, root, *, step='compiler-input', run='producer'):
+        from types import SimpleNamespace
+        header = root / run / 'run-header.json'
+        header.parent.mkdir(parents=True)
+        import hashlib
+        header.write_text(json.dumps(dict(schema='research-run-header.v1',
+            runId=hashlib.sha256(run.encode()).hexdigest()[:32], executionCompleted=False,
+            declaration=dict(steps=[dict(id='compiler-input'), dict(id='bootstrap')]),
+            engineId='e' * 64, recipe='same-native-case')))
+        directory = header.parent / 'run' / step
+        directory.mkdir(parents=True)
+        return SimpleNamespace(root=root, directory=directory, bind=lambda paths: None,
+            lease_workspace=lambda path, identity: path,
+            receipt=dict(engine=dict(engineId='e' * 64, path=str(root / 'engine')), recipe='same-native-case',
+                         journal=dict(path=str(header), sha256=digest(header))))
+
+    def test_actual_receipt_nests_engine_and_flat_id_cannot_override_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ctx = self.fixture(Path(directory))
+            self.assertNotIn('engineId', ctx.receipt)
+            self.assertIsNotNone(a.private_activation(ctx))
+            ctx.receipt['engineId'] = 'e' * 64
+            ctx.receipt['engine']['engineId'] = 'f' * 64
+            with self.assertRaisesRegex(ValueError, 'producer identity'):
+                a.private_activation(ctx)
+
+    def test_constructor_identity_is_producer_and_endpoint_not_content_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = self.fixture(root)
+            second = self.fixture(root, run='successor')
+            # Real run headers contain distinct run identities even for equal inputs.
+            one, two = a.private_activation(first), a.private_activation(second)
+            self.assertNotEqual(one, two)
+            self.assertEqual(one, a.private_activation(first))
+            first.directory = first.directory.with_name('bootstrap')
+            self.assertNotEqual(one, a.private_activation(first))
+
+    def test_changed_header_and_foreign_endpoint_cannot_create_activation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ctx = self.fixture(Path(directory))
+            ctx.directory = Path(directory) / 'another/run/compiler-input'
+            with self.assertRaisesRegex(ValueError, 'bound producer'):
+                a.private_activation(ctx)
+            ctx = self.fixture(Path(directory), run='unregistered')
+            ctx.directory = ctx.directory.with_name('not-a-declared-endpoint')
+            with self.assertRaisesRegex(ValueError, 'producer identity'):
+                a.private_activation(ctx)
+            ctx = self.fixture(Path(directory), run='second')
+            Path(ctx.receipt['journal']['path']).write_text('{}')
+            with self.assertRaisesRegex(ValueError, 'bound producer'):
+                a.private_activation(ctx)
+
+    def test_only_mutable_work_roles_accept_a_producer_activation(self):
+        from gambit_smp.workspace import validate_build_derivation
+        activation = dict(producerSha256='b' * 64, step='bootstrap')
+        value = dict(role='working-bootstrap', inputSha256='a' * 64, activation=activation)
+        validate_build_derivation(value)
+        for role in ('completed-runtime', 'completed-bootstrap-input', 'completed-seed'):
+            with self.assertRaisesRegex(ValueError, 'mutable constructor'):
+                validate_build_derivation(dict(value, role=role))
+        with self.assertRaisesRegex(ValueError, 'typed build role'):
+            validate_build_derivation(dict(value, flags=['-O0']))
+
+    def test_constructor_activation_does_not_reset_native_case_history(self):
+        from copy import deepcopy
+        from gambit_smp.reasoning_history import _native_build_keys
+        header = dict(runId='a' * 32, inputs={'source.lock.json': 'source', 'profile.json': 'profile'},
+            declaration=dict(steps=[
+                dict(id='source', capability='gambit.materialize', arguments={'sourceLock': 'source.lock.json'}),
+                dict(id='configure', capability='gambit.configure', dependsOn=['source'],
+                     arguments={'source': {'step': 'source', 'output': 'source'}, 'buildProfile': 'profile.json'}),
+                dict(id='bootstrap', capability='gambit.bootstrap', dependsOn=['configure'],
+                     arguments={'runtime': {'step': 'configure', 'output': 'source'}})]))
+        successor = deepcopy(header)
+        successor['runId'] = 'b' * 32
+        self.assertTrue(_native_build_keys(header))
+        self.assertEqual(_native_build_keys(header), _native_build_keys(successor))
+        successor['inputs']['profile.json'] = 'different profile'
+        self.assertNotEqual(_native_build_keys(header), _native_build_keys(successor))
+
+    def test_mutation_stays_with_its_producer_and_cannot_change_the_input_or_successor(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'immutable-input'
+            source.mkdir()
+            (source / 'seed').write_text('qualified input')
+            first = self.fixture(root)
+            second = self.fixture(root, run='successor')
+
+            def derived(ctx, incoming, role, *, activation=None):
+                return (root / 'work' / activation['producerSha256'] / activation['step'] / 'source',
+                        recipes.tree_identity(incoming))
+
+            with patch.object(a, 'derived_source', side_effect=derived):
+                old, _ = a.private_copy(first, source, 'working-bootstrap')
+                (old / 'seed').write_text('partial failed build')
+                with self.assertRaisesRegex(ValueError, 'explicit recovery'):
+                    a.private_copy(first, source, 'working-bootstrap')
+                successor, storage = a.private_copy(second, source, 'working-bootstrap')
+            self.assertNotEqual(old, successor)
+            self.assertEqual('partial failed build', (old / 'seed').read_text())
+            self.assertEqual('qualified input', (source / 'seed').read_text())
+            self.assertEqual('qualified input', (successor / 'seed').read_text())
+            self.assertFalse(storage['priorGenerationRewritten'])
+
+
 class RegisteredArtifactCustodyTests(unittest.TestCase):
     from tests.test_workspace import WorkspaceTests
     setUp = WorkspaceTests.setUp
+
+    def test_development_reuses_one_tree_and_preserves_native_outputs_without_copy_or_clean(self):
+        import shutil
+        from types import SimpleNamespace
+        from gambit_smp import workspace as w
+        from gambit_smp.artifact_storage import transfer_tree
+        w.start(self.root, 'modern-c', adopt=True)
+        with w.execution_scope(self.root, 'modern-c'):
+            build=w.build_output(self.root,'gambit-core',compiler=shutil.which('cc'),flags=['-O1'])
+            source=build/'source';(source/'lib').mkdir(parents=True)
+            (source/'lib/setup.c').write_text('/* source */')
+            (source/'lib/mem.c').write_text('/* old native */')
+            (source/'lib/mem.o').write_bytes(b'old object')
+            ctx=SimpleNamespace(root=self.root,bind=lambda paths:None,
+                lease_workspace=lambda p,identity:p)
+            with patch('gambit_smp.artifact_storage.transfer_tree',wraps=transfer_tree) as copy:
+                first, receipt=a.incremental_consumer(ctx,source,mutable=['lib/mem.c','lib/mem.o'])
+                self.assertEqual(copy.call_count,1)
+                self.assertEqual(receipt['sourceCopies'],1)
+                (first/'lib/mem.c').write_text('/* current native */')
+                (first/'lib/mem.o').write_bytes(b'current compiled object')
+                w.checkpoint_build_source(first,nativeObjectContext={'parameters':'completed-flags-A'})
+                before=(first/'lib/mem.o').stat().st_mtime_ns
+                second, receipt=a.incremental_consumer(ctx,source,mutable=['lib/mem.c','lib/mem.o'])
+                self.assertEqual(first,second)
+                self.assertEqual(copy.call_count,1)
+                self.assertEqual(receipt['sourceCopies'],0)
+                self.assertFalse(receipt['automaticClean'])
+                self.assertEqual((second/'lib/mem.o').stat().st_mtime_ns,before)
+                self.assertEqual((second/'lib/mem.o').read_bytes(),b'current compiled object')
+                self.assertEqual(json.loads((second.parent/'source-state.json').read_text())['nativeObjectContext'],
+                                 {'parameters':'completed-flags-A'})
+                self.assertEqual((source/'lib/mem.o').read_bytes(),b'old object')
+                (source/'lib/mem.c').write_text('/* different generation origin */')
+                with self.assertRaisesRegex(ValueError,'explicit fixed-workspace rebase'):
+                    a.incremental_consumer(ctx,source)
+                self.assertEqual(copy.call_count,1)
 
     def test_registered_generations_keep_flags_and_preserve_seed_under_real_lease(self):
         import shutil
@@ -193,6 +339,107 @@ class RegisteredArtifactCustodyTests(unittest.TestCase):
                 a.private_copy(ctx,saved,'working-bootstrap')
 
 class ReusedConfigurationProofTests(unittest.TestCase):
+    def configuration_owner(self, root):
+        from types import SimpleNamespace
+        source=root/'source';source.mkdir();out=root/'step';out.mkdir()
+        for name in n.CONFIGURATION_OUTPUTS:
+            p=source/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(name)
+        ctx=SimpleNamespace(directory=out,commands=[],remaining=lambda:90,
+            tools={'aclocal':'aclocal','autoconf':'autoconf','sh':'/bin/sh'},bind=lambda p:None)
+        def observe(stage,argv,cwd,budget,**kw):
+            row=dict(stage=stage,argv=argv,cwd=str(cwd),state='OBSERVED',exit=0,timeout=False,
+                     parentReaped=True,processGroupQuiescent=True)
+            ctx.commands.append(row);(out/(stage+'.process.json')).write_text(json.dumps(row))
+            if stage=='config-status':(source/'include/gambit.h').write_text('new template output')
+            ctx.last_budget=budget
+            return ''
+        ctx.require=observe
+        return source,ctx
+
+    def test_template_change_reuses_probes_via_real_status_command_and_authenticates_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source,ctx=self.configuration_owner(Path(temp))
+            request={'inputs':{'configure.ac':'policy','include/_gambit/x.h.in':'old'},'profile':'same'}
+            n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            ctx.commands.clear();request['inputs']['include/_gambit/x.h.in']='new'
+            proof=n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            self.assertEqual([c['stage'] for c in ctx.commands],['config-status'])
+            self.assertEqual(ctx.configuration_action,'config-status');self.assertEqual(ctx.last_budget,90)
+            self.assertEqual(n.completed_configuration_proof(proof)['stage'],'configure')
+            ctx.commands.clear()
+            n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            self.assertEqual(ctx.commands,[])
+            bad=copy.deepcopy(proof);bad['templateEmission']['receiptSha256']='0'*64
+            with self.assertRaises(ValueError):n.completed_configuration_proof(bad)
+
+    def test_policy_change_reconfigures_with_distinct_standard_cache_within_same_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source,ctx=self.configuration_owner(Path(temp))
+            request={'inputs':{'configure.ac':'old','include/_gambit/x.h.in':'same'}}
+            n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            first=next(c for c in ctx.commands if c['stage']=='configure')['argv'][-1]
+            ctx.commands.clear();request['inputs']['configure.ac']='new'
+            n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            self.assertEqual([c['stage'] for c in ctx.commands],['aclocal','autoconf','configure'])
+            self.assertNotEqual(first,ctx.commands[-1]['argv'][-1]);self.assertEqual(ctx.last_budget,90)
+
+    def test_unknown_status_does_not_replace_completed_configuration_proof(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source,ctx=self.configuration_owner(Path(temp))
+            request={'inputs':{'configure.ac':'same','include/x.in':'old'}}
+            n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            before=(source.parent/'configure-proof.json').read_bytes()
+            def fail(*a,**kw):raise TimeoutError('status result unknown')
+            ctx.require=fail;request['inputs']['include/x.in']='new'
+            with self.assertRaises(TimeoutError):n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            self.assertEqual(before,(source.parent/'configure-proof.json').read_bytes())
+
+    def test_same_request_output_corruption_rejects_without_repair_or_reuse(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source,ctx=self.configuration_owner(Path(temp));request={'inputs':{'configure.ac':'same'}}
+            n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            (source/'include/gambit.h').write_text('unexplained mutation');ctx.commands.clear()
+            with self.assertRaisesRegex(ValueError,'configuration bytes changed'):
+                n.configure_owned_source(ctx,source,[],managed=True,request_identity=request)
+            self.assertEqual(ctx.commands,[])
+
+    def test_shared_owner_reuses_only_the_same_request_and_never_replays_configure(self):
+        from types import SimpleNamespace
+        import hashlib
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'source';source.mkdir()
+            output=Path(temp)/'step';output.mkdir()
+            for name in n.CONFIGURATION_OUTPUTS:
+                p=source/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(name)
+            commands=[]
+            ctx=SimpleNamespace(directory=output,commands=commands,remaining=lambda:90,
+                tools={'aclocal':'aclocal','autoconf':'autoconf','sh':'/bin/sh'},bind=lambda p:None)
+            def observed(stage,argv,cwd,budget,**kw):
+                row=dict(stage=stage,argv=argv,state='OBSERVED',exit=0,timeout=False,
+                         parentReaped=True,processGroupQuiescent=True)
+                commands.append(row)
+                (output/(stage+'.process.json')).write_text(json.dumps(row))
+                return ''
+            ctx.require=observed
+            self.assertIsNone(n.configure_owned_source(ctx,source,['--enable-smp'],managed=True,
+                                                      request_identity={'policy':'A'}))
+            self.assertEqual([c['stage'] for c in commands],['aclocal','autoconf','configure'])
+            commands.clear()
+            proof=n.configure_owned_source(ctx,source,['--enable-smp'],managed=True,
+                                           request_identity={'policy':'A'})
+            self.assertEqual(commands,[])
+            self.assertEqual(proof['requestIdentity'],{'policy':'A'})
+            self.assertIsNone(n.configure_owned_source(ctx,source,['--enable-smp'],managed=True,
+                                                      request_identity={'policy':'B'}))
+            self.assertEqual([c['stage'] for c in commands],['aclocal','autoconf','configure'])
+            commands.clear()
+            def unknown(*args,**kw):raise TimeoutError('configure result unknown')
+            ctx.require=unknown
+            with self.assertRaises(TimeoutError):
+                n.configure_owned_source(ctx,source,['--enable-smp'],managed=True,
+                                         request_identity={'policy':'C'})
+            self.assertEqual(json.loads((source.parent/'configure-proof.json').read_text())['requestIdentity'],{'policy':'B'})
+
     def fixture(self):
         from gambit_smp.native_capabilities import CONFIGURATION_OUTPUTS
         raw=dict(stage='configure',state='OBSERVED',exit=0,timeout=False,

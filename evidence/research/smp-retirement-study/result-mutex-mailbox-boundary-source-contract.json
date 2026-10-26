@@ -1,0 +1,188 @@
+{
+  "schema": "result-mutex-mailbox-boundary-source-contract.v1",
+  "sourceCut": ".cache/tasks/repair-9-12/processes/audit/runs/9fe4ebd681704f46a1a6cc76f67ab2fb/outputs/mailbox-boundary-source-audit",
+  "staticCut": ".cache/tasks/repair-9-12/processes/audit/runs/bf83f4bbfd894a8780ed0004dee09df3/outputs/mailbox-boundary-static",
+  "boundaries": [
+    {
+      "name": "publish-notify",
+      "functions": [
+        "##thread-intr!",
+        "##thread-intr-propagate!",
+        "___raise_high_level_interrupt_pstate"
+      ],
+      "fields": [
+        "request.slot0",
+        "thread.interrupts.head/tail",
+        "mutex.name/specific",
+        "thread.current-processor",
+        "thread.migration-target"
+      ],
+      "locks": "T; notification after T release",
+      "status": "must refine authoritative thread-only ownership and protected route recheck"
+    },
+    {
+      "name": "claim-execute-reply",
+      "functions": [
+        "##other-interrupt!",
+        "##thread-resume-execution!",
+        "##mutex-unlock-out-of-line!",
+        "##thread-end-locked!",
+        "##btq-abandon!"
+      ],
+      "fields": [
+        "queue head/tail",
+        "mapped local result mutex",
+        "mutex-specific",
+        "owned mutex BTQ"
+      ],
+      "locks": "pop under T; ordinary callback outside locks; M for unlock",
+      "status": "normal root maps confirmed; arbitrary continuation/C unwind not supported by current proof"
+    },
+    {
+      "name": "suspend-runnable",
+      "functions": [
+        "##thread-join!",
+        "##thread-yield!",
+        "##thread-sleep!",
+        "##thread-reschedule!",
+        "##thread-migrate-to!",
+        "##mutex-lock-out-of-line!",
+        "##mutex-signal-and-condvar-wait!",
+        "##wait-for-io!"
+      ],
+      "fields": [
+        "current-thread",
+        "thread.cont",
+        "resume-thunk",
+        "BTQ",
+        "TOQ",
+        "migration-target"
+      ],
+      "locks": "T then P; reverse P->T must trylock and release P on failure",
+      "status": "must add shared pending-aware commit while preserving each wait contract"
+    },
+    {
+      "name": "ready-park-wake",
+      "functions": [
+        "##add-thread-to-run-queue-of-current-processor-preferably-out-of-line!",
+        "##add-thread-to-run-queue-of-some-processor-out-of-line!",
+        "##thread-schedule-with-acquired-processor!",
+        "##wait!",
+        "##wait-abort!",
+        "##wait-abort-no-remove!",
+        "___device_select_abort"
+      ],
+      "fields": [
+        "processor runnable BTQ",
+        "VM idle deque",
+        "optional private park phase/generation",
+        "abort fd"
+      ],
+      "locks": "P then release; V then release; P validation then release; never P/V across select",
+      "status": "ready publication, wake outcome and all normal error cleanup must be refined"
+    }
+  ],
+  "roots": [
+    {
+      "procedure": "##wait!",
+      "frameSize": 5,
+      "map": "0x3",
+      "liveOrdinal": 2,
+      "stackReload": "STK(-6)",
+      "role": "processor across select"
+    },
+    {
+      "procedure": "##thread-resume-execution!",
+      "frameSize": 5,
+      "map": "0x7",
+      "liveOrdinals": [
+        2,
+        3
+      ],
+      "stackReload": "mutex STK(-5)",
+      "role": "resume thunk and mutex across callback"
+    },
+    {
+      "procedure": "##thread-resume-execution! contended helper",
+      "frameSize": 5,
+      "map": "0xf",
+      "liveOrdinals": [
+        2,
+        3,
+        4
+      ],
+      "stackReload": "STK(-4)"
+    },
+    {
+      "procedure": "##other-interrupt!",
+      "frameSize": 5,
+      "map": "0x3",
+      "liveOrdinal": 2,
+      "stackReload": "mutex STK(-6)"
+    }
+  ],
+  "currentWithdrawalSites": [
+    {
+      "line": 1697,
+      "role": "terminal"
+    },
+    {
+      "line": 1915,
+      "role": "join"
+    },
+    {
+      "line": 2010,
+      "role": "yield branch1"
+    },
+    {
+      "line": 2038,
+      "role": "yield branch2"
+    },
+    {
+      "line": 2096,
+      "role": "sleep"
+    },
+    {
+      "line": 2822,
+      "role": "reschedule"
+    },
+    {
+      "line": 3287,
+      "role": "migrate"
+    },
+    {
+      "line": 3905,
+      "role": "mutex block"
+    },
+    {
+      "line": 4184,
+      "role": "condvar wait"
+    },
+    {
+      "line": 4273,
+      "role": "I/O wait"
+    }
+  ],
+  "confirmedDefects": [
+    "raw C prefix-fetch-add ticket spin lacks grant-completion acquire",
+    "abort write result is ignored; no distinction among delivered/coalesced/EINTR/error"
+  ],
+  "notEstablished": [
+    "observed native first writer",
+    "actual stale-tail native execution",
+    "observed abort write failure",
+    "arbitrary continuation escape roots and completion",
+    "complete native source refinement",
+    "first-eight preservation and performance"
+  ],
+  "proposedScalarFields": [
+    "parkPhase",
+    "publicationGeneration only if existing state cannot prove handshake",
+    "preparedGeneration and processor incarnation/reset contract"
+  ],
+  "forbiddenReuse": [
+    "scheduler_status startup pending/ready/failed"
+  ],
+  "runtimeAdmitted": false,
+  "nativeMilestone": "8/12"
+}

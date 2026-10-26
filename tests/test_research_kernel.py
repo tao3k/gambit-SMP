@@ -421,6 +421,36 @@ class ResearchGraphTests(unittest.TestCase):
         self.assertEqual(original, previous_path.read_bytes())
         self.assertNotIn("performanceBudgetExceeded", result)
 
+    def test_changed_engine_failed_prefix_launches_fresh_attempt_not_partial_resume(self):
+        from gambit_smp import host_environment
+        self.load()
+        inputs={name:recipes.digest(self.root/name)
+                for name in ['evidence/control.recipe.json',*self.recipe['inputs']]}
+        prior=self.root/'failed-prefix';prior.mkdir()
+        header=dict(recipe=self.recipe['id'],engineId='old-seal',inputs=inputs,
+                    declaration=copy.deepcopy(self.recipe),budgetSeconds=self.recipe['budgetSeconds'],
+                    stepBudgets={step['id']:step['budgetSeconds'] for step in self.recipe['steps']})
+        prefix=dict(prefixIdentity='retained-failure',records=[dict(payload=header)])
+        state=dict(outcome='INCOMPLETE',resumption=dict(executionQuiescence=dict(observed=True),
+            relations=dict(failed=[['fixture','DENY']],failed_attempt_history=[[]])))
+        manifest=dict(engineId='new-seal',processProtocol=research_kernel.PROCESS_PROTOCOL,
+                      files=research_kernel.process_transport_identity(),hostTools={'python':{'path':sys.executable}})
+        def checkpoint(root,path):
+            return prefix if path.resolve()==prior.resolve() else {'records':[]}
+        with patch.object(research_kernel,'manifest_paths',return_value=manifest), \
+             patch.object(host_environment,'observe',return_value=None), \
+             patch('gambit_smp.reasoning_history.read_execution_checkpoint',side_effect=checkpoint), \
+             patch('gambit_smp.step_checkpoint.recovered_resumption',return_value=state), \
+             patch.object(research_kernel,'retain_run_record',return_value={'path':'fixture'}), \
+             patch.object(research_kernel,'execute',return_value=(2,'fixture only',False,.01)) as launched:
+            result=research_kernel.run_sealed(self.root,self.path,self.root/'fresh-prefix',
+                                               self.root/'seal',prior=prior)
+        launched.assert_called_once()
+        self.assertTrue(result['prior']['engineChanged'])
+        self.assertFalse(result['prior']['failedPrefixExpenditure']['parentCompletionObserved'])
+        self.assertIsNone(json.loads((self.root/'fresh-prefix/request.json').read_text())['prior'])
+        self.assertFalse((prior/'receipt.json').exists())
+
     def test_whole_timeout_missing_child_is_accounting_only_with_real_change(self):
         from gambit_smp import host_environment
         self.load()
@@ -700,7 +730,16 @@ class FailedPrefixRetryTests(unittest.TestCase):
             state['resumption']['executionQuiescence']['observed']=not live
             with self.assertRaises(ValueError):
                 research_kernel.failed_prefix_retry(state,prefix,recipe,steps,
-                    {'source':'new' if live else 'old'},'new-consumer')
+                    {'source':'new' if live else 'old'},'old')
+
+    def test_changed_framework_can_repair_same_native_inputs_without_resuming_deadline(self):
+        state,prefix,recipe,steps=self.fixture()
+        result=research_kernel.failed_prefix_retry(state,prefix,recipe,steps,{'source':'old'},'new-consumer')
+        self.assertTrue(result['engineChanged'])
+        self.assertEqual({},result['changedInputs'])
+        self.assertTrue(result['failedPrefixExpenditure']['freshAttempt'])
+        self.assertFalse(result['failedPrefixExpenditure']['parentCompletionObserved'])
+        self.assertFalse(result['runtimeAdmitted'])
 
     def test_incomplete_or_successful_prefix_stays_on_exact_continuation_contract(self):
         for failed in (False,True):

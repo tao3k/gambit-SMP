@@ -12,6 +12,142 @@ from gambit_smp.framework import digest, relative
 
 SCHEMA = "completed-bootstrap-reference.v1"
 FLAGS = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
+NATIVE_SCHEMA = "gambit-native-bootstrap-reference"
+
+
+def native_ancestry(root, run, declaration, *, context=None, expected=None):
+    """Import an observed Scheme bootstrap without inventing Recipe ancestors.
+
+    The native event, its post-build snapshot and a subsequent native-only
+    requalification are distinct immutable witnesses. This selected bridge
+    issues no arbitrary Scheme freshness or whole-runtime acceptance claim.
+    """
+    from gambit_smp.recipes import read_json, tree_identity, source_path
+    from gambit_smp.source_capabilities import validate_source_lock, source_file
+    from gambit_smp.native_capabilities import completed_configuration_proof
+    from gambit_smp.native_development import generated_inventory, generation_inputs
+    from gambit_smp.suite_primitives import check_runtime
+    from gambit_smp.build_profile import read_profile
+    root, run = root.resolve(), run.resolve(strict=True)
+    observation_root(root, run)
+    spec_path = source_path(root, declaration)
+    spec = read_json(spec_path)
+    if spec.get('schema') != 'gambit-native-bootstrap-ancestry':
+        raise ValueError('native bootstrap ancestry declaration required')
+    bound = [spec_path]
+    def witness(name):
+        row = spec['witnesses'][name]
+        path = relative(root, row['path'])
+        if digest(path) != row['sha256']:
+            raise ValueError('native bootstrap witness drift: ' + name)
+        bound.append(path)
+        return read_json(path)
+    completion = witness('completion')
+    if bound[-1] != run / 'completion.json':
+        raise ValueError('native bootstrap event cannot be relabeled')
+    request, observed = witness('request'), witness('observations')
+    native, snapshot = witness('nativeReceipt'), witness('snapshot')
+    for name, suffix in [('request','request.json'), ('observations','observations.json'),
+                         ('nativeReceipt','native/receipt.json'), ('snapshot','workspace-after.json')]:
+        if relative(root,spec['witnesses'][name]['path']) != run/suffix:
+            raise ValueError('native event witness cannot be rebound: ' + name)
+    core = witness('coreInputs')
+    qualification, proof = witness('requalification'), witness('configuration')
+    identity = witness('identity'); identity_path = bound[-1]
+    lock_path = source_path(root, spec['sourceLock']); lock = read_json(lock_path)
+    validate_source_lock(lock); bound.append(lock_path)
+    patch = source_path(root, lock['patch']); bound.append(patch)
+    if digest(patch) != lock['patchSha256']:
+        raise ValueError('native bootstrap source patch drift')
+    profile = source_path(root, request['profile']); bound.append(profile)
+    if (digest(profile) != request['profileSha256']
+            or qualification['requestIdentity']['profile'] != read_profile(profile)):
+        raise ValueError('native bootstrap profile drift')
+    source = relative(root, spec['runtime'])
+    current = tree_identity(source)
+    if expected is not None and current != expected['runtimeIdentity']:
+        raise ValueError('native producer workspace changed')
+    if context is not None:
+        context.lease_workspace(source, current)
+    phases = {f'phase{i}': 2 for i in range(1, 5)}
+    if (native.get('module') != 'gambit.smp.bootstrap.two-pass'
+            or native.get('outcome') != 'PASS'
+            or native.get('fullTwoPassBootstrapEstablished') is not True
+            or native.get('phaseCounts') != phases
+            or completion.get('fullTwoPassBootstrapEstablished') is not True
+            or not 0 < completion['wholeSeconds'] <= observed['wholeBudgetSeconds'] <= 600
+            or completion['candidateTree'] != request['candidateTree']
+            or observed['candidateTree'] != request['candidateTree']
+            or completion['sourceInode'] != source.stat().st_ino
+            or completion['nativeReceiptSha256'] != digest(run/'native/receipt.json')):
+        raise ValueError('completed bounded native two-pass bootstrap required')
+    for command in observed['commands']:
+        if command['exit'] != 0 or command['timeout'] or not command['group_quiescent']:
+            raise ValueError('quiescent native bootstrap commands required')
+    launches = [row for row in observed['commands'] if row.get('stage')=='two-pass-bootstrap']
+    if (len(launches) != 1 or not launches[0].get('argv')
+            or Path(launches[0]['argv'][-1]).resolve() != source/'tests/smp/suite.scm'):
+        raise ValueError('actual native Scheme bootstrap launch required')
+    observer = Path(launches[0]['argv'][0]); bound.append(observer)
+    if digest(observer) != request['observerSha256']:
+        raise ValueError('native bootstrap host changed')
+    for command in native['commands']:
+        log = relative(run/'native', command['output'])
+        if (command['exit'] != 0 or command['timeout']
+                or not command['parentReaped'] or not command['processGroupQuiescent']
+                or digest(log) != command['outputSha256']
+                or Path(command['cwd']).resolve() != source):
+            raise ValueError('native bootstrap command or output drift')
+        bound.append(log)
+        if command['stage'] == 'bootstrap':
+            if {f'phase{i}': log.read_text().count(f'*** making phase{i}\n')
+                    for i in range(1, 5)} != phases:
+                raise ValueError('native phase completion log differs')
+    if [row['stage'] for row in native['commands']] != ['bootclean', 'bootstrap']:
+        raise ValueError('complete native bootstrap command inventory required')
+    for name, sha in generation_inputs(source).items():
+        if snapshot.get(name, {}).get('sha256') != sha:
+            raise ValueError('bootstrap generation input changed: ' + name)
+    if not native['generatedAfter'] or native['generatedAfter'] != generated_inventory(source):
+        raise ValueError('bootstrap generated products changed')
+    for name, row in lock['files'].items():
+        if (digest(source_file(source, name)) != row['candidateSha256']
+                or snapshot.get(name, {}).get('sha256') != row['candidateSha256']):
+            raise ValueError('bootstrap source lock mismatch: ' + name)
+    if core['candidateTree'] != completion['candidateTree'] or not core['coreInputs']:
+        raise ValueError('complete native core input boundary required')
+    for row in core['coreInputs']:
+        if (digest(source_file(source, row['path'])) != row['sha256']
+                or snapshot.get(row['path'], {}).get('sha256') != row['sha256']):
+            raise ValueError('native core input changed: ' + row['path'])
+    runner = source/'tests/smp/suite.scm'
+    if digest(runner) != native['runnerSha256']:
+        raise ValueError('native bootstrap observer source changed')
+    if digest(source/'tests/smp/catalog.scm') != native['planSha256']:
+        raise ValueError('native bootstrap plan changed')
+    completed_configuration_proof(proof)
+    if not FLAGS <= set(proof['flags']):
+        raise ValueError('native bootstrap concurrency configuration required')
+    if (qualification.get('schemeInputsStable') is not True
+            or qualification.get('generatedCStable') != len(native['generatedAfter'])
+            or not {'phase3', 'phase4'} <= {row['stage'] for row in qualification['commands']}
+            or any(row['exit'] != 0 or row['timeout'] or not row['parentReaped']
+                   or not row['processGroupQuiescent'] for row in qualification['commands'])
+            or any(digest(source/name) != sha for name, sha in proof['files'].items())):
+        raise ValueError('native-only requalification differs')
+    check_runtime(source, identity)
+    gcc = proof['requestIdentity']['tools']['gcc']['sha256']
+    if next(row['sha256'] for row in native['tools'] if row['name']=='cc') != gcc:
+        raise ValueError('bootstrap and requalified GNU compiler differ')
+    reference = dict(schema=NATIVE_SCHEMA, run=fixture_name(root, run),
+        declaration=declaration, declarationSha256=digest(spec_path),
+        sourceLock=spec['sourceLock'], sourceLockSha256=digest(lock_path),
+        gccSha256=gcc, evidence={str(path.relative_to(root)):digest(path) for path in bound},
+        runtimeIdentity=current, nativeEventRetained=True, sourceCopies=0,
+        runtimeAdmitted=False, releaseAdmitted=False)
+    if expected is not None and reference != expected:
+        raise ValueError('native bootstrap reference drift')
+    return reference, source, identity_path, bound
 
 
 def discovered_reference(path, ctx, *, explicit=False):
@@ -299,11 +435,14 @@ def configure_command(root, configured):
             or observed.get('parentReaped') is not True or observed.get('processGroupQuiescent') is not True
             or len(proof.get('commands',[]))!=1
             or any(observed.get(k)!=v for k,v in proof['commands'][0].items())
-            or observed.get('argv',[])[2:]!=proof.get('flags')):
+            or observed.get('argv',[])[2:]!=proof.get('invocationFlags',proof.get('flags'))):
         raise ValueError('configure reuse lacks completed process evidence')
-    from gambit_smp.native_capabilities import CONFIGURATION_OUTPUTS
+    from gambit_smp.native_capabilities import completed_configuration_proof
+    completed_configuration_proof(proof)
+    from gambit_smp.native_capabilities import configuration_output_names
     identity=configured.get('outputs',{}).get('source',{}).get('identity',{})
-    if (set(proof.get('files',{}))!=set(CONFIGURATION_OUTPUTS)
+    required=configuration_output_names(native_profile='native-profile.m4' in identity)
+    if (set(proof.get('files',{}))!=set(required)
             or any(identity.get(name,{}).get('sha256')!=sha for name,sha in proof['files'].items())):
         raise ValueError('configure reuse generated-byte identity differs')
     return proof['commands'][0]
@@ -382,8 +521,15 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     return reference, outer, step, materialized
 
 
-def export_reference(root, run, step, out, *, input_archive=None):
-    reference, _, _, _ = completed(root, run, step, input_archive=input_archive)
+def export_reference(root, run, step, out, *, input_archive=None, ancestry=None):
+    if ancestry is not None:
+        if step != 'bootstrap' or input_archive is not None:
+            raise ValueError('native bootstrap requires its explicit ancestry declaration')
+        reference, _, _, _ = native_ancestry(root, run, ancestry)
+    else:
+        if (Path(run)/'completion.json').is_file() and not (Path(run)/'receipt.json').is_file():
+            raise ValueError('native bootstrap requires its explicit ancestry declaration')
+        reference, _, _, _ = completed(root, run, step, input_archive=input_archive)
     out = out.resolve()
     if not out.is_relative_to(root.resolve() / "evidence/research") or out.suffix != ".json":
         raise ValueError("producer reference must be a research Evidence JSON file")

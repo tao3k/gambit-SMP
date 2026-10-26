@@ -1,0 +1,61 @@
+#+TITLE: Interrupt Custody — Handoff and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: interrupt-custody-handoff-matrix
+:AUTHORITY: InterruptCustodyHandoff
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Contract
+
+| key | anchor | actionName | lemmaName | guardName | duty | status |
+|---+---+---+---+---+---+---|
+| derived-credit | setup.c:206-242 | claim | claimPreserves | s.c[i]==1 | Reserve consumer custody before exchanging pending into active batch; clear is not callback completion | split native refinement open |
+| target-accept | os_setup.c:3044-3049; setup.c:66-92 | accept | acceptCovered | s.open | Successful producer admission pins the immutable target domain before descriptor access; Close denies only new entrants | gate ABI and target-cut open |
+| pending-publish | setup.c:86-90 | publish | publishPreserves | s.p[i]==1 | Accepted producer may publish after Close; stable domain owns pending until claim or exclusive coordinator drain | no per-publication lease allocation |
+| storage-commit | setup.c:4834-4878; mem.c:6852-6862 | retireVm | retirementRequiresClosure | drained | Retire after producer gate closed and drained, consumer gate sealed and drained, pending empty, writer and root custody settled | native/root receipts inherited open |
+| claim-seal | setup.c:1049-1113 | sealClaims | sealNeedsProducerDrain | producers==Set() | Seal normal claim admission only after producers drain; existing reservations finish; coordinator owns residual pending | new shutdown protocol |
+| activation-root | _kernel.c:12430-12449; mem.c:6511-6537 | rootCapture | captureRoots | s.c[i]==3 | Vector load to registered activation root is a no-safepoint interval; collection scans and rewrites that slot | generated PointId and root map open |
+| vector-writer | _kernel.scm:1473-1476; gambit.h.in:4231,5482 | commitVector | rootedReplacementStable | s.frozen | Root setter argument before queueing; close external admission; derived request holds parent claim until rendezvous commit; preserve selected roots | all writer and alias closure open |
+| gc-move | mem.c:3490-3508,6511-6645,6852-6862 | moveGc | relocationPreserves | noTemp | All participating contexts parked with no unrooted load; rewrite global vector, selected activations and queued setter argument | STW abstraction only |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| native-operations | No lease object or counted signal queue allocation per raise; one domain-owned pending bit per target reason | Per accepted callback: one gate snapshot load, admission CAS, pending RMW, wake OR and exit decrement | Four RMW plus one load is a proposed uncontended protocol count, not a native instruction or latency bound |
+| claim-operations | Coalescing remains one claim per pending epoch; no extra callback reduction versus current flag | Per normal claim attempt: one gate snapshot load, reserve CAS, pending exchange and reservation release; rooted-slot stores | Three RMW plus one load; empty claims still pay; unknown outcomes retain rather than replay |
+| vector-gc | Reuse VM globals, register/saved/frame scanning and sync-op participation rather than inventing unmanaged Scheme pointers | One rooted request slot per outstanding setter; rendezvous per committed write; scan k extra activation slots and q queued argument slots | k excludes existing scanned registers and frames; rendezvous cost grows with roster; setter frequency and GC cost must be included |
+| net-benefit | Unifies target lifecycle, pending claim and root handoff contracts in modern generated C | Two admission domains, coordinator takeover, exceptional settlement, source and platform proof obligations | No speed gain established; benefit requires avoided real lifetime failures or eliminated work to exceed additional atomics, rendezvous and scans; Zig does not remove these obligations |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| gate-encoding | False | Coherent lock-free signal-safe admission representation; target acceptance cut and no-wrap proof |
+| split-publication | False | Publish-before-exit and reserve-before-claim instruction-level simulation; SC alone does not transact several objects |
+| root-materialization | False | Exact generated PointId, register spill, frame map, saved and continuation proof for current configuration |
+| vector-writer-closure | False | All private/global vector aliases, direct FFI writes and synchronous setter exception/continuation semantics |
+| gc-rendezvous | False | Actual roster and sync-op precedence; collector exclusion and no allocation/checkpoint in unrooted interval |
+| completion-custody | False | Unknown enqueue/callback result and continuation-retained roots; no post-effect blind retry or cyclic shutdown wait |
+| platform-retirement | False | Darwin atomic lowering, signal safety, native/OS joins, inherited host attestation; no native admission |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| pending-publish | target-accept | Accepted producer remains pinned through final publication |
+| derived-credit | pending-publish | Claim transfers published domain custody |
+| claim-seal | pending-publish | No pending producer may outlive claim seal |
+| storage-commit | claim-seal | Retirement requires sealed and drained claimers |
+| storage-commit | derived-credit | Active batch is not completed by pending clear |
+| activation-root | derived-credit | Claimed work retains target while materializing handler root |
+| vector-writer | activation-root | Replacement cannot erase selected activation root |
+| gc-move | activation-root | Moving collection rewrites selected root |
+| gc-move | vector-writer | Queued setter argument is also scanned |
+| storage-commit | gc-move | Root and collector ownership settle before target retirement |

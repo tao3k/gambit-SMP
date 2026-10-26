@@ -8,6 +8,10 @@ from gambit_smp.framework import digest, relative
 
 def check_runtime(runtime, identity):
     from gambit_smp.recipes import _leased_tree_checks, tree_identity
+    fragments = {p.relative_to(runtime).as_posix() for p in (runtime / "lib").rglob("*.inc")
+                 if p.is_file()}
+    if not fragments.issubset(identity["sourceFiles"]):
+        raise ValueError("runtime identity omits native source fragments")
     checks = _leased_tree_checks.get()
     inventory = tree_identity(runtime) if checks is not None and runtime in checks.roots else None
     def sha(name):

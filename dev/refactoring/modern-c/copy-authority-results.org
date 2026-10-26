@@ -1,0 +1,214 @@
+#+TITLE: Copy authority before reservation: source replacement and remaining capacity debt
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+PROPERTY: header-args :eval never
+#+COLUMNS: %45ITEM %20STATUS %30AUTHORITY
+#+STARTUP: overview
+#+OPTIONS: num:nil
+
+* Current responsibility replacement :modern_c:smp:gc:
+:PROPERTIES:
+:CUSTOM_ID: copy-authority-results
+:AUTHORITY: GambitRootWorkerExit::copyAuthority
+:MODEL: models/sysml/root-worker-exit.sysml
+:IMPLEMENTATION: vendor/gambit modern-c
+:COMMIT_ADMITTED: false
+:END:
+
+The current extension and native campaign are recorded in
+[[file:copy-root-admission.org][source requests, closed RC roots and SFUN admission]].
+The section-owned gate observations below remain predecessor evidence;
+they do not qualify later capacity or foreign-writer changes by inheritance.
+
+The current source authorizes copying before changing an arena or retiring a
+section. Previously, =mark_array= reserved/refilled first and then competed on
+the source forwarding header. Its losing CAS could refund the private grant
+without recovering the section already closed by refill. This is a physical
+capacity problem, not simply a missing bounds check.
+
+The [[file:models/sysml/root-worker-exit.sysml][SysML authority]] now specifies one gate owned by each physical source
+=msection=. The validated source coordinates select that owner; there is no
+fixed hash-table cardinality or per-object identity record.
+Under the gate, the copier reloads the source header, reserves space and publishes
+forwarding. It releases before copying payload or processing children. Another
+contender observes forwarding without reserving another interval. Distinct
+objects in one source section remain distinct and serialize only this fragment.
+Captured stack-frame construction retains the existing frame-access protocol.
+
+The former =GC_COPY_GATE_COUNT= value 64 was a heuristic without a measured
+choice or a derivation from worker count, source count, cache geometry or a
+capacity theorem. It was not a correctness parameter. The candidate now removes
+that macro, VM array and address-modulo path, rather than exposing the same
+unjustified number as a configuration option.
+
+Physical source ownership is an explicit architecture choice, not a proof of
+optimal granularity. It aligns lock lifetime and metadata accounting with the
+allocation unit. More objects in one section can cause more contention; payload
+copy remains outside the gate. Finer ownership would require its own mapping,
+lifetime, memory-budget and performance evidence.
+
+The source header uses the existing acquire-load service. Permanent headers may
+reside in read-only module storage, so an RMW used as a load is unsuitable. The
+selected GCC backend supplies a real atomic load. =load_copy_source_header=
+uses a gate-protected ordinary read on the legacy fallback, so its RMW load
+implementation is never applied to a possibly read-only permanent header.
+This fallback is source-reviewed, not qualified by a non-GCC platform execution.
+
+** Conditional source argument :refinement:
+
+#+begin_quote
+Within one frozen round, all admitted ordinary object-forwarding writers use
+the same section-owned gate for a source header. That header changes monotonically from the
+original header to forwarding. Revalidation and forwarding occur under the gate,
+and only a successful revalidation can reserve. Therefore a duplicate managed
+contender cannot consume a second reservation or retire a section for this copy.
+#+end_quote
+
+The premise excludes raw native header stores and unclassified reentrant custom
+allocators. The gate is not a stop receipt. Unknown copier exit retains the
+round and its pending initialization/Tail; neither a timeout nor a new epoch may
+clear that debt. The existing defensive CAS-loss refund remains for a bypass
+writer, without extending capacity admission to that writer.
+
+Forwarding publication still precedes payload readiness. The winner retains
+initialization and Tail ownership until the existing commit path completes;
+another scanner cannot derive payload readiness from forwarding. The nested
+order is frame access, copy gate, then allocator/FIFO gates. FIFO consumers
+release their gate before scanning. A copy-gate holder must not scan children or
+acquire frame access. General allocator callback effects remain a separate
+admission obligation.
+
+* Benefit and added peak matrix :benefit:memory:
+:PROPERTIES:
+:AUTHORITY: GambitRootWorkerExit::copyAuthority; cb0; cb1; cb2; cb3; cb5
+:END:
+
+Let =D= be duplicate managed contenders that previously reached reservation;
+let =g(d)= include their header/alignment grant. These are workload quantities,
+not assumed measurements. No throughput percentage is inferred.
+
+#+NAME: copy-authority-benefit-matrix
+| Responsibility | Removed work / conditional benefit | Added work or peak | Current boundary |
+|----------------+-----------------------------------+--------------------+------------------|
+| Duplicate copy request | D private grants and sum g(d) speculative words become zero for the admitted duplicate path | One section-owned acquire/release and header revalidation; contenders retry on published forwarding | Source replacement; current qualification recorded below |
+| Losing-attempt refill | No section is closed solely to serve an admitted duplicate copy | Gate includes reserve/refill; same-section requests and slow allocation can extend waiting | Removes this waste term; successful-copy packing waste remains |
+| Gate storage | Retire the fixed VM array and address hash | N allocated msections require N words: 8N bytes for the selected 64-bit ABI; net delta against the former array is 8(N-64) bytes | Managed heap/profile limits unchanged; native metadata charged separately |
+| Payload / continuation | Canonical object/frame identity, payload readiness and sole Tail remain separate | Existing scan-state trailer and frame gate remain | Multi-shot continuation semantics retained; no one-shot restriction |
+| Full copy capacity | No additional closure claimed from the removed duplicate term | Still needs source/frame census, maximum request, successful packing, disjoint physical pool and common refusal | Five aggregate capacity premises remain unresolved |
+| Native writers | Six source families now have named mutations, consumers and replacement duties | Root/borrow/permit integration and native stop/resource recovery remain necessary | Inventory is not enforcement; all six families retain admission obligations |
+
+The complete physical peak must account for copied live intervals, headers and
+alignment, chunk bookkeeping, successfully retired section tails, W active
+arenas, R restored stacks, context resume grants and unknown-retained grants.
+Removing duplicate requests does not prove a bound on that sum. The fallback
+from requested W to W=R still cannot substitute for full pre-flip placement.
+
+** Net-work condition and counterexamples
+
+The conditional work saving is the eliminated duplicate reserve/refill/refund
+work, minus header-load, gate and same-section waiting overhead. Positive throughput
+benefit requires the former to exceed the latter. For D=0 there is no duplicate
+reservation saving; many unrelated objects in one source section can also lose time.
+No measured crossover or cycle cost is available here. The separate structural
+benefit is removal of an adversarial duplicate-dependent physical waste term
+from the capacity proof, without restricting multi-shot continuation semantics.
+
+* Section-owned candidate observations :evidence:
+:PROPERTIES:
+:EVIDENCE: evidence/research/section-copy-authority/source-closure/receipt.json
+:SOURCE_LOCK: evidence/research/section-copy-authority/source.lock.json
+:STATUS: SELECTED-SOURCE-NATIVE-CONTROL
+:COMMIT_ADMITTED: false
+:END:
+
+#+NAME: section-copy-authority-observation-matrix
+| Observation | Result | Boundary |
+|-------------+--------+----------|
+| Current declared campaign | PASS, 25 stages, 260.122861 s, 13 fresh native executions | Original profile, same physical workspace, unchanged budgets; no throughput comparison |
+| Header-dependent native rebuild | 93.294202 s; object/Make portion 73.406226 s | This layout change requires recompilation; compare separately from a body-only incremental rebuild |
+| Generation | 51 generated C files reused; zero source copies | Existing configure probes reused; config.status emits the changed header |
+| Section arbitration controls | Same-source contention and independent-source acquisition; 20,000 protected visits | Actual gate helpers; concurrent visitors retain two distinct object identities |
+| Scheme runtime controls | W<R, wide roots, refill, repeated continuation restoration and unknown-join isolation passed | Unknown join covers the existing empty unpublished startup case, not arbitrary writer death |
+| Model and admission | Native SysML projection and positive/15 missing-guard ASCENT controls | Full packing and native-writer closure stay open; optimality is explicitly unqualified |
+
+The source chain is section allocation and initialization, validated source
+lookup, claim before reservation, forwarding publication, release before payload
+work, and reset only after prior-round drain. The fixed count, VM table and
+address-modulo getter have no active runtime aliases.
+
+Two source-qualification refusals remain retained: the adapter first rejected
+the new evidence directory, then a historical whole-header equality check
+rejected unrelated section metadata. The current adapter keeps the historical
+header bytes, locks the current complete header independently, and checks the
+exact single 308-byte STILL definition span. No native test failure was bypassed
+and the successful native executions were not rerun to repair documentary joins.
+
+Peak native metadata depends on the maximum allocated section population N,
+not just the active worker or root count. It can exceed the former 512-byte
+array when N exceeds 64. No measured peak N or optimal source granularity is
+claimed. Current headers and all affected C consumers were rebuilt; admission
+of older external native binaries is outside this qualification.
+
+* Predecessor acquire-load observations :evidence:
+:PROPERTIES:
+:EVIDENCE: evidence/research/worker-role-handoff/copy-header-load-closure/receipt.json
+:PROFILE: evidence/research/worker-role-handoff/profile.json
+:SOURCE_LOCK: evidence/research/worker-role-handoff/copy-header-load.lock.json
+:STATUS: HISTORICAL-PREDECESSOR
+:END:
+
+#+NAME: copy-authority-native-observation-matrix
+| Observation | Actual result | Meaning |
+|-------------+---------------+---------|
+| Predecessor declared native campaign | PASS, 25 stages, 96.093050 s | 13 fresh native executions; six Scheme compilation pipelines and ten topology/domain executions |
+| Actual native rebuild stage | 10.055026 s; Make/object portion 2.237292 s | Same physical cache and configure result; body-only C edit follows existing Make dependencies |
+| Generation | 51 generated C files unchanged; zero generation phases requested | Explicit artifact reuse; no second source workspace |
+| Roots and continuation | Wide roots, W<R, R=3/W=1,2,3,1 and repeated continuation restore passed | Selected actual runtime evidence, not arbitrary migration or generational-GC admission |
+| Unknown join | Three healthy members completed three GC rounds | Unpublished empty startup quarantine only; safety exit remains, general native-writer death/reaping not established |
+| Historical shared C kernel | Former collision and independent-stripe controls passed; 20,000 protected visits preserved two identities | Retained earlier evidence; the section-owned candidate requires fresh qualification |
+| Environment-selected original Scheme suite | PASS, 3.349996 s, two commands | Current runner and derived catalog compiled/executed the shared C kernel with seven declared tools |
+| Missing make tool | Expected FAIL, zero commands | No fallback to a host path or compiler/test launch |
+| Native SysML | Both responsibility and suite/tool projections: exit 0, no errors | Current source contracts and seven tool dependencies are native-tool projections |
+| ASCENT | Positive and 15 missing-guard controls | Six writer families, three native aggregate gaps and five capacity gaps remain explicit; retirement/commit refused |
+
+The first =copy-authority= run remains DENY: its three C source projections
+referenced the predecessor configured header. Its successful Scheme cases do
+not erase those failures. Independent reversal of the two substitution-free
+header fragments reproduces the predecessor header digest; the corrected run
+binds the new configured header and new kernel bytes. Both source locks and all
+failed observations remain retained.
+
+The 126 framework controls are authenticated retained evidence for unchanged
+framework code, not 126 fresh runtime tests. This campaign consumes the completed
+bootstrap generation artifact; it is not a newly executed two-pass bootstrap
+of every current file. Remote GitHub CI has not been executed here.
+
+[[file:../../modeling/evidence-custody.org][Documentary evidence custody]] gives the repository-only archived-byte replay.
+It does not require the original build directory and does not grant a new
+bootstrap or native qualification.
+
+* Writer coverage and five gates :admission:
+:PROPERTIES:
+:AUTHORITY: GambitRootWorkerExit::NativeWriter
+:ASCENT: dev/modeling/ascent/root-worker-exit.rules.scm
+:END:
+
+The [[file:root-worker-exit.org][current SysML projections]] enumerate RC chain mutation, RC payload
+publication, generated SFUN entry stores, Tcl ClientData callbacks/deletion,
+still release/teardown, and collector forwarding. Public RC exports and raw C
+stores mean that repository callers cannot establish a finite census of all
+foreign writers. Complete admission requires an enforced managed boundary and
+explicit exclusion of unmanaged writers, not just more successful tests.
+
+#+NAME: copy-authority-commit-gates
+| Commit gate | Current disposition | Remaining requirement |
+|-------------+---------------------+-----------------------|
+| Relevant tests | Selected native campaign and Scheme caller passed | Full current bootstrap/remote CI and remaining architectural acceptance are not inferred |
+| Architecture learning and benefit | Duplicate reservation responsibility moved before allocation | End-to-end packing/writer closure and contention cost remain |
+| Refactoring process | VM copy authorization integrated with actual mark_array, frame and chunk paths | Full context/worker/carrier retirement not complete |
+| Models | Native SysML drives ASCENT witnesses and 15 guard controls | Existing QNT owns histories; existing Lean owns refinement algebra; open premises remain open |
+| Gambit core questions | Shared heap, multi-shot continuation and Tail initialization remain explicit | Native writer stop, general failure recovery and full physical capacity still block whole admission |
+
+No commit is admitted. The architectural value is removal of the speculative
+physical mutation at its source. It does not turn the selected tests into a
+claim that SMP 0–12 or all collector-capacity obligations have been solved.

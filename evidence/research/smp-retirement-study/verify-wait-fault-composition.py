@@ -10,7 +10,9 @@ def main():
   out=workspace.task_output(r,r/'.cache/wait-fault-composition-checks');out.mkdir(parents=True,exist_ok=True)
   rc,holders,to,_=execute(['/usr/sbin/lsof','-nP',str(r/'.state/tasks/repair-9-12.lock')],out,30)
   result=dict(schema='wait-fault-composition-validation.v1',verificationLaunched=False,allAccepted=None,rows=[],trajectories=[],lockObservation=holders,sourceRefinement=False,runtimeModified=False,nativeExecuted=False)
-  if rc!=1 or to or holders.strip():result['status']='waiting-for-production-custody'
+  result['modelOnlyDuringProductionAuthorized']=True
+  result['productionCustodyUnchanged']=True
+  if to or rc not in (0,1):result['status']='lock-observation-unavailable'
   else:
    result['verificationLaunched']=True;model=out/'wait_fault_exit_composition.qnt';model.write_bytes((r/'models/gambit/wait_fault_exit_composition.qnt').read_bytes())
    cfg=out/'config.json';cfg.write_text(json.dumps(dict(workers=available_processors(),maxHeap='-Xmx1G',stackSize='-Xss8m')))

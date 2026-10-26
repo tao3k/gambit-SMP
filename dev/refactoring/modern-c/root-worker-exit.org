@@ -1,0 +1,554 @@
+#+TITLE: Root Origins, Independent Collector Work and Exit Custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: modern-c
+#+PROPERTY: header-args :eval never :tangle no
+#+STARTUP: overview
+
+* Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: root-worker-exit
+:AUTHORITY: GambitRootWorkerExit
+:SOURCE_BRANCH: modern-c
+:STATUS: SOURCE-LOCATED; REFINEMENT-AND-NATIVE-OPEN; RETIREMENT-BLOCKED
+:COMMIT_ADMITTED: false
+:END:
+
+This is the complete root-to-worker-to-exit replacement cut for the mandatory
+modern C direction. It refines the existing [[file:smp-factor-conditions.org][ffi/work/exit dependencies]] and
+[[file:../../architecture/runtime/control/frame-alias-contract.org][shared-frame contract]]. It neither implements independent workers nor claims
+that the current copying collector has become generational. The [[file:models/sysml/root-worker-exit.sysml][native SysML model]]
+owns the clauses, prerequisites, witnesses, learning records and native cases.
+[[file:../../modeling/ascent/root-worker-exit.rules.scm][Actual ASCENT rules]] distinguish source location, supplied refinement, upstream
+learning and native acceptance. No new QNT or Lean model is created.
+
+The remaining coupling is larger than a participant array lookup. Setup binds
+execution context, participant and collector by the same processor index. Strong,
+weak and cleanup phases update that indexed participant. Stealing and termination
+use the carrier-derived population. Copy allocation still uses context memory;
+the GC driver supplies context refill, barriers, overflow delivery and resume.
+Removing only the synchronous assertion would remove a real safety check without
+establishing independent work ownership.
+
+* Current C root-phase realization
+:PROPERTIES:
+:AUTHORITY: GambitRootWorkerExit::rootPhases
+:CUSTOM_ID: root-phase-realization
+:END:
+
+The tables below are native SysML projections. Current layout ownership,
+model/native observations and remaining C refinement gaps are recorded in
+[[file:hash-layout-results.org][the layout result matrix]]. The earlier two-model checkpoint
+is retained in [[file:concurrent-protocols.org][the concurrent-protocol matrix]], and earlier copy
+authority in [[file:copy-authority-results.org][the source-bound baseline matrix]].
+Historical mem.c line coordinates below refer to the predecessor source.
+
+#+BEGIN: sysml-view :kind root-phase-realization :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Property | Contract |
+|---+---|
+| id | hash-layout-ownership |
+| phaseOrder | READ -> FREEZE -> REPAIR -> RESUME -> READ_OR_WRITE_REBUILD |
+| sourceRefs | GambitHashIndexOwnership::identity,traversal; vendor/gambit/lib/_mem/object-scanning.inc,weak-tables.inc,hash-table-api.inc,wills.inc; lib/_system.scm::gc-hash-table-for-each/search/foldl; doc/gambit.txi::table-for-each |
+| publication | Existing frozen root/worker collective publishes repaired references. KEY_MOVED records actual address debt; it is not a new mutator publication or an atomic lock. GC leaves physical order intact |
+| affinity | Collector workers repair reached tables; mutator reads are read-only. Exclusive native writers own index rebuilding regardless of collector count or SINGLE_THREADED_VMS |
+| custody | GC preserves traversal coordinates and repaired roots. An unknown GC/native stop does not grant mutation or release authority. Weak removal is not a strong-table snapshot promise |
+| retired | GC eager slot permutation, first-reader lazy mutation and eager/lazy selector in wills.inc; worst-case strong-key KEY_MOVED on every collection |
+| overheads | No new heap/table field/reader registry. Compare each strong heap key before/after repair; O(n) read while native address debt persists; O(n) writer reconstruction remains. Stable permanent-key tables avoid speculative whole-table rebuild |
+| qualification | Existing profile/default heap/same workspace; exact source delta; prior duplicate-key counterexample; QNT cursor counterexample and finite safety; interpreted/compiled moving and retained-weak keys; map multi-shot, W<R and unknown join |
+| remaining | C linear-search/index encoding and every caller exclusion remain refinement obligations. No full bootstrap, remote CI, concurrent same-table writers, raw aliases or general unknown-stop recovery inferred |
+| modelOwnership | Existing hash_index_owner QNT owns cursor/relocation/debt schedules; existing HashIndexOwner Lean owns conditional algebra only. Native evidence and source anchors stay distinct |
+|---+---|
+| id | root-phase-custody |
+| phaseOrder | PREPARE -> STRONG -> WEAK -> CLEANUP; a completed task can advance only to its immediate next phase; thaw requires cleanup completion |
+| sourceRefs | vendor/gambit/include/_gambit/runtime_roles.h.in::gc_root_phase; include/_gambit/vm_state.h.in::gc_root_task_publish,claim,finish,advance,gc_origin_thaw; lib/_mem/collection-round.inc::collect_root_tasks,advance_root_tasks,garbage_collect_pstate; lib/_mem/object-scanning.inc::setup_still_objs_to_scan; lib/_mem/wills.inc::process_wills; lib/_mem/still-sweep.inc::free_unmarked_still_objs; lib/_mem/root-origins.inc::mark_execution_roots,mark_global_variables |
+| publication | Existing full-barrier CAS adapters publish claim and completion. Sole coordinator changes plain phase only between physical collective barriers. PREPARE begins after all task and worker frontiers are initialized; root task completion does not imply descendant drain |
+| affinity | Prepare, strong roots and wills claim actual frozen origin slots independently of carrier. The workerDomains extension moves cleanup to all R native owners with distinct host-domain task tokens; arbitrary native reentry remains unqualified. Carrier eligibility alone supplies no task authority |
+| custody | Failed/stale phase claim cannot mutate roots. Unknown or in-flight task remains claimed; no phase advance, thaw or speculative second scanner. Retained empty unpublished abort actors use the existing isolation contract; unknown shared-heap writers remain excluded |
+| retired | Implicit carrier-owned still-root preparation, deferred still accounting, wills lists and sweep list access. Strong-only completion no longer permits thaw. Global-root partition uses worker census, not origin census |
+| overheads | One phase field per fixed RootTask plus alignment; four claim/finish pairs per origin instead of one. Four additional collective barriers per round protect initialized publication and three next-phase authorizations. Root scan work remains; no heap increase or throughput claim |
+| qualification | Require exact-source, original-profile, same-workspace, phase-kernel, topology-and-map, calibrated-unknown-join, fresh-processes, bounded-budgets. Existing typed source.project -> source.bind -> native.workspace-build, native.test and gambit.executable-test are reused; no task Python executor |
+| remaining | WorkerArena and W/R owner services are tracked by workerArena and workerDomains; complete pre-flip physical plan and independent carrier scheduling remain open; unmanaged root/FFI writers and borrower closure; owner-affine finalizer handoff; unknown published retiree/reaper and whole SMP acceptance. Historical mem.c witness coordinates describe predecessor source, not current split fragments |
+| modelOwnership | SysML owns realization and evidence scope; ASCENT joins source/native guards. Existing QNT handles bounded scheduling/authorization and Lean handles refinement/algebra. No new duplicate models or C memory-model proof claimed |
+|---+---|
+| id | worker-arena-handoff |
+| phaseOrder | RESERVE -> COPY -> DRAIN -> HANDOFF; context restoration follows weak descendant drain and precedes capacity/resize readers |
+| sourceRefs | vendor/gambit/include/_gambit/runtime_roles.h.in::gc_resume_space,gc_worker_arena; include/_gambit/vm_state.h.in::gc_arena_handoff; lib/_mem/heap-sections.inc::prepare_worker_msection,refill_worker_arena,setup_stack_heap_vmstate; lib/_mem/copy-reservations.inc::reserve_copy; lib/_mem/capacity-resize.inc::move_continuation; lib/_mem/collection-round.inc::garbage_collect_pstate; lib/setup.c::setup_pstate |
+| publication | Frozen collective coordinator initializes R stack grants and W distinct copy grants before task publication. VM allocator lock exclusively advances the section ledger. Private copy reservation/refund never changes the context heap cursor. Physical weak-phase barriers drain old writers before handoff |
+| affinity | No collector context field. Root origins remain independent of arenas. The workerDomains extension assigns a loan/tail recipient only to each active worker and independent empty spans to the other R-W domains. Cleanup affinity and physical carrier barriers remain; W>R is not qualified |
+| custody | Forwarding winner retains payload/Tail responsibility; a pending grant or active scan rejects handoff. Final interval plus retired copied words transfer once under epoch-matched exclusive resume ownership. Unknown writer forbids transfer. Empty aborted unknown-join actors remain VM-held and isolated; published unknown writers remain excluded |
+| retired | reserve_copy no longer exports its tip to context memory, invokes next_heap_msection or reimports context limits. Collector refills use the VM section ledger and a bounded one-use stack loan. Round destination parity no longer derives from the worker carrier. Active stack restoration consumes the participant context explicitly |
+| overheads | R stack plus W initial copy sections, unchanged at W=R; no heap multiplier. Fixed resume/arena metadata, one handoff per context, one VM allocation lock per physical refill. Retired copied words enter the context ledger once. The optional stack loan is capped by original three-quarter policy and actual stack footprint plus fudge, not counted as extra memory |
+| qualification | Require exact-source, original-profile, same-workspace, arena-kernel, topology-and-map, refill-exercised, calibrated-unknown-join, authenticated-executions, bounded-budgets. Reuse typed source projections, compile products and fresh execution capabilities; no new task Python executor |
+| remaining | The workerDomains realization extends this earlier bijective slice with selected W<R owner services. Exact physical pre-flip copy packing, arbitrary native-writer closure, independent carrier scheduling and natural quarantined-handle reaping remain open. Source-word totals alone do not bound section fragmentation or large contiguous objects |
+| modelOwnership | Existing QNT owns claim/phase/transfer interleavings; existing Lean owns coverage and accounting refinement. This slice provides C source adapters and real native observations only. ASCENT requires source/profile/contract joins and rejects missing guards; it cannot infer unequal worker admission or whole retirement |
+|---+---|
+| id | worker-root-domains |
+| phaseOrder | FREEZE -> PREPARE -> STRONG -> WEAK -> RESTORE -> OWNER_CLEANUP -> RESUME; W scan executors and R owner services share explicit physical phase cuts |
+| sourceRefs | runtime_roles.h.in::gc_resume_space,gc_round; vm_state.h.in::gc_resume_without_arena; collection-round.inc::garbage_collect_pstate,cleanup_root_domain; heap-sections.inc::setup_stack_heap_vmstate; still-sweep.inc::free_unmarked_still_objs; memory-lifecycle.inc::setup_mem_vmstate |
+| publication | Atomic requested-worker ceiling is snapshotted after physical root freeze and clamped to current R. A nonworker lacking empty-heap fudge causes pre-flip fallback to the existing W=R plan. Coordinator publishes actual W, R restore grants and W arenas through the all-carrier setup barrier. No worker-only helper contains a physical R-carrier barrier. Existing full-barrier C adapters publish requests; exclusive GC stores rely on actual phase exclusion |
+| affinity | Only W workers claim preparation/strong/weak root tasks and scan descendants. All R stopped native owners restore their own active context and claim CLEANUP with a distinct host-domain token, even when not a collector. Foreign release uses the original native thread and PSTATE; owner-dependent native reentry is not newly admitted |
+| custody | W retired-prefix ledgers and final spans transfer to W distinct context recipients. Other R-W contexts take an empty heap interval from their own pre-reserved stack bottom. The physical restore receipt records source_worker or -1, epoch, acceptance and stack copy completion; all R receipts precede native cleanup. Actual GVM fp/hp/interrupt limits are finalized by prepare_mem_pstate after capacity outcome and cleanup, before root thaw; a physical receipt does not authorize native Scheme reentry. Unknown task/worker writer prevents completion and resume |
+| retired | Remove W=R guard and paired restore obligation for every carrier; remove CLEANUP from collector dispatch; remove inactive-worker copy/frontier participation and physical barriers from worker-only helpers. Root, restore, host cleanup and scan termination counts are no longer interchangeable |
+| overheads | R roots and R owner cleanup services remain. W copy arenas/queues/idle counters replace R collector jobs. One extra all-R barrier seals all restored stacks before native release; fixed restored/source-owner metadata and atomic worker request. Initial physical demand is R+W, bounded by the previous 2R adapter; no heap/profile multiplier or throughput claim |
+| qualification | Require exact-source, original-profile, same-workspace, domain-kernel, topology-and-map, refill-exercised, calibrated-unknown-join, authenticated-executions, bounded-budgets, owner-domain-service. Actual R=3/W=1,2,3,1 transitions and pthread destructor identity are required, alongside host topology multi-shot map and unknown-join W<R observations |
+| remaining | Selected 1 <= W <= R adapter only; W>R, complete pre-flip copy packing, unknown published/native writers, native cleanup reentry, independent carrier migration and natural quarantined-handle reaping remain open. All physical carriers still stop and service existing barriers; W<R is not asynchronous/concurrent GC or a throughput result |
+| modelOwnership | SysML owns source replacement and admission inventory. ASCENT authenticates current C/native adapters and missing conditions. Existing QNT models retain bounded scheduling/authorization histories; existing Lean models retain coverage/accounting/refinement algebra with premises. No new duplicate transition system, theorem run or C-memory-model proof |
+|---+---|
+| id | owner-cleanup-effects |
+| phaseOrder | DETACH -> RELEASE -> MERGE -> ACCOUNT -> PHASE_COMPLETE; new still objects are a separate owner generation, not part of the frozen sweep |
+| sourceRefs | still-sweep.inc::free_unmarked_still_objs; collection-round.inc::cleanup_root_domain; object-allocation.inc::alloc_scmobj_still; setup.c::garbage_collect,call,run; runtime_roles.h.in::GC_OWNER_CLEANUP,gc_cleanup_escrow; vm_state.h.in::gc_cleanup_empty; memory_state.h.in::STILL prefix coordinates; tests/smp/gc/worker-root-domains.scm::domain_release |
+| publication | The actual native owner sets OWNER_CLEANUP after restored-stack barrier and task claim. It moves the old chain into VM-owned cleanup.pending, records survivors plus in-flight base/native payload/release function before invoking callbacks; callback allocations publish to a fresh chain. After all known returns it merges survivors and fresh objects, recounts actual lengths and clears deferred accounting before ROOTS_FROZEN/task completion |
+| affinity | R owner services retain actual pthread/PSTATE, independently of W. Selected release callbacks may allocate and fully initialize noncollecting still objects, with explicit still refcount roots. This is not permission to use unregistered movable pointers, generated SFUN argument writes or a different owner |
+| custody | Fresh list is never overwritten by the old sweep tail. Detached pending/survivor chains and in-flight native identity live in fixed VM storage, not solely a C activation; nonempty escrow refuses slot setup. Same-carrier shutdown is refused before interrupt/resize destruction. A collecting allocation fails before starting a nested GC or publishing an object. Public GC and low-level call/run entries refuse before collective or managed-frame effects. Nonreturning callback exits leave VM-owned pending/inflight custody and an incomplete task; native result/stop recovery is not proved and cannot justify replay. A normal C return carrying a release error still uses the legacy result policy and does not prove resource disposition |
+| retired | Replace sweep mutation of the public still head during native releases; remove the unconditional deferred-counter reset that could discard callback-created objects. One run_function type in runtime_forwards now drives public import, function-table field and implementation forward declaration; the definition is compiler-checked against it. Independent expected C types and real calls remain separate controls. Native cleanup no longer silently reenters the current GC collective or creates a managed activation from a physical restore receipt |
+| overheads | Five pointer-sized fields per fixed participant retain pending/survivor/inflight/native payload/function identity, plus one fresh-chain recount; no dynamic metadata allocation or extra barrier. One phase enum value and constant-time entry checks. All callback-created still/native resources consume existing heap and remain until their real subsequent release; no heap multiplier or pause-speed claim |
+| qualification | Require exact-source, original-profile, same-workspace, domain-kernel, topology-and-map, refill-exercised, calibrated-unknown-join, authenticated-executions, bounded-budgets, owner-domain-service, fresh-still-generation, refusal-before-effects, native-run-abi, write-authority, copy-before-reserve. Independent C Generic type checks must match public declaration and function table, and the real callback must call the correct current ABI. The root kernel compiles the actual write_authority implementation and shared component controls; source-bounded-request and closed-root-domain have independent source/native guards; source relocations must remove every old API/file name without aliases. Actual callbacks must allocate child FOREIGN objects, retain them in the owner chain, drop roots, finalize once in the next epoch, and reject call/run/GC/collecting-allocation/shutdown attempts before register/stack/catcher/setup-state changes; observe escrow during callbacks and empty after completion |
+| remaining | Complete copy-capacity plan and arbitrary native writer closure remain open. Generated SFUN conversion can write before call, RC domain/borrow adapters cover selected same-owner entries but arbitrary payload aliases remain excluded, nonlocal native exits need escrow and no-write evidence, teardown free_still_objs is a separate producer, and known callback completion does not prove native resource release after an error |
+| modelOwnership | Existing QNT root_producer_closure/copy_custody owns producer closure and in-flight history; existing Lean RootProducerClosure/CopyCustody owns source/refinement premises. SysML records actual source boundaries and negative evidence; ASCENT may qualify this owner-service slice but cannot discharge the whole native-writer condition |
+|---+---|
+| id | copy-before-reservation |
+| phaseOrder | SOURCE_HINT -> SOURCE_SECTION -> CLAIM -> REVALIDATE -> RESERVE -> FORWARD -> RELEASE -> INITIALIZE -> READY -> COMMIT -> TAIL |
+| sourceRefs | vm_state.h.in::gc_copy_acquire,gc_copy_release; memory_state.h.in::msection.copy_gate; movable-sections.inc::adjust_msections; copy-reservations.inc::load_copy_source_header,mark_array; heap-sections.inc::setup_stack_heap_vmstate; continuation-roots.inc::mark_captured_continuation_locked |
+| publication | Gate belongs to the source msection and is initialized before section publication. Validated source coordinates resolve the owner; no hash cardinality or object identity table. Section lifetime spans the round, and reset requires prior writer drain. Revalidation precedes reserve/refill; release follows forwarding before payload or Tail. Round reset requires all earlier collectors physically complete. Forwarding visibility does not imply payload READY |
+| affinity | Distinct objects in one physical source section serialize reservation; distinct source sections remain independent. Their object identities are never merged. Frame construction takes frame_gate before copy_gate; no copy-gate holder acquires frame access or scans a child. FIFO dequeue releases its own gate before scan |
+| custody | Gate winner retains private reservation, payload initialization and sole Tail. Unknown writer/owner stop cannot be timed out, cleared or replayed. The existing CAS-loss refund remains defensive for a writer outside the admitted protocol; it does not establish packing for bypass writers |
+| retired | For the two managed object-forwarding variants, remove speculative reservation and section refill by a contender that finds a published forwarding pointer. Captured stack frames already share frame access. FIFO FORW transport writes do not publish object copies |
+| overheads | One word per allocated msection, no fixed VM array. If N sections are allocated, storage is N times sizeof WORD; compared with the former array, metadata delta is (N-64) times sizeof WORD. One acquire/release per attempted winner plus header revalidation. Native ordered-word backend loads each inspected header directly; legacy fallback takes an additional gate around its ordinary read to avoid RMW on read-only storage. Same-section requests and reservation critical sections serialize; payload copy remains parallel. Source metadata trailer stays unchanged. Heap/profile limits unchanged; metadata is charged separately, no measured throughput claim |
+| qualification | copy-before-reserve; current source C same-section/distinct-section gate controls, actual W<R continuation/root/refill and unknown-join observations; read-only header loads must not issue RMW |
+| remaining | All successful-copy section tails still need a physical packing bound; source/frame census, maximum request, full pre-flip plan and reversible common refusal remain open. Native bypass stores and unknown copier stop are not made safe by section-owned arbitration. Full-round worker reset already requires collective completion |
+| modelOwnership | Reuse copy_custody QNT grant/cancel schedules with strengthened source admission; Lean RoundCapacity needs real sectionPackingBound inputs, not another transition system. ASCENT checks ordered source anchors and actual C/runtime receipts, not an end-to-end C memory-model proof |
+|---+---|
+| id | source-bounded-request |
+| phaseOrder | CLAIM -> VALIDATE_INTERVAL -> PREPARED -> RESERVED -> COMMIT_OR_CANCEL -> SETTLED |
+| sourceRefs | runtime_roles.h.in::gc_copy_request; copy-reservations.inc::prepare_copy_request,reserve_copy,cancel_copy,commit_copy; continuation-roots.inc::mark_captured_continuation_locked; collection-round.inc::worker drain |
+| publication | Immutable source section/start/length, destination length, epoch and frame kind precede full-barrier CAS from settled to prepared; reserve consumes exactly this request before refill. Physical grant precedes reserved CAS; known settlement clears state after arena settlement |
+| affinity | One request per VM-owned worker, no identity table. Heap claim uses source section gate; frame claim uses frame_gate. Both execute the same source interval validation and destination reservation |
+| custody | Unknown pre-reserve or reserved copy retains request and any arena pending interval; worker drain refuses nonzero request. No timeout/reset/replay manufactures payload completion. A known forwarding loss settles only its own private interval |
+| retired | Unchecked reserve_copy entry with only a body length; C-local-only source coordinates before arena refill. Duplicate forwarding contenders still create zero requests or refills |
+| overheads | Per VM worker storage sizeof gc_copy_request plus one SIZE_TS; active requests use two CAS and one fetch-clear, source interval checks and one source-charge addition. All MAX_PROCESSORS descriptors are stored, even if W is smaller. No managed heap increase; native metadata and contention charged separately |
+| qualification | source-bounded-request; both actual reserve_copy callers, frame/heap roots, refill/loan and settled request observed in worker-root-domains |
+| remaining | A validated individual source interval is not an injective pre-flip census or a packing algorithm. Effective RETI frames and loaded-module bounds, successful-copy stranded space, restore/fudge, unknown retained domains and common recoverable refusal must compose before full admission |
+| modelOwnership | Existing QNT copy_custody owns interrupted request/cancel histories; Lean ProducerCapacity and RoundCapacity own interval/source-charge and packing lemmas. No duplicate formal model or fresh proof result |
+|---+---|
+| id | closed-root-domain |
+| phaseOrder | RUNNING -> CLOSE_WRITERS -> FROZEN_SCAN -> OWNER_CLEANUP -> WHOLE_ROUND_DRAIN -> REOPEN |
+| sourceRefs | memory_state.h.in::rc_header.domain,context_mem.rc_gate_; rc-allocation.inc::register_rc,set_data_rc,alloc_rc_roots,store_rc_root,borrow_rc_root,return_rc_root,cleanup_rc; rc-roots.inc::mark_rc; c_intf.c::make_sfun_stack_marker; os_dyn.c::make_c_closure; examples/tcltk/tcltk.scm::command creation |
+| publication | Owner closes under context gate before ROOTS_FROZEN and the collective barrier. Scanner owns the same gate and requires closed. Store/link/refcount access uses acquire/release spinlock; reopen follows RUNNING and final all-R barrier. These are current C synchronization adapters, not a C memory-model proof |
+| affinity | Root domain is execution context, scanner is any admitted worker. SFUN resolves same-owner RC root cell before allocating marker and reloads after allocation. Borrow pins RC cell and increments domain debt; it does not hold gate or block GC while Scheme/native work executes |
+| custody | Closed registration refuses without taking source allocation; alloc_rc frees its own refused unregistered block; failed payload store leaves old root unchanged. Borrow cannot race final release while caller owns an incoming reference. Unknown nonlocal exit retains registered cell/debt and refuses cleanup; no claim of general callback pin/delete recovery |
+| retired | Unprotected RC link/payload/scanner accesses, mismatched register/count definitions, raw C-local marker procedure root and post-allocation c_closure_self payload read in selected SFUN path. All consumers must rebuild for BOOL set_data_rc ABI |
+| overheads | One context pointer and one root_count word per RC allocation and sentinel; one SPINLOCK plus two WORDs per allocated context; short gate operations per RC API and scan, two refcount updates per borrow. The raw marker API retains its temporary procedure-cell route. Generated SFUN now allocates one bank with nargs+2 SCMOBJ cells and native flag bytes, registers raw SCMOBJ parameters before collecting conversion, defers marker allocation and reloads the bank into one gated argument batch. Known normal/error/unwind return releases its borrow and owner reference. Rooted startup uses its existing dedicated root. Writer and borrow gates release before Scheme allocation or native callbacks. Scanner holds gate through mark_array including private arena refill; custom allocators which call RC/ Scheme or wait for the owner are excluded. Native release can wait for this whole root task; its latency is not proven bounded independently of graph/copy cost |
+| qualification | closed-root-domain; three owner domains with W=1,2,3,1, sole borrowed moving roots, closed cleanup rejection before effects, marker construction, repeated continuation and independent ABI consumer |
+| remaining | c_closure_self is still a process-global trampoline cell; cross-thread callbacks, raw payload aliases, raw/bypassing SFUN conversion/argument writers, arbitrary nonlocal native exits and VM teardown grace remain excluded. Tcl construction root fix does not qualify deletion/reentry or Tcl runtime |
+| modelOwnership | models/gambit/host_roots_contract.qnt and dev/architecture/runtime/gc/models/quint/native_scope_gate.qnt own existing close/borrow histories; models/gambit/lean/HostRootsRefinement.lean owns stable-cell/scan mapping premises. ASCENT ties source anchors to actual tests without repeating their models |
+|---+---|
+#+END:
+
+#+BEGIN: sysml-view :kind root-phase-operations :source refactoring/modern-c/models/sysml/root-task-c-refinement.sysml
+| Operation | Actual C symbol | Guard | Linearization | Failure custody | Remaining premise |
+|---+---+---+---+---+---|
+| freeze | ___gc_origin_freeze | Existing collective has physically stopped the complete context root writers; descriptor RUNNING; round monotonically advances without wrap | Acquire origin publication gate, initialize round/context under exclusion, release FROZEN; no FROZEN view before its metadata | Failed or unknown publication retains origin/root storage; no thaw while a root task remains held | The C helper does not prove all foreign writers stopped; replacing the old collective requires the full NativeActivation/borrow inventory |
+| publish | ___gc_root_task_publish | Frozen origin and matching immutable round/incarnation; exclusive task-slot reuse after old readers have drained | Initialize task identity then release READY; descriptor lifetime excludes concurrent reuse | Unpublished task stays coordinator-owned; published task stays round-owned even without a carrier | New independent registry needs bounded slot/reader grace and stable VM route; current collective supplies slot quiescence only |
+| claim | ___gc_root_task_claim | Published epoch/incarnation/phase and bounded nonzero worker claim key; pinned task slot; cleanup additionally requires explicit original-host eligibility | One CAS replaces READY with an owner-bearing claim word; no second multi-store claimant publication window | CAS loser has no root-write authority; unknown winner remains named by the atomic claim, not recreated by another scan | Worker-key reuse and lost-carrier recovery require physical-stop and generation receipts, not an idle count |
+| finish | ___gc_root_task_finish | Exact claim holder and phase, matching frozen origin completed that phase's root work and accounted children; root completion is not descendant or round completion | Release CAS from exact owner claim to phase DONE; coordinator acquires after all old-phase users and required descendants drain | Wrong/late holder cannot finish another claim; unknown result is queried through task state | Private/Tail and weak descendants still need complete source refinement and round termination; no new formal theorem supplied here |
+| advance | ___gc_root_task_advance | Sole coordinator, matching frozen epoch/incarnation, exact immediate predecessor phase DONE; physical phase barrier excludes late readers and strong/weak descendant work | Write next phase under exclusion, release CAS DONE to READY, then next collective barrier admits claimers | Held/unknown task refuses advance; old-phase return cannot complete a new claim. Cleanup cannot reopen as prepare within the same epoch | C source refinement depends on the actual collective publication/drain contract; no extra QNT or Lean proof is inferred from the native kernel |
+| arena | ___gc_arena_reserve | Worker exclusively owns one actual bounded destination span; requested offset matches private cursor; arithmetic checked before pointer construction | Advance private cursor and record one pending reservation before forwarding; only the same unpublished grant can refund | CAS loss cancels only that grant; forwarding visibility retains initialization responsibility; unknown writes deny handoff | VM refill and exclusive resume handoff replace the legacy collector cursor adapter; ownerCleanup/domainResume supply selected W<R scheduling, while full physical packing and independent carrier migration remain open |
+| refill | refill_worker_arena | Exclusive arena writer, no pending grant or handoff; closing old chunk preserves its queue/frontier custody; round has issued the bounded optional stack loan | VM allocator lock removes one physical section from free suffix; if none, consume one private epoch-matched loan without acquiring any context heap cursor | Retired copied prefixes remain arena-accounted until handoff. Exhausted or unknown loan cannot be recreated. Reserve failure grants no forwarding or destination-write permission | Native workload must actually force refill. Complete pre-flip packing and rejection recovery are separate open obligations; aggregate words are insufficient |
+| handoff | ___gc_arena_handoff; move_continuation | Weak descendants and physical old writers drained; scan cursor equals allocation tip; no active chunk, pending copy or Tail; same epoch, exclusive unaccepted resume plan | Exclusive non-collecting transfer publishes final section/cursor/limit and retired words to context, then marks arena handed-off and resume accepted before capacity consumers | Wrong epoch, pending reservation or duplicate handoff changes no ledger. Source retains unknown transfer; actual physical exclusion, not epoch checking alone, justifies plain stores | W tails transfer to W distinct recipients and domainResume covers R-W others. Physical stack-copy receipts do not authorize execution; prepare_mem_pstate, all cleanup results and root thaw still gate final resume. W>R remains unqualified |
+| select-workers | setup_stack_heap_vmstate; restore_loan_words | All R allocators and live stack footprints physically frozen; atomic request validated and clamped to current R; every requested nonworker has empty-heap fudge in its bounded stack partition | Coordinator selects actual W before flip and publishes R grants plus W arenas through the setup barrier; deep-stack insufficient-fudge cases use the existing W=R plan | No worker acts on the requested value before actual census publication. Insufficient initial physical sections fail before a partial flip; no extra heap is allocated to qualify W<R | Restore admission is not a complete copy-object packing proof. Selected native W<R cases do not discharge arbitrary deep-stack or large-object capacity obligations |
+| domain-resume | ___gc_resume_without_arena; move_continuation | Root domain has source_worker=-1, same frozen epoch, unused bounded loan, no prior acceptance; all W descendants and writers drained | Initialize empty heap span in the already reserved stack bottom; move active stack on its native owner; publish restored before the all-R restore barrier | No arena tail is invented or credited. A duplicate, loaned or wrong-epoch plan refuses acceptance. Resume remains blocked until every R root cleanup task completes | Initial restore/fudge capacity must be admitted before flip; arbitrary copy packing and unknown native writers remain external obligations |
+| owner-cleanup | cleanup_root_domain; free_unmarked_still_objs | Actual native owner and context match frozen root task; all R active stacks restored; exact CLEANUP task claim with host token 4+MAX_PROCESSORS+id | Owner claim precedes release callbacks/list sweep; matching completion precedes capacity result and thaw; worker idle count supplies no cleanup authority | Inactive collector carriers still service their root domain. Unknown native release completion cannot authorize a second destructor or root thaw. Reentrant native cleanup effects are not newly admitted | Native pthread identity and exactly-once releases observed for selected foreign objects; unclassified callback/native-writer effect closure remains open |
+| sweep-generation | free_unmarked_still_objs; gc_cleanup_escrow | Actual native owner, claimed CLEANUP task, OWNER_CLEANUP phase, physically drained W writers and empty prior escrow | Move old head to VM pending before callback; publish native payload/function/inflight before invocation; old survivors stay VM-owned; merge/recount fresh chain on known return before completion | Nonreturn leaves pending/survivor/inflight records visible to VM; no slot reuse or callback replay follows from that retention. Normal C error returns do not prove resource disposition | Stop evidence, native error escrow/recovery, cross-VM teardown and arbitrary raw writers remain unqualified; there is no new QNT/Lean state machine |
+| native-refusal | garbage_collect; call; run; alloc_scmobj_still; cleanup | Participant is non-RUNNING at entry; actual owner service is not an executable GVM activation; no incomplete view may begin a nested collective or managed frame | GC/call/run return failure before own collective/register/marker/catcher effects; collecting allocation returns error before publication; same-carrier cleanup returns before setup/interrupt/resize effects | Existing source/fresh chains and registered roots remain in owner/VM custody. The endpoint gate cannot undo earlier generated SFUN_ARG or raw native payload stores | Baseline run public declaration omitted PSD while definition and function table included it. Current ABI must match all three and the real caller, with preserved pre-entry observations |
+| cleanup-slot | setup_pstate; gc_cleanup_empty; setup_vmstate | A reused participant has no pending/survivor/inflight/native identity; fresh VM initialization is exclusive and follows the existing setup lifetime contract | Reject nonempty cleanup escrow before sync, incarnation or context binding mutations; initialize all fresh fixed descriptors before any thread can borrow them | Unknown or interrupted release cannot be erased by PSTATE setup. This does not permit arbitrary reinitialization of an active VM or prove a global shutdown grace period | Direct/cross-VM teardown and native user closure remain source obligations; fixed record capacity does not bound retained native/object memory |
+| native-run-abi | runtime_forwards.h.in::run_function; runtime_protocols.h.in::run; global_state.h.in::run; setup.c::typed forward,run | Same configured PSTATE propagation mode, public declaration/definition/function table share PSD; independent actual-header C consumer must compile the expected function-pointer type | Caller passes exactly the configured native parameters before endpoint phase checks; correct ABI is a prerequisite, not a receipt produced by a later guard | A mismatched ABI can interpret thunk as PSTATE and crash before any custody gate; reject at compile-time and retain the real native failure, rather than treating it as a GC proof or typed result | Darwin explicit-PSTATE mode is actually qualified here; unrelated target modes require their own native ABI validation. QNT/Lean control proofs cannot discharge compiler-level parameter fidelity |
+| copy-before-reserve | memory_state.h.in::msection.copy_gate; vm_state.h.in::gc_copy_acquire,gc_copy_release; copy-reservations.inc::require_fromspace_copy_source,mark_array | Complete stopped-root collective; source header remains in admitted fromspace. Gate and revalidation precede arena reserve/refill. Captured stack-frame forwarding remains under frame access | Gate acquisition serializes the reservation/header-publication fragment; successful forwarding CAS publishes identity, not initialized payload. Release precedes payload copy and all child/Tail execution; READY follows full initialization | Copy winner owns pending interval and initialization/Tail even after forwarding is visible. Duplicate contender retries through the forwarded branch without requesting destination space. Unknown copier exit retains the round, never clears a gate on timeout | This source strengthening removes managed losing-attempt section waste only. Existing QNT copy_custody histories and Lean RoundCapacity packing obligations are reused. Successful packing tails, source census, native bypass and stop recovery remain independent premises; selected GCC acquire loads do not establish every legacy backend |
+| write-authority | write_authority.c/.h; vm_state.h.in::write_authorities; setup.c::write_authority_init_vmstate; tests/write-authority.c; tests/gc-root-task.c | Live VM/storage borrow; fixed registered actor and exclusive delegated role; generation is checked without wrap; current source has exactly one write_authority family and no old-name aliases | One full-word CAS couples generation, closed, spent and live permits. Handoff requires closed and drained and installs both owner permits atomically; release follows the actual last store/borrow and preserves the spent bit | Unknown writer retains its live permit. Duplicate release is idempotent; stale generations cannot clear later permits; exhausted identity or capacity rejects. A failed join cannot manufacture a last-use receipt | This record carries no Scheme payload, GC-root registration or physical-stop proof. Existing QNT native_scope_gate history and Lean NativeScopeGate encoding duties are reused without new models; connecting every generated/foreign writer remains open |
+| source-request | prepare_copy_request; reserve_copy; commit_copy; cancel_copy | Heap section claim or captured-frame access already held; source interval wholly inside frozen old half; no earlier pending request; exact round epoch and destination length | Full-barrier CAS publishes immutable source coordinates before any arena refill. Arena grant changes prepared to reserved. Known commit/cancel settles arena before clearing request | Unknown stop retains request plus any grant; both worker drain checks reject it. Source interval is not sufficient to replay forwarding, payload copy or Tail. Duplicate forwarded contenders create no request | Lean interval/source-size refinement requires actual heap and effective frame coordinates; global injective census, packed placement, physical source retention and common refusal remain open. QNT owns request/unknown histories only |
+| close-rc-root-domain | close_rc_roots; mark_rc; reopen_rc_roots | Same context gate covers membership, payload, refcount and scan; close occurs before ROOTS_FROZEN; native releases own a live incoming reference | Closed flag publishes under gate before collective freeze; mark_rc requires closed under that gate; reopen follows final all-R drain and RUNNING | Borrowed cells remain registered during GC and are updated by scanner. Closing does not wait for borrow count. Live borrow prevents context cleanup; raw aliases and VM lifetime must be excluded independently | Existing host-root QNT covers closure scheduling; Lean stable-cell mapping owns root coverage. No new proof that unknown native exits stopped writing or that global shutdown is safe |
+| sfun-root-borrow | make_sfun_stack_marker; borrow_rc_root; make_sfun_stack_marker_from_root; return_rc_root | RUNNING same-owner context; valid incoming Scheme object or owned C closure; stable cell registered before allocating marker; current SDK consumer for BOOL payload-store status | Borrow increments cell refcount and domain debt under gate; gate releases before allocation; marker reloads updated root. Known normal return pays borrow after last root use | Failed registration/store leaves source owned or frees only its fresh native block. Unknown nonlocal exit retains cell/debt. Marker root fix is not activation-wide conversion/stack-store or concurrent trampoline admission | Process-global c_closure_self and foreign ClientData first-read/delete arbitration remain open. Native tests cover selected actual callers, not all public-ABI consumers. Existing QNT/Lean retain disjoint duties |
+| sfun-input-bank | begin_sfun; alloc_rc_roots; BEGIN_SFUN_ARG_SCMOBJ; check_sfun; sfun_arg; call_sfun; sfun_error; end_sfun | RUNNING same-owner context; noncollecting bank initialization publishes root_count only after all cells are false. Generator emits every raw SCMOBJ parameter declaration before collecting converters. Max argument count and actual stack interval are checked | Raw argument store acquires context gate. Converters execute with registered inputs and no held root-store lock. After marker allocation, the complete parameter batch reloads current bank values and writes under that same gate, then unlocks before Scheme entry | All three wrapper forms keep procedure, raw inputs, converted arguments and error data/handler live. Known end invalidates marker and pays RC borrow/owner debt after converter cleanup; unknown physical escape retains the chain/debt and cannot authorize replay or teardown | Existing host_roots_contract QNT is updated for pre-marker conversion, close/drain and reload schedules. HostRootsRefinement owns span/data mapping; no new Lean proof. PSTATE migration, process-global closure selection, arbitrary C aliases and compiler traversal corruption remain open |
+| thaw | ___gc_origin_thaw | Matching epoch/incarnation, CLEANUP root task DONE and external whole-round resume authority; all scanner reads ended | Release FROZEN to RUNNING only after acquiring the completed task and physical restore plan | Held/unknown task prevents root mutation/recycle; host join supplies no substitute receipt | Existing collective still supplies whole-round/resize result and native-user closure; unknown exit is retained rather than recovered by this kernel |
+#+END:
+
+#+BEGIN: sysml-view :kind concurrent-protocol-ownership :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Component | Protocol / model | QNT responsibility | Lean responsibility | Scope / refinement premise | Recorded component checkpoint |
+|---+---+---+---+---+---|
+| source-bounded-request | capacity-publication / dev/refactoring/modern-c/models/quint/round_capacity.qnt | Finite interleavings: deduplicate discovery, no publication before complete census and acknowledgements, one decision observed by all three participants before flip or refused return, no refused/unknown flip, no early return | Existing ProducerCapacity, RoundCapacity and CopyCapacityComposition prove parametric source envelopes, interval coverage and conservation under explicit premises; they do not repeat participant schedules | One shared-memory VM round, three objects and three participants, two finite regions. No cross-machine protocol, unbounded-member theorem or liveness claim. Finite placement guards abstract valid C intervals. Source inventory completeness, packing arithmetic, physical exclusion, every real participant and failure custody need a separate C/data adapter | evidence/research/capacity-admission/protocol-closure/receipt.json / finite-model-check-required-C-adapter-open |
+| closed-root-domain | sfun-writer-publication / models/gambit/host_roots_contract.qnt | Finite interleavings of root registration before collecting conversion, writer drain before frozen scan, pre-marker GC and reload, nested activation, closed-entry refusal and known-exit release. closing is a close request, not proof that an already admitted writer stopped | Existing HostRootsRefinement owns stable-cell to root-view mapping and relocation premises. New root_count span coverage needs source refinement; no duplicate writer state machine or fresh Lean completion claimed | One shared-memory root domain, callback depth at most two, two conversion/store observations. No liveness or cross-machine claim. C gate sections are noncollecting stores. A conversion may collect only with inputs in registered stable cells; the model does not hold a writer permit throughout an allocating converter. Correct span initialization, PSTATE/context identity, no raw aliases and native stop remain C premises | evidence/research/capacity-admission/protocol-closure/receipt.json / finite-model-check-required-C-adapter-open |
+| hash-layout-ownership | hash-layout-ownership / dev/refactoring/modern-c/models/quint/hash_index_owner.qnt | Existing hash_index_owner extended with cursor, layout and address debt: GC/lookup interleavings preserve exact visits; old eager rebuild can duplicate a key despite correct hash placement. One reader, two keys, two addresses/layouts; no concurrent writer or liveness claim | Reuse existing HashIndexOwner conditional algorithm/transport and debt laws. It does not prove the new cursor schedule or C linear-search encoding; no Lean scheduler or second proof is introduced | Rooted table/key/value state, source scan uniqueness, current repaired pointers, completed collective GC before mutator resume and existing public traversal mutation restrictions. Raw aliases, same-table concurrent/reentrant writers, weak dead-entry snapshot guarantees and unknown-stop recovery are excluded | evidence/research/hash-layout/protocol-closure/receipt.json / finite-model-check-required-C-adapter-open |
+#+END:
+
+#+BEGIN: sysml-view :kind concurrent-protocol-c-steps :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Protocol | C boundary | QNT atomic actions | Actual source / anchor | Refinement responsibility | Status |
+|---+---+---+---+---+---|
+| hash-layout-ownership | hash-cursor | beginRead; visit; finishRead | vendor/gambit/lib/_system.scm / (define-prim (##gc-hash-table-for-each proc gcht) | Existing Scheme cursor advances by two physical fields after visitor return. Its rooted frame may survive GC; explicit same-table public operations remain restricted by the manual | located-not-C-proof |
+| hash-layout-ownership | hash-key-movement | relocate; repairStable | vendor/gambit/lib/_mem/object-scanning.inc / if (body[i] != key) | Compare strong key before/after mark_array, record actual address change; permanent symbols cause no speculative debt. Weak-key repair keeps its existing movement/deletion flags | located-not-C-proof |
+| hash-layout-ownership | hash-reference-repair | freeze; resume | vendor/gambit/lib/_mem/weak-tables.inc / GC owns reference repair and weak deletion, never slot permutation. | Repair/remove entries at existing coordinates. Collective round closes mutators before this work and resumes only after its completion; this location alone is not the whole barrier/memory-order refinement | located-not-C-proof |
+| hash-layout-ownership | hash-access | lookup; ownedRebuild | vendor/gambit/lib/_mem/hash-table-api.inc / A read cannot acquire layout-write authority. | KEY_MOVED selects a nonallocating read-only scan. Native set and path-compressing union/find own reconstruction. No runtime reader lock or concurrent mutation permission is supplied | located-not-C-proof |
+| hash-layout-ownership | hash-deserialize | deserialize | vendor/gambit/lib/_system.scm / (define-prim (##table-access | Scheme table-access owns explicit NEED_REHASH reconstruction; raw native KEY_MOVED fallback does not discharge deserialization debt or authorize the wrong index algorithm | located-not-C-proof |
+| capacity-publication | capacity-freeze | freeze | vendor/gambit/lib/_mem/collection-round.inc / participant->phase = ___GC_ROOTS_FROZEN; | Every R carrier closes RC roots and publishes its frozen view before the existing physical barrier | located-not-C-proof |
+| capacity-publication | capacity-plan | discover; closeCensus; reserveAt; acknowledge; publishPlan; refuse; observe; returnRefused; unknownResult; retain | vendor/gambit/lib/_mem/heap-sections.inc / ___HIDDEN void setup_stack_heap_vmstate | Legacy setup boundary exists; full census/packing/common-refusal adapter does not. No observed source counter is substituted for those actions | missing-adapter |
+| capacity-publication | capacity-flip | flip | vendor/gambit/lib/_mem/heap-sections.inc / tospace_offset = ___vms->gc_round.destination_offset; | Real parity change is located. It still lacks the model's complete pre-flip plan and all-participant observation guard; locating it does not establish refinement | missing-adapter |
+| sfun-writer-publication | sfun-protect | protect | vendor/gambit/lib/_mem/rc-allocation.inc / h->root_count = count; | Initialize every SCMOBJ cell and flag before count publication under context gate; raw inputs register before any collecting converter | located-not-C-proof |
+| sfun-writer-publication | sfun-conversion | convert; allocateMarker | vendor/gambit/include/_gambit/foreign_conversion.h.in / ___EXT(___check_sfun)(___ps,___sfun_roots) | Generator orders SCMOBJ declarations first; argument/result converters check root-domain admission. Marker allocation is deferred to call/error boundary and can relocate bank cells | located-not-C-proof |
+| sfun-writer-publication | sfun-batch | acquireWriter; storeArgument; releaseWriter; reload; enter | vendor/gambit/lib/c_intf.c / ___PSSTK(___FRAME_SPACE(2)+i) = ___CAST(___SCMOBJ*,bank)[i-1]; | After marker allocation reload the current stable cells; physical stack bounds and gate precede the entire noncollecting batch. Unlock before Scheme call; never hold a writer lock over GC | located-not-C-proof |
+| sfun-writer-publication | sfun-close | closeWriters; freeze | vendor/gambit/lib/_mem/collection-round.inc / close_rc_roots (___ps); | Close invocation can contend with an admitted store; close return and frozen publication follow that store, not a claimed logical cancellation | located-not-C-proof |
+| sfun-writer-publication | sfun-scan | acquire; relocate | vendor/gambit/lib/_mem/rc-roots.inc / mark_array (work, ___CAST(___SCMOBJ*,h+1), h->root_count); | Same closed-domain gate covers membership and payload scan; worker updates data and root_count cells, independent of origin processor id | located-not-C-proof |
+| sfun-writer-publication | sfun-exit | leave; release | vendor/gambit/lib/c_intf.c / if (bank) { ___return_rc_root(bank); ___release_rc(bank); } | Known wrapper exit invalidates marker and pays bank borrow/reference after converter cleanup. A raw nonlocal exit skips this step and retains debt; no physical-stop proof follows | located-not-C-proof |
+#+END:
+
+#+BEGIN: sysml-view :kind unequal-worker-admission :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Condition | Source progress | Required contract | C consumer | Existing model owner |
+|---+---+---+---+---|
+| independent-refill | source-refined | VM section ownership, one private writer, bounded one-use stack loan and exactly-once drained handoff | heap-sections.inc::refill_worker_arena; vm_state.h.in::gc_arena_handoff | QNT copy_custody.qnt: bounded transfer interleavings; Lean CopyCustody.lean: custody refinement premises; C/native adapter only this turn |
+| resume-coverage | source-refined | W tails have distinct recipients; all other R-W roots restore from their own empty bounded span; all R active stacks seal before cleanup | heap-sections.inc::setup_stack_heap_vmstate; capacity-resize.inc::determine_occupied_words | QNT round_capacity.qnt: reservations and publication; Lean RoundCapacity.lean: interval coverage and conservation; no new proof run |
+| affine-cleanup | source-refined | All R cleanup domains serviced on allowed host threads independently of W copy executors, with retained native payloads | collection-round.inc::collect_root_tasks CLEANUP | Actual owner service and pthread destructor identity; native reentry remains under native-writer closure; no new QNT/Lean scheduler |
+| collective-split | source-refined | All R physical carriers participate in existing barriers while exactly W distinct workers execute scan and terminate | collection-round.inc::garbage_collect_pstate; setup.h::BARRIER | Source/C synchronization refinement and native unequal-count tests; existing bounded control models do not grant physical participation |
+| descendant-termination | source-refined | R phase tasks plus all generated chunk/Tail/weak descendants drain before W-worker idle termination advances the round | collection-round.inc::mark_reachable_from_marked; advance_root_tasks | QNT copy_custody.qnt: authorization and interleavings; Lean CopyCustody.lean: coverage preservation; same obligations reused |
+| physical-packing | open | Pre-flip simultaneous copy and R restore grants cover actual contiguous objects, frame expansion and fragmentation at unchanged heap policy | heap-sections.inc::setup_stack_heap_vmstate; copy-reservations.inc::reserve_copy | QNT round_capacity.qnt: finite placement counterexamples; Lean RoundCapacity.lean: parametric packing/coverage; C planning bridge open |
+| native-writer-closure | open | Included roots and payload writers physically stopped; safely isolated unpublished abort differs from unknown published/native writer | setup.c::resize; collection-round.inc::garbage_collect_pstate | QNT root_producer_closure.qnt: producer close/late work; Lean RootProducerClosure.lean: coverage refinement; source/native writer inventory open |
+#+END:
+
+#+BEGIN: sysml-view :kind full-copy-capacity-boundaries :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Premise | Actual C producer | Required contract | Existing proof owner | Disposition |
+|---+---+---+---+---|
+| copy-charge | configuration.inc::words_movable_objs; heap-sections.inc::source_words; continuation-roots.inc::captured frame construction | A closed injective census covers every distinct old heap object and stack frame, including header/alignment expansion. Current doubled occupied words is not such an adapter Conditional envelope: D=sum destination_i <= sum source_i + A32 <= S_alloc + A32 requires a disjoint complete source census. Current per-request check proves only interval containment and destination_i <= source_i + one alignment word for heap, or <= source_i for frames; it does not validate S_alloc from doubled legacy occupied counters. | QNT copy_producer_envelope: producer/epoch histories; Lean ProducerEnvelope and ProducerCapacity: source/span refinement premises | unresolved |
+| request-envelope | gsc/_t-c-1.scm and _t-c-2.scm; copy-reservations.inc::reserve_copy; native constructors and loaded module descriptors | Actual maximum contiguous request covers all loaded modules, dynamic/native constructors and effective RETI frames; no universal selected-generator constant Actual heap request is header plus body plus worst 32-bit alignment; frame request is fs+FRAME_EXTRA_SLOTS+header, sourced from FRAME_SPACE(effective fs), including RETI decoding. Each request must fit one admitted piece, independently of total free words. | QNT copy_producer_envelope: late/opaque producers; Lean ProducerCapacity: normal/internal frame bounds under ABI premises | unresolved |
+| attempt-fragmentation | copy-reservations.inc::reserve_copy,cancel_copy; heap-sections.inc::end_heap_chunk,refill_worker_arena | mark_array now resolves the validated source msection and takes its lifetime-owned gate, revalidates the source header and only then reserves/refills. It releases after forwarding, before payload/Tail work. Captured stack-frame construction remains serialized by frame_gate. Managed duplicate contenders therefore request no space. Ordinary successful-copy packing loss, unsupported forwarding writers, native interruption and full pre-flip admission remain obligations; a private refund never restores a closed section Physical destination requirement is D+K+J+F+Hrestore-Qpre <= N*half, with K all end markers (including empty/refill/final), J leading links, F reserved terminal and stranded tails, Hrestore every R restoration grant and Qpre only proved overlap of pre-reserved loans. It also needs an injective interval placement and largest-request fit. Post-GC refund is not Qpre and cannot reduce the admitted round peak. | QNT copy_custody: grant/cancel and transfer histories; Lean RoundCapacity: sectionPackingBound requires a real exhausted-section charge | unresolved |
+| physical-source-pool | heap-sections.inc::setup_stack_heap_vmstate; setup.c::resize quarantine and grant isolation | Full plan assigns known disjoint physical parity intervals; excludes retained domains and unknown allocator results; logical heap size and pool count alone are insufficient | QNT round_capacity: finite placement/unknown outcomes; Lean RoundCapacity and CopyCapacityComposition: coverage and collective publication premises | unresolved |
+| restore-fudge | heap-sections.inc::restore_loan_words,actual W fallback; vm_state.h.in::gc_resume_without_arena; capacity-resize.inc::move_continuation | Every R physical stack grant and R-W empty heap partition covers restoration and fudge; requested W falls back to the same role architecture with W=R before flip when needed | Current C/native W/R adapter; existing Lean interval inequalities, not a new packing theorem | selected-source-native-control |
+| known-refusal | heap-sections.inc::setup_stack_heap_vmstate; collection-round.inc::garbage_collect_pstate; allocation-limits.inc and resize caller | A common capacity refusal preserves every source root and allocator, cancels no unknown native grant and returns one outcome without partial flip; current initial failure remains fatal | QNT round_capacity and collective admission: failure/interleaving history; Lean CopyCapacityComposition: rejection/flip implication under source gates | unresolved |
+#+END:
+
+#+BEGIN: sysml-view :kind owner-native-boundaries :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Boundary | Actual producer | Contract | Admission | Remaining debt |
+|---+---+---+---+---|
+| owner-new-still | object-allocation.inc::alloc_scmobj_still; still-sweep.inc::free_unmarked_still_objs | Actual owner, noncollecting allocation, fully initialized payload before next safe point, explicit roots or refcount, fresh-generation merge and exact accounting | selected-source-native-control | No permission for unregistered movable aliases or incomplete payloads across callback failure |
+| nested-gc | setup.c::garbage_collect; object-allocation.inc::alloc_scmobj_still | Non-RUNNING participant returns failure before a nested collective; collecting allocation does not publish a new object | explicit-rejection | Does not stop an unregistered native thread from writing shared memory |
+| managed-entry | setup.c::call,run | Reject non-RUNNING entry before own stack/register/marker effects; a physical restored flag is not execution authority | explicit-rejection | SFUN marker construction now borrows a registered same-owner root; subsequent generated conversions and SFUN_ARG stores still need activation-wide admission |
+| raw-rc-and-payload | rc-allocation.inc::register_rc,release_rc; foreign_conversion.h.in::SFUN_ARG; generated raw stores | Need complete writer permits, stable registered roots, epoch-close and no-write evidence for every admitted native borrower | unresolved | Source families are enumerated by NativeWriter below; source inventory is distinct from permit enforcement. RC registration/payload/scanning now share a context gate and SFUN marker construction borrows its stable root cell. Generated argument/root stores, native aliases and teardown still lack one enforced activation/root-domain protocol. Exported APIs and external code forbid claiming a complete finite caller census from repository text search |
+| nonlocal-native-exit | setup.c::propagate_error; foreign_conversion.h.in::THROW; still-sweep.inc::release_foreign | VM-owned pending/survivor/inflight/native identity is implemented; still need stable stop and resource-result recovery before task completion or replay | unresolved | No native-exit test or recovery admission; do not dereference a possibly freed pending node or replay a possibly executed release after unknown stop |
+| teardown-producer | still-sweep.inc::free_still_objs; memory-lifecycle.inc::cleanup_mem_pstate,cleanup_mem_vmstate | Must close allocation/callback production before destroying synchronization and root storage; retain affine native release ownership | unresolved | Same-carrier public cleanup is refused while non-RUNNING; general cross-VM/direct teardown still uses legacy lifetime rules, including VM other-processors TODO |
+| native-run-abi | runtime_forwards.h.in::run_function; runtime_protocols.h.in::run import; global_state.h.in::run function pointer; setup.c::typed forward,run and two internal callers; tests/gc-root-task.c::native_run_signature | Public declaration, function table, definition and caller all share the same conditional PSD signature; current explicit-PSTATE mode cannot call a one-argument declaration | selected-source-native-control | Baseline declaration omitted PSD and the Darwin native call crashed before the phase guard. The canonical run_function candidate passed current-name type checks and real calls in write-authority-generation-cut. The later object-context run preserves that exact runtime identity. Unrelated target ABIs remain unqualified |
+| write-authority | write_authority.c/.h; vm_state.h.in::write_authorities; setup.c::write_authority_init_vmstate; lib/include/tests Make templates; tests/write-authority.c; tests/gc-root-task.c | One generation-bound write authority for eight spent/live roles; actual last use precedes release; closed-and-drained CAS transfers both owner permits. Sixty-four one-word VM records initialize before publication. The C tests share one control body and compile the real component; no compatibility aliases or second runtime namespace | selected-source-native-control | Current relocated sources passed shared C controls, separate Make linking and the native Scheme suite caller. Reuse existing QNT history and Lean encoding/last-use obligations. Full generated caller, root registration, physical-stop and VM-lifetime closure remain open; the primitive alone cannot discharge native-writer-closure |
+#+END:
+
+#+BEGIN: sysml-view :kind native-writer-responsibilities :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Family | Source | Anchor | Mutations | Consumer | Required replacement | Status |
+|---+---+---+---+---+---+---|
+| rc-chain | vendor/gambit/lib/_mem/rc-allocation.inc | ___EXP_FUNC(void*,___register_rc) | register_rc returns pointer or refusal before publication; context gate serializes link/unlink, refcount and scanner; free occurs after unlock; cleanup refuses live root borrows | rc-roots.inc::mark_rc follows context-owned next pointers and updates data slots; c_intf string conversions, os_io TLS/rollback and public ABI are callers | Before root freeze close mutation and pin borrows; registration failure retains source roots; unlink/free waits for scan and payload readers. Context owner identity must be retained because release_rc has no PSD argument | source-replacement |
+| rc-payload | vendor/gambit/lib/os_dyn.c | if (!___set_data_rc (c_closure, proc)) | set_data_rc returns status and rejects closed/wrong-owner roots; os_dyn handles refusal; Tcl registers the procedure before vector allocation and reloads it afterward; arbitrary aliases remain unadmitted | c_intf.c::make_stack_marker reads c_closure_self data; Tcl callback and delete read the same ClientData before release | Root registration before allocating marker, pin before payload read, acquire owner/root view and reload after GC. Callback deletion cannot free a pinned RC payload | source-replacement |
+| generated-entry | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___SFUN_ARG(i,arg) | SFUN_ARG writes caller stack before low-level call guard; conversion and raw SCMOBJ code can allocate, throw or reenter before entry | gsc C-interface generator, setup.c::call,run and catcher/propagate_error consumers | Generated permit/root plan precedes every conversion and stack write; exceptional paths release after last use, preserve roots and results, and cannot infer native stop from logical unwind | unresolved |
+| callback-client-data | vendor/gambit/examples/tcltk/tcltk.scm | if (!___EXT(___set_data_rc) (cd, vect)) | Tcl creation publishes RC ClientData; callback reads it; command deletion releases Scheme reference and RC storage | Tcl command callback and deletion callback, nested Scheme/Tcl entry and exceptional return | Native pin/delete arbitration before first read; source root remains held through conversion, stop/reentry and acknowledged result. External Tcl callbacks are not covered by the low-level run refusal | unresolved |
+| still-release | vendor/gambit/lib/_mem/still-sweep.inc | free_unmarked_still_objs | Owner release callback can allocate fresh still objects; normal sweep uses VM escrow and fresh-generation merge. free_still_objs teardown retains a different legacy lifetime path | collection-round.inc::cleanup_root_domain and memory-lifecycle.inc cleanup callers | Known normal returns settle escrow; errors/nonlocal exits retain in-flight native identity. Close production and readers before cleanup removes RC roots or synchronization | partial |
+| copy-forwarding | vendor/gambit/lib/_mem/copy-reservations.inc | ___gc_copy_acquire (copy_gate) | mark_array source forwarding under copy gate; captured stack forwarding uses frame_gate. FIFO FORW links are transport metadata, not object forwarding | ordinary roots, continuation-roots.inc, object-scanning.inc and weak-table consumers | Gate covers header validation through forwarding, before space mutation. Do not acquire frame access while holding copy gate. Payload readiness and sole Tail custody remain separate from visible forwarding. Unknown stopped copier retains the round | source-replacement |
+#+END:
+
+#+BEGIN: sysml-view :kind configuration-and-generation-boundaries :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Boundary | Actual source | Admission guard | Reusable work | Failure custody | Benefit boundary |
+|---+---+---+---+---+---|
+| configure-probes | configure.ac::three AC_CACHE_SAVE boundaries; native_capabilities.py::configure_owned_source | Exact task request binds configure policy, profile, tools, environment and template hashes. Select standard Autoconf cache by that request; preserve the existing 90-second configure and 600-second whole-run caps | Only completed ac_cv observations persist at standard cache-save boundaries. A resumed configure still validates its own environment and must complete normally; partial cached probes are not configured output or runtime admission | Interrupted configure retains the owned source, existing completed producer and cached observations. No successful configure proof is issued, no runtime is published and no old API/source copy is recreated | Avoid repeating completed compiler/OS/option probes after interruption. Cold probing and unsupported/uncached tests still cost work; cache keys do not qualify an externally changed SDK |
+| configuration-templates | native_capabilities.py::configuration_probe_identity,completed_configuration_proof,configure_owned_source; completed_producer.py::configure_command | Completed original configure receipt, identical policy/profile/tool/environment/non-template inputs and intact remembered configuration outputs. A changed configure.ac, including a header-path rename, requires full configure | Existing config.status regenerates templates from its authenticated substitutions. Retain the original probe receipt and a separate completed config-status receipt; exact unchanged configuration launches neither command | Unknown emission cannot replace the prior successful proof. Unexplained output mutation under the same request refuses reuse. Template regeneration is not Scheme generation | A pure header/template edit can remove repeated compiler probes. Changed header bytes still invalidate native consumers; no compiler or macro-expansion speedup is inferred |
+| source-relocation | native_development.py::native_relocations,apply_native_delta,relocated_native_line,generation_recipe_projection | Whole source move inventory, same-kind paths, exact predecessor SHA, unique target and no symlink or parallel old/new path. The existing leased workspace owns any interrupted move | Only literal native file/object lists and native C/header dependency rules normalize renamed paths. Scheme commands, module lists, preludes and arbitrary Make effects remain significant. Pinned generated C and compiler inputs stay byte-identical | Validate before mutation; interrupted tree is unpublished and checkpoint-owned. Resume only through the registered workspace; unknown generation dependencies demand regeneration rather than implicit acceptance | Retire old source/API/build names in place without another full source tree or Scheme-to-C generation. Native objects/archives are invalidated for relocation; this does not promise zero native compilation |
+| native-object-context | native_development.py::native_object_context,execute_owned; workspace.py::sync_build_source,checkpoint_build_source | Compare native argv/recipes, runtime object membership, public/feature header bytes and tool/environment identity with the last successful object context. A mutable entry configuration is not that evidence; missing context refuses object reuse unless an authenticated completed byte-identical artifact establishes it | Preserve the one successful context across source reconciliation. A repeated relocation declaration with no actual move does not invalidate objects. Body-only changes still follow real Make dependencies; this is not a new effectful build interpreter | Do not replace the successful context until Make phases and generated-source checks complete. Failed configuration/build leaves the previous context accountable, so a retry cannot forget changed flags or headers. No source clean/copy or runtime completion is inferred from context metadata | Remove repeated full native recompilation caused only by the presence of relocation metadata. Actual new archive membership, header/tool/flag changes or a performed move still invalidate conservatively; unknown partial object completion remains separate work |
+#+END:
+
+* Concrete callers and evidence
+#+NAME: rwe-witnesses
+#+BEGIN: sysml-view :kind rwe-witnesses :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Witness | Source | Lines | Finding |
+|---+---+---+---|
+| role-binding | vendor/gambit/lib/setup.c | 4970-4991 | Setup binds all three roles by processor index |
+| root-scan | vendor/gambit/lib/mem.c | 7282-7305 | Frozen origin supplies registers, startup, marker and RC roots |
+| phase-owner | vendor/gambit/lib/mem.c | 7462-7558 | Carrier chooses participant in all three phases |
+| gc-driver | vendor/gambit/lib/mem.c | 7565-7740 | Synchronous binding, barriers, public outcome, context refill and resume |
+| allocator-origin | vendor/gambit/lib/mem.c | 278-339 | Allocator macros refer to carrier context while work cursors have separate fields |
+| idle-proof | vendor/gambit/lib/mem.c | 7308-7380 | Steal victim count and idle termination derive from participant/carrier population |
+| resize-gc | vendor/gambit/lib/setup.c | 940-970 | Resize invokes GC inside an old-member collective |
+| sync-gc | vendor/gambit/lib/setup.c | 1135-1176 | Sync executor dispatches GC and rooted resize transport |
+| public-gc | vendor/gambit/lib/setup.c | 1420-1440 | Public GC calls on_all_processors |
+| native-worker-run | vendor/gambit/lib/setup.c | 769-867 | Created thread enters sync loop, reloads thunk, runs Scheme then forwards outcome |
+| main-run | vendor/gambit/lib/setup.c | 6805-6840 | Main VM invokes run using module thunk |
+| run-marker | vendor/gambit/lib/setup.c | 3634-3698 | Startup rooted marker path differs from generic raw run entry |
+| marker-root | vendor/gambit/lib/c_intf.c | 6511-6577 | Root endpoint reloads after allocation; raw wrapper does not register its local |
+| generated-entry | vendor/gambit/gsc/_ptree2.scm | 3142-3180 | Scheme generator emits SFUN argument conversion and call body |
+| join-cleanup | vendor/gambit/lib/setup.c | 1019-1116 | Create failure, shrink join, still transfer, retained state and thread exit |
+| host-cleanup | vendor/gambit/lib/setup.c | 4847-4860 | PSTATE cleanup currently calls memory then OS cleanup |
+| rc-writer | vendor/gambit/lib/mem.c | 730-751 | Register RC mutates the current context chain |
+| rc-reader | vendor/gambit/lib/mem.c | 4314-4334 | Collector scans a supplied context RC chain |
+| actor-send | vendor/gambit/lib/_thread.scm | 3401-3423 | Thread message enters shared mailbox FIFO |
+| actor-payload | vendor/gambit/lib/_fifo#.scm | 50-61 | FIFO cons retains the original payload, not a private object-graph copy |
+| otp-scheduler | vendor/erlang-otp/erts/emulator/beam/erl_process.c | 9608-9645 | Scheduler data and scheduled Process are separate objects |
+| otp-progress | vendor/erlang-otp/erts/emulator/beam/erl_process.c | 9859-9872 | Scheduler event loop reports thread progress before auxiliary work |
+| otp-unmanaged | vendor/erlang-otp/erts/emulator/beam/erl_thr_progress.h | 205-220 | Unmanaged delay handles have separate enter/continue accounting |
+| otp-dirty-limit | vendor/erlang-otp/erts/doc/references/erl_nif.md | 430-493 | Dirty scheduling does not authorize early GC or final native-resource destruction |
+| otp-heap-contract | vendor/erlang-otp/erts/emulator/internal_doc/GarbageCollection.md | 24-34 | OTP documents per-process generational semispace copying and process-local stack/heap |
+| otp-grace-contract | vendor/erlang-otp/erts/emulator/internal_doc/ThreadProgress.md | 59-99 | Thread progress requires known managed reporters; blocked unmanaged threads are excluded |
+#+END:
+
+=___garbage_collect_pstate= has two direct source call sites in =setup.c=: the
+resize capacity branch and the synchronous operation executor. The public
+=___garbage_collect= packages its request through =on_all_processors=. Those
+routes must migrate together, including merged still-capacity requests, root
+freeze and result consumption; neither can remain an independent GC driver.
+
+The two direct =___run= callers are the spawned-processor wrapper and initial
+module startup. The former reloads the rooted thunk after the synchronization
+loop; the latter enters through the generic marker path. The rooted marker
+endpoint now reloads its incoming root after allocation. Its raw wrapper passes
+the address of a C local without registering that local: these are different
+admission guarantees. Generated SFUN/CFUN and nested callbacks additionally reach
+the lower call machinery and must obey the same root/activation boundary.
+An individual initial-module thunk may have permanent/nonmoving provenance;
+that classification must be established, rather than declaring every raw call
+movable or treating the raw signature as a registered-root guarantee.
+
+RC registration writes the current context chain, while =mark_rc= scans the
+explicit supplied context. Therefore origin ownership and scanner lifetime must
+survive carrier withdrawal; transferring an RC pointer without transferring the
+whole rooted domain and reader responsibility does not suffice.
+
+* Complete responsibility and retirement matrix
+#+NAME: rwe-replacements
+#+BEGIN: sysml-view :kind rwe-replacements :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Clause | Factor | Old-authority | Replacement | Necessary-condition | Retirement-condition | Failure-custody | C-publication-order |
+|---+---+---+---+---+---+---+---|
+| root-before-collect | ffi | Raw thunk/value C locals, SFUN_ARG and marker setup choreographies | Generated NativeActivation root/borrow plan plus stable VM-owned root origin, before any collecting conversion | Cover both run origins, generated SFUN/CFUN, RC writes and nested exceptional exits; a pointer to an unregistered local is not a root | Retire raw managed-entry choreography only when every admitted generator and native user calls the same plan; unmanaged ABI stays explicitly outside optimized admission | Registration failure leaves parent roots owned; unknown acknowledgement retains source and destination until queried; startup rooted adapter is existing partial progress | Root metadata initialized under origin gate; release-ready publication and acquire validation precede consuming handles; no collecting operation with an incomplete view |
+| frozen-root-publication | ffi | PSTATE index and synchronous barrier imply complete membership and root stability | RoundCoordinator snapshots admitted RootOrigins with incarnations and frozen views independently of OS carrier population | Freeze all root writers/borrowers; registration racing close belongs wholly to this round or retains source for next admission; return cannot mutate an unscanned included view | Remove participant-array-by-carrier construction after all resize, GC and callback admissions publish through one root registry and round gate | Late registration remains VM/parent-root owned and cannot wait for GC while holding a writer lease; no root disappears on a failed close | Mutex release/acquire publishes member set and root view; claim CAS uses acquire-release; plain slot access occurs only under frozen/exclusive authority, not a revision-only race check |
+| origin-task-claim | work | Strong/weak/cleanup completion selected by PROCESSOR_ID(work->carrier) | RootTask names VM, round, origin slot/incarnation, kind and claim generation; worker execution identity supplies no participant authority | One claim owner scans actual frozen root locations; root task completion differs from completion of descendants and of the full strong phase | Replace carrier indexing in strong, weak, cleanup and root dispatch together; keep OS identity only for host instrumentation | Failed dequeue retains queue authority; unknown claim stays recorded in-flight; never recreate a second scanner from an empty queue observation | Initialize task before release queue publication; acquire dequeue/claim, release result/root writes; coordinator acquires completion before phase advance |
+| independent-copy-arena | work | Collector allocation, tospace and private frontier use work->context and carrier PSTATE context memory macros | WorkerArena owns copied intervals, frontier, Tail and destination grants; ContextResumePlan separately owns restored mutator intervals | Migrate reserve/cancel/commit, stack-frame copying, section refill, still accounting, steal victims and instrumentation; pre-flip physical plan covers copy and resume without overlap | Retire collector context allocation macros and synchronous binding assertion only after the entire allocator/scanner/helper call graph consumes work/round/arena explicitly | Unpublished copy or Tail cannot be abandoned; rejected transfer retains donor; unknown stop retains source arena and forbids a second initializer | Arena-exclusive ordinary writes; published object readiness and ownership use release/acquire; migration requires stopped donor plus matching generation, never timeout alone |
+| round-global-tasks | work | Processor zero and each carrier implicitly own VM roots, weak work, still sweep and shared overflow result | Round-scoped task keys and coordinator phase authorization; context root work and VM-global duties are different tasks | VM roots/global variables scanned exactly as required; weak fixed point precedes cleanup; effects/affinity of foreign releases are admitted before movement/resume | Remove processor-zero semantic ownership and per-carrier weak/cleanup phase stores; host coordinator thread may remain a policy choice | Owner-dependent release retains rooted deferred work and budget; collector never waits for callback execution forbidden by its own parked-owner policy | Task and phase publication under round gate; release result before acquire acknowledgement; failure outcome is immutable for this round |
+| descendant-closure | work | scan_workers_count decrements and processor barriers imply no future scan producer | Closed producer set plus explicit queued, claimed, private-copy, Tail and descendant custody; stopped worker transfers its responsibilities | Every publisher/last use is mapped; parent can finish only after children are durably accounted; handoff receipt proves custody rather than implying completed work | Retire idle-count-as-proof and fixed-population GC barriers together; waking/parking mechanisms can remain implementation details | Unknown donor execution or publication leaves an in-flight debt; safeness can hold while progress is unresolved; cannot discharge debt by declaring carrier dead | Reserve child debt before visibility; publish task then transfer authority; terminal transition serialized against producer admission; wait predicates checked under same gate |
+| context-resume | ffi | Returning from identical per-processor GC barriers implies restored roots, capacity and overflow consumption | Whole-round resume seal plus context-specific physical allocation grant, authoritative root reload and immutable outcome receipt | All required phases/results and native restrictions settled; each context consumes the same round outcome once; preserve multi-shot continuation and Scheme winding | Replace post-GC next_heap_msection/prepare_mem_pstate choreography and carrier result overwrite assumptions with one resume plan consumer | Failed capacity admission keeps source before flip; post-flip unknown state forbids Scheme resume; GC movement does not recreate an expired native C activation | Acquire seal and interval grant before address reload/resume; publication of a later round cannot erase unacknowledged result storage |
+| withdrawal-custody | exit | Native thread exit/join result jointly decides membership, work lifetime, roots and cleanup | Separate close-execution, freeze heap writes, transfer work/roots, close native users and recycle host slot authorizations | Prove actual no-write/borrow boundaries and known task transfer; unknown join alone proves neither heap safety nor unsafe heap participation | Replace resize abort/shrink and post-run service-loop authority as one lifecycle cut, including accepted callbacks/errors and partial create failure | VM retains outcomes, roots and resources across carrier loss; known frozen writers may detach with tasks reassigned; unknown shared-heap writers can still block the affected VM | Close gates before draining permits; release custody receipt before source ACK; native handle reuse still needs known last native user, not GC completion |
+| teardown-reclamation | exit | cleanup_pstate destroys RC/memory and synchronization after a successful join | Separate host cleanup from VM-owned root-domain/arena reclamation and managed-reader grace completion | No scanner/borrower/late callback uses reclaimed storage; still/RC roots are transferred or proven dead; queued releases retain payload independently of PSTATE | Replace cleanup_os_and_mem_pstate lifetime coupling after every cleanup/setup/rollback consumer uses the new domain ownership; keep necessary OS resource release | Unknown reader/native user prevents physical recycle; metadata cannot be reused across an unresolved incarnation; VM shutdown must drain or explicitly retain | Acquired transfer ACK plus reader grace and native-close receipt precede free; managed epoch progress excludes unregistered native readers |
+#+END:
+
+** Identity, publication and completion
+
+RootOrigin identifies a VM-owned root domain with a nonreused incarnation.
+RoundMember identifies that origin's inclusion and frozen view for one round.
+RootTask identifies an actual scan obligation. CollectorWorker identifies a
+temporary execution agent. HostCarrier identifies an OS thread and instrumentation
+context. Equality of any two numeric slots supplies none of the other identities.
+Slots may be bounded and reused only after actual readers, tasks and native
+borrowers are closed; unresolved incarnations deny reuse rather than wrap.
+
+The round gate serializes admission against close. Writers publish a complete
+frozen view under that gate after ordinary writes and native borrows have stopped.
+Release/acquire queue publication precedes a task's claim. An origin included in
+this round cannot return and mutate its root slots while an unclaimed or active
+task can still scan them. Late admissions either obtain a complete inclusion
+decision or retain their parent/source roots outside the closed set. They never
+wait for GC while holding a root writer or native reentry permit.
+
+A root task finishes after its authoritative root slots are repaired and its
+children are durably accounted for. It does not finish the strong phase. The
+round coordinator advances only after all relevant producers are closed and
+queued, running, private-copy, Tail and descendant debts have custody/closure
+appropriate to that transition. Worker handoff proves a new custodian, not that
+the work has already completed. Weak/finalizer/hash-table tasks have their own
+round authorization; per-origin phase stores cannot stand in for that authority.
+
+Plain C payload slots are accessed under frozen or exclusive ownership. Atomic
+revision checks alone do not legalize racing non-atomic root or frame accesses.
+Condition-variable predicates and their transitions use the same gate. A failed
+claim has no root-write authority. An unknown claim stays recorded in-flight.
+
+** Worker allocation and context restoration
+
+The collector's arena owns destination spans, publication frontier, first-field
+Tail and refund debt independently of a stopped mutator's allocation tips.
+Every collector-reachable use of context allocator macros, section refill,
+frame copying, still counters, tospace interpretation and actlog/consistency
+helpers needs classification and migration. Replacing =work->context= with a
+different pointer name leaves this coupling intact.
+
+The pre-flip physical plan accounts live copy demand, contiguous maximum request,
+packing loss and first-resume reserves across the actual worker and origin sets.
+Any shared accounting uses one canonical ledger: worker reserved space and the
+same context resume interval cannot both count as free. Known reusable worker
+tails may reduce peak only if committed to the joint plan before that peak.
+Post-round refunds alone do not establish a lower whole-round peak.
+
+A context resumes after acquiring its whole-round seal, immutable outcome and
+physical grant, then reloading every authoritative root/address. This preserves
+Gambit's lazy reached-frame restoration, multi-shot control and Scheme winding.
+It does not migrate a live native C stack or resurrect an expired native origin.
+The existing FrameSpec/alias and whole-round capacity source refinements remain
+external prerequisites of this complete cut, not newly proved lemmas here.
+
+** Exit, failure and physical reclamation
+
+Separate execution admission closure, actual heap-write closure, task/root
+handoff, result delivery, native-user closure and physical recycle. A known
+frozen root domain and safely stopped worker can transfer to VM custody even
+when native-handle join is unknown. Another worker may continue scanning that
+domain. An unknown writer that may still touch the shared moving heap cannot be
+isolated merely by removing it from the member set; the affected VM can remain
+blocked. A healthy separate VM is a different progress observation.
+
+Partial creation failure keeps unpublished origins and grants owned by the VM
+until their disposition is known. Donor rejection keeps the donor responsible;
+unknown transfer keeps both records but only one execution authorization. No
+timeout, logical exiting flag or absent queue item proves physical stop.
+
+Before deferring a foreign release, effects, affinity, rooted payload and budget
+must already be admitted to the round. A cleanup routine cannot create an
+unscanned moving-root dependency after strong closure. Unsupported releases
+remain outside delayed admission. Eligible owner-dependent work is handed to
+rooted VM custody and executed only when the owner is permitted to run, avoiding
+the GC-waits-owner/owner-waits-GC cycle.
+
+Only known final native users, transferred/dead roots, discharged scanner pins
+and qualified reader grace authorize physical freeing. Managed grace cannot
+cover an unmanaged C borrower. Host cleanup may release an OS handle after its
+native receipt; that does not implicitly free the VM-owned root domain or arena.
+
+* Prerequisites and first complete code patch
+#+NAME: rwe-dependencies
+#+BEGIN: sysml-view :kind rwe-dependencies :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Dependent | Prerequisite |
+|---+---|
+| frozen-root-publication | root-before-collect |
+| origin-task-claim | frozen-root-publication |
+| independent-copy-arena | frozen-root-publication |
+| round-global-tasks | origin-task-claim |
+| round-global-tasks | independent-copy-arena |
+| descendant-closure | round-global-tasks |
+| context-resume | descendant-closure |
+| withdrawal-custody | descendant-closure |
+| teardown-reclamation | withdrawal-custody |
+#+END:
+
+These are source-coverage dependencies, not runtime wait edges. They do not
+require the entire GC round to finish before a stopped worker can transfer a
+task. They require that the transfer's actual custody is proved. The candidate
+patch is one generator/runtime/lifecycle integration cut, with these file owners:
+
+| Source boundary | Required replacement |
+|---+---|
+| =gsc/_ptree2.scm= and =include/gambit.h.in= SFUN/CFUN entry macros | Emit/consume NativeActivation root and exceptional-exit plans; public C ABI remains intentional; Scheme semantic ownership remains in Scheme |
+| =include/gambit.h.in= role/round records and =lib/mem.h= | RootOrigin/round/task/worker-arena lifetimes, incarnation and authority types; no participant identity inferred from a carrier pointer |
+| =lib/c_intf.c= and RC APIs in =lib/mem.c= | All admitted pre-marker roots, conversion borrows, nested exits and root-domain ownership; retain explicit raw-entry limits |
+| =lib/mem.c= allocation/copy/root/weak/cleanup helpers | Separate WorkerArena from ContextResumePlan; migrate each helper and all three phase consumers; bind to the physical planner and frame contracts |
+| =lib/setup.c= GC/resize/sync/entry paths | Route both GC callers and both run origins through one coordinator/registry; preserve request combination and round-result ACK; remove the old GC collective as authority |
+| =lib/setup.c= setup/abort/shrink/cleanup and =lib/os_thread.c= adapters | Split logical withdrawal, heap stop, task/root custody, result handoff and known native reclamation; partial and unknown outcomes remain represented |
+| =lib/_thread.scm= and generated continuation consumers | Admit only complete safe points, freeze/reload actual roots, preserve winding and multi-shot observations; scheduler policy does not silently change map evaluation order |
+
+Internal development may sequence edits, but the old GC driver, allocator and
+completion owners cannot be retired independently or remain co-authoritative in
+one admitted execution. Do not remove the synchronous binding assertion until
+all corresponding consumers use the new contract. Keep the pre-refactor producer
+as a separately identified baseline, not a second live policy inside the target.
+
+Portable C integration remains a core objective. This does not promise binary
+compatibility for changed private runtime structures or admission of unrooted
+raw C values into independently moving GC. Generated code, headers and native
+modules must rebuild against the same ABI closure. Native clients need declared
+root handles, qualified borrows or proven nonmoving provenance; the complete
+admission inventory and unsupported-client disposition are still source duties.
+
+* Erlang learning and Gambit-specific counterexamples
+#+NAME: rwe-learning
+#+BEGIN: sysml-view :kind rwe-learning :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Mechanism | Pinned-witnesses | Upstream-fact | Gambit-mismatch | Inference | Refutation |
+|---+---+---+---+---+---|
+| scheduler-process | otp-scheduler;otp-progress | Scheduler execution and process state are separate, with explicit process/runqueue synchronization | Gambit context and root graph are not an isolated Erlang process heap | Separate execution policy from root identity and collector task authority | Renamed carrier fields retain context-owned allocation and carrier-index completion |
+| native-exit | otp-dirty-limit | Dirty scheduler separation permits other work; native execution can outlive logical process termination and delay GC/resources | Unknown native Gambit writers may reach shared movable graphs | Split logical exit, heap freeze, result delivery and physical native reclamation | A timeout or exiting flag is treated as proof that native writes stopped |
+| reader-grace | otp-progress;otp-unmanaged;otp-grace-contract | Managed progress and unmanaged reader accounting have distinct APIs | External C callers cannot promise scheduler event-loop progress automatically | Use qualified reader grace for control metadata; preserve separate unmanaged borrower permits | Managed epoch advances while an unregistered native pointer still accesses freed storage |
+| actor-memory | actor-send;actor-payload;otp-heap-contract | Gambit mailbox payload is a shared Scheme reference; OTP's local process collection relies on its own heap/term ownership contract | Actor API resemblance supplies neither heap isolation nor barriers for mutable shared data or continuations | Keep shared semantics and prove root/write contracts; any isolated actor API is a separately specified optional restriction | Copying all sent mutable values changes alias observations; treating shared values as local loses roots |
+#+END:
+
+[[file:../../knowledge/erlang/index.org][Erlang/OTP is a primary pinned reference]], alongside Gambit, Chez and selected
+OCaml mechanisms. Actor naming does not supply a shared memory contract. OTP's
+per-process generational collection and native-interface restrictions must be
+read together with its scheduler and reader-grace implementation. This study
+does not infer historical implementation ancestry from similar APIs.
+
+* Benefit, overhead and falsification
+#+NAME: rwe-benefits
+#+BEGIN: sysml-view :kind rwe-benefits :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Clause | Avoided-work | Added-cost |
+|---+---+---|
+| root-before-collect | Remove per-caller reinvention and stale-local recovery attempts; root scanning remains necessary | Activation/origin records, root register and post-GC reload; retained payload graphs not bounded by fixed records |
+| frozen-root-publication | Avoid equating every root origin with one runnable collector carrier | Frozen-view metadata, registration arbitration and scanner pins; complete round closure remains required |
+| origin-task-claim | Allow W workers to service R root origins without W=R or fixed carrier affinity | Task claims, root-owner indirection and completion metadata; no automatic speedup when W exceeds useful work |
+| independent-copy-arena | Decouple copying policy and worker count from Scheme context lifetime; eligible arena tails can feed resume plans | Worker arenas, packing and handoff metadata; count simultaneous copy, resume and unknown-retained reserves at physical peak |
+| round-global-tasks | Remove accidental carrier duplication and owner-callback work from GC critical path when effects allow | Explicit global/weak/release task accounting, effects checks and retained deferred payload |
+| descendant-closure | Prevent premature completion and false all-worker participation requirements; permit scheduling independent from membership | Debt/publication traffic and wakeup coordination; fairness and bounded external work remain separate assumptions |
+| context-resume | Avoid unnecessary carrier-wide acknowledgement and reinference of context capacity; required root repair/reload remains | Per-context receipts, restored interval plans and result retention; resume reserve is not post-peak refund |
+| withdrawal-custody | Avoid GC veto solely for a safely detached native handle and avoid retaining an entire idle collective just to hold results | Bounded control records plus possibly large rooted graphs/native arenas; exhaustion policy and failure scope explicit |
+| teardown-reclamation | Reclaim unrelated healthy domains after qualified closure; do not scan a retired PSTATE solely because it owns RC storage | Grace metadata, delayed native/resource frees and reader tracking; unmanaged borrowers need their own protocol |
+#+END:
+
+Let R be admitted root origins, W collector workers, and J root/VM/copy tasks.
+Independent workers remove the requirement W=R; they do not make useful work
+unbounded. Scanning the same roots is still required. A task claim per origin
+adds O(R) claim/dispatch work per admitted root kind; private arenas add O(W)
+control records, plus actual interval/queue/descendant storage. This is not a
+byte bound for live graphs or unknown native resources.
+
+For the same useful workload, net elapsed benefit requires avoided mandatory
+carrier participation, imbalance, redundant work and qualified blocking to exceed
+new root/claim/publication/closure/grace costs on the critical path. R/W/J are
+unmeasured here; no ideal speedup is reported as achieved. A serial scheduler,
+shared global claim bottleneck, unresolved shared writer, incorrect copy capacity
+or broken continuation behavior falsifies the intended benefit. Physical peak
+includes simultaneous copy and context restoration reserves plus retained debt.
+
+* Native acceptance and actual closure
+#+NAME: rwe-native-cases
+#+BEGIN: sysml-view :kind rwe-native-cases :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Case | Required-observation | Execution |
+|---+---+---|
+| entry-roots | Both run origins, generated raw/managed SFUN and CFUN, nonzero processor RC, nested callback and exceptional unwinding under forced GC | NOT EXECUTED |
+| worker-origin-counts | Same VM with different R root-origin and W worker counts; all root/VM tasks once; carriers can change only at qualified cuts | NOT EXECUTED |
+| copy-round | Duplicate delivery, Tail/private frontier handoff, weak descendants, CAS loss and physical pre-flip failure at unchanged heap/wait limits | NOT EXECUTED |
+| exit-custody | Partial create, unknown join, late outcomes and owner-dependent cleanup; distinguish safely stopped actors from unknown shared writers and other-VM from same-VM progress | NOT EXECUTED |
+| scheme-observations | Real map multi-shot capture/restore, shared mutation and dynamic-wind; proper tail space, natural exit and exact existing Bazel profile | NOT EXECUTED |
+#+END:
+
+These are future acceptance families under the exact existing Bazel profile.
+The NOT EXECUTED cells describe complete family admission in the predecessor
+study. [[file:root-phase-results.org][Current root-phase native observations]] qualify a selected slice, including
+map/multi-shot/GC and empty-abort unknown join, without closing an entire family.
+Bootstrap artifacts can be reused only for their exact source/options/dependency
+identity. Existing bootstrap and scoped fault passes do not qualify changed
+GC workers. Preserve failures at the same heap/watchdog limits.
+
+#+NAME: rwe-closure
+#+BEGIN: ascent-view :kind rwe-closure :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Control | Synthetic | Supplied-clauses | Dependency-covered-clauses | Native-case-records | Retirement-admitted |
+|---+---+---+---+---+---|
+| current | false | 0/9 | 0/9 | 0/5 | NO |
+| roots-only | true | 2/9 | 2/9 | 0/5 | NO |
+| carrier-renamed | true | 8/9 | 3/9 | 0/5 | NO |
+| upstream-as-proof | true | 0/9 | 0/9 | 0/5 | NO |
+| conflicting-outcome | true | 8/9 | 7/9 | 0/5 | NO |
+| local-complete | true | 9/9 | 9/9 | 5/5 | NO |
+#+END:
+
+Source/native facts in negative controls are explicitly synthetic. Upstream OTP
+facts cannot discharge Gambit refinement. Root-only coverage cannot retire the
+worker/exit paths; a missing independent arena cannot be hidden by renaming the
+carrier; conflicting pass/unknown results deny closure. Even all local mock facts
+do not supply the original missing obligations, factor conditions or five gates.
+
+Existing QNT owns scheduling/permit histories and Lean owns the separate general
+data/mapping laws. Their exact receipts are reused, not rerun or recopied. Real
+C refinement and native execution are still missing. The five submission gates
+remain open: tests; architectural learning/advantages; current process position;
+model establishment; and answered Gambit-paper leverage questions. No runtime
+implementation, native test or commit occurs in this update. The newly requested
+OTP gitlink and =.gitmodules= entry are staged for review, without a commit.
+
+The reused formal results retain their original control-abstraction scope. They
+do not prove independent worker arenas, concrete C publication or GC termination.
+Existing GC/copy models remain separate source-refinement prerequisites in the
+parent blueprint; this study does not silently readmit or duplicate their laws.
+
+[[file:../../../evidence/research/root-worker-exit/validation.json][Retained evidence and source lock]] preserve the native SysML result, actual
+ASCENT requests, source intervals, OTP pin and interrupted full-download history.
+[[file:diagrams/root-worker-exit.d2][D2 source]] and [[file:diagrams/root-worker-exit.svg][rendered view]] are derived from the same native projection.

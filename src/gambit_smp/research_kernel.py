@@ -36,7 +36,8 @@ ALLOWED = frozenset({"gambit.materialize", "source.overlay", "source.project", "
                      "evidence.evaluate", "gambit.configure", "gambit.object", "gambit.seed-core", "gambit.seed-checkpoint", "gambit.bootstrap-input",
                      "gambit.regenerate-module", "gambit.source-core", "gambit.bootstrap", "gambit.suite", "gambit.review",
                      "gambit.completed-runtime", "gambit.probe", "gambit.executable-test", "gambit.compiler-observation",
-                     "gambit.runtime-import", "gambit.upstream-tests", 'gerbil.build', 'gerbil.test'})
+                     "gambit.runtime-import", "gambit.upstream-tests", 'gerbil.build', 'gerbil.test',
+                     'gambit.native-development', 'gambit.generation-artifact'})
 FORBIDDEN_IMPORTS = frozenset({"source_unit", "ffi_source_unit", "allocator_acquire", "allocator_object",
                                "sync_retirement_source", "gc_wait_source", "gc_queue_binding"})
 
@@ -274,7 +275,7 @@ def failed_prefix_retry(state, prefix, recipe, steps, inputs, engine_id):
             or recipe['budgetSeconds'] > header['budgetSeconds']):
         raise ValueError('failed prefix retry cannot expand watchdog or phase budgets')
     changed = {name: sha for name, sha in inputs.items() if header['inputs'].get(name) != sha}
-    if not changed:
+    if not changed and header['engineId'] == engine_id:
         raise ValueError('unchanged failed prefix is not a fresh repair attempt')
     return dict(committedPrefix=prefix['prefixIdentity'], engineId=header['engineId'],
                 engineChanged=header['engineId'] != engine_id, changedInputs=changed,
@@ -298,7 +299,8 @@ def validate_graph(recipe, steps):
     model_only = (any(step['capability'].startswith('quint.') for step in steps)
                   and all(step['capability'].startswith('quint.') or step['capability'] == 'evidence.evaluate'
                           for step in steps))
-    if not (dsl_only or model_only) and not any(step["capability"] == "gambit.materialize" for step in steps):
+    if not (dsl_only or model_only) and not any(step["capability"] in {
+            "gambit.materialize", "gambit.generation-artifact"} for step in steps):
         raise ValueError("a new research run must start from a locked source producer")
     for step in steps:
         if step["capability"] in {"gambit.suite", "gambit.bootstrap", "gambit.upstream-tests"}:
@@ -951,7 +953,7 @@ def run_sealed(root, path, out, engine, *, prior=None, allow_native=False):
                 raise ValueError("interrupted process births are not observed quiescent")
             if any(step["budgetSeconds"] > header["stepBudgets"].get(step["id"], step["budgetSeconds"]) for step in steps):
                 raise ValueError("interrupted continuation cannot expand a phase budget")
-            if header["inputs"] == inputs and state["resumption"]["relations"]["failed"]:
+            if retry is None and header["inputs"] == inputs and state["resumption"]["relations"]["failed"]:
                 raise ValueError("unchanged failed stage is not an interrupted-only continuation")
             if retry is None:
                 request["resumePrefix"] = state["resumption"]["prefixIdentity"]
@@ -1201,6 +1203,7 @@ def argument_parser():
     selection.add_argument("--export-runtime", type=Path)
     parser.add_argument("--step")
     parser.add_argument("--input-archive", help="exact historical source-input archive for producer export")
+    parser.add_argument("--ancestry", help="explicit source-bound native bootstrap ancestry declaration")
     parser.add_argument("--engine", type=Path)
     parser.add_argument("--out", type=Path)
     parser.add_argument("--prior", type=Path)
@@ -1245,6 +1248,8 @@ def main():
     args = parser.parse_args()
     if args.portable_seal and not args.seal:
         parser.error("--portable-seal requires --seal")
+    if args.ancestry and not args.export_producer:
+        parser.error("--ancestry requires --export-producer")
     from gambit_smp.artifact_storage import runtime_output
     if args.seal:
         args.seal = runtime_output(ROOT, args.seal)
@@ -1274,7 +1279,7 @@ def main():
             if args.out is None or args.step is None:
                 parser.error("--export-producer requires --step and a fresh research Evidence --out")
             print(json.dumps(export_reference(ROOT, args.export_producer, args.step, args.out,
-                                              input_archive=args.input_archive), indent=2))
+                                              input_archive=args.input_archive, ancestry=args.ancestry), indent=2))
             return 0
         if args.export_runtime:
             from gambit_smp.runtime_artifact import supervised_export

@@ -96,7 +96,7 @@ def parallel_jobs(items, worker, jobs, timeout):
         return [future.result() for future in futures]
 
 
-def apply_untracked_patch(root, data, allowed, *, new_files=()):
+def apply_untracked_patch(root, data, allowed, *, new_files=(), preserve_whitespace=False):
     from gambit_smp.task_processes import run
     if not data:
         raise ValueError("empty patch")
@@ -126,8 +126,12 @@ def apply_untracked_patch(root, data, allowed, *, new_files=()):
         names.append(name)
     if not names:
         raise ValueError("empty patch")
+    # Source snapshots may split existing text at a blank line. Preserve those
+    # bytes, including blank-at-EOF, rather than treating archival reproduction
+    # as a style edit. This never ignores context whitespace or repairs input.
+    whitespace = "nowarn" if preserve_whitespace else "error"
     for arguments in (("--check",), ()):
-        run(command + ["--whitespace=error", *arguments], input=data,
+        run(command + ["--whitespace=" + whitespace, *arguments], input=data,
                        cwd=root, capture_output=True, check=True, timeout=10)
     if any(not (root / name).is_file() for name in names):
         raise ValueError("patch cannot remove a file")

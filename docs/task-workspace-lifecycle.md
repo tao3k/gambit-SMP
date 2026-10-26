@@ -79,6 +79,13 @@ input/store locator, not an output allocation escape hatch. Arbitrary native
 programs still require their existing supervisors and source leases; Python
 policy is not OS containment.
 
+After a kernel boot change, historical child processes and inherited lock FDs
+are known to have ended. Reconciliation records that boot boundary without
+authenticating replacement custody files, inferring an exit status, admitting
+outputs or authorizing replay. Numeric PIDs and groups in the new boot are
+unrelated. Within the same boot, changed lock identities and live consumers
+continue to block reconciliation.
+
 ## Work items and reusable processes
 
 A task is a maintained work item, not a provider, date, test invocation or audit
@@ -221,9 +228,26 @@ cannot authorize a new attempt while a child holds the lock or a recorded group
 still exists. `resume` observes real quiescence, pending SQL requests, quarantine
 and dependency identities; it records interruption/reconciliation without changing
 it into success or replaying the action. Unresolved spawn journals remain denied.
+Both `resume` and a fresh `execution_scope` now use the same takeover resource
+check while holding the task's exclusive kernel lease. It checks registered
+children across task and process roles, unresolved spawns, prior supervisors and
+legacy groups, pending requests, quarantines and registered dependencies. Within
+the task cache, open build resources (task-owned or process-owned) prevent
+takeover; an unregistered reader of evidence or an agent request file does not.
+That exclusion grants no source writes: the existing build workspace lease and
+full source identity validation are still mandatory. An interrupted task still
+requires explicit resume before execution. Finish/reclamation retain the stricter
+whole-cache reader exclusion because they may retire or delete resources.
+
 Repeated reconciliation does not refresh an attempt's retention deadline.
 Provider resume additionally requires a session ID bound to that task, owner and
-authorization. CLI end-turn or process exit is not native restoration.
+authorization. CLI end-turn or process exit is not native restoration. An explicitly user-authorized existing session may be enrolled with
+`agent --resume ID --adopt-binding-sha256 PREVIOUS_DIGEST`. The old task/owner
+binding must match those exact bytes and is retained in the owned attempt.
+Dry-run never changes it. Adoption is published only after a successful end-turn
+whose actual provider session ID matches the requested ID. Missing, mismatched,
+interrupted or timed-out provider results leave the previous binding unchanged.
+This grants no extra tools, native execution authority or acceptance.
 
 Worktree creation does not install Python/native dependencies. A framework module
 from another checkout is rejected until the environment is bound. Source-file
@@ -233,8 +257,13 @@ actual parent lease stays held; test code must not borrow production task state.
 
 ## Two-calendar-day retention
 
-Use Asia/Shanghai dates: on October 20 retain October 19–20. Startup, finalization
-and explicit `workspace gc` use the same collectors. Completed attempts and
+Use Asia/Shanghai dates: on October 20 retain October 19–20. Workspace creation,
+explicit task finalization and `workspace gc` use the same collectors. Entering
+a build execution scope does not perform global retention. It still checks
+this task's active children, dependencies and uncertain prior custody. Native
+research execution returns its receipt without automatically evaluating the
+evidence catalog; `research --read` and `trajectory clues` remain explicit reads.
+Completed attempts and
 actually reconciled interruptions can expire even while the task remains open.
 Attempt outcomes and archived custody bytes survive outside cache.
 

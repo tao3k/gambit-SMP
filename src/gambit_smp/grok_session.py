@@ -52,6 +52,7 @@ class Launch:
     query_request: str | None = "query.ss"
     query_root: Path | None = None
     read_window_bytes: int | None = None
+    adopt_binding_sha256: str | None = None
 
     def profile(self, root, owned):
         """Transport the work-item's reviewed capability boundary; never infer permissions."""
@@ -235,10 +236,19 @@ class Launch:
                      + "\nRegistered task commands: " + (', '.join(profile['commands']) or 'none')
                      + "\nTerminal permission covers those dispatcher commands and read/help routes, not general shell."
                      + " Execution remains subject to the framework's source and evidence checks."]
+        if self.adopt_binding_sha256 is not None and not self.resume:
+            raise ValueError('session adoption requires an explicit resume ID')
         if self.resume:
             session=bounded(root,'.state/provider-sessions/'+self.task+'/'+self.owner+'.json')
             prior=json.loads(session.read_text()) if session.exists() else {}
-            if (prior.get('sessionId')!=str(uuid.UUID(self.resume)) or prior.get('task')!=self.task or
+            if self.adopt_binding_sha256 is not None:
+                if not re.fullmatch(r"[a-f0-9]{64}", self.adopt_binding_sha256):
+                    raise ValueError('session adoption requires the exact previous binding digest')
+                if (not session.is_file() or
+                        hashlib.sha256(session.read_bytes()).hexdigest() != self.adopt_binding_sha256 or
+                        prior.get('task') != self.task or prior.get('owner') != self.owner):
+                    raise ValueError('previous provider binding changed or belongs to another owner')
+            elif (prior.get('sessionId')!=str(uuid.UUID(self.resume)) or prior.get('task')!=self.task or
                     prior.get('authorizationReference')!=self.authorization):
                 raise ValueError('resume session is not bound to this task, owner and authorization')
         text = prompt.read_text()
@@ -329,7 +339,8 @@ def _run(launch, *, execute=False, wall_seconds=1800):
                   authorizationReference=launch.authorization,
                   authorizationIsNotAnApprovalBypass=True,
                   reasoningEffort=REASONING_EFFORT, model=MODEL,
-                  nativeAcceptanceBudgetChanged=False, executed=False)
+                  nativeAcceptanceBudgetChanged=False, executed=False,
+                  adoptPreviousBindingSha256=launch.adopt_binding_sha256)
     record["evidenceRead"] = launch.evidence_read(root, owned)
     record['agentProfile'] = launch.profile(root, owned)
     record['agentRegistrationSha256'] = registration_sha
@@ -423,14 +434,36 @@ def _run(launch, *, execute=False, wall_seconds=1800):
                   nativeAdmitted=False)
     write_record(receipt, record)
     observed_session=None
+    observed_sessions=set()
     with raw.open() as events:
         for line in events:
             try:event=json.loads(line)
             except ValueError:continue
             if isinstance(event,dict) and event.get('type') in {'init','system','end'} and event.get('sessionId'):
                 observed_session=str(uuid.UUID(event['sessionId']))
+                observed_sessions.add(observed_session)
+    if launch.resume and observed_sessions != {str(uuid.UUID(launch.resume))}:
+        record.update(sessionCompleted=False, sessionBindingError='provider did not confirm requested resume ID')
+        write_record(receipt, record)
+        return record
     if observed_session:
         session=bounded(root,'.state/provider-sessions/'+launch.task+'/'+launch.owner+'.json')
+        if launch.adopt_binding_sha256 is not None:
+            previous = session.read_bytes()
+            if hashlib.sha256(previous).hexdigest() != launch.adopt_binding_sha256:
+                record.update(sessionCompleted=False, sessionBindingError='previous binding changed before publication')
+                write_record(receipt, record)
+                return record
+            # The old owner binding is retained inside this already-owned attempt.
+            # No pending/model-only event or timeout publishes an adoption.
+            if not completed:
+                return record
+            archive = attempt / 'previous-provider-binding.json'
+            with archive.open('xb') as stream:
+                stream.write(previous)
+            record['adoptedSessionId'] = observed_session
+            record['previousBindingArchive'] = str(archive.relative_to(root))
+            write_record(receipt, record)
         write(session,dict(task=launch.task,owner=launch.owner,sessionId=observed_session,
                            authorizationReference=launch.authorization,receiptSha256=hashlib.sha256(receipt.read_bytes()).hexdigest(),
                            sessionCompleted=completed,nativeAdmitted=False))
@@ -446,6 +479,8 @@ def main():
     parser.add_argument("--authorization", required=True,
                         help="reference to existing user consent; does not grant approval")
     parser.add_argument("--resume")
+    parser.add_argument("--adopt-binding-sha256",
+                        help="explicitly enroll the requested existing session; preserve this exact prior binding and require provider confirmation")
     parser.add_argument("--script", action="append", default=[],
                         help="sealed task program key; repeat for each exact grant")
     parser.add_argument("--max-turns", type=int, default=45)
@@ -454,7 +489,8 @@ def main():
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
     launch = Launch(args.workspace, args.owner, args.prompt_file, args.authorization,
-                    args.resume, tuple(args.script), args.max_turns, args.task)
+                    args.resume, tuple(args.script), args.max_turns, args.task,
+                    adopt_binding_sha256=args.adopt_binding_sha256)
     result = run(launch, execute=args.execute, wall_seconds=args.wall_seconds)
     public = result
     if args.execute:

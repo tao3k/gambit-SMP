@@ -1,0 +1,7 @@
+import CallbackProducer
+open CallbackProducerAst
+def witness : State := closeRootsNext (initial)
+example : closeRootsGuard (initial) := by simp [closeRootsGuard,initial]
+example : Safe witness := by simp [Safe,witness,initial,closeRootsNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]
+example : ¬ (retireDomainGuard witness) := by simp [Safe,witness,initial,closeRootsNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]
+example : retireDomainGuard witness := by simp [Safe,witness,initial,closeRootsNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]

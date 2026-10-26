@@ -1,0 +1,188 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -4359,16 +4359,19 @@
+   return __atomic_load_n (&___delivery_optional_frozen_flag, __ATOMIC_ACQUIRE);
+ }
+ 
+-___SCMOBJ ___delivery_idle_slice
++static ___SCMOBJ delivery_service_core
+    ___P((___processor_state ps,
+          ___SCMOBJ normal_action,
+-         ___SCMOBJ abandoned_action),
++         ___SCMOBJ abandoned_action,
++         int recovery_wake),
+         (ps,
+          normal_action,
+-         abandoned_action)
++         abandoned_action,
++         recovery_wake)
+ ___processor_state ps;
+ ___SCMOBJ normal_action;
+-___SCMOBJ abandoned_action;)
++___SCMOBJ abandoned_action;
++int recovery_wake;)
+ {
+   ___WORD ___temp;
+   ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(ps);
+@@ -4382,9 +4385,6 @@
+   int runnable_nudged = 0;
+   int claimed = 0;
+ 
+-  ___delivery_count_idle++;
+-  if (___delivery_suppress_idle)
+-    return ___DELIVERY_RETRY;
+   if (delivery_sync_pending (ps) || !delivery_ps_live (ps))
+     return ___DELIVERY_RETRY;
+   if (!___delivery_enter (vms))
+@@ -4463,15 +4463,46 @@
+       delivery_unlock (vm);
+       if (!detached && ___FIXNUMP(phase) && ___VECTORP(unit))
+         {
++          int deferred = delivery_attempt_deferred (owner);
++
+           if ((phase == ___FIX(3) || phase == ___FIX(4)) &&
+-              (owner == ___FAL || delivery_attempt_deferred (owner)))
++              (owner == ___FAL || deferred))
+             ___delivery_cleanup_try
+               (ps, request, unit,
+                ___VECTORP(owner) ? owner : ___FAL,
+                ___FIX(___DL_MODE_ABANDON), ___FAL, ___FAL,
+                normal_action, abandoned_action, target);
+-          else if (___STRUCTUREP(target) && delivery_trylock (target))
++          else if (!recovery_wake &&
++                   deferred &&
++                   (phase == ___FIX(1) || phase == ___FIX(2)))
++            ___delivery_cleanup_try
++              (ps, request, unit, owner,
++               ___FIX(___DL_MODE_ABANDON), ___FAL, ___FAL,
++               normal_action, abandoned_action, target);
++          else if (recovery_wake &&
++                   phase == ___FIX(2) &&
++                   deferred &&
++                   ___STRUCTUREP(target) &&
++                   delivery_trylock (target))
+             {
++              /* Idle only. A live deferred phase-2 owner is cleaned.
++                 A terminated one keeps the C2/wake path below. */
++              if (dl_slot (target, ___DL_END_CONDVAR) != ___FAL)
++                {
++                  delivery_unlock (target);
++                  ___delivery_cleanup_try
++                    (ps, request, unit, owner,
++                     ___FIX(___DL_MODE_ABANDON), ___FAL, ___FAL,
++                     normal_action, abandoned_action, target);
++                }
++              else
++                goto delivery_idle_target_held;
++            }
++          else if (recovery_wake &&
++                   ___STRUCTUREP(target) &&
++                   delivery_trylock (target))
++            {
++            delivery_idle_target_held:
+               if (dl_slot (target, ___DL_END_CONDVAR) == ___FAL &&
+                   (phase == ___FIX(1) || phase == ___FIX(2)) &&
+                   !(___delivery_c2_arm &&
+@@ -4530,6 +4561,44 @@
+   delivery_cas_word (vm, 3, ___TRU, ___FAL);
+   ___delivery_leave (vms);
+   return ___DELIVERY_COMMITTED;
++}
++
++___SCMOBJ ___delivery_idle_slice
++   ___P((___processor_state ps,
++         ___SCMOBJ normal_action,
++         ___SCMOBJ abandoned_action),
++        (ps,
++         normal_action,
++         abandoned_action)
++___processor_state ps;
++___SCMOBJ normal_action;
++___SCMOBJ abandoned_action;)
++{
++  ___WORD ___temp;
++
++  ___delivery_count_idle++;
++  if (___delivery_suppress_idle)
++    return ___DELIVERY_RETRY;
++  (void)___temp;
++  return delivery_service_core (ps, normal_action, abandoned_action, 1);
++}
++
++___SCMOBJ ___delivery_ready_service
++   ___P((___processor_state ps,
++         ___SCMOBJ normal_action,
++         ___SCMOBJ abandoned_action),
++        (ps,
++         normal_action,
++         abandoned_action)
++___processor_state ps;
++___SCMOBJ normal_action;
++___SCMOBJ abandoned_action;)
++{
++  ___WORD ___temp;
++
++  /* No counter change and no queued wake. */
++  (void)___temp;
++  return delivery_service_core (ps, normal_action, abandoned_action, 0);
+ }
+ 
+ int ___delivery_idle_witness
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -2198,23 +2198,10 @@
+               ((or busy (##not head))
+                #f)
+               (else
+-               (let* ((token (##vector 0 #f #f #f #f))
+-                      (context (##vector token #f #f #f)))
+-                 (##c-code "___delivery_count_wind++; ___RESULT = ___VOID;")
+-                 (##dynamic-wind
+-                  (lambda ()
+-                    (if (##not (##eq? (##vector-cas! token 0 1 0) 0))
+-                        (##error "retained pass reentry")))
+-                  (lambda ()
+-                    (let ((pass (##thread-intr-acquire-unit! #f)))
+-                      (if pass
+-                          (begin
+-                            (##vector-set! context 3 pass)
+-                            (##vector-set! token 1 #t)
+-                            (##thread-intr-service-retained-body! context)))))
+-                  (lambda ()
+-                    (##thread-intr-service-retained-epilogue!
+-                     context token)))))))))))
++               ;; Cleanup only. Idle keeps its own recovery wake.
++               (##c-code "___RESULT = ___delivery_ready_service (___ps, ___ARG1, ___ARG2);"
++                         ##thread-locked-mutex-action!
++                         ##thread-abandoned-mutex-action!))))))))
+ 
+ (define-prim (##thread-intr-delivery-fault?)
+   (##declare (not interrupts-enabled))
+--- a/include/gambit.h
++++ b/include/gambit.h
+@@ -12270,6 +12270,11 @@
+          ___SCMOBJ ___normal_action,
+          ___SCMOBJ ___abandoned_action),
+         ());
++___SCMOBJ ___delivery_ready_service
++   ___P((___processor_state ___ps,
++         ___SCMOBJ ___normal_action,
++         ___SCMOBJ ___abandoned_action),
++        ());
+ extern int ___delivery_count_ready;
+ extern int ___delivery_count_nocurrent;
+ extern int ___delivery_count_invalid;
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -12270,6 +12270,11 @@
+          ___SCMOBJ ___normal_action,
+          ___SCMOBJ ___abandoned_action),
+         ());
++___SCMOBJ ___delivery_ready_service
++   ___P((___processor_state ___ps,
++         ___SCMOBJ ___normal_action,
++         ___SCMOBJ ___abandoned_action),
++        ());
+ extern int ___delivery_count_ready;
+ extern int ___delivery_count_nocurrent;
+ extern int ___delivery_count_invalid;

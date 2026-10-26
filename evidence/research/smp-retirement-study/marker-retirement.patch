@@ -1,0 +1,212 @@
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -11692,6 +11692,8 @@
+     ___procedural_interrupt_header * ___VOLATILE procedural_interrupts_tail;
+     ___MUTEX_DECL(procedural_interrupts_mut)
+     ___BOOL procedural_interrupts_ready;
++    void *sfun_markers; /* native ownership entries, not Scheme roots */
++    volatile unsigned int sfun_marker_count;
+ 
+     ___WORD processor_scmobj[___SUBTYPED_BODY+___PROCESSOR_SIZE+___PADDING_SIZE]; /* Scheme processor object */
+ 
+--- a/lib/c_intf.h
++++ b/lib/c_intf.h
+@@ -4,6 +4,8 @@
+ 
+ #ifndef ___C_INTF_H
+ #define ___C_INTF_H
++
++extern void ___retire_sfun_stack_markers (___processor_state ps);
+ 
+ 
+ /*---------------------------------------------------------------------------*/
+--- a/lib/c_intf.c
++++ b/lib/c_intf.c
+@@ -6508,6 +6508,42 @@
+ 
+ /* Create a stack marker for a C to Scheme function call. */
+ 
++
++/* The Scheme marker is a still object with an external reference. This native
++   entry is not scanned as Scheme and never stores a movable heap pointer.
++   Only its OS owner mutates the list; join is the last-reader boundary. */
++typedef struct sfun_marker_owner_entry {
++  ___SCMOBJ marker;
++  struct sfun_marker_owner_entry *next;
++} sfun_marker_owner_entry;
++
++static void retire_marker_entry (___processor_state ps,
++                                 sfun_marker_owner_entry *entry)
++{
++  ___VECTORELEM(entry->marker, 0) = ___FAL;
++  ___still_obj_refcount_dec (entry->marker);
++  __atomic_fetch_sub (&ps->sfun_marker_count, 1, __ATOMIC_RELEASE);
++  free (entry);
++}
++
++void ___retire_sfun_stack_markers (___processor_state ps)
++{
++  unsigned int retired = 0;
++  /* Called by this worker immediately before nonreturning OS thread exit.
++     Every C frame on this stack is now nonreturnable, including nested SFUN. */
++  while (ps->sfun_markers != NULL)
++    {
++      sfun_marker_owner_entry *entry = (sfun_marker_owner_entry*)ps->sfun_markers;
++      ps->sfun_markers = entry->next;
++      retire_marker_entry (ps, entry);
++      retired++;
++    }
++  if (__atomic_load_n (&___VMSTATE_FROM_PSTATE(ps)->os.wake_fault_errno,
++                       __ATOMIC_ACQUIRE) != 0)
++    fprintf (stderr, "SMP-FAULT retired-markers p=%d count=%u\n",
++      ___PROCESSOR_ID(ps,___VMSTATE_FROM_PSTATE(ps)), retired);
++}
++
+ ___EXP_FUNC(___SCMOBJ,___make_sfun_stack_marker)
+    ___P((___processor_state ___ps,
+          ___SCMOBJ *marker,
+@@ -6543,6 +6579,17 @@
+   ___VECTORELEM(stack_marker, 1) = ___FIX(___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps)));
+ #endif
+ 
++  {
++    sfun_marker_owner_entry *entry = (sfun_marker_owner_entry*)malloc(sizeof(*entry));
++    if (entry == NULL)
++      { ___still_obj_refcount_dec (stack_marker);
++        return ___FIX(___SFUN_HEAP_OVERFLOW_ERR); }
++    entry->marker = stack_marker;
++    entry->next = (sfun_marker_owner_entry*)___ps->sfun_markers;
++    ___ps->sfun_markers = entry;
++    __atomic_fetch_add (&___ps->sfun_marker_count, 1, __ATOMIC_RELEASE);
++  }
++
+   *marker = stack_marker;
+ 
+   return ___FIX(___NO_ERR);
+@@ -6559,8 +6606,24 @@
+         (marker)
+ ___SCMOBJ marker;)
+ {
+-  ___VECTORELEM(marker, 0) = ___FAL; /* invalidate the C stack frame */
+-  ___still_obj_refcount_dec (marker); /* allow GC of stack marker */
++  ___processor_state ps = ___PSTATE;
++  sfun_marker_owner_entry **link;
++#ifndef ___SINGLE_THREADED_VMS
++  if (___INT(___VECTORELEM(marker,1)) !=
++      ___PROCESSOR_ID(ps,___VMSTATE_FROM_PSTATE(ps)))
++    return; /* A foreign OS owner cannot mutate this marker list. */
++#endif
++  link = (sfun_marker_owner_entry**)&ps->sfun_markers;
++  while (*link != NULL && (*link)->marker != marker)
++    link = &(*link)->next;
++  if (*link != NULL)
++    {
++      sfun_marker_owner_entry *entry = *link;
++      *link = entry->next;
++      retire_marker_entry (ps, entry);
++    }
++  /* An unmatched/stale kill cannot decrement somebody else's external ref.
++     The actual owner's remaining entry keeps retirement refused. */
+ }
+ 
+ 
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -1134,6 +1134,7 @@
+           }
+           /* Memory ownership remains with this slot until P0 joins it. */
+           cleanup_interrupts_pstate (___ps);
++          ___retire_sfun_stack_markers (___ps);
+           ___cleanup_os_pstate (___ps);
+           ___thread_exit (); /* this call does not return */
+         }
+@@ -5076,6 +5077,10 @@
+   ___SCMOBJ err;
+   int i;
+ 
++  if (___ps->sfun_markers != NULL ||
++      __atomic_load_n (&___ps->sfun_marker_count, __ATOMIC_ACQUIRE) != 0)
++    return ___FIX(___INVALID_OP_ERR);
++
+   /*
+    * Processors need to know in which VM they are.
+    */
+@@ -5220,6 +5225,20 @@
+ }
+ 
+ 
++
++static int vm_native_consumers_clear (___virtual_machine_state vm)
++{
++  int i;
++  if (__atomic_load_n (&vm->os.wake_writers, __ATOMIC_ACQUIRE) != 0 ||
++      __atomic_load_n (&vm->os.wake_selectors, __ATOMIC_ACQUIRE) != 0)
++    return 0;
++  for (i=0; i<___MAX_PROCESSORS; i++)
++    if (__atomic_load_n (&___PSTATE_FROM_PROCESSOR_ID(i,vm)->sfun_marker_count,
++                         __ATOMIC_ACQUIRE) != 0)
++      return 0;
++  return 1;
++}
++
+ ___EXP_FUNC(___SCMOBJ,___cleanup_owned_vmstate)
+    ___P((___virtual_machine_state ___vms),
+         (___vms)
+@@ -5237,6 +5256,12 @@
+     {
+       ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
+       return ___FIX(___UNKNOWN_ERR);
++    }
++  if (!vm_native_consumers_clear(___vms))
++    {
++      ___vm_registry_open();
++      ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++      return ___FIX(___INVALID_OP_ERR);
+     }
+   ___cleanup_pstate(___PSTATE_FROM_PROCESSOR_ID(0,___vms));
+   cleanup_vmstate_locked(___vms);
+@@ -5260,6 +5285,15 @@
+    * Virtual machine starts off with a single processor.
+    */
+ 
++  {
++    int p;
++    for (p=0; p<___MAX_PROCESSORS; p++)
++      {
++        ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(p,___vms);
++        ps->sfun_markers = NULL;
++        __atomic_store_n (&ps->sfun_marker_count, 0, __ATOMIC_RELAXED);
++      }
++  }
+   ___vms->processor_count = 0;
+ #ifndef ___SINGLE_THREADED_VMS
+   ___vms->startup_epoch = 0;
+@@ -5422,11 +5456,13 @@
+   /* Workers have joined; late producers require the existing host lifetime
+      contract. Never free a descriptor, selector or VM still in actual use. */
+   __atomic_store_n (&___vms->os.wake_fault_phase, 5, __ATOMIC_RELEASE);
+-  if (__atomic_load_n (&___vms->os.wake_writers, __ATOMIC_ACQUIRE) != 0 ||
+-      __atomic_load_n (&___vms->os.wake_selectors, __ATOMIC_ACQUIRE) != 0)
++  if (!vm_native_consumers_clear(___vms))
+     { cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
+       return cleanup_error; }
+ 
++  if (__atomic_load_n (&___vms->os.wake_fault_errno, __ATOMIC_ACQUIRE) != 0)
++    fprintf (stderr, "SMP-FAULT native-grace writers=0 selectors=0 markers=0\n");
++
+   ___cleanup_pstate (___ps);
+ 
+ #ifdef ___SINGLE_VM
+@@ -5440,6 +5476,12 @@
+   do
+     {
+       ___vms = ___vms->prev;
++      if (!vm_native_consumers_clear(___vms))
++        {
++          ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
++          cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
++          return cleanup_error;
++        }
+       cleanup_vmstate_locked (___vms);
+     }
+   while (___vms != &___GSTATE->vmstate0);

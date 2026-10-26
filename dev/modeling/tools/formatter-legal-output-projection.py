@@ -1,0 +1,6 @@
+from pathlib import Path
+import importlib.util
+SPEC={'module': 'formatter_legal_output', 'namespace': 'FormatterLegalAst', 'fields': {'pc': 'int', 'writer': 'int', 'savedWriter': 'int', 'generation': 'int', 'capacity': 'int', 'produced': 'int', 'consumed': 'int', 'callbacks': 'int', 'resumes': 'int', 'epoch': 'int', 'planEpoch': 'int', 'lastWriteEpoch': 'int', 'writes': 'int', 'demand': 'int', 'certGen': 'int', 'certEpoch': 'int', 'attempts': 'int', 'validVar': 'bool', 'pipe': 'bool', 'handler': 'bool', 'captured': 'bool', 'custody': 'bool', 'newer': 'bool', 'clobbered': 'bool', 'closed': 'bool', 'fault': 'bool', 'equivalent': 'bool', 'certificate': 'bool', 'alive': 'bool', 'raw': 'bool', 'locked': 'bool'}, 'actions': ['prepare', 'enter', 'fill', 'timeout', 'captureEscape', 'publish', 'drain', 'resume', 'returnHandler', 'namedTail', 'rawTail', 'rejectDead', 'resetRegistry', 'endRegistry', 'callbackReturns', 'finish', 'closeAdmission', 'detach', 'attest', 'issue', 'attemptStale']}
+def generate(ir):
+ p=Path(__file__).with_name('chunk-capacity-charge-projection.py');s=importlib.util.spec_from_file_location('legal_scalar',p);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+ return m.generate(ir,SPEC['module'],SPEC['fields'],SPEC['actions'],SPEC['namespace'])

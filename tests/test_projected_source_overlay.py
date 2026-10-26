@@ -37,6 +37,21 @@ class Context:
 
 
 class ProjectedSourceOverlayTests(unittest.TestCase):
+    def test_runtime_header_projection_binds_and_rejects_drift_without_mutating_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);runtime=root/'runtime';runtime.mkdir()
+            header=runtime/'native.h';header.write_text('typedef unsigned long native_word;\n')
+            artifacts={('runtime','runtime'):('source-runtime',runtime)}
+            ref={'step':'runtime','output':'runtime'}
+            row={'target':'native.h','origin':{'kind':'source-artifact','path':'native.h'},'sha256':digest(header)}
+            source.project({'source':ref,'files':[row]},Context(root,'project',artifacts))
+            bound=source.bind({'workspace':{'step':'project','output':'workspace'}},Context(root,'bind',artifacts))
+            self.assertEqual(bound['claim'],'byte-origin-only')
+            self.assertEqual(header.read_text(),'typedef unsigned long native_word;\n')
+            header.write_text('typedef unsigned int native_word;\n')
+            with self.assertRaisesRegex(ValueError,'correspondence drift'):
+                source.bind({'workspace':{'step':'project','output':'workspace'}},Context(root,'drift',artifacts))
+
     def test_native_workspace_accepts_structured_c23_not_arbitrary_flags(self):
         from gambit_smp.native_capabilities import validate_c
         args = {"sources":["a.c"],"headers":[],"standard":"gnu23",

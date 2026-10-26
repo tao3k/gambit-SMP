@@ -406,6 +406,16 @@ def recovered_resumption(root, run, *, require_current_prefix=True):
                 raise ValueError("process observation belongs to another execution")
             processes.setdefault(payload["token"], {})[payload["event"]] = payload
             continue
+        if payload.get("schema") == "gerbil-bootstrap-module-observation.v1":
+            if (payload.get("header") != header_ref or payload.get("runId") != header["runId"]
+                    or payload.get("runtimeAdmitted") is not False
+                    or not isinstance(payload.get("moduleProof"),dict)):
+                raise ValueError("bootstrap module observation belongs to another execution")
+            # Child completion witnesses are retained evidence, not recipe
+            # stages. The Gerbil consumer independently validates their exact
+            # process/input/output bindings before any module can be reused.
+            # In particular, these records cannot manufacture stage0 PASS.
+            continue
         if payload.get("schema") == "research-terminal-observation.v1":
             if entry != records[-1] or terminal is not None:
                 raise ValueError("terminal checkpoint is not the committed tail")

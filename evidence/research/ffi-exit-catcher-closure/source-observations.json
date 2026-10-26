@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "sfun-generator-order",
+    "sourceAnchors": "gsc/_ptree2.scm:2840-3030,3145-3187;include/gambit.h.in:10043-10059",
+    "finding": "Recursive conversion wrappers surround SFUN_CALL; error loop can call Scheme again, result conversion then marker kill then propagate",
+    "hazard": "Call return or result assignment leaves conversion/marker/error effects",
+    "proposedReplacement": "Generate acquisition/disposition/exit plan per three SFUN families, shared off-stack guarded exit service",
+    "nativeWitness": false
+  },
+  {
+    "caller": "sfun-conversion-releases",
+    "sourceAnchors": "include/gambit.h.in:10186-10255;lib/mem.c:1715-1739",
+    "finding": "END_SFUN numeric/foreign argument conversions release still SCMOBJ after body; longjmp can bypass those lexical ends",
+    "hazard": "All acquired conversions cannot be inferred from uninitialized or changed C locals after jump",
+    "proposedReplacement": "Record acquisition after successful conversion; normal/exceptional path consumes each exact cleanup duty once",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cfun-generator-raw-return",
+    "sourceAnchors": "gsc/_ptree2.scm:3239-3329",
+    "finding": "build-c-lambda wraps optional cleanup TRY and AT_END; ___return uses goto local label; raw C text remains possible",
+    "hazard": "Arbitrary return/longjmp/spawn bypasses local label or cleanup",
+    "proposedReplacement": "Typed effect/exit manifest and managed return form; otherwise refuse controlled-cohort admission",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cfun-inline-ool-selection",
+    "sourceAnchors": "gsc/_t-c-2.scm:124-218,239;include/gambit.h.in:10325-10380",
+    "finding": "Generator defaults inline false; OOL avoids setjmp interfering with C TCO; caller spills/restores and inspects temp1 after cproc return",
+    "hazard": "Callee close cannot release caller fp/register/status borrow or impose setjmp on every GVM host",
+    "proposedReplacement": "Separate callee exit ticket and caller postlude ticket; keep qualified out-of-line boundary for TCO",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cfun-try-and-at-end",
+    "sourceAnchors": "include/gambit.h.in:10382-10400;gsc/_ptree2.scm:3240-3321",
+    "finding": "AT_END appears inside protected body before END_TRY then R_ALL_INL; an earlier throw skips AT_END",
+    "hazard": "Moving AT_END after catch would newly execute user effects, not automatically preserve semantics",
+    "proposedReplacement": "Record original execution condition; separate guaranteed service cleanup from optional user AT_END; explicit opt-in for changed semantics",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cfun-conversion-error-routes",
+    "sourceAnchors": "include/gambit.h.in:10353-10397",
+    "finding": "CFUN_CONV_ERROR excludes NO_ERR and UNWIND; ordinary errors set temp fields then inline jump/OOL return before subsequent propagate_error",
+    "hazard": "Blanket claim every error executes propagate_error or END_CFUN misses real exits",
+    "proposedReplacement": "Distinct handler-return and UNWIND propagation tickets; outer caller remains pinned through read/reload/dispatch",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cfun-native-release-helpers",
+    "sourceAnchors": "include/gambit.h.in:10473-10525;lib/c_intf.c:1731-1802;lib/mem.c:756-825",
+    "finding": "END_CFUN function/string conversions release RC-backed native values; string-list release can release child strings",
+    "hazard": "Conversion lexical scope includes cleanup after user body/AT_END; skipping duplicates loses roots/resources",
+    "proposedReplacement": "Acquired-only cleanup ledger with native/root/code ownership; exact helper effect profile, no speculative cleanup replay",
+    "nativeWitness": false
+  },
+  {
+    "caller": "try-catcher-stack",
+    "sourceAnchors": "include/gambit.h.in:9981-10007,11699-11700;lib/setup.c:4755",
+    "finding": "TRY saves old catcher, installs local jbuf, reads longjmp_err on jump and END restores old pointer; setup initializes catcher0",
+    "hazard": "Stack jbuf and saved predecessor require live target/thread; restoration is PSTATE write",
+    "proposedReplacement": "Pin exact catcher chain and native activation; restore before source borrow release; off-stack service state",
+    "nativeWitness": false
+  },
+  {
+    "caller": "propagate-and-throw",
+    "sourceAnchors": "lib/setup.c:839-865;include/gambit.h.in:9987",
+    "finding": "NO_ERR propagate returns; otherwise throw_error executes THROW setting longjmp_err and jumping via catcher",
+    "hazard": "Seal before propagation misses a physical PSTATE write; replay can jump twice or to dead target",
+    "proposedReplacement": "Reserve successor propagation debt and target pin before close; only original qualified thread executes jump",
+    "nativeWitness": false
+  },
+  {
+    "caller": "call-match-rethrow-trampoline",
+    "sourceAnchors": "lib/setup.c:3355-3390",
+    "finding": "Local TRY exits restore catcher; trampoline trip can repeat; only matching marker UNWIND restores fp/R0, nonmatch rethrows",
+    "hazard": "Treating trampoline trip as final exit or dropping outer target pin loses live activation",
+    "proposedReplacement": "Keep guard for internal trips; matching return has explicit postlude; nonmatch hands debt outward before jump",
+    "nativeWitness": false
+  },
+  {
+    "caller": "run-kill-skipped",
+    "sourceAnchors": "lib/setup.c:3395-3420;lib/c_intf.c:6509-6564",
+    "finding": "___run marker kill is inside TRY normal path; marker construction may allocate with input-root TODO",
+    "hazard": "A thrown ___call can skip kill; new universal cleanup cannot free a marker still borrowed elsewhere",
+    "proposedReplacement": "Guarded acquisition and canonical retirement result; protect proc before allocation; root/return-right duties remain separate",
+    "nativeWitness": false
+  },
+  {
+    "caller": "gvm-reload-consumers",
+    "sourceAnchors": "include/gambit.h.in:6802-6803,10325-10380;gsc/_t-c-2.scm:213-218",
+    "finding": "CFUN context reload and temp1/handler dispatch lead to JUMPRET; exact host macros depend on target",
+    "hazard": "R_ALL or temp publication after callee seal remains source PSTATE access",
+    "proposedReplacement": "Keep caller ticket until final source access or explicit GVM successor handoff; no whole-PSTATE0 from local guard",
+    "nativeWitness": false
+  },
+  {
+    "caller": "foreign-cleanup-callback",
+    "sourceAnchors": "lib/mem.c:4387-4451;lib/c_intf.c:1683-1715;gsc/_ptree2.scm:2590-2670",
+    "finding": "Sweep/cleanup clears foreign release fields and calls release_fn; generator emits release wrappers or supplied id",
+    "hazard": "Native side effect may outlive wrapper or throw; cleared fields alone do not prove disposition",
+    "proposedReplacement": "Reserve callback task/root/native/code duty before destructive detach, only admitted exception/thread/effect profiles",
+    "nativeWitness": false
+  },
+  {
+    "caller": "interrupt-cleanup-callback",
+    "sourceAnchors": "lib/setup.c:143-204,365-419",
+    "finding": "Normal service invokes execute_fn outside queue lock; cleanup invokes execute_fn(intr,false) while holding lock",
+    "hazard": "Release callback reentrant enqueue can need same mutex; queue empty is not external admission closed",
+    "proposedReplacement": "Close producers and reserve work before callback; do not wait/reenter under lock; source adaptation remains open",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cleanup-and-native-lifetime",
+    "sourceAnchors": "lib/setup.c:924-980,4569-4599,4665-4672,4834-4875;lib/mem.c:4928-4964;lib/os_thread.c:546-592",
+    "finding": "Shrink/rollback/shutdown destroy PSTATE memory; ignored join follows shrink; VM later destroys shared facilities",
+    "hazard": "An exception-close receipt does not retain physical backing or prove native thread termination",
+    "proposedReplacement": "Require VM acceptance, independent root/domain and all pins0 before data cleanup; failed/unknown join keeps native envelope",
+    "nativeWitness": false
+  },
+  {
+    "caller": "setjmp-profile-boundary",
+    "sourceAnchors": "include/gambit.h.in:1618-1668,8590,9981-9987;lib/setup.c:5319;examples/tcltk/tcltk.scm:124-194",
+    "finding": "Header selects compiler builtin/library/dynamic import; BEGIN_TRY assigns setjmp return to err; real native callbacks exercise wrappers",
+    "hazard": "ISO context/local/thread rules and GCC builtin constraints differ; unqualified raw longjmp/foreign ABI cannot be inferred safe",
+    "proposedReplacement": "Modern C emitter gives explicit backend profile; standard setjmp in permitted context; portable guard state and no cross-thread helper jump",
+    "nativeWitness": false
+  }
+]

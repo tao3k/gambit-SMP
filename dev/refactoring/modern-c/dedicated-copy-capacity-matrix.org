@@ -1,0 +1,145 @@
+#+TITLE: Dedicated Stack Copy Capacity — Evidence and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitDedicatedCopyCapacity
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| census | vendor/gambit/lib/mem.c | #define words_movable_objs(ps) | Factor two logical accounting is not raw unique source extent |
+| frozen | vendor/gambit/lib/mem.c | alloc_stack_ptr = ___ps->context->fp; | GC materializes allocation coordinates before frozen cut |
+| source-epoch | vendor/gambit/lib/mem.c | ___vms->gc_round.source_sections = the_msections->nb_sections; | Proposed old source epoch must exclude newly reserved empty sections |
+| full-size | vendor/gambit/lib/mem.c | #define compute_msection_size(nb_sections) | Full physical section count is not usable tospace capacity |
+| usable | vendor/gambit/lib/mem.c | #define compute_msection_space(nb_sections) | Post-GC doubled accounting does not replace contiguous request fit |
+| reserve-cap | vendor/gambit/lib/mem.c | required > (___MSECTION_SIZE>>1)-3 | Existing largest supported contiguous grant can make fragmentation bound degenerate |
+| reserve-loop | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_-alloc < required | No-fit moves worker to next section before granting |
+| markers | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_ -= 2; | Two terminal marker positions plus first link excluded from C |
+| first-link | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; | Initial link and threshold/empty terminal markers must be distinguished |
+| chunk-threshold | vendor/gambit/lib/mem.c | if (alloc >= alloc_heap_chunk_limit) | Ordinary and captured copies can close threshold chunks |
+| chunk-start | vendor/gambit/lib/mem.c | alloc_heap_chunk_limit = work->context->mem.alloc_heap_ptr_ + ___MSECTION_CHUNK; | Threshold marker charging depends on private committed span |
+| unique-object | vendor/gambit/lib/mem.c | ___COMPARE_AND_SWAP_WORD(&body[-1], | Winning ordinary forwarding unique only under validated source identity |
+| cancel | vendor/gambit/lib/mem.c | alloc = cancel_copy(work,&grant); | Loser rewinds private grant; does not refund consumed earlier sections |
+| align | vendor/gambit/lib/mem.c | if (align8) required++; | 32-bit alignment adds at most one reservation word |
+| frame-size | vendor/gambit/lib/mem.c | words = fs + ___FRAME_EXTRA_SLOTS; | Captured frame footprint differs from rounded source stack space |
+| frame-serial | vendor/gambit/lib/mem.c | while (___COMPARE_AND_SWAP_WORD(&vms->gc_round.frame_gate,0,1) != 0) | Frame uniqueness relies on access gate and forwarding slots |
+| frame-abi | vendor/gambit/include/gambit.h.in | #define ___RETI_CFS_TO_FS(fs) | RETI effective frame may exceed nominal descriptor size |
+| compiler-limit | vendor/gambit/gsc/_t-c-1.scm | (define targ-max-nb-frame-slots  4096) | Declaration with use-these-constants note is not full producer enforcement proof |
+| runtime-limit | vendor/gambit/lib/mem.h | #define ___MAX_NB_FRAME_SLOTS   8192 | Runtime fudge macro alone is not a global maximum grant receipt |
+| late-grow | vendor/gambit/lib/mem.c | determine_occupied_words (___vms); | Live census for resize runs after tracing and continuation restore |
+| partial | vendor/gambit/lib/mem.c | ms->nb_sections = ++ns; | Only actual appended sections may be credited |
+| replace | vendor/gambit/lib/mem.c | free_mem_aligned (ms); | In-place growth can replace metadata before complete success |
+| reserve-rollback | vendor/gambit/lib/mem.c | adjust_msections (&m->the_msections_, r->base_capacity); | VM-resize partial rollback precedent requires isolated grant and no users |
+| unknown-join | vendor/gambit/lib/mem.c | quarantined contexts, their roots, or their physical grant. | Unknown join is not proof of dead ownership |
+| post-fudge | vendor/gambit/lib/mem.c | lower_bound_nb_sections += compute_resume_msections(normal_overflow_reserve); | Separate post-copy and resumption reserve from heap packing |
+| origin | vendor/gambit/lib/mem.c | GC copy source is not in frozen fromspace | Existing check rejects tospace origin, not full canonical source partition |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| source | Validated union of old heap objects and old stack-frame footprints | Canonical disjoint source charges; old epoch immutable; strong and weak budgets combined | 64-bit U<=Q; 32-bit U<=Q+A<=2Q | Counter arithmetic and header-origin lookup do not establish source partition |
+| packing | C=H-3; maximum grant G<=C; threshold charge T | Every no-fit closed section has distinct charge at least d=C-G+1 | If B=U+T and B<(K-P+1)d, K heap sections suffice | Source injection, all writers and threshold charging still need refinement |
+| dedicated | Reserve P stack sections separately | R+J fits each dedicated section and all intervals disjoint | Physical target N>=P+K+E | Global request placement and source/target census remain open |
+| semantic | Shared plan unsupported is internal outcome | Try dedicated or other qualified plan without changing program values/control | Cannot map conservative envelope refusal directly to Scheme OOM | Total fallback, precise OOM policy and emergency failure continuation open |
+| growth | Detached reservation batch with stable owner and old source manifest | Actual destination count only; no native callback/GC during reserve | Partial success retained for retry or retired after collective result delivery | Current adjust_msections is not transactional detached reservation |
+| unknown | Stable completion owner retains roots, plan and uncertain grant | No setup/free from unknown result; exact token resolution required | No timeout inference and no coordinator-only release | Native orphan delivery and no-fail coordinator service open |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| source | Close source membership before ordinary reads | Pin old sections and copy manifest away from mutable header | Existing phase barrier not full C11 provenance proof |
+| reserve | Private initialized grants -> release completion token | Owner acquire actual identities and counts | Unknown can own allocations absent from known lower-bound count |
+| commit | Release immutable accepted plan; member acquires exact generation | Old metadata readers retired before replacement and setup | Header commit is not permission to release old payload blocks |
+| failed | Known failure plus every last-reader/result acknowledgement | Only batch-private new blocks may be reclaimed | Never shrink below roots or other resize grants |
+| copy | No-fit charge and source credit consumed exactly once | Separate forwarding CAS from initialized payload READY | Weak phase shares same budget; cancellations do not reset it |
+| resume | Copy complete then post-GC fudge and executable headroom | Old roster completes same sync-op result before Scheme resumes | Failure after flip cannot reuse pre-setup rejection protocol |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| snapshot | Use old source allocation envelope instead of exact liveness oracle | Validated extent/identity census and generation pins | No claim that current factor-two counters are already sufficient |
+| dedicated | Protect continuation without allocating a second stack section | Reduced heap borrowing may require destination growth | Net benefit depends on live fraction and grant sizes |
+| packing | Account for bounded fragmentation before forwarding | Potentially conservative N and reserved unused capacity | Tighter qualified G yields useful bound; generic cap yields d=1 |
+| retry | Reuse known partial native allocation | Stable batch ledger and no ambiguous new attempt | Unknown attempt cannot be retried until resolved or separately fenced |
+| transaction | Avoid unsafe in-place rollback with live readers | Candidate metadata copy and commit/retirement protocol | Modern C sufficient; existing adjust_msections not silently treated as transaction |
+| concurrency | Reuse P current worker frontiers and existing allocation lock | Static packing headroom includes P private end sections | No measured speedup or net memory saving established |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| old-source-epoch | source-envelope | Old N and validated Q stay fixed during target growth |
+| source-envelope | grant-profile | Bound payload, alignment and effective frame requests |
+| grant-profile | packing-envelope | Include threshold charge and no-fit waste |
+| restore-spans | dedicated-stacks | R plus execution headroom independently fits |
+| dedicated-stacks | destination-target | P stacks plus K heap sections plus E future reserve |
+| packing-envelope | destination-target | Global size alone is insufficient; contiguous grants must fit |
+| destination-target | detached-reservation | Stable native owner; no GC callback or old-manifest mutation |
+| detached-reservation | known-partial | Actual blocks retained for retry or qualified cleanup |
+| detached-reservation | unknown-custody | Uncertain block ownership pins old roster and metadata |
+| known-partial | collective-plan | Accept only qualified complete actual grant; otherwise internal refusal |
+| unknown-custody | collective-plan | Resolve exact attempt before admission |
+| collective-plan | setup | All members consume accepted plan and retire last read |
+| collective-plan | alternative-plan | Refusal is not a Scheme error; preserve old source |
+| setup | copy-and-resume | Enforce same budget through strong weak restore and headroom |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| dedicated_copy_capacity.freeze | DedicatedCopy.freezePreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.sharedUnsuitable | DedicatedCopy.sharedUnsuitablePreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.growFull | DedicatedCopy.growFullPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.growPartial | DedicatedCopy.growPartialPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.growFailed | DedicatedCopy.growFailedPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.growUnknown | DedicatedCopy.growUnknownPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.resolveFull | DedicatedCopy.resolveFullPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.resolvePartial | DedicatedCopy.resolvePartialPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.chooseDedicated | DedicatedCopy.chooseDedicatedPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.planUnavailable | DedicatedCopy.planUnavailablePreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.retryPlan | DedicatedCopy.retryPlanPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.beginCopy | DedicatedCopy.beginCopyPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.retireCharged | DedicatedCopy.retireChargedPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.consumeOne | DedicatedCopy.consumeOnePreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.retainUnknown | DedicatedCopy.retainUnknownPreserves | Actual typed AST action preservation; source refinement open |
+| dedicated_copy_capacity.cleanupKnownBatch | DedicatedCopy.cleanupKnownBatchPreserves | Actual typed AST action preservation; source refinement open |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| envelope | CopyCapacityComposition.destinationEnvelope |
+| 32bit | CopyCapacityComposition.word32Envelope |
+| 64bit | CopyCapacityComposition.word64Envelope |
+| packing | CopyCapacityComposition.enoughHeapSections |
+| physical | CopyCapacityComposition.totalPhysicalBudget |
+| fragment-control | CopyCapacityComposition.fragmentationCounterexample |
+| profile-example | CopyCapacityComposition.illustrativePlan |
+| generic-control | CopyCapacityComposition.genericGrantBoundDegenerates |
+| capacity | DedicatedCopy.acceptedPhysicalCapacity |
+| unknown | DedicatedCopy.unknownCannotSetupOrFree |
+| fixed-source | DedicatedCopy.oldSourceImmutable |
+| composition | CopyCapacityComposition.reachableCoupled |
+| setup | CopyCapacityComposition.setupHasCapacityAndRestore |
+| unknown-copy | CopyCapacityComposition.unknownCannotCopy |
+| successful-run | CopyCapacityComposition.successfulRun |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| DC-history | interleaving | dev/refactoring/modern-c/models/quint/dedicated_copy_capacity.qnt | Two-worker fixed source envelope actual partial unknown retry and charge histories |
+| DC-induction | induction | dev/refactoring/modern-c/models/lean/DedicatedCopy.lean | All actual typed ledger actions |
+| DC-composition | induction | dev/refactoring/modern-c/models/lean/CopyCapacityComposition.lean | Conditional packing and exact preceding restore plus collective contracts |
+| DC-projection | restricted-projection | dev/refactoring/modern-c/models/lean/DedicatedCopyAst.lean | Typed IR bound-state identity extraction |
+| DC-source | source-refinement | dev/refactoring/modern-c/dedicated-copy-capacity-design.org | Source partition largest request threshold charge and total Scheme fallback open |
+| DC-platform | native-memory-order | dev/refactoring/modern-c/dedicated-copy-capacity-design.org | Native reservation completion and C11 metadata retirement open |

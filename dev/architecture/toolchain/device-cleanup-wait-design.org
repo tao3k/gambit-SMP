@@ -1,0 +1,285 @@
+#+TITLE: Device Cleanup Cursor, Managed Wait and Old-Roster Participation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:nil
+
+* RESEARCH Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait
+:STATUS: conditional-models-source-open
+:CANONICAL_MODEL: models/sysml/device-cleanup-wait.sysml
+:END:
+
+Modern C is the mandatory runtime direction. Replace the monolithic device cleanup
+loop with operation-qualified resumable phases and explicit GC participation;
+do not equate a select abort with a completed sync-op. This extends
+[[file:foreign-cleanup-closure-design.org][foreign release and VM storage custody]] without changing its frozen evidence.
+No runtime implementation, native build, native test or performance experiment is
+included. SysML owns eight contracts, ten dependencies, seven open gates and four
+benefit rows. Python invokes native SysML and projects Org/D2; actual ASCENT rules
+join source anchors, QNT actions, Lean lemmas, prior invariants and scoped hashes.
+
+* RESEARCH Source findings and actual paths
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-source
+:END:
+
+| Real path | Source | What is established | What is not established |
+|-
+| Foreign wrapper → device cleanup | c_intf.c:1696–1707; os_io.c:1675–1680 | Wrapper invalidated before hook; hook directly calls cleanup | A retryable hook or migratable creator-thread context |
+| Cleanup cursor | os_io.c:1625–1666 | Detach group, RD close, select on EAGAIN, WR close, release | Re-entering cleanup after detach is legal; group NULL rejects it |
+| Wait storage | os_io.c:951–1004 | Stack select state borrows current PSTATE FDSET and abort channel | Copying that stack struct creates a complete durable WaitContext |
+| Interrupt wake | setup.c:86–90; os_io.c:1532–1553 | Interrupt flag/trip set, memory barrier, abort signal; POSIX write return ignored | Every write succeeds or a failed write is harmless |
+| Native wait return | os_io.c:1472–1528 | Drains self-pipe; runs ready checks if no prior error; abort converts otherwise-success to EINTR | Returning EINTR services the sync-op; it does not |
+| Current cleanup error path | os_io.c:1647–1649,1661–1663 | Non-success select status immediately returns from cleanup | Old detached device is automatically resumed or drained |
+| Scheme wait clients | _thread.scm:2530–2562,6229–6242,6885–6890 | VM wait queue registration, processor lock release/reacquire, or an interrupts-enabled loop | Every native cleanup can use these contexts unchanged |
+| Native condvar bridge | os_io.c:11493–11584 | Builds native device arrays, unlocks around select, marks ready condvars afterward | Arrays and Scheme cells remain valid across arbitrary new GC dispatch |
+| Actual sync-op service | _kernel.scm:1448–1471; setup.c:1049–1149 | Interrupt vector reaches sync handler; service_sync_op executes collective selection/reset/NOOP loop | A native wait alone executes that path |
+| Owner destruction | os_io.c:11808–11828; setup.c:4572–4605,4665–4672 | Abort channel/OS state eventually torn down after memory cleanup | Source PSTATE may disappear while a native wait still borrows it |
+
+The existing interrupt-enabled Scheme scheduler loop is useful infrastructure,
+not permission to run arbitrary Scheme scheduling while a foreign cleanup owns
+mutable device state. A generated or hand-qualified C resume boundary must expose
+roots and return native borrows before entering service_sync_op. Current helper
+call order is evidence of required seams, not proof of a present native deadlock.
+
+** Close profiles, desired interest and known partial failure
+Raw close (os_io.c:9920–9961) writes CLOSED flags before close_no_EINTR.
+The helper (os_setup.c:203–221) retries close on EINTR. A later zero-return from
+raw close because stage flags are CLOSED is not an independent kernel outcome
+receipt. This study does not import a Linux close rule into Darwin or declare
+that every observed error leaves a live descriptor. Unknown kernel outcome and
+fd-number reuse require operation identity and platform evidence; absent that,
+retain custody and reject retry admission.
+
+The conditional TLS path resets want_op, calls SSL_shutdown and maps both WANT
+cases to EAGAIN (os_io.c:4863–4886). The select path consumes want_op[for_op] and
+resets it (5004–5015). The close return code alone cannot reconstruct which actual
+interest is needed. Record RequestedCloseDirection and RequiredWaitInterest as
+separate fields before returning. [[https://docs.openssl.org/3.0/man3/SSL_shutdown/][OpenSSL shutdown documentation]] supports retry
+after satisfying the reported nonblocking BIO need; it does not make all errors
+retryable. Shutdown returning zero can represent a sent local alert; choosing
+one-way versus peer-confirmed shutdown is an explicit policy, not a silent
+modernization change. The installed Darwin TLS profile and exact OpenSSL binding
+remain unqualified. The model's opposite-interest case is a conditional adapter
+scenario, not a demonstrated native failure in this checkout.
+
+* RESEARCH Managed contracts
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-contract
+:END:
+
+** CleanupCursor
+Fields: ReleaseRightId, operation generation, profile identity, owner generation,
+phase (Detached / ClosingRead / ClosingWrite / ReleasingNative / OutcomeRetained),
+read/write completion receipts, native-reference validity, primary/secondary
+error cells, parent emission state and accepted descendant credits. Invocation of
+the wrapper hook remains at most once. Retrying a qualified current close phase
+is a different operation from invoking the wrapper hook again.
+
+| Observation | Next authority | Allowed action |
+|-
+| EAGAIN with qualified required interest | Current cursor/owner | Install WaitContext, wait, resume same phase |
+| Known retryable partial result | Current cursor/owner | Retry only current phase under profile proof; retain successful earlier phases |
+| Ordinary nonzero status without outcome classification | Current cursor and native backing | Quarantine; do not infer pointer liveness or replay close |
+| Final release error after self consumed | Outcome/residue custodian | Never dereference old self; retain independent result and any external residue |
+| Unknown native execution | Existing accepted right and VM dependencies | Require outcome-specific query or external reconciliation; timeout is not success |
+| Wait abort / EINTR | Wait owner | Preserve readiness, publish roots and inspect pending sync-op; no phase advance merely from abort |
+
+** WaitContext and borrow retirement
+Do not persist the old stack select structure verbatim. Keep a stable logical
+record: cursor/right identity; native device/resource generation and pin; close
+phase; actual interest; readiness facts; absolute deadline and retry policy;
+interrupt request/served sequence; roster epoch; owner binding; trace/relocation
+schema; Scheme error/result cells; notification registration; native buffer/FDSET
+leases; callback and completion-guard state. Absolute deadline is retained across
+spurious wakeups, not restarted as a fresh timeout. Infinite policy remains
+potentially nonterminating and cannot underpin a universal shutdown guarantee.
+
+Finish all select passes and retire borrowed FDSET/stack/native-array access before
+GC dispatch. A pinned native record is not a Scheme root: each SCMOBJ field still
+requires a relocating scan adapter, including nonzero processor RC payloads. After
+GC, reconstruct private select scratch from the stable context; never restore old
+raw pointers to relocated Scheme fields or a retired PSTATE generation. Nested
+waits must use independent private scratch or serialized owner leases; the old
+per-processor FDSET is not a reentrant scratch allocator.
+
+** Arm / recheck / wake without losing responsibility
+1. Under the owner/notification authority gate, publish complete rooted WaitContext,
+   native pins, owner generation and logical desired interest.
+2. Enroll notification, acquire scratch lease, then recheck durable pending request
+   sequence and accumulated I/O readiness before blocking. A request before arm
+   must remain visible; one after recheck must leave a durable wake indication.
+3. Producer publishes request with release ordering and signals a generation-pinned
+   channel. Consumer uses acquire observation. No lock spans blocking select,
+   native hook execution or collective GC service.
+4. Return preserves independent facts: readiness, pending sync-op, wait error and
+   close outcome. Ready plus interrupt cannot be represented by one destructive
+   result-code overwrite. Release scratch/borrow leases before dispatch.
+5. Service pending collective operations, then compare request sequence again before
+   native resume. New work during GC or after loop return requires another round.
+
+A full nonblocking self-pipe can only justify coalescing if its unread token and
+pinned lifetime are proved. EINTR/EBADF/unknown signal failure cannot be ignored
+under a no-lost-wakeup claim. The current ignored write return is a source gap.
+A managed channel needs a proven retry/coalescing/failure protocol or an explicitly
+qualified fallback. The QNT interrupt action assumes an atomic durable level signal;
+it does not prove the existing write implements it. Its negative dropped-wake
+control preserves the missing guarantee as a counterexample. The sequence counter
+is a logical request identity, not a count of bytes to drain or a replacement for
+existing interrupt flags; native wraparound/ABA must be prevented by generation
+retirement or proved bounded-distance arithmetic.
+
+* RESEARCH Old-roster participation and resume
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-participant
+:END:
+
+The owner remains attached to the old effective roster while blocked, returning
+and dispatching. RootReady does not mean it has joined a collective. The required
+sequence is: native wait return → borrow release → rooted checkpoint → actual
+service_sync_op → every selected old member joins → GC/resize operation and
+result settlement → synchronous first-iteration flag reset and final NOOP loop
+closure → restore owner/roots using latest epoch → recheck pending requests →
+resume same cursor or re-arm if I/O is still not ready.
+
+The QNT explicitly includes both members, two request generations and a repeated
+GC round. The existing tree selection, reset details, combined GC/resize requests,
+sender tails and topology publication remain inherited source/refinement duties
+from [[file:syncop-guard-custody-design.org][the prior sync-op study]]. They are not re-proved by two-member membership.
+A selected shrink cannot wait for a callback on its own blocked old member;
+preflight must defer topology retirement or first finish/transfer qualified work
+while the old roster can still service GC. Storage owner may be VM while execution
+owner remains processor 1. No inactive collector worker may impersonate that
+processor merely by storing its PSTATE pointer.
+
+The completion guard retains primary error/result independently of the C frame.
+A deferred sync-op throw can occur after loop return (setup.c:1112–1113); every
+admitted error/unwind must retain cursor, native pin and error roots before crossing
+that boundary. Do not longjmp through an active collective or discard the cursor
+because an error result was delivered. Arbitrary Scheme continuation reentry into
+native close and cross-library unwind are refused until a specific guard/identity
+schema is qualified. This model checks native-outcome uncertainty, not those
+unbounded control transfers; prior guard obligations remain open.
+
+* RESEARCH Derived work, storage and two cleanup permits
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-retirement
+:END:
+
+Reserve child credit before posting a notification/task or allowing its effect to
+escape. Failed unescaped reservation returns responsibility to the parent. Lost
+enqueue acknowledgement keeps a credit and unique task identity; query instead of
+replaying. Known terminal parent does not cancel an already accepted child. Source
+USE_PUMPS paths (os_io.c:1886–1933,2011–2037,2299,2410) demonstrate notifications,
+thread lifetime and device references conditionally on Windows. This research
+models their obligations, not a claim that Darwin uses those pump threads or that
+current sequential cleanup already has a task queue.
+
+| Permit | Required closure | What may remain |
+|-
+| Cursor resume | Qualified native outcome, correct phase/interest/generation, GC loop returned, latest roots loaded, no new request | Child work and VM-owned storage |
+| Processor exit | Native/affinity obligations settled; no active wait, borrowed scratch or registration; storage/scan handoff acknowledged; prior old-roster/guard/join protocol qualified | Independently qualified child tasks and VM-owned outcomes |
+| Whole VM cleanup | All producer/emission domains sealed, all child/reservation/unknown debt zero, native residue settled, results consumed, readers/pins/scanner epochs drained, shared-service leases closed | Only inert unowned storage |
+| Global I/O module cleanup | All dependent VMs and native users released module-global leases | No caller that may consult device group/abort service |
+
+Canonical RC/still/root/census transfer remains the prior study's gated safe-epoch
+commit. In this model moveStorage is an abstract atomic checkpoint between native
+calls with wait==0; it is not permission to copy partially active C stack frames.
+After acknowledged transfer any continuing owner writes require the target domain's
+qualified writer protocol. Pre-commit failure leaves source responsible; post-commit
+lost reply leaves target responsible and source frozen until identity-bound query.
+Those failure details stay in the frozen prior handoff model, not silently replaced
+by this study's simplified move/ack transition.
+
+Known consumed self with unresolved external residue blocks processor exit here
+unless a separately qualified residue owner accepts it. Unknown native outcome
+retains the VM and necessary services. RootRegistry memory alone is insufficient
+if payloads point into a heap whose scan facilities are being destroyed. Backpressure
+must bound admitted retained tasks/bytes; abandonment must be explicit process or
+external-resource policy, not a fabricated cleanup receipt.
+
+* RESEARCH Models, counterexamples and proof limits
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-proofs
+:END:
+
+[[file:../../../models/build/device_cleanup_wait.qnt][QNT]] checks cursor custody, one wrapper invocation, independent desired interest,
+generation identity, durable wake responsibility, two-member GC participation,
+borrow retirement, descendant credit and separate exit/VM guards. Histories cover
+interrupt-before-arm, readiness plus interrupt, another request during GC and after
+restore, unknown outcome servicing GC, partial retry and child survival after exit.
+Negative controls remove wake token, context, interest, participant, scanner or
+credit; or prematurely free VM/retire owner. They are weakened-contract
+counterexamples, not reproductions of native bugs.
+
+The finite domain is one device, one child, two members, at most two requests,
+abstract Scheme roots and one retained outcome-presence bit. Desired-interest
+mapping is supplied by a profile; no native SSL/OS behavior is simulated. Unknown
+child publication is before child execution; arbitrary unknown in-flight native
+mutation remains outside this model. Interrupt actions concern the modeled active
+cleanup owner; closing global interrupt/producer ingress before teardown remains
+a prior obligation. No fairness or universal termination is claimed.
+
+[[file:../../../models/build/DeviceCleanupWait.lean][Lean]] proves arm-check and raise/receive properties under a durable signal premise,
+phase/wrapper identity on retry, required epoch/request/generation conditions,
+all-steps preservation of the abstract debt relation, scanner commit identity and
+exit/VM boundary lemmas. It does not prove the full QNT invariant inductively or
+simulate C weak memory. The no-lost-wake result does not hide the missing native
+channel proof: a failed unrecorded signal is deliberately excluded from the
+qualified raise transition and retained as a negative control.
+
+Actual [[file:../../modeling/ascent/device-cleanup-wait.rules.scm][ASCENT DSL]] checks eight component/action/lemma bindings, ten dependency
+edges and four frozen prior invariants, with missing-component/step/prior,
+stale-hash/scope and open-parent controls. Only the synthetic all-qualified case
+can become a candidate. Real source/platform receipts remain absent; all seven
+admission gates stay open. Prior models are hash-checked, not rerun or rewritten.
+
+* RESEARCH Benefits, costs and retirement
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-benefits
+:END:
+
+[[file:device-cleanup-wait-matrix.org][The canonical benefit matrix]] separates architectural benefit from measured speed.
+For W accepted waits, E descendant edges and P active owners, support storage is
+O(W+E+P) plus retained payloads and private scratch. Each wait arm/wake/credit
+transition has constant logical bookkeeping; actual select scratch and scan costs
+depend on descriptor/root count. Avoided repeat work includes completed close
+phases and duplicate hook calls, not all legitimate EAGAIN retries. Work benefit
+requires avoided duplication > capture + dispatch + barriers + retention/scan
+cost. Collective pause benefit requires removed native waiting > extra checkpoint
+coordination on the collective critical path. No numerical speedup is established.
+
+Modern C can express these contracts with typed structs, tagged outcomes, atomics,
+owner gates and generated profiles. Zig cannot remove any wakeup/root/affinity/
+termination proof; an additional language remains optional without a demonstrated
+incremental benefit here. This is a runtime lifetime/scheduling reconstruction,
+not a configuration change.
+
+Migration dependencies:
+1. Classify virtual close profiles, kernel/TLS outcomes and desired interests;
+   retain explicit synchronous foreign-release behavior until separately justified.
+2. Establish native-pinned WaitContext plus root adapter and guarded arm/recheck;
+   retire persistent use of stack/PSTATE scratch only for admitted paths.
+3. Connect returning native waits to the real old-roster dispatcher and completion
+   guard. Retire the cleanup loop's terminal treatment of every EINTR only after
+   error/readiness/GC semantics and guards are proved equivalent or explicitly fixed.
+4. Introduce cursor-level tagged close outcomes and resume adapters. Retire entry
+   replay and error-based raw-pointer retries; retain unknown-result custody.
+5. Share descendant ledger and canonical RC/still/scan/census ownership. Retire
+   unconditional old bulk cleanup only on proven inert remainders.
+6. Gate processor, VM and global I/O destruction independently; native acceptance
+   remains a future separately authorized stage.
+
+* RESEARCH Reproducibility and external basis
+[[file:../../modeling/tools/device-cleanup-wait-study.py][Python driver]] queries native SysML, runs local model checks and renders D2;
+[[file:../../../evidence/research/device-cleanup-wait/checks.json][structured receipts]] retain source/artifact identities and open gates. Org parsing
+executes no Babel. No runtime/compiler implementation or native test is performed.
+
+The preceding [[file:foreign-cleanup-closure-design.org][finalization study]] supplies its Boehm synchronization/finalization and
+OCaml blocking-section sources. Their lesson is to distinguish execution from
+lifetime custody, not to transplant another runtime's lock model. The OpenSSL
+source above supports only its conditional nonblocking interest/retry facts;
+it does not establish the local Darwin ABI or selected build flags. A POSIX pselect
+page request returned HTTP 403 and is not used as evidence. Platform close and
+notification semantics remain open rather than inferred from an unavailable source.

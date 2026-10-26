@@ -1,0 +1,331 @@
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -6227,6 +6227,7 @@
+   ___WORD ___ticket = ___FETCH_AND_ADD_WORD(___CAST(___VOLATILE ___WORD*,&next),___FIX(1)); \
+   while (*___CAST(___VOLATILE ___WORD*,&current) != ___ticket) \
+     ___CPU_RELAX(); \
++  ___SHARED_MEMORY_BARRIER(); /* acquire after ticket grant */ \
+ } while (0)
+ 
+ #define ___TICKETLOCK_TRYLOCK2(next,current,temp) \
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -766,7 +766,7 @@
+ ;; thread queue (processor run queue, mutex or condition variable) and
+ ;; timeout queue containing the thread.
+ 
+-(define-prim (##thread-lock-remove-btq-toq! thread proc arg1)
++(define-prim (##thread-lock-remove-btq-toq! thread proc arg1 #!optional (should-remove? #f))
+ 
+   (##declare (not interrupts-enabled))
+ 
+@@ -791,7 +791,9 @@
+     ;; Remove thread from any blocked thread queue (run queue, mutex or
+     ;; condition variable).
+ 
+-    (let ((btq (macro-thread-btq-container thread)))
++    (if (and should-remove? (##not (should-remove? thread)))
++        (macro-unlock-thread! thread)
++        (let ((btq (macro-thread-btq-container thread)))
+       (if (##not btq)
+ 
+           (continue)
+@@ -831,7 +833,8 @@
+                       ;; release low-level lock of mutex or condition variable
+                       (macro-unlock-btq! btq)
+ 
+-                      (continue)))))))))
++                      (continue))))))))))
++
+ 
+ ;;;----------------------------------------------------------------------------
+ 
+@@ -1346,7 +1349,7 @@
+   ;; being sent, an abandoned mutex exception will be raised.
+ 
+   (let* ((result-mutex (##make-mutex thunk))
+-         (interrupt (##vector '() result-mutex)))
++         (interrupt (##vector '() result-mutex thread 0)))
+     (macro-mutex-specific-set! result-mutex thread)
+     (macro-mutex-lock! result-mutex #f thread)
+     (##thread-intr-propagate! interrupt)
+@@ -1355,96 +1358,136 @@
+         (begin
+           (macro-mutex-lock! result-mutex #f (macro-current-thread))
+           (macro-mutex-unlock! result-mutex)
+-          (macro-mutex-specific result-mutex)))))
++          (if (##fx= (##vector-ref interrupt 3) 4)
++              (##thread-abandoned-mutex-action!)
++              (macro-mutex-specific result-mutex))))))
+ 
+ (define-prim (##thread-intr-propagate! interrupt)
+-
+-  (##declare (not interrupts-enabled))
+-
++  (##declare (not interrupts-enabled))
++  ;; Request identity is this vector; target is immutable, unlike mutex-specific.
+   (##thread-lock-remove-btq-toq!
+-
+-   (macro-mutex-specific (##vector-ref interrupt 1)) ;; target thread of interrupt
+-
++   (##vector-ref interrupt 2)
+    (lambda (interrupt)
+-
+-     (let ((thread (macro-mutex-specific (##vector-ref interrupt 1))))
+-       (if (macro-terminated-thread-given-initialized? thread)
+-
+-           ;; The target may end after the initial interruptability check.
+-           ;; The helper still holds its lock on this path.
++     (let ((thread (##vector-ref interrupt 2)))
++       (if (or (macro-terminated-thread-given-initialized? thread)
++               (##not (##fx= (##vector-ref interrupt 3) 0)))
+            (macro-unlock-thread! thread)
+-
+-           (let ((last-processor (macro-thread-last-processor thread)))
+-             (##lock-processor-with-sync-participation! last-processor)
+-             (let ((last-processor-current-thread
+-                    (macro-processor-current-thread last-processor))
+-                   (last-processor-id (macro-processor-id last-processor)))
+-               (macro-unlock-processor! last-processor)
+-
+-               (if (##eq? thread last-processor-current-thread)
+-
+-                   (begin
+-
+-                     ;; The thread is currently executing on last-processor,
+-                     ;; so propagate interrupt to that processor.
+-
+-                     ;; release low-level lock of thread
+-                     (macro-unlock-thread! thread)
+-
+-                     ;; propagate interrupt
+-                     (##raise-high-level-interrupt last-processor-id interrupt))
+-
+-                   (begin
+-
+-                     ;; The thread is not currently executing, so schedule
+-                     ;; its execution on the current processor.
+-
+-                     ;; add interrupt to thread's interrupt queue
+-                     (let ((tail (macro-thread-interrupts-tail thread)))
+-                       (macro-thread-interrupts-tail-set! thread interrupt)
+-                       (if (##null? tail)
+-                           (macro-thread-interrupts-head-set! thread interrupt)
+-                           (##vector-set! tail 0 interrupt)))
+-
+-                     (macro-add-thread-to-run-queue-of-current-processor-preferably! thread)
+-
+-                     ;; release low-level lock of thread
+-                     (macro-unlock-thread! thread))))))))
+-
++           (begin
++             ;; This is the only publisher of the request's intrusive link.
++             (##vector-set! interrupt 3 1)
++             (let ((tail (macro-thread-interrupts-tail thread)))
++               (macro-thread-interrupts-tail-set! thread interrupt)
++               (if (##null? tail)
++                   (macro-thread-interrupts-head-set! thread interrupt)
++                   (##vector-set! tail 0 interrupt)))
++             (let ((p (macro-thread-last-processor thread)))
++               (##lock-processor-with-sync-participation! p)
++               (let ((running? (##eq? thread (macro-processor-current-thread p)))
++                     (id (macro-processor-id p)))
++                 (macro-unlock-processor! p)
++                 (if running?
++                     (begin
++                       (macro-unlock-thread! thread)
++                       ;; A fresh hint has its own link and never carries the
++                       ;; result mutex. It repairs the running-to-park race.
++                       (##thread-intr-notify! thread id))
++                     (begin
++                       (macro-add-thread-to-run-queue-of-current-processor-preferably! thread)
++                       (macro-unlock-thread! thread)))))))))
+    interrupt))
+ 
++(define-prim (##thread-intr-notify! thread id)
++  (##declare (not interrupts-enabled))
++  (##raise-high-level-interrupt
++   id (##vector '() (lambda (hint) (##thread-intr-wake! thread)))))
++
++(define-prim (##thread-intr-wake! thread)
++  (##declare (not interrupts-enabled))
++  (##thread-lock-remove-btq-toq!
++   thread
++   (lambda (thread)
++     (if (or (macro-terminated-thread-given-initialized? thread)
++             (##null? (macro-thread-interrupts-head thread)))
++         (macro-unlock-thread! thread)
++         (let ((p (macro-thread-last-processor thread)))
++           (##lock-processor-with-sync-participation! p)
++           (let ((running? (##eq? thread (macro-processor-current-thread p)))
++                 (id (macro-processor-id p)))
++             (macro-unlock-processor! p)
++             (if running?
++                 (begin
++                   (macro-unlock-thread! thread)
++                   (if (##eq? thread (macro-current-thread))
++                       (##thread-intr-drain!)
++                       ;; Migration forwards a NEW hint, never a used link.
++                       (##thread-intr-notify! thread id)))
++                 (begin
++                   (macro-add-thread-to-run-queue-of-current-processor-preferably! thread)
++                   (macro-unlock-thread! thread)))))))
++   thread
++   (lambda (thread)
++     (and (##not (macro-terminated-thread-given-initialized? thread))
++          (##not (##null? (macro-thread-interrupts-head thread)))))))
++
++(define-prim (##thread-intr-execute! interrupt)
++  (##declare (not interrupts-enabled))
++  (let ((mutex (##vector-ref interrupt 1))
++        (completed? #f))
++    (let ((outcome
++           (##dynamic-wind
++            (lambda ()
++              (if (##not (##fx= (##vector-ref interrupt 3) 2))
++                  (##error "interrupt continuation no longer owns request")))
++            (lambda ()
++              (let ((outcome
++                     (##with-exception-catcher
++                      (lambda (exc) (##vector #f exc))
++                      (lambda () (##vector #t ((macro-mutex-name mutex)))))))
++                (set! completed? #t)
++                outcome))
++            (lambda ()
++              ;; Nonlocal Scheme escape releases the actual owner, not a
++              ;; fabricated successful reply. A resumed continuation is denied.
++              (if (##not completed?)
++                  (begin
++                    (##vector-set! interrupt 3 4)
++                    (macro-lock-current-thread!)
++                    (##btq-abandon! mutex)
++                    (macro-unlock-current-thread!)))))))
++      ;; Keep outcome/request in mapped Scheme frames through unlock and GC.
++      (macro-mutex-specific-set! mutex (##vector-ref outcome 1))
++      (##vector-set! interrupt 3 (if (##vector-ref outcome 0) 3 4))
++      (macro-mutex-unlock! mutex)
++      (if (##not (##vector-ref outcome 0))
++          (##raise (##vector-ref outcome 1))))))
++
++(define-prim (##thread-intr-drain!)
++  (##declare (not interrupts-enabled))
++  (if (macro-current-thread)
++      (let loop ()
++        (macro-lock-current-thread!)
++        (macro-thread-interrupts-remove-from-head!
++         interrupt
++         (begin
++           (if (macro-mutex? (##vector-ref interrupt 1))
++               (##vector-set! interrupt 3 2))
++           (macro-unlock-current-thread!)
++           (let ((x (##vector-ref interrupt 1)))
++             (if (##procedure? x) (x interrupt)
++                 (##thread-intr-execute! interrupt)))
++           (loop))
++         (macro-unlock-current-thread!)))))
++
+ (define-prim (##other-interrupt!)
+-
+-  (##declare (not interrupts-enabled))
+-
+-  ;; This procedure is called by a processor to handle the processor's
+-  ;; high-level interrupts (generated from Scheme code).
+-
++  (##declare (not interrupts-enabled))
++  (##thread-intr-drain!)
+   (let loop ()
+-    (let ((interrupt (##get-next-high-level-interrupt)))
+-      (if (##null? interrupt)
+-          #f
++    (let ((hint (##get-next-high-level-interrupt)))
++      (if (##not (##null? hint))
+           (begin
+-            (let ((x (##vector-ref interrupt 1)))
+-
+-              ;; There are two types of interrupts:
+-              ;;
+-              ;; - procedure: interrupt targets the processor
+-              ;;
+-              ;; - mutex: interrupt targets a specific thread
+-
+-              (cond ((##procedure? x)
+-                     (x interrupt))
+-
+-                    ((macro-mutex? x)
+-                     ;; mutex-specific is thread to interrupt and result
+-                     ;; mutex-name is thunk
+-                     (let ((target-thread (macro-mutex-specific x)))
+-                       (if (##eq? target-thread (macro-current-thread))
+-                           (let ((thunk (macro-mutex-name x)))
+-                             (macro-mutex-specific-set! x (thunk))
+-                             (macro-mutex-unlock! x))
+-                           (##thread-intr-propagate! interrupt))))))
++            (let ((proc (##vector-ref hint 1)))
++              (if (##procedure? proc) (proc hint)
++                  (##error "thread request entered processor hint queue")))
+             (loop))))))
+ 
+ ;;TODO:deprecated
+@@ -2758,25 +2801,8 @@
+           (macro-thread-migration-target-set! thread #f))))
+ 
+   (let ((resume-thunk (macro-thread-resume-thunk (macro-current-thread))))
+-    (let loop ()
+-      (macro-lock-current-thread!)
+-      (macro-thread-interrupts-remove-from-head!
+-       interrupt
+-       (begin
+-         (macro-unlock-current-thread!)
+-         (let ((x (##vector-ref interrupt 1)))
+-           (cond ((##procedure? x)
+-                  (x interrupt))
+-                 ((macro-mutex? x)
+-                  ;; mutex-specific is thread to interrupt and result
+-                  ;; mutex-name is thunk
+-                  (let ((thunk (macro-mutex-name x)))
+-                    (macro-mutex-specific-set! x (thunk))
+-                    (macro-mutex-unlock! x)))))
+-         (loop))
+-       (begin
+-         (macro-unlock-current-thread!)
+-         (resume-thunk))))))
++    (##thread-intr-drain!)
++    (resume-thunk)))
+ 
+ ;;; The procedure ##thread-schedule! implements the central logic of
+ ;;; the thread scheduler.  It is called by a processor when it needs
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -301,7 +301,7 @@
+ 
+       if ((err = probe->execute_fn (___CAST(void*, probe), ___TRU))
+           != ___FIX(___NO_ERR))
+-        break;
++        return err; /* mutex is already released; suffix remains owned */
+ 
+       ___MUTEX_LOCK(___ps->procedural_interrupts_mut);
+     }
+@@ -3735,6 +3735,7 @@
+   ___PSGET
+   ___SCMOBJ ___err;
+   ___SCMOBJ marker;
++  volatile ___SCMOBJ live_marker = ___FAL;
+ 
+   ___ps->r[0] = ___GSTATE->handler_break;
+ 
+@@ -3743,11 +3744,14 @@
+   if ((___err = ___make_sfun_stack_marker (___ps, &marker, thunk))
+       == ___FIX(___NO_ERR))
+     {
++      live_marker = marker;
+       ___err = ___call (___PSP 0, ___VECTORELEM(marker, 0), marker);
+-      ___kill_sfun_stack_marker (marker);
+     }
+ 
+   ___END_TRY
++
++  if (live_marker != ___FAL)
++    ___kill_sfun_stack_marker (live_marker);
+ 
+   return ___err;
+ }

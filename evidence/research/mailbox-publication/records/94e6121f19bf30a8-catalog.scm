@@ -1,0 +1,15 @@
+;;; Derived from native SysML in the separate SMP/dev repository.
+(##namespace ("gambit#tests#smp#" cases))
+(define cases (quote (
+  ("gambit.smp.gc.root-task.publication-claim-arena" "kernel" "tests/gc-root-task.c" "PUBLICATION-PASS\nCLAIM-RACE-PASS\nARENA-PASS\n" "" 180 "gambit.smp.gc.root-task" "publication-claim-arena")
+  ("gambit.smp.runtime.roles.storage-layout" "kernel" "tests/runtime-roles.c" "" "" 180 "gambit.smp.runtime.roles" "storage-layout")
+  ("gambit.smp.control.continuation.map-multishot" "scheme" "tests/frame-continuation.scm" "FRAME-CONTINUATION-PASS\nHASH-INDEX-OWNER-PASS\n" "fixture-managed" 90 "gambit.smp.control.continuation" "map-multishot")
+  ("gambit.smp.gc.frame-roots.single-processor" "scheme" "tests/frame-continuation-roots.scm" "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n" "fixture-managed" 90 "gambit.smp.gc.frame-roots" "single-processor")
+  ("gambit.smp.gc.frame-roots.host-processors" "scheme" "tests/frame-continuation-roots.scm" "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n" "host-managed" 90 "gambit.smp.gc.frame-roots" "host-processors")
+  ("gambit.smp.gc.shared-roots.cyclic-aliases" "scheme" "tests/smp/gc/shared-roots.scm" "SHARED-ROOTS-GC-PASS collections=33\n" "host-managed" 90 "gambit.smp.gc.shared-roots" "cyclic-aliases")
+  ("gambit.smp.scheduler.mailbox.ordered-shared-values" "scheme" "tests/smp/scheduler/mailbox-publication.scm" "MAILBOX-ROOTS-PASS messages=64\n" "host-managed" 90 "gambit.smp.scheduler.mailbox" "ordered-shared-values")
+  ("gambit.smp.control.dynamic-wind.multishot-gc" "scheme" "tests/smp/control/dynamic-wind-multishot.scm" "WIND-RESUME-GC-PASS shots=3\n" "host-managed" 90 "gambit.smp.control.dynamic-wind" "multishot-gc")
+  ("gambit.smp.memory.modules.make-invalidation" "make" "lib/makefile.in" "MEMORY-DEPENDENCIES-PASS fragments=25\n" "" 60 "gambit.smp.memory.modules" "make-invalidation")
+  ("gambit.smp.scheduler.mailbox.blocked-cell-roots" "scheme" "tests/smp/scheduler/mailbox-permit-roots.scm" "MAILBOX-PERMIT-ROOTS-PASS blocked-cell-gc selective-cursor timeout-cleanup\n" "host-managed" 90 "gambit.smp.scheduler.mailbox" "blocked-cell-roots")
+  ("gambit.smp.scheduler.mailbox.concurrent-first-publishers" "scheme" "tests/smp/scheduler/mailbox-identity.scm" "MAILBOX-IDENTITY-PASS publishers=8 messages=64 shared-aliases\n" "host-managed" 90 "gambit.smp.scheduler.mailbox" "concurrent-first-publishers")
+)))

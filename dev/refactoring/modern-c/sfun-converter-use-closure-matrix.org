@@ -1,0 +1,247 @@
+#+TITLE: SFUN converter native use and foreign payload custody — net benefit matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML evaluated authority
+:PROPERTIES:
+:CUSTOM_ID: sfun-converter-use-closure-matrix
+:AUTHORITY: GambitSfunConverterUseClosure
+:END:
+Generated rows below come from the native SysML evaluator. No native issuer is qualified by a formal route.
+
+** Role
+
+| key | identity | retirement | boundary |
+|---+---+---+---|
+| ConverterUsePlan | Direction, parameter/result position, resolved type and source fingerprint | Frozen plan dominates all generated END/body/error/finalizer paths | Boolean type-needs-cleanup is insufficient for effect/custody proof |
+| PrivateCopyCustody | Copy allocation identity and pending wrapper outcome | Transfer to successful wrapper or certify destructor disposition | Wrapping failure can call arbitrary release_fn; return alone is not disposal evidence |
+| InputReference | One still native hold produced by admitted C-to-Scheme conversion | Actual END_SFUN conversion release or stable unwind guard | Native hold drop is not foreign destructor and not proof of unreachability |
+| ForeignPayloadLease | Wrapper pointer/release_fn plus capture and image owners | Explicit/GC destructor with reliable completion then image grace | Native marker expiry does not destroy escaped Scheme payload |
+| OwnerFinalUse | Result terminal plus all native converter/arg users discharged | Delegate parent owner closure protocol | Do not wait for foreign GC destruction before closing native marker |
+
+** Profile
+
+| key | repeatable | actionName | lemma | producerAnchor | boundary |
+|---+---+---+---+---+---|
+| built-in-input | one input conversion / release per successful wrapper | sfun_converter_use_closure.dropInputReference | ConverterUse.argumentDropIsNotDestruction | arg-int-end | Reference-release end runs before handler retry loop; floating/bignum/string wrapper construction may allocate |
+| built-in-result | conversion repeats for typed handler results | sfun_converter_use_closure.handlerBadResult | ConverterUse.closureDischargesNativeUse | generator-last-result | Retry does not recreate input conversions; custom converters need full effect contract |
+| copied-native-value | one private copy transfers into foreign wrapper | sfun_converter_use_closure.wrapSuccess | ConverterUse.privateAndWrappedExclusive | struct-fail | Copy allocation/wrapping/callback failure are distinct; no success inferred from status alone |
+| size-family-hold-balance-gap | out-of-fixnum values may allocate native-held bignums | sfun_converter_use_closure.dropInputReference | ConverterUse.closureDischargesNativeUse | size-end-no-drop | size_t/ssize_t/ptrdiff_t close-only END cannot automatically discharge boxed native hold; conditional source mismatch, no native leak run |
+
+** Inventory
+
+| key | direction | endEffect | count | actionName | lemma | sourceAnchor |
+|---+---+---+---+---+---+---|
+| input-native-drop | C-to-Scheme | native-reference-drop | 43 | sfun_converter_use_closure.dropInputReference | ConverterUse.argumentDropIsNotDestruction | arg-int-end |
+| input-close-only | C-to-Scheme | close-only | 15 | sfun_converter_use_closure.finishResult | ConverterUse.closureDischargesNativeUse | arg-char-end |
+| result-empty-end | Scheme-to-C | empty-end | 58 | sfun_converter_use_closure.finishResult | ConverterUse.closureDischargesNativeUse | result-struct-end |
+
+** Leaf
+
+| key | component | actionName | lemma | producerAnchor | qualification | boundary |
+|---+---+---+---+---+---+---|
+| input-not-destructor | control | sfun_converter_use_closure.dropInputReference | ConverterUse.argumentDropIsNotDestruction | release-scmobj | Classify actual converter END use as still native-hold decrement | Do not call native payload destructor merely because argument native reference was dropped |
+| final-use | control | sfun_converter_use_closure.signFinalUse | ConverterUse.closureDischargesNativeUse | generator-last-result | All admitted converter and native-input uses drained before parent closure | Unknown custom callback/native escaped alias cannot receive closure from cleanup boolean |
+| private-failure | resources | sfun_converter_use_closure.wrapFailureReturned | ConverterUse.privateAndWrappedExclusive | struct-fail | Reliable external private-disposition record, not legacy wrapper status | STRUCT/UNION/TYPE failure ignores release_fn return; return alone cannot certify disposal |
+| no-abandon | control | sfun_converter_use_closure.markerDrop | ConverterUse.markerEffectGap | still-dec | Exclude collector/count writers and non-local exit through decrement and receipt | Source-only leaf purity is not effective native qualification |
+
+** Composition
+
+| key | fromAction | toAction | lemma | fromComponent | toComponent | sharedConstraint |
+|---+---+---+---+---+---+---|
+| copy-to-wrapper | sfun_converter_use_closure.wrapSuccess | sfun_converter_use_closure.dropInputReference | ConverterUse.privateAndWrappedExclusive | resources | control | Copy ownership moves to wrapper; native hold is separate |
+| input-to-retry | sfun_converter_use_closure.dropInputReference | sfun_converter_use_closure.handlerCall | ConverterUse.argumentDropIsNotDestruction | control | control | Input native reference released before result retry; foreign payload remains |
+| owner-to-payload | sfun_converter_use_closure.signFinalUse | sfun_converter_use_closure.beginDestructor | ConverterUse.closureDoesNotDestroyPayload | control | resources | Owner closure does not wait for escaped Scheme foreign object destruction |
+| unknown-to-unwind | sfun_converter_use_closure.wrapFailureUnknown | sfun_converter_use_closure.signEscapedUse | ConverterUse.unknownPrivateHasCustodian | resources | control | Unknown private destructor requires disposition plus native exit before closure |
+| capture-to-code | sfun_converter_use_closure.captureArgument | sfun_converter_use_closure.retireCode | ConverterUse.captureRetainsPayload | control | resources | Continuation/argument reachability retains native destructor code |
+| marker-to-retirement | sfun_converter_use_closure.commitMarkerRelease | sfun_converter_use_closure.retireCode | ConverterUse.codeRetirementCut | control | resources | Marker settlement cannot independently unload foreign destructor code |
+| actual-parent-normal-cut | sfun_converter_use_closure.finishResult | sfun_converter_use_closure.signFinalUse | ConverterOwnerBridge.actualParentGuard | control | control | Adapter satisfies the actual parent signLocalClosure guard; normal cut only, no full transition or code-retirement simulation |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| cleanup-direction | Avoid charging foreign destructor at every built-in argument end | One precise reference-use record per non-immediate input | 43 releasing and 15 close-only C-to-Scheme END macro forms are source inventory, not dynamic call frequencies |
+| retry-work | Input conversion/cleanup is outside the SFUN_ERROR retry loop | Final result retries still execute and may allocate | Existing behavior already avoids repeated input conversion; do not count as new speedup |
+| split-retirement | Owner can settle while captured foreign payload and code remain live | Separate payload/destructor image lease until final real use | Avoid owner-waits-GC and GC-waits-native-owner dependency by design; no general liveness theorem |
+| remove-wrappers | One generated ConverterUsePlan can replace repeated macro-time cleanup inference | Type graph, aliases, custom converter effects and stable failure custody | Old C macro paths retire only after complete generator/consumer equivalence |
+| failure-custody | Retain known native pointer on unknown destructor disposition | Stable attempted-allocation and callback-effect records; unknowns may retain indefinitely | Legacy release_fn return values and cleared fields are not reliable disposal receipts |
+| quantities | For E owner entries with a admitted nontrivial arguments, at most aE native argument-drop obligations on a fully successful path | Transfer/retry guards and per-resource metadata; dynamic E and a must be measured later | Builtin macro families count=116 total conversion pairs; no measured runtime reduction |
+| modern-C | C23 can represent separate native use, Scheme reachability and destructor completion | Same semantic support is required with Zig | No Zig-specific benefit or time/byte speedup established |
+| boxed-size-hold | Candidate removes B unintended native holds for B boxed size-family argument conversions if no alternate release exists | Owned-result status or correct generated drop, GC/writer exclusion and exact boundary validation | Conditional source accounting only: native type must admit out-of-fixnum values, non-null processor must allocate still objects, and no other owner may be charged for that reference; no measured bytes/time or native leak claim |
+
+** Memory
+
+| key | publication | observation | obligation |
+|---+---+---+---|
+| private-copy | Reserve stable attempt record before native allocation/callback-capable conversion | Pointer identity becomes owned record before wrapper creation can allocate or call release_fn | The non-abandonable native-return-to-record window remains open; do not infer protection from a stack local |
+| wrapper | Publish complete tags/pointer/destructor fields before wrapper becomes scannable | Reload actual rooted wrapper after allocating safepoints | Old wrapper initialization and C23 GC scanning order require independent source refinement |
+| input-hold | Record exactly one native-hold effect inside qualified GC/count exclusion | Commit argument ticket before entering error-handler/reply path | Parent marker NoAbandon is not automatically proof for every converter/reference writer |
+| owner | Finalize native users then close admission and sign exact parent identity | Owner closure retains separate Scheme capture and destructor code leases | Logical model step is not an instruction-level multi-store transaction |
+| destructor | Detach handler under stable task and pinned code before callback | Only reliable completion frees payload lease; unknown stays owned | Current release_foreign clears fields but has no durable callback receipt; no safe replay follows |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| input-use | GeneratedArgumentReleaseAdapter | END_SFUN_*_TO_SCMOBJ and release_scmobj | source order established; managed adapter absent | Record native-hold drop while preserving payload/capture and code custody |
+| private-disposition | StableConversionAttemptOwner | BEGIN_SFUN_COPY plus STRUCT/UNION/TYPE_to_SCMOBJ failure branch | not an existing qualified signer | Publish private allocation before callback-capable wrapping; reliable disposal receipt or retain unknown |
+| final-use | GeneratedConverterPlanFinalizer | _ptree2 convert-param-list then SFUN_ERROR and END_SFUN | requires closed custom/built-in plan | Sign native-use closure after input uses discharged and final result successful; do not require payload destruction |
+| payload | ForeignReleaseCoordinator | release_foreign and still-sweep | unknown-effect recovery and worker affinity open | Cleared object fields are not callback completion; stable record pins destructor code |
+| abnormal | StableNativeReturnCoordinator | source END_SFUN may be bypassed by ___call rethrow | complete native signer unresolved | Guard adopts pending input references and private-copy attempts outside discarded C frames |
+
+** Paper
+
+| key | title | url | section | basis | boundary |
+|---+---+---+---+---+---|
+| gambit-primary | Feeley: unrestricted continuation/C interoperability | https://www.schemeworkshop.org/2000/feeley.ps | 1-5 | Scheme frame lifetime and C dynamic extent differ; copied C state cannot replace store semantics | Historical C-thread proposal unimplemented then; no timing transfer |
+| gambit-pvm | Feeley/Miller parallel VM | https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf | 2 | Compiler/runtime contract should carry frame and converter-use facts | Not a current generated-C equivalence proof |
+| ocaml-effects | Retrofitting Effect Handlers onto OCaml | https://anil.recoil.org/papers/2021-pldi-retroeff.pdf | 3.2;5.3 | Cleanup needs explicit control and foreign callback boundaries | Its one-shot restriction is not imported into Gambit |
+| c23-draft | WG14 N3096 | https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf | 5.1.2.4;7.13 | Visibility and live/same-thread setjmp constraints | No atomic flag makes decrement and receipt one transaction |
+
+** Grounding
+
+| component | producerAnchor | paperKey | obligationId |
+|---+---+---+---|
+| control | no-sfun-catcher | gambit-primary | Converter-unwind |
+| control | generator-wrapping | gambit-pvm | Converter-plan |
+| resources | struct-fail | ocaml-effects | Converter-failure |
+| control | still-dec | c23-draft | Converter-release |
+
+** Need
+
+| key | kind | path | scope | owner.componentId |
+|---+---+---+---+---|
+| Converter-formal | formal | dev/refactoring/modern-c/models/lean/ConverterUse.lean | bounded custody model | control |
+| Converter-bridge | bridge | dev/modeling/tools/sfun-converter-use-closure-projection.py | trusted typed IR projection | control |
+| Converter-plan | native | vendor/gambit/gsc/_ptree2.scm | all builtin/custom converter effects, plan sealing and source lowering | control |
+| Converter-failure | native | vendor/gambit/lib/c_intf.c | private allocation capture and reliable synchronous disposal completion | resources |
+| Converter-unwind | native | vendor/gambit/lib/setup.c | stable subtree/native-input root handoff | control |
+| Converter-release | native | vendor/gambit/lib/_mem/object-allocation.inc | NoAbandon and all argument/marker count writers under GC exclusion | control |
+| Converter-payload | native | vendor/gambit/lib/_mem/still-sweep.inc | foreign destructor affinity, exact callback effects and global image lifetime | resources |
+| Converter-size-balance | native | vendor/gambit/include/_gambit/foreign_conversion.h.in | effective native type range, fixnum width and complete alternate-release audit before claiming size-family hold balance | control |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| resources | sfun_converter_use_closure.reservePrivate | ConverterUse.reservePrivatePreserves | struct-fail | Converter-failure |
+| resources | sfun_converter_use_closure.beginWrap | ConverterUse.beginWrapPreserves | struct-fail | Converter-failure |
+| resources | sfun_converter_use_closure.wrapSuccess | ConverterUse.wrapSuccessPreserves | struct-fail | Converter-failure |
+| resources | sfun_converter_use_closure.wrapFailureReturned | ConverterUse.wrapFailureReturnedPreserves | struct-fail | Converter-failure |
+| resources | sfun_converter_use_closure.wrapFailureUnknown | ConverterUse.wrapFailureUnknownPreserves | struct-fail | Converter-failure |
+| resources | sfun_converter_use_closure.auditPrivateDisposed | ConverterUse.auditPrivateDisposedPreserves | struct-fail | Converter-failure |
+| control | sfun_converter_use_closure.bodyBadResult | ConverterUse.bodyBadResultPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.bodyGoodResult | ConverterUse.bodyGoodResultPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.captureArgument | ConverterUse.captureArgumentPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.dropInputReference | ConverterUse.dropInputReferencePreserves | release-scmobj | Converter-release |
+| control | sfun_converter_use_closure.handlerCall | ConverterUse.handlerCallPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.handlerBadResult | ConverterUse.handlerBadResultPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.handlerGoodResult | ConverterUse.handlerGoodResultPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.finishResult | ConverterUse.finishResultPreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.signFinalUse | ConverterUse.signFinalUsePreserves | generator-wrapping | Converter-plan |
+| control | sfun_converter_use_closure.escapeOwner | ConverterUse.escapeOwnerPreserves | no-sfun-catcher | Converter-unwind |
+| control | sfun_converter_use_closure.drainInputFromGuard | ConverterUse.drainInputFromGuardPreserves | no-sfun-catcher | Converter-unwind |
+| control | sfun_converter_use_closure.ackExitedOwner | ConverterUse.ackExitedOwnerPreserves | no-sfun-catcher | Converter-unwind |
+| control | sfun_converter_use_closure.signEscapedUse | ConverterUse.signEscapedUsePreserves | no-sfun-catcher | Converter-unwind |
+| control | sfun_converter_use_closure.beginMarkerRelease | ConverterUse.beginMarkerReleasePreserves | release-scmobj | Converter-release |
+| control | sfun_converter_use_closure.markerDrop | ConverterUse.markerDropPreserves | release-scmobj | Converter-release |
+| control | sfun_converter_use_closure.commitMarkerRelease | ConverterUse.commitMarkerReleasePreserves | release-scmobj | Converter-release |
+| control | sfun_converter_use_closure.loseReply | ConverterUse.loseReplyPreserves | release-scmobj | Converter-release |
+| control | sfun_converter_use_closure.queryReply | ConverterUse.queryReplyPreserves | release-scmobj | Converter-release |
+| resources | sfun_converter_use_closure.dropCaptured | ConverterUse.dropCapturedPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.beginDestructor | ConverterUse.beginDestructorPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.destructorReturned | ConverterUse.destructorReturnedPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.destructorUnknown | ConverterUse.destructorUnknownPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.beginGc | ConverterUse.beginGcPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.finishGc | ConverterUse.finishGcPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.retireRoots | ConverterUse.retireRootsPreserves | still-sweep | Converter-payload |
+| resources | sfun_converter_use_closure.retireCode | ConverterUse.retireCodePreserves | still-sweep | Converter-payload |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| inputDropKeepsPayload | ConverterUse.inputDropKeepsPayload |
+| closureDischargesNativeUse | ConverterUse.closureDischargesNativeUse |
+| unknownPrivateHasCustodian | ConverterUse.unknownPrivateHasCustodian |
+| unknownEscapeNoClosure | ConverterUse.unknownEscapeNoClosure |
+| privateAndWrappedExclusive | ConverterUse.privateAndWrappedExclusive |
+| captureRetainsPayload | ConverterUse.captureRetainsPayload |
+| unknownDestructorKeepsCode | ConverterUse.unknownDestructorKeepsCode |
+| markerEffectGap | ConverterUse.markerEffectGap |
+| noRepeatedMarkerDrop | ConverterUse.noRepeatedMarkerDrop |
+| codeRetirementCut | ConverterUse.codeRetirementCut |
+| initialSafe | ConverterUse.initialSafe |
+| stepPreserves | ConverterUse.stepPreserves |
+| reachableSafe | ConverterUse.reachableSafe |
+| argumentDropIsNotDestruction | ConverterUse.argumentDropIsNotDestruction |
+| closureDoesNotDestroyPayload | ConverterUse.closureDoesNotDestroyPayload |
+| queryDoesNotRepeatDrop | ConverterUse.queryDoesNotRepeatDrop |
+| normal-cut-ready | ConverterOwnerBridge.normalCutInputs |
+| normal-cut-parent-guard | ConverterOwnerBridge.actualParentGuard |
+| normal-cut-owner-identity | ConverterOwnerBridge.parentClosesSameUse |
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| generator-wrapping | vendor/gambit/gsc/_ptree2.scm | (c-convert-argument
+              sfun? | nested argument conversions wrap body and initial result conversion |
+| generator-arg-decl | vendor/gambit/gsc/_ptree2.scm | (define (c-declare-argument sfun? numbered-typ body) | argument and indirect-copy scopes |
+| generator-arg-copy | vendor/gambit/gsc/_ptree2.scm | c-id-prefix "END_SFUN_COPY_" tail | copy scope does not itself destroy copied payload |
+| generator-first-result | vendor/gambit/gsc/_ptree2.scm | (make-body (c-set-result sfun? result-typ) cleanup?) | first conversion inside input argument scopes |
+| generator-error-loop | vendor/gambit/gsc/_ptree2.scm | "SFUN_ERROR" | loop follows convert-param-list |
+| generator-last-result | vendor/gambit/gsc/_ptree2.scm | (if sfun?
+                    (c-set-result sfun? result-typ) | retry-loop result conversion precedes END_SFUN |
+| generator-scheme-first | vendor/gambit/gsc/_ptree2.scm | (append (keep scmobj-typ? numbered-param-typs) | Scheme-object arguments ordered first; nontrivial C conversions follow |
+| custom-c-type | vendor/gambit/gsc/_ptree2.scm | (vector 'c-type | custom converter names and cleanup boolean |
+| custom-cleanup-bool | vendor/gambit/gsc/_ptree2.scm | "Fifth argument to 'c-define-type' must be a boolean" | cleanup bit is not a callback or escape effect summary |
+| custom-emit | vendor/gambit/gsc/_ptree2.scm | (vector-ref def 3) | custom result converter text, not semantic qualification |
+| release-function-selection | vendor/gambit/gsc/_ptree2.scm | c-interface-release-fns | explicit release function or generated release stub |
+| arg-int-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_INT_TO_SCMOBJ(c,s,i)___EXT(___release_scmobj)(s);} | built-in arg end drops Scheme native hold |
+| arg-char-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_CHAR_TO_SCMOBJ(c,s,i)} | immediate close-only argument |
+| arg-struct-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_STRUCT_TO_SCMOBJ(n,c,t,r,s,i)___EXT(___release_scmobj)(s);} | foreign wrapper ref drop, not payload destruction |
+| result-struct-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_SCMOBJ_TO_STRUCT(n,s,c,t) | typed result end has no local native cleanup |
+| copy-start | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_SFUN_COPY_STRUCT(n,r,arg){ void *r; ___ASSIGN_NEW_WITH_INIT(r,struct n,arg); | private native copy exists before wrapper success |
+| copy-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_COPY_STRUCT(n,r,arg)} | copy scope only closes |
+| c-rc-copy | vendor/gambit/include/_gambit/foreign_conversion.h.in | var = ___CAST(type*,___EXT(___alloc_rc) (___PSP sizeof (type))); | C allocator path; C++ is not the design baseline |
+| final-marker | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN } ___EXT(___kill_sfun_stack_marker) (___marker); | final normal owner release after error loop |
+| no-sfun-catcher | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___BEGIN_SFUN_BODY | outer native unwind can bypass local arg release and END_SFUN |
+| release-scmobj | vendor/gambit/lib/_mem/object-allocation.inc | ___EXP_FUNC(___SCMOBJ,___release_scmobj) | body only checks allocation kind and decrements still count |
+| still-dec | vendor/gambit/lib/_mem/still-refcount.inc | ___BODY0(obj)[___STILL_REFCOUNT-___STILL_BODY]--; | physical effect is non-idempotent |
+| wrap-alloc | vendor/gambit/lib/c_intf.c | ___SCMOBJ r = ___alloc_scmobj (___ps, ___sFOREIGN, ___FOREIGN_SIZE<<___LWS); | foreign-wrapper allocation can fail |
+| wrap-success | vendor/gambit/lib/c_intf.c | ___FOREIGN_RELEASE_FN_FIELD(r) = ___CAST(___SCMOBJ,release_fn); | successful wrapper owns pointer and destructor registration |
+| struct-fail | vendor/gambit/lib/c_intf.c | else if ((e = ___POINTER_to_SCMOBJ (___ps, x, tags, release_fn, obj, arg_num))
+           != ___FIX(___NO_ERR))
+    release_fn (x); | struct/union/type wrappers synchronously invoke release_fn on wrapping failure |
+| destructor-before-call | vendor/gambit/lib/c_intf.c | ___FOREIGN_PTR_FIELD(obj) =
+        ___CAST(___SCMOBJ,___CAST(void*,0)); | release_foreign clears pointer/handler before invoking callback |
+| destructor-result | vendor/gambit/lib/c_intf.c | if ((e = release_fn (ptr)) != ___FIX(___NO_ERR)) | foreign callback failure does not restore prior pointer state |
+| still-sweep | vendor/gambit/lib/_mem/still-sweep.inc | ___release_foreign | real collector foreign destructor consumer; return value not checked at shown call sites |
+| noop-pointer-release | vendor/gambit/lib/c_intf.c | pointer is under the control of the "C world". | default raw pointer release does not own/free native payload |
+| root-slots | vendor/gambit/lib/_mem/root-origins.inc | mark_array (work, context->r, sizeof(context->r)/sizeof(*context->r)); | logical root lease is not full registered-slot proof |
+| source-example | vendor/gambit/examples/pthread/mylib.scm | (c-define (increment-counter c) (counter) void "increment_counter" "" | real wrapper receives Scheme-object argument; no synthetic copied-struct path claimed |
+| source-types | vendor/gambit/examples/Xlib-simple/Xlib.scm | (c-define-type XGCValues "XGCValues") | actual named native value type; does not alone prove SFUN struct argument reachability |
+| paper-fulltext | evidence/research/source-references/feeley-sfp/8bb2fae8ae4b54d3a86206596f90e9cf73da39846af0f39244a476074cf81ed4.txt | 3   Approa h 2: | local official Gambit paper; damaged extraction not reconstructed |
+| parent-actual-guard | dev/refactoring/modern-c/models/lean/SfunOwnerAst.lean | def signLocalClosureGuard | actual typed parent guard, source hash pinned to parent receipt |
+| size-end-no-drop | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN_SIZE_T_TO_SCMOBJ(c,s,i)} | close-only END is not proof of nonallocating conversion |
+| size-delegates-u64 | vendor/gambit/lib/c_intf.c | return ___U64_to_SCMOBJ (___ps, ___U64_from_ULONGLONG (___CAST(___ULONGLONG,x)), obj, arg_num); | size_t conversion delegates to potentially boxed integer converter |
+| signed-size-delegates-s64 | vendor/gambit/lib/c_intf.c | return ___S64_to_SCMOBJ (___ps, ___S64_from_LONGLONG (___CAST(___LONGLONG,x)), obj, arg_num); | ssize_t and ptrdiff_t use the same potentially allocating converter |
+| boxed-integer-allocation | vendor/gambit/lib/c_intf.c | r = ___alloc_scmobj (___ps, ___sBIGNUM, n<<3); | out-of-fixnum branch allocates a Scheme object |
+| converter-release-contract | vendor/gambit/lib/c_intf.c | call to '___release_scmobj' when the caller no longer needs a | local documented caller obligation for non-null processor still conversions |
+| size-registered-builtin | vendor/gambit/gsc/_parms.scm | (cons size_t-sym | real named size_t builtin maps to SIZE_T_TO_SCMOBJ with cleanup flag false; ssize_t/ptrdiff_t follow |
+
+** Closure
+
+| Obligation | Receipt |
+|---+---|
+| Converter-formal | Scoped conditional formal evidence |
+| Converter-bridge | Scoped conditional formal evidence |
+| Converter-plan | Unresolved native contract |
+| Converter-failure | Unresolved native contract |
+| Converter-unwind | Unresolved native contract |
+| Converter-release | Unresolved native contract |
+| Converter-payload | Unresolved native contract |
+| Converter-size-balance | Unresolved native contract |

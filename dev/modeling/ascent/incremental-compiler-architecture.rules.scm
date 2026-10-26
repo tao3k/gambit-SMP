@@ -1,3 +1,6 @@
+(relation compilerPlacementFact (key owner anchor))
+(relation compilerPlacement (scenario key owner anchor))
+((compilerPlacement S K O A) <-- (scenarioFact S _) (compilerPlacementFact K O A))
 (relation compilerComponentFact (key anchor))
 (relation compilerGateFact (scenario key qualified))
 (relation compilerSourceFact (scenario qualified))

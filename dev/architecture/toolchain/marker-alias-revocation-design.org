@@ -1,0 +1,273 @@
+#+TITLE: Marker Aliases, Revocable Audit and Modern C Authority
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+CATEGORY: modern-c
+
+* RESEARCH Scope and decision
+:PROPERTIES:
+:CUSTOM_ID: marker-alias-revocation-decision
+:AUTHORITY: MarkerAliasRevocation
+:STATUS: conditional-models-source-open
+:MODERNIZATION: modern-C-mainline
+:END:
+
+This is a supporting native-contract study for the Gambit foundation of the Gerbil
+incremental compiler service. It does not replace the compiler query graph or
+promise faster compilation. Modern C is the selected runtime refactoring path.
+Zig provides no demonstrated additional saving for this protocol.
+
+[[file:models/sysml/marker-alias-revocation.sysml][SysML]] owns the contract/alias inventory, dependency graph, memory edges,
+benefits and ModelNeed routing. [[file:marker-alias-revocation-matrix.org][The projected matrix]] and [[file:diagrams/marker-alias-revocation.svg][D2]] are derived views.
+[[file:../../../models/build/marker_alias_revocation.qnt][QNT]] models interleavings; [[file:../../../models/build/MarkerAliasRevocation.lean][Lean]] proves counter and lease projection properties.
+[[file:../../modeling/ascent/marker-alias-revocation.rules.scm][ASCENT DSL]] checks exact source/action/guard/lemma bindings and receipt scope/digest.
+[[file:../../../evidence/research/marker-alias-revocation/checks.json][Local receipts]] never establish source simulation or native qualification.
+The frozen [[file:marker-audit-quiescence-design.org][parent audit study]] remains a required open source obligation MAQ-S.
+
+* RESEARCH Actual marker alias chain
+:PROPERTIES:
+:CUSTOM_ID: marker-alias-source-chain
+:END:
+
+** Native return frame and generated descriptor
+
+[[file:../../../vendor/gambit/lib/setup.c::3340][___call]] writes stack_marker at old fp[-2], prior R0 at fp[-1], moves fp by
+FRAME_SPACE(2)+nargs, and installs handler_return_to_c in PSR0. Setup selects label
+11 at line 5243. The generated kernel's label-11 body (11727-11777) retains the
+frame and reads STK(2-FRAME_SPACE(2)). The label table at 29681-29695 has PROC as
+label zero and thirteen RET entries; its eleventh RET has IFD(RETN,5,0,0x3L).
+
+Do not mistake source logical arity 2 for descriptor frame size 5. Header lines
+9216-9226 define reserve=3 and alignment=4: FRAME_SPACE(2)=FRAME_SPACE(5)=8.
+The marker is logical slot i=2: stack frame base[8-2], heap body[5-2+1]=body[4].
+Map 0x3 marks logical slots 1 and 2 live, using frame-slot-live?'s (i-1) bit at
+_kernel.scm:3342-3366. This is a static current-source coordinate witness, not a
+matched installed Darwin object, stack dump, or proof every captured continuation
+contains this frame. Reaching the return frame and legal capture/restoration remain
+control-path preconditions.
+
+** Reflection, capture and serialization
+
+_kernel.scm:3145-3152 converts a stack continuation frame to an accessible frame
+via GC when needed. continuation-ref at 3463-3510 reads stack base[SPACE(fs)-i]
+or heap body[fs-i+1]. frame-ref at 3415-3437 returns the corresponding raw object.
+Neither accessor filters marker authority; frame-set! at 3439-3461 and
+continuation-set! at 3512-3558 replace fields without a marker capability test.
+continuation-next copies before advancing (3725-3727), allowing traversal without
+mutating the original continuation wrapper. This is a source-supported possible
+alias composition, not an observed exploit or proof arbitrary user code can invoke
+all internal procedures under every declaration profile.
+
+_io.scm:11690-11718 really copies live frame fields into an ordinary vector and
+reconstructs frames from fields. A new vector wrapper does not deep-copy the marker
+it contains. wr-frame at 12123-12127 and #frame/#continuation dispatch at
+13789-13792 are actual serialization consumers. Serialization can reconstruct
+objects: it must never manufacture the original native credit, session identity,
+or permission to return through a dead C activation. Original-pointer preservation
+across serialization is NOT established. Reconstructed markers refuse the original
+receipt unless a separate authority-aware encoding and resolver are proven.
+
+** FFI identity exposure and actual arithmetic writers
+
+_ptree2.scm:2780-2876 selects SCMOBJ argument handling; the scheme-object branch
+emits the original argument expression rather than a deep conversion. Header
+BEGIN_SFUN_ARG_SCMOBJ and BEGIN_CFUN_ARG_SCMOBJ are empty; SFUN_ARG/CFUN_ARG and
+result macros transport encoded Scheme objects (10051-10066,10387-10403).
+Passing such a value creates no automatic write lease, registered root or borrow.
+
+There are real generic consumers: examples/pthread/mylib.scm:24-31 declares a
+scheme-object counter and increments/decrements its still count. This is a
+COUNTER witness, not evidence that the sample receives a marker. Generic Scheme
+primitives _kernel.scm:2411-2417 and C exports setup.c:5931-5944/header:13294-13302
+can operate on a supplied still object. release_scmobj at mem.c:1730-1737 is an
+indirect decrement route. Raw pointer arithmetic can bypass named APIs; the
+bounded source census cannot close it.
+
+The three named direct count writes remain fresh initialization (mem.c:1683),
+inc (1452), and dec (1466). Scheme reachability, native count credit and still-arena
+ownership are separate. A frame alias alone changes none of the last two.
+Marker kill at c_intf.c:6555-6562 invalidates slot zero then decrements: replay is
+not idempotent. Existing direct count/marker writes have no gate or epoch check.
+
+* DESIGN Exposure and audit eligibility
+:PROPERTIES:
+:CUSTOM_ID: marker-exposure-admission
+:END:
+
+| Exposure class | Can be managed | Must reject strict private-marker audit |
+|---+---+---|
+| Read-only continuation/frame reference | Keep reachability and root/arena lifetime; expose no native write authority | Read-only property or frame identity cannot be established |
+| Managed count writer | Acquire same-generation lease before object access; serialize count arithmetic; acknowledge after last access | Bypasses gate, unknown completion, mismatched generation or active audit |
+| Frame/marker validity mutation | Route through authority-aware setter and revoke provenance before publication | Unmediated frame-set!, marker vector mutation or reconstructed identity |
+| scheme-object C argument | Classify before exposure; root reload and borrow/retention registration | Unrestricted raw pointer retained or arbitrary imported C not covered |
+| Balanced inc then dec | Accounting equation can be preserved | Does NOT restore strict no-foreign-write provenance automatically |
+| Serialization | Rebuild Scheme data with distinct authority status | Original native session/credit asserted from ordinary reconstructed fields |
+
+Repeated continuation restoration is not a release-lease retry. A new physical
+native activation obtains a new invocation lease; repeated delivery of the SAME
+request queries its stable outcome. A restored frame never resurrects a dead
+catcher or old processor-local storage. Keep Scheme semantics; narrow only the
+optimization/admission profile. Rejecting audit does not mean rejecting Scheme
+continuations or existing FFI execution.
+
+* DESIGN Close, revoke, drain and reopen
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-revocation-protocol
+:END:
+
+1. Before exposing a writable alias, claim a generation-aware writer lease in the
+   stable VM directory. A test-open followed by a separate increment is forbidden.
+   The lease includes count, validity, frame replacement and native retention paths.
+2. Close admission with a combined-state transition. Pre-admitted writers may still
+   run; wait for their exact last accesses, old activation completion and GC/root
+   cut. Failed join, timeout and missing reply preserve the guardian's obligation.
+3. Issue a receipt only with the exact one-credit baseline, closed alias profile,
+   arena handoff, root scan coverage, and collector exclusion. Receipt identity is
+   (marker generation, writer epoch, root/GC epoch, closure stamp). Current QNT
+   explicitly models generation/writer epoch; root/closure are predicates. Their
+   concrete ABA-free implementation and product simulation remain open.
+4. Claim an exclusive audit lease atomically with receipt validation. Hold it from
+   fresh count read through invalidation, decrement and recording. Checking a
+   revoked bit only before the read does not protect subsequent instructions.
+5. Revocation REQUEST prevents new audit entry and steps; it does not force-stop
+   an already running C instruction. In the source refinement, an instruction
+   already admitted may complete under its lease. The revoker waits; it cannot
+   admit a writer or retire storage. The model splits request, yield/confirmed exit
+   and completeRevoke. A paused auditor's old snapshot is discarded before reentry.
+6. After exact audit-lease drain, invalidate old receipt and clear observation,
+   then open a fresh writer epoch. Full generation wrap is refused, not interpreted
+   as identity equality. Unknown/abandoned auditor retains roots, arena and session.
+7. A newly discovered raw escape invalidates eligibility. If unmanaged writes
+   already overlapped audit, no flag can retroactively establish correctness:
+   quarantine/retain custody and refuse the optimization. Never convert this into
+   a successful modeled managed transition.
+
+The strict profile keeps foreignWrite taint even after balanced credits. Restoring
+eligibility needs an independent complete credit/provenance reconstruction, outside
+this study. The model deliberately does not provide that action. Once release is
+recorded, writable admission for this native session never reopens.
+
+* DESIGN C11 refinement obligations
+:PROPERTIES:
+:CUSTOM_ID: marker-alias-c11
+:END:
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][C11 draft N1570]] §§5.1.2.4 and 7.17 define data races and release/acquire
+synchronization; §7.13.2.1 matters for longjmp and modified automatic locals.
+This turn's standard fetch timed out; section references are retained obligations,
+not a new verified platform receipt. QNT's sequentially consistent abstract steps
+are not a C11 memory-model proof.
+
+| Edge | Candidate modern C realization | Required evidence |
+|---+---+---|
+| Admit vs close | Single atomic state containing generation, mode and live count; acq_rel CAS with acquire retry | No split test/increment race; no unchecked overflow or ABA; runtime lock-freedom not assumed |
+| Last writer vs zero observer | Count RMW release at actual last count/body/PSTATE access; coordinator acquire reads matching release sequence after close | All contributors release, no counter reset breaks chain; zero from wrong generation rejected |
+| Writer serialization | One ordinary-field mutation authority or separately proven atomic count representation | A lease counter alone does not serialize two writers or make plain ++/-- data-race-free |
+| Certify vs claim | Immutable receipt release-published; acquire claim in same mode/epoch state | Validate epoch and exclusivity in one authority transition; directory lifetime independently pinned |
+| Revoke vs active audit | CAS enters revoking mode; rejects new claims; existing audit lease stays counted | Revoker cannot alter count or reopen while auditor may execute ordinary accesses |
+| Audit exit vs reopening | Last audit access precedes release acknowledgement; revoker acquires drain then invalidates stamp before opening | Lost reply is not cessation; fresh auditor rereads under new cut |
+| GC vs count-zero marker | Independent registered scanned root plus arena pin; collector/auditor phases exclude each other | Audit root adds no native count; nonzero processor root coverage must be refactored |
+| Root/arena retirement | Confirm caller, all aliases, native borrowers and scan grace before release | cleanup_pstate currently frees still lists independently of count; join alone insufficient |
+
+No atomic cast fixes mixed atomic/plain access to existing fields. Route every
+writer through the new authority or keep audit disabled. Signal handlers and C
+cancellation must not acquire blocking locks or abandon this protocol: their exact
+admission remains a platform gate. No root lock is held while waiting for GC or
+callback completion. Directory pins are released only after last directory access,
+not merely after decrementing marker count.
+
+* PROOF Conditional arguments and retained counterexamples
+:PROPERTIES:
+:CUSTOM_ID: marker-alias-proof-boundary
+:END:
+
+Counter invariant is count + ownedDrops = 1 + extraCredits with ownedDrops in
+[0,1]. Native count=1 alone cannot distinguish no drop from one drop plus one
+extra credit. The private profile requires extraCredits=0 AND closed provenance.
+With complete writer drain and collector exclusion, fresh count1 permits the one
+missing owned decrement; count0 permits recording, never another decrement.
+
+Lease invariant: active audit implies closed gate, no writers, same receipt epoch,
+no raw escape, rooted session. Revoking implies closed gate. Closing preserves
+existing leases. Revocation changes eligibility without removing custody; only
+confirmed drain permits invalidation/reopen. Lean proves this smaller typed
+transition system and its finite-history induction; it does not prove arbitrary
+QNT execution or the source-to-model abstraction.
+
+QNT keeps the parent's twenty histories and adds eight positive/refusal histories
+and six deliberately faulty controls. Examples include: a pre-close alias writes
+late; balanced credits fail provenance; raw escape refuses certification; revocation
+waits for a live or unknown auditor; yielding discards the old count snapshot;
+reopening while the old auditor lives violates exclusion; stale epoch and raw
+escape during an exclusive audit violate safety. Faulty controls inject mutations
+outside admitted actions. They demonstrate the invariant detects these schedules,
+NOT that the current runtime has been shown to execute every counterexample.
+
+The source frame/FFI chain supports a possible marker alias composition. Exact
+installed-object reachability, caller/profile closure, C11 instruction simulation,
+GC/root product simulation, and finite-counter overflow remain unresolved. No
+source or platform receipt is fabricated by ASCENT synthetic scenarios.
+
+* RESEARCH Amplify the Gambit design, rather than preserve accidental layout
+:PROPERTIES:
+:CUSTOM_ID: feeley-advantage-amplification
+:PAPER: Feeley-Miller-LFP90
+:STATUS: architecture-conditional
+:END:
+
+Four native SysML PaperAdvantage parts are projected into ASCENT paperneed and
+paperbinding. paperaligned requires exact paper/section/source/component/obligation
+identity AND a mapped component AND a source-refinement ModelNeed. Missing-paper
+and wrong-component controls must block. This is traceability qualification, not
+a proof the paper establishes this new architecture.
+
+The request's “freely” is provisionally interpreted as Marc Feeley. The
+[[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Feeley/Miller PVM paper]] §2 provides bidirectional frontend/backend descriptions
+and logical frame/argument references. Its abstract notes VM measurements can guide
+representation decisions. Those ideas motivate the following modern design; the
+paper does not prove our ownership protocol or today's SMP implementation.
+
+| Paper idea | Current source anchor | Amplified modern C contract | Model and falsifiable return |
+|---+---+---+---|
+| Logical frame coordinates | setup.c:3339; _kernel.c:29693; _kernel.scm:3485,3501 | One generated FrameSpec supplies accessor, root map and exposure class | MAR-S coordinate witness; fail if any consumer disagrees or hand-maintained layout persists |
+| Bidirectional target information | shared-runtime-contract-evidence.org RP-P01 and native-layout provider studies | Scheme semantic generator negotiates native representation and safepoint/borrow obligations explicitly | MAR-H/I plus source refinement; fail if backend must rediscover missing semantics |
+| Separate storage operand classes | frame readers and raw SCMOBJ boundary above | Preserve useful alias analysis until explicit FFI/reflection escape; qualify fast closed profiles | WriterRoute inventory and raw refusal histories; fail if unclassified aliases receive receipts |
+| Measurements guide representation | paper abstract; actual runtime qualification still open | Count removed work and added coordination before choosing token or count audit | Gain projection; no historical speedup imported; fail if coordination dominates saved work |
+
+This is an architecture-level modernization agenda: generated native contracts,
+VM-owned root/arena custody, explicit producer closure, and resumable native
+sessions with auditable ownership. Reducing duplicate work is a consequence of
+these boundaries, not a substitute for them. A separate runtime root/arena model
+retains its authority; this study links its open obligations instead of redefining GC.
+
+* PLAN Migration and retirement gates
+:PROPERTIES:
+:CUSTOM_ID: marker-alias-migration
+:END:
+
+| Order | Required change | Old responsibility that can retire | Stop condition |
+|---+---+---+---|
+| 1 | Generate descriptor/coordinate/exposure witnesses from shared frame contract | Independent hand-decoded slot assumptions | No actual descriptor or configuration identity |
+| 2 | VM root/arena ownership and native invocation directory | PSTATE cleanup as sole owner of retained marker storage | Nonzero scanner coverage or handoff still open |
+| 3 | Mediate all managed inc/dec/release/validity writers and FFI exposure | Unguarded writers inside the managed profile | Raw APIs may remain externally but receive no audit permission |
+| 4 | Close/drain and epoch-bound exclusive audit lease | Count-read-as-proof and check-once revoked flag | Incomplete writer closure or unsafe interruption |
+| 5 | Revoke/drain/invalidate before reopening | Reusing stale receipt or timeout-based lease clearing | Unknown caller/auditor retains guardian |
+| 6 | Compose source/C11/GC proofs and exact native qualification later | Legacy profile's per-path accounting authority | No runtime path retired by these design-only files |
+
+* RESEARCH Benefits, costs and net-return gate
+:PROPERTIES:
+:CUSTOM_ID: marker-alias-benefit-bound
+:END:
+
+For N eligible sessions, let T be support/work avoided per session by using the
+existing count under a closed profile; C be extra classification, close/drain,
+root/GC and epoch coordination; U unknown retention cost; G shared generated
+support saved. Net work benefit requires N*T+G > C+U. These are symbolic cost
+terms, not estimated timings or staffing days. Unknown retention has no finite
+bound without a progress/cessation premise. Expose/read-only operations need no
+native count increment; writable exposure adds a lease and serialization cost.
+
+Modern C and Zig both maintain source closure, admission, GC integration, cleanup
+and counterexample obligations. Zig's allocation/defer conveniences do not prove
+continuation-safe cleanup, plain-field race freedom or collector coverage. Current
+incremental Zig benefit for this component is UNPROVEN. The matrix refuses a
+language decision based on speculative speed or lines-of-code savings.

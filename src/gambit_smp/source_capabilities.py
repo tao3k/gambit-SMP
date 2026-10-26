@@ -14,6 +14,7 @@ from gambit_smp.framework import digest, relative
 
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 TREE = {"source-tree", "configured-tree"}
+PROJECT_SOURCE = TREE | {'source-runtime', 'seed-runtime'}
 OVERLAY_INPUT = TREE | {"compilation-workspace"}
 
 
@@ -193,7 +194,7 @@ def validate_workspace_build(args, inputs):
 def graph(step, by_id, registry):
     contracts = {
         "source.overlay": {"source": OVERLAY_INPUT},
-        "source.project": {"source": TREE},
+        "source.project": {"source": PROJECT_SOURCE},
         "source.bind": {"workspace": {"compilation-workspace"}},
         "native.workspace-build": {"workspace": {"compilation-workspace"}, "binding": {"source-binding"}},
     }
@@ -244,7 +245,7 @@ def overlay(args, ctx):
 
 def project(args, ctx):
     from gambit_smp.recipes import source_path, tree_identity
-    source = ctx.artifact(args["source"], TREE)
+    source = ctx.artifact(args["source"], PROJECT_SOURCE)
     workspace = ctx.directory / "workspace"
     workspace.mkdir()
     records = []
@@ -278,7 +279,7 @@ def bind(args, ctx):
     if (provenance.get("schema") != "source-byte-provenance.v1"
             or provenance.get("sourceRefinementAdmitted") is not False):
         raise ValueError("mechanical byte provenance required")
-    source = ctx.artifact(provenance["source"], TREE)
+    source = ctx.artifact(provenance["source"], PROJECT_SOURCE)
     files = {}
     for row in provenance["files"]:
         target = relative(workspace, row["target"])
@@ -332,7 +333,7 @@ def capabilities(Capability):
         "source.project": (validate_project, project, (("workspace", "compilation-workspace"),)),
         "source.bind": (validate_binding, bind, (("binding", "source-binding"),)),
         "native.workspace-build": (validate_workspace_build, workspace_build,
-                                   (("executable", "native-executable"), ("object", "native-object"))),
+                                   (("executable", "native-executable"), ("object", "native-object"), ("library", "native-shared-library"))),
     }
     return {name: Capability(validate, executor=executor, graph=graph, outputs=outputs)
             for name, (validate, executor, outputs) in entries.items()}

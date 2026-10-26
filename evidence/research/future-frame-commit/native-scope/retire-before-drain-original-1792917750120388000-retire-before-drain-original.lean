@@ -1,0 +1,9 @@
+import NativeScope
+open NativeScopeAst NativeScope
+def witness : State := closeAdmissionNext (loseResponseNext (beginWriteNext (issueNext (initial))))
+example : issueGuard (initial) := by simp [issueGuard,initial]
+example : beginWriteGuard (issueNext (initial)) := by simp [beginWriteGuard,initial,issueNext]
+example : loseResponseGuard (beginWriteNext (issueNext (initial))) := by simp [loseResponseGuard,initial,issueNext,beginWriteNext]
+example : closeAdmissionGuard (loseResponseNext (beginWriteNext (issueNext (initial)))) := by simp [closeAdmissionGuard,initial,issueNext,beginWriteNext,loseResponseNext]
+example : Safe witness := by simp [CanUse,Safe,issueGuard,beginWriteGuard,publishReleaseGuard,recordOutcomeGuard,deliverOutcomeGuard,loseResponseGuard,recoverRecordedGuard,enterNestedGuard,leaveNestedGuard,catcherSubtreeGuard,acquire0Guard,acquire1Guard,closeAdmissionGuard,renewSameThreadGuard,prepareMigrationGuard,targetAcquireGuard,issueTargetGuard,rejectStaleDeliveryGuard,rawInterferenceGuard,retireGuard,initial,issueNext,beginWriteNext,loseResponseNext,closeAdmissionNext,witness]
+example : ¬ (retireGuard witness) := by simp [CanUse,Safe,issueGuard,beginWriteGuard,publishReleaseGuard,recordOutcomeGuard,deliverOutcomeGuard,loseResponseGuard,recoverRecordedGuard,enterNestedGuard,leaveNestedGuard,catcherSubtreeGuard,acquire0Guard,acquire1Guard,closeAdmissionGuard,renewSameThreadGuard,prepareMigrationGuard,targetAcquireGuard,issueTargetGuard,rejectStaleDeliveryGuard,rawInterferenceGuard,retireGuard,initial,issueNext,beginWriteNext,loseResponseNext,closeAdmissionNext,witness]

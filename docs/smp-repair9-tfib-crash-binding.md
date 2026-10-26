@@ -92,3 +92,8 @@ Choose the small refactor only after that witness identifies the broken edge:
 * Scan before copy/root closure: close the specific work-publication/last-scanner ordering gap; existing CAS, root barrier and FIFO barriers must be accounted for rather than replaced by assumption.
 
 The first writer and this branch selection remain **open**. The production gate requires the original TFIB and interrupt2, the declared stress modes and remaining inventory under unchanged budgets, plus preservation of the first eight and Gerbil qualification. This research provides an identified failure, a narrower source frontier and executable controls for repair review; it does not promote 8/12.
+
+
+## 2026-10-23 Entry-level diagnostic refinement
+
+The [mark_array entry and first-fault contract](smp-repair9-mark-array-origin.md) now enumerates all 29 direct calls plus the implicit copy-tail cursor transition. The pair fast path bypasses scan(), and goto again may leave the original root while scanning a copied heap field; old category/line/body fields cannot resolve these alone. Pre-cell and pre-header committed records, frame/map intervals, independent original/current provenance, a bounded crash-surviving carrier and conditional writer-generation/range/order correlation are specified at concrete functions. No collector or diagnostic implementation is changed. The new observation QNT passes 29 checks (three positives, eighteen decoded controls, seven named trajectories, typecheck), while the prior 19-check runtime-envelope evidence stays on its own hash. The actual missing TFIB scan cell and first writer remain unresolved; native stays 8/12.

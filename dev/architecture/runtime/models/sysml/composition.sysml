@@ -4,6 +4,7 @@ package GambitRuntimeComposition {
 
     part def RuntimeComposition {
         part foundation : T0CollectionBoundary;
+        ref part ownershipContract : GambitRuntimeOwnership::CompositionContract = GambitRuntimeOwnership::contract;
         part roleContracts : GambitRuntimeRoles::RoleContractGraph;
         part membershipRevocation : GambitMembershipRevocation::ClosureGraph;
         part publicationClose : GambitPublicationClose::PublicationGraph;

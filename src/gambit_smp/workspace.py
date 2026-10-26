@@ -256,7 +256,6 @@ def execution_scope(root, task, provider="codex"):
         with enforce(root,task):
             yield value, inherited, run
         return
-    collect(root)
     with _process_scope_lock, lease(root, task) as fd:
         value = json.loads(record.read_text())
         if value["state"] != "open":
@@ -602,12 +601,22 @@ def owned_build_reference(root, path, product):
 
 
 def validate_build_derivation(value):
-    if (not isinstance(value, dict) or set(value) != {'role', 'inputSha256'}
+    if (not isinstance(value, dict) or set(value) not in ({'role', 'inputSha256'}, {'role', 'inputSha256', 'activation'})
             or value['role'] not in {'completed-seed', 'completed-runtime', 'completed-bootstrap-input', 'working-bootstrap-input',
                                     'working-bootstrap', 'working-consumer'}
             or not isinstance(value['inputSha256'], str) or len(value['inputSha256']) != 64
             or any(c not in '0123456789abcdef' for c in value['inputSha256'])):
         raise ValueError('typed build role and exact input identity required')
+    if 'activation' in value:
+        activation = value['activation']
+        if (value['role'] not in {'working-bootstrap-input', 'working-bootstrap', 'working-consumer'}
+                or not isinstance(activation, dict) or set(activation) != {'producerSha256', 'step'}
+                or not isinstance(activation['producerSha256'], str)
+                or len(activation['producerSha256']) != 64
+                or any(c not in '0123456789abcdef' for c in activation['producerSha256'])
+                or not isinstance(activation['step'], str)
+                or not __import__('re').fullmatch(r'[a-z][a-z0-9-]*', activation['step'])):
+            raise ValueError('mutable constructor requires a typed producer activation')
 
 
 def build_output(root, name, *, compiler, flags=(), derivation=None):
@@ -751,7 +760,7 @@ def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overla
         run=os.environ['GAMBIT_SMP_TASK_RUN'],
         overlayFiles=previous.get('overlayFiles', []), pendingOverlayFiles=list(overlay_files),
         custody=str(context_run(root, task, os.environ['GAMBIT_SMP_TASK_RUN']).relative_to(root)))
-    for key in ('regeneration', 'additionalFixtures'):
+    for key in ('regeneration', 'additionalFixtures', 'nativeObjectContext'):
         if key in previous:state[key] = previous[key]
     if retired_links:state['retiredGeneratedLinks']=retired_links
     # Commit the complete delta before changing its first file.
@@ -803,7 +812,7 @@ def sync_build_source(root, build, staged, *, mutable=(), inventory=None, overla
                 interruptedPhase=previous.get('phase') if previous.get('phase') in {'building', 'updating'} else None)
 
 
-def checkpoint_build_source(source, **observations):
+def checkpoint_build_source(source, *, broken_links=None, **observations):
     """Retain actual post-command source bytes; no success is inferred from state."""
     from gambit_smp.recipes import tree_identity
     source = Path(source)
@@ -811,7 +820,7 @@ def checkpoint_build_source(source, **observations):
     if not state_path.is_file():
         return
     state = json.loads(state_path.read_text())
-    current = tree_identity(source)
+    current = tree_identity(source, broken_links=broken_links)
     state['observed'] = {name: entry for name, entry in current.items() if name in state['inputs']}
     state.update(observations)
     write(state_path, state)

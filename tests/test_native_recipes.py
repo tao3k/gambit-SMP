@@ -11,6 +11,38 @@ from gambit_smp import native_capabilities as native, recipes
 
 
 class NativeRecipeTests(unittest.TestCase):
+    def test_shared_library_is_typed_and_does_not_publish_an_executable(self):
+        self.recipe['steps'][0]['arguments']['target']='shared-library'
+        self.recipe['steps']=self.recipe['steps'][:1]
+        self.save()
+        result=self.run_recipe('shared-library')
+        self.assertEqual(result['outcome'],'PASS')
+        output=result['steps'][0]['outputs']
+        self.assertEqual(set(output),{'library'})
+        self.assertEqual(output['library']['type'],'native-shared-library')
+        argv=next(a for a,_ in self.calls if '-MD' in a)
+        self.assertTrue('-dynamiclib' in argv or '-shared' in argv)
+
+    def test_runtime_projection_is_read_only_and_does_not_widen_overlay_inputs(self):
+        from gambit_smp.source_capabilities import PROJECT_SOURCE, OVERLAY_INPUT
+        self.assertIn('source-runtime',PROJECT_SOURCE)
+        self.assertNotIn('source-runtime',OVERLAY_INPUT)
+
+    def test_interposer_requires_darwin_typed_artifact_and_rejects_stacking(self):
+        from types import SimpleNamespace
+        library=self.root/'test.dylib';library.write_bytes(b'bound instrumentation')
+        bound=[];kinds=[]
+        def artifact(ref,kind):kinds.append(kind);return library
+        ctx=SimpleNamespace(env={},artifact=artifact,bind=lambda paths:bound.extend(paths))
+        args={'interpose':{'step':'adapter','output':'library'}}
+        with patch('sys.platform','darwin'):
+            native.native_interposition(args,ctx)
+            self.assertEqual(ctx.env['DYLD_INSERT_LIBRARIES'],str(library))
+            self.assertEqual(bound,[library]);self.assertEqual(kinds,['native-shared-library'])
+            with self.assertRaises(ValueError):native.native_interposition(args,ctx)
+        with patch('sys.platform','linux'), self.assertRaises(ValueError):
+            native.native_interposition(args,SimpleNamespace(env={}))
+
     def test_suite_parameters_share_typed_fixture_contract(self):
         args = {"runtime": {"step": "runtime", "output": "runtime"},
                 "identity": {"step": "runtime", "output": "identity"},

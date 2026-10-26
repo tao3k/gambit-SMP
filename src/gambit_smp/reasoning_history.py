@@ -432,7 +432,8 @@ def _native_build_keys(header):
                                       "dependencies": sorted(identity(dep) for dep in step.get("dependsOn", []))})
         return memo[name]
 
-    costly = {"gambit.configure", "gambit.seed-core", "gambit.source-core", "gambit.bootstrap", 'gerbil.build'}
+    costly = {"gambit.configure", "gambit.seed-core", "gambit.source-core", "gambit.bootstrap", 'gerbil.build',
+              'gambit.native-development'}
     return {identity(name) for name, step in steps.items() if step.get("capability") in costly}
 
 

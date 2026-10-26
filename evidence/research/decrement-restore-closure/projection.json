@@ -1,0 +1,251 @@
+{
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "setup.c:3383-3390; gambit.h.in:9981-9988",
+      "actionName": "decrementClaim",
+      "lemmaName": "handoffReleaseCovered",
+      "guardName": "s.published[i]",
+      "duty": "Release claim only after published and acknowledged execution-session ownership; subsequent PSTATE accesses remain covered",
+      "status": "new handoff contract"
+    },
+    {
+      "key": "execution-owner",
+      "anchor": "setup.c:3276-3390; gambit.h.in:6815-6841",
+      "actionName": "prepareOwner",
+      "lemmaName": "adoptedCovers",
+      "guardName": "s.claim[i]",
+      "duty": "Adopt original VM execution context before claim release; retain owner through host epilogue, catch restoration and caller tail",
+      "status": "stable native anchor required"
+    },
+    {
+      "key": "host-restore",
+      "anchor": "gambit.h.in:6815-6841,6909,6956,7082-7098,8109-8117",
+      "actionName": "reenterHost",
+      "lemmaName": "activeRestoreNeedsOwner",
+      "guardName": "s.phase[i]==3",
+      "duty": "R1 to SELF and host spill/reload remain under execution ownership; same-host edges need their own live-carrier proof",
+      "status": "effective generated mask open"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "gambit.h.in:6377-6387,6587-6605,6654-6667",
+      "actionName": "retireVm",
+      "lemmaName": "captureBlocksVmRetirement",
+      "guardName": "not(futureVm)",
+      "duty": "VM retirement requires settled execution and exported continuation/invocation authority; native empty receipt is narrower",
+      "status": "parent source/native closure retained"
+    },
+    {
+      "key": "catch-restore",
+      "anchor": "gambit.h.in:9981-9988; setup.c:3383-3389",
+      "actionName": "restoreCatcher",
+      "lemmaName": "noBareReleaseDuringRestore",
+      "guardName": "s.phase[i]==5",
+      "duty": "THROW and END_TRY access catcher and longjmp_err; call epilogue still accesses fp and PSR0",
+      "status": "last decrement cannot precede these without handoff"
+    },
+    {
+      "key": "abnormal-guard",
+      "anchor": "setup.c:3383-3417; c_intf.c:6555-6563; gambit.h.in:10043-10059",
+      "actionName": "unwindGuard",
+      "lemmaName": "deadMarkerDeniesC",
+      "guardName": "s.error[i]",
+      "duty": "Required abnormal completion guard invalidates C marker and settles roots even when lexical normal cleanup is bypassed",
+      "status": "current all-caller cleanup not proved"
+    },
+    {
+      "key": "continuation-context",
+      "anchor": "_kernel.scm:1020-1065; gambit.h.in:6377-6387,6654-6667",
+      "actionName": "invokeK",
+      "lemmaName": "captureDoesNotPinOldProcessor",
+      "guardName": "s.processors.contains(p)",
+      "duty": "Retained continuation holds VM/frame authority; restore acquires a valid current processor in same VM, not resurrected original PSTATE",
+      "status": "export and arena handoff premises open"
+    },
+    {
+      "key": "leaf-release",
+      "anchor": "setup.c:3383-3417; gambit.h.in:10043-10059",
+      "actionName": "decrementLeaf",
+      "lemmaName": "leafRequiresSettled",
+      "guardName": "s.phase[i]==9",
+      "duty": "Leaf decrement only in stable outer custodian after marker, conversion/error propagation and restoration boundary settle",
+      "status": "no universal existing source line"
+    }
+  ],
+  "gain": [
+    {
+      "key": "session-reuse",
+      "avoided": "For b batches sharing s execution sessions, potentially replace b per-batch session lease pairs by s pairs when s<=b",
+      "added": "Still b claim settlements and handoff receipts plus session lifetime and root accounting",
+      "condition": "Only a proved shared-session contract permits b-s lease-pair reduction; current code has no such receipt and no speed gain is established"
+    },
+    {
+      "key": "closure-retention",
+      "avoided": "Avoid premature VM/PSTATE retirement and false completion at handler or host return",
+      "added": "Retain actual restoration debt and exported-handle/invocation authority; memory retention lasts until those obligations close",
+      "condition": "Continuation roots retain required VM state, not every original processor indefinitely; no arbitrary forced timeout"
+    },
+    {
+      "key": "guard-support",
+      "avoided": "Share generated normal/abnormal completion metadata across Scheme, FFI and native entry boundaries",
+      "added": "Completion guard records, catcher-stack integration, exactly-once settlement and unknown-result query",
+      "condition": "Reuse must cover longjmp and multi-shot re-entry; ordinary local cleanup flag or lexical return is insufficient"
+    },
+    {
+      "key": "c-baseline",
+      "avoided": "Modern C reuses existing GVM roots, host masks, markers and Scheme continuation semantics",
+      "added": "Typed session/handle contract and C memory-model plus configuration/provenance obligations",
+      "condition": "No measured throughput or build gain; Zig cannot remove these obligations and no additional net benefit is established"
+    }
+  ],
+  "gate": [
+    {
+      "key": "darwin-artifact-match",
+      "qualified": false,
+      "duty": "Installed driver/header statically pinned; effective argv, environment overrides, compiler macro identity and checked-in _kernel.c/object relation unresolved"
+    },
+    {
+      "key": "smp-profile",
+      "qualified": false,
+      "duty": "Installed header defaults to single-threaded VM; not qualification of current SMP processor roster or native ABI"
+    },
+    {
+      "key": "restore-graph",
+      "qualified": false,
+      "duty": "Exact R1/SELF masks, same-host and host-switch, catcher stacks, generated return and exceptional edges complete"
+    },
+    {
+      "key": "unwind-cleanup",
+      "qualified": false,
+      "duty": "Every throw/escape caller invalidates markers and settles roots exactly once; existing lexical cleanup is not sufficient proof"
+    },
+    {
+      "key": "continuation-export",
+      "qualified": false,
+      "duty": "All external continuation holders and invocation leases registered without VM self-retention cycle; processor/arena migration proof"
+    },
+    {
+      "key": "c11-publication",
+      "qualified": false,
+      "duty": "Execution lease establishment before immutable handoff publication and claim decrement; full C/builtin-setjmp refinement open"
+    },
+    {
+      "key": "native-retirement",
+      "qualified": false,
+      "duty": "Parent root/roster/OS cleanup and inherited host attestation unresolved; no native admission"
+    }
+  ],
+  "profile": [
+    {
+      "key": "installed-darwin-source",
+      "driver": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/bin/gambuild-C",
+      "header": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/include/gambit.h",
+      "compiler": "/opt/homebrew/bin/gcc-16",
+      "declaredMode": "C; SINGLE_HOST; INLINE_JUMPS; TRUST_C_TCO; header default SINGLE_THREADED_VMS",
+      "macroParity": "Six literal macro spans match template; effective branch and object relation remain open",
+      "sourceMatch": false,
+      "status": "static installed declarations; no effective argv or SMP object match"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "execution-owner",
+      "reason": "Execution owner established before published handoff release"
+    },
+    "1": {
+      "dependent.key": "host-restore",
+      "prerequisite.key": "derived-credit",
+      "reason": "After claim decrement PSTATE use needs other owner"
+    },
+    "2": {
+      "dependent.key": "catch-restore",
+      "prerequisite.key": "host-restore",
+      "reason": "Host restoration can reach catch and caller tail"
+    },
+    "3": {
+      "dependent.key": "abnormal-guard",
+      "prerequisite.key": "catch-restore",
+      "reason": "Catch completion is not abnormal marker completion"
+    },
+    "4": {
+      "dependent.key": "leaf-release",
+      "prerequisite.key": "abnormal-guard",
+      "reason": "Leaf release follows normal or abnormal boundary settlement"
+    },
+    "5": {
+      "dependent.key": "continuation-context",
+      "prerequisite.key": "abnormal-guard",
+      "reason": "Dead C marker does not remove continuation restore obligation"
+    },
+    "6": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "continuation-context",
+      "reason": "Export and invocation can retain old VM after original processor exits"
+    },
+    "7": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "leaf-release",
+      "reason": "Native return settlement precedes execution-owner retirement"
+    },
+    "8": {
+      "dependent.key": "leaf-release",
+      "prerequisite.key": "catch-restore",
+      "reason": "Leaf completion requires catcher restoration before caller tail settles"
+    },
+    "9": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "execution-owner",
+      "reason": "Final retirement excludes all execution owners"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "DRC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/decrement_restore_closure.qnt",
+      "subjectScope": "safe: two guarded activations, session handoff, catch and marker completion, multi-shot export and current-processor admission",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "DRC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/DecrementRestoreClosure.lean",
+      "subjectScope": "handoff restoration coverage induction and distinct VM versus processor continuation lifetime",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "DRC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/decrement-restore-closure-design.org",
+      "subjectScope": "actual host/call/catcher/marker/continuation paths plus installed Darwin declarations and provenance gaps",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "DRC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/decrement-restore-closure-design.org",
+      "subjectScope": "effective Darwin argv and generated artifact, C11 publication and builtin-setjmp semantics",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "DRC-S",
+      "prerequisite.obligationId": "DRC-H"
+    },
+    "1": {
+      "dependent.obligationId": "DRC-S",
+      "prerequisite.obligationId": "DRC-I"
+    },
+    "2": {
+      "dependent.obligationId": "DRC-S",
+      "prerequisite.obligationId": "DRC-E"
+    },
+    "3": {
+      "dependent.obligationId": "DRC-S",
+      "prerequisite.obligationId": "GER-S"
+    }
+  }
+}

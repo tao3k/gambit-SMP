@@ -92,6 +92,76 @@ The [repair-9 TFIB investigation](smp-repair9-tfib-sigsegv.md) records the user-
 The [binary/crash/source study](smp-repair9-tfib-crash-binding.md), [QNT model](../models/gambit/tfib_gc_handoff.qnt), [binary binding](../evidence/research/smp-retirement-study/tfib-crash-binding.json) and [validation](../evidence/research/smp-retirement-study/tfib-gc-model-validation.json) bind source-core build-4 gsi 5620dd70… to the existing mark_array +104 crash by SHA/UUID/PID/parent/time. Correct generated defaults, scalar F64 dispatch, early forwarding versus copy readiness, root-copy/FIFO barriers and frame-map routes are distinguished. Nineteen checks pass: typecheck, two positives, twelve decoded controls and four trajectories. First corrupting writer/native source refinement and large shutdown-model composition remain open; no native run or gate upgrade, still 8/12.
 
 
+## mark_array actual entry and first-fault provenance
+
+[Entry/function/field plan](smp-repair9-mark-array-origin.md), [29-call source map](../evidence/research/smp-retirement-study/mark-array-entry-map.json), [observation QNT](../models/gambit/tfib_scan_origin.qnt) and [validation](../evidence/research/smp-retirement-study/tfib-scan-origin-validation.json) distinguish F64/frame/root/extent/heap contamination using actual current cursor rather than only outer root. Copy-tail, pair fast-path, selected frame spans, per-owner/epoch commit, crash survival and matched writer generation/range/order are explicit. Twenty-nine checks accepted; the diagnostic carrier and hooks remain a design, native first-writer/implementation proof remain open, 8/12 unchanged.
+
+
+## Additional native-data and diagnostic refinement
+
+[Producer/carrier/request-ownership study](smp-repair9-new-data-boundaries.md) separates archived generations and retained narrative trials, rejects current-session admission from seq/commit alone, and includes dispatcher-local requests in the last-consumer chain. Two positive and two decoded negative QNT safety controls; native remains 8/12.
+
+
+## Blocked sender request and reply lifecycle
+
+[Function-level last-consumer study](smp-repair9-interrupt-request-lifecycle.md) separates dispatcher ownership, action/result storage, pre-unlock GC, sender activation and actual consumption. Six new finite QNT safety controls; actual blocked request and native refinement remain open, 8/12 unchanged.
+
+
+## Combined early/nested/exceptional interrupt requests
+
+[Combined model and emitted-C root audit](smp-repair9-interrupt-composition.md): nineteen checks; five descriptor/slot memberships; source-macro GC assumption corrected against generated C. Six-surface request correlation contract, actual blocked request and native refinement still open, 8/12 unchanged.
+
+
+## Minimal interrupt diagnostics and retained candidate replay defect
+
+[Concrete descriptor/ID/last-consumer plan](smp-repair9-interrupt-minimal-contract.md), same-model 29 checks, blocked-sender reconstruction and source-bound reply-replay audit. Current repair code is explicitly inspected; historical native binding remains separate. No runtime edits, 8/12 unchanged.
+
+
+## Current correction and once-only reply review
+
+[Scheme/C/object/scratch identity and first-eight impact](smp-repair9-reply-replay-current-status.md). Two candidate branches now corrected in stable cut;39 bounded model checks. Static internal-transfer match does not replace producer/native acceptance;8/12 unchanged.
+
+
+## Corrected producer and delivery obligations
+
+[Current scratch identity, retained report exclusions, request-level source map and queue/wake counterexamples](smp-repair9-corrected-delivery-binding.md).51 bounded controls; native8/12. Existing corrected source and retained native results are explicitly distinguished.
+
+
+## Result-mutex mailbox and scheduler-handoff design
+
+[Trade-off, specific source responsibilities and finite concrete candidate](smp-repair9-mailbox-handoff-design.md). Existing measured-failure model untouched.20 bounded checks distinguish retained ownership from effective serviceability; source refinement and native acceptance remain open,8/12.
+
+
+## Mailbox handoff: source, memory order, roots and errors
+
+[Four concrete boundaries and minimum source changes](smp-repair9-mailbox-boundary-refinement.md).44 bounded QNT controls include source-shaped stale-tail visibility and P/V lock-cycle negatives; wait/resume GC maps inspected. No runtime change, native cause proof or acceptance;8/12.
+
+
+## Ticket-grant acquisition and abort-write responsibility
+
+[Function-level minimum repair, first-eight exposure and costs](smp-repair9-acquire-abort-contract.md).24 bounded controls cover normal/debug/CAS/fallback visibility, pipe/receiver responsibility, interrupted writes, permanent faults and two publication epochs. Fresh source cut separated from old object identity; no runtime or native acceptance,8/12.
+
+
+## Abort faults and fd last consumers
+
+[Function/field/safe-point and cleanup contract](smp-repair9-abort-fault-lifetime.md).25 bounded controls separate existing cohort/registry coverage from raw-C gaps, keep EINTR consumers alive, reject locked/late/partial fault handling and stale retirement acknowledgments. Runtime/native acceptance unchanged,8/12.
+
+
+## External C owner and accepted-request fault disposition
+
+[Supported joined-owner contract versus optional concurrent admission](smp-repair9-external-c-owner-disposition.md). Existing native witness hashes reused; extra-unlock error branch identified; primordial/VM terminal path separated. New admission/disposition QNT and negative trajectories are authored, verification pending natural production-lease release. No runtime/native qualification;8/12.
+
+
+## Accepted hard-failure terminal closure
+
+[Source contract and last consumers](smp-repair9-accepted-hard-failure.md) distinguish native callback deferral, ordinary abandonment and primordial/VM exit. Thirteen authored QNT profiles remain pending production custody release. Saved wake faults and retained cleanup prove neither reply nor progress; universal recovery still lacks an independent terminal path and refined exit landing. Native8/12, no runtime edit.
+
+
+## Stability-first independent wake/terminal contract
+
+[Unified delivery-domain proposal](smp-repair9-stable-delivery-domain.md) supersedes minimum-diff priority, maps P-held wait returns and early timer expiry hazards, compares independent return mechanisms and resource-specific grace. New14-profile/5-trajectory QNT is pending production release; source/native refinement remains open,8/12.
+
+
 ## Combined wait/fault/VM-exit draft
 
 [Repository-owned combination QNT](../models/gambit/wait_fault_exit_composition.qnt), SHA256 004fd9036cd72feaf859492fa800444d56ffc56ba9e9390c8ef6cc2749db2312, and [pending status](../evidence/research/smp-retirement-study/wait-fault-exit-composition-verification.json). New draft only;23 authored profiles remain unverified pending production custody.
@@ -100,3 +170,8 @@ The [binary/crash/source study](smp-repair9-tfib-crash-binding.md), [QNT model](
 ## Wait backend/coordinator implementation contract
 
 [Concrete functions, fields and ordering](smp-repair9-wait-backend-coordinator-contract.md), repository-owned combined QNT with27 profiles/8 trajectories (unverified). Covers P release, deadline distinction, actual P0 carrier and VM/device/root final consumers.
+
+
+## Combined wait/fault/exit real checker result
+
+[Actual validation](../evidence/research/smp-retirement-study/wait-fault-exit-composition-validation.json):27 TLC cases (4 completion candidates,3 safety-only retentions,20 decoded negatives) and8 selected trajectories,35 accepted checks under unchanged caps. Model-only audit execution explicitly requested by latest user; source/native closure remains pending exclusive custody, native8/12.

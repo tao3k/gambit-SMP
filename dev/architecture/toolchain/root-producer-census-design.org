@@ -1,0 +1,170 @@
+#+TITLE: Root Producer Census and Strong Closure Receipt Admission
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-decision
+:AUTHORITY: RootProducerCensus
+:MAINLINE: modern-generated-C
+:STATUS: source-structural-findings-and-conditional-local-models
+:END:
+
+The modern C redesign reuses valid tracing and worker-credit mechanisms but replaces implicit root ownership with an explicit VM root-domain contract. Strong scan return alone is not a root-complete receipt. This study expands the previous single =rootCoverage= premise into a source census, accepted-writer closure, stable scan observations and idle duties.
+
+The canonical architecture and statuses live in [[file:models/sysml/root-producer-census.sysml][native SysML]]. Python queries the native =sysml= tool; it projects the [[file:root-producer-census-matrix.org][matrix]] and [[file:diagrams/root-producer-census.svg][D2 view]], and checks the actual [[file:../../modeling/ascent/root-producer-census.rules.scm][ASCENT rules]], [[file:../../../models/build/root_producer_census.qnt][QNT actions]] and [[file:../../../models/build/RootProducerCensus.lean][Lean obligations]]. No runtime/compiler implementation, native test or performance test is authorized or performed.
+
+The parent [[file:strong-closure-receipt-design.org][strong-closure study]] and its evidence stay frozen. Existing root-level models remain current-runtime research subjects; this DEV model describes proposed refactoring admission. A local mapping is not a proof of their product refinement.
+
+* RESEARCH Source census and actual owners
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-source
+:OBLIGATION: RPC-S
+:END:
+
+** Ten root families, one admission boundary, one weak exclusion
+
+The generated matrix enumerates ten actual strong-root families. The first nine are called at [[file:../../../vendor/gambit/lib/mem.c::6845][strong phase entry]]; externally referenced still objects are seeded during [[file:../../../vendor/gambit/lib/mem.c::6798][setup]], then drained by the same strong-phase worker. Thus searching only =mark_*= calls at strong entry omits a real root source.
+
+| Family | Coverage in inspected source | Remaining prerequisite |
+|--------+------------------------------+------------------------|
+| VM object | processor 0, object body | object layout and stable VM membership |
+| symbol/key tables | processor 0, two table slots | writers and table-specific weak policy |
+| globals | all processors partition the same list/array | stable size, processor count and no mutation during snapshot |
+| live/captured continuation | each processor fp/GC maps/break-frame chain | generated map and restored-context completeness |
+| registers | each processor r array | all live native register values spilled before GC |
+| saved | each processor saved array | allocating caller actually used SAVE/RESTORE correctly |
+| type cache | each processor array | all writers participate |
+| processor object | each processor Scheme state body | exact layout and ownership |
+| externally held still objects | each processor still chain, nonzero refcount | initialization complete and external writer/lifetime admission |
+| RC payload | current PSTATE registration; only processor 0 scanned | all-domain scan and register/write/unlink exclusion |
+
+=denv= is not an arbitrary C-stack root: [[file:../../../vendor/gambit/include/gambit.h.in::5909][continuation slot 1]] is reached by [[file:../../../vendor/gambit/lib/mem.c::4096][continuation body scanning]]. Captured frames use descriptors. This identifies paths, without proving all generated program points or native temporaries match them.
+
+For global partition endpoints, =lo=floor(id*N/np)= and =hi=floor((id+1)*N/np)= telescope into coverage of =[0,N)=, possibly with empty partitions. This depends on fixed =N=, =np>0=, identical membership and complete sublist traversal. No current Lean theorem in this study claims the partition arithmetic or an arbitrary mutable list snapshot has been source-refined.
+
+Permanent objects do not become safe holders of arbitrary mutable movable edges just because they survive GC. Any such foreign/global storage requires a registered root adapter or explicit nonmoving/reachability restrictions. Hidden C locals and raw payload aliases are not conservatively scanned by the root-entry inventory above.
+
+Will testators and weak table entries must retain their weak semantics. [[file:../../../vendor/gambit/lib/mem.c::4039][Will scanning]] marks a reachable action strongly, and marks the testator only in weak traversal. Adding all weak slots to a strong census would conceal a semantic change. Cross-worker will classification still depends on the prior global-cut design.
+
+** Nonzero processor RC: structural gap, bounded reachability claim
+
+[[file:../../../vendor/gambit/lib/mem.c::277][PSTATE memory selection]] and [[file:../../../vendor/gambit/lib/mem.c::306][rc_head]] make the chain processor-local. [[file:../../../vendor/gambit/lib/mem.c::723][register_rc]] appends to that current chain; [[file:../../../vendor/gambit/lib/mem.c::816][set_data_rc]] assigns a plain Scheme payload. [[file:../../../vendor/gambit/lib/mem.c::3969][mark_rc]] walks only the passed processor chain, while its [[file:../../../vendor/gambit/lib/mem.c::6845][sole strong-entry caller]] is inside the processor-zero branch.
+
+Consequently the root-complete receipt must reject a profile allowing a unique movable root in a nonzero processor RC chain, absent another proved root. This is a source-structural coverage mismatch. It is not a native demonstration that every existing extension can construct that profile.
+
+The in-tree direct payload writers are [[file:../../../vendor/gambit/lib/os_dyn.c::764][C closure construction]] and [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::326][Tcl command client data]]. The exported registration/payload APIs in [[file:../../../vendor/gambit/lib/setup.c::5900][the runtime table]] also allow external consumers; searching this checkout cannot close that external caller universe.
+
+- The C closure path allocates RC using =___PSTATE= and stores =proc=. Its implementation has architecture gates in [[file:../../../vendor/gambit/lib/os_dyn.c::639][os_dyn.c]] and a [[file:../../../vendor/gambit/lib/os_dyn.c::744][thread-local TODO]]. This is not evidence that the same trampoline is enabled on current Darwin arm64.
+- Tcl's [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::297][creation path]] stores a newly created still vector. That vector initially has an external reference; each participating processor's still setup can protect its descendants independently of RC scanning. Therefore this caller is not a valid unconditional lost-root counterexample.
+- Tcl [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::150][callback reads]] and [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm::193][delete cleanup]] show that read leases, still refcount release, RC unlink and final free all belong in admission/drain. They do not prove concurrent deletion or foreign-thread invocation is currently legal.
+- String conversion RC allocations carry byte storage and initially =data=#f=. Do not count every RC block as a distinct missing movable root; distinguish the registered payload slot from the native byte body.
+
+** Marker allocation and borrowed roots
+
+[[file:../../../vendor/gambit/lib/c_intf.c::6511][make_sfun_stack_marker]] allocates before installing explicit =proc_or_false=, and carries a TODO about GC of that argument. The still allocator can [[file:../../../vendor/gambit/lib/mem.c::1647][call GC before returning]]. The generated [[file:../../../vendor/gambit/include/gambit.h.in::10043][SFUN entry macros]] call this helper before =___call=. A returned marker's external refcount cannot retroactively protect a temporary that was live during its allocation.
+
+The redesign requires an admitted root cell or valid saved-slot materialization before allocation; reload movable values afterward. On failure, the accepted lease remains owned until abort cleanup is confirmed. The implicit closure case must pin the RC block against unlink and obtain the post-GC payload through its scanned slot; the explicit proc case needs its own protection. Existing nonmoving/already-rooted constructor contracts can justify restricted callers, but do not close all callback profiles.
+
+Marker kill clears its procedure slot then releases the still reference. This bounds one callback activation; it does not invalidate copies in captured continuations or prove nested/unwound callbacks have retired. Unknown exit keeps the root/storage lease owned; it is never a successful retirement receipt.
+
+* RESEARCH Freeze, stable scan and modern C publication contract
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-freeze
+:OBLIGATION: RPC-S
+:END:
+
+A proposed VM =RootDomain= records VM identity, owner/storage generation, slot adapter, admission epoch, accepted writer/reader/removal leases and scan acknowledgement. RC, externally referenced still storage and callback temporaries are distinct adapters. Scheme semantics and generated root maps remain Scheme/compiler responsibilities; modern C owns synchronization, storage and physical scanning.
+
+1. Close new registration, payload write, raw read borrow, unregister and owner-exit admission for the selected epoch. Accepted operations keep their lease.
+2. Drain accepted operations by explicit commit or no-write abort. Never wait while holding a lock or active-join obligation needed by a producer to reach the same GC. Reentrant callbacks must either finish before sealing or publish an already-scannable root-domain handoff; no new unaccounted callback during sealed scan.
+3. Freeze domain membership and payload version only when accepted operations are empty and storage ownership cannot vanish. Unknown completion keeps custody and blocks freeze.
+4. Scan each admitted physical slot exactly under that frozen epoch; store moved values back through the adapter. Reading the same stale local copy again is insufficient. A scan acknowledgement binds domain generation, adapter, epoch and observed version.
+5. Root producers close only after all assigned families produced trace work under worker credit. Receipt requires complete manifest, fresh slot observations, work closure and same epoch. Root-manifest proof must not be synthesized from count zero.
+6. Release writer admission for the next epoch only after root/heap phase ownership permits it. A receipt does not authorize freeing RC storage or PSTATE; reader/GC users and cleanup must finish separately.
+
+A concrete progress counterexample is =accepted root writer -> allocating helper -> GC -> wait for the same accepted writer=. A mutex change cannot resolve it. Before requesting GC the operation must deliver a fully scannable temporary-root handoff, or be restricted to a nonallocating admitted region. Designing and source-refining that handoff is still open; this model blocks freeze rather than inventing progress.
+
+This is a closed-admission stop-the-world design. If concurrent root mutation is later supported, a log/barrier and final drain/rescan proof must replace this freeze premise. =release/acquire= on a payload alone does not prevent a lost post-scan root or a dangling chain node.
+
+For modern C, one synchronization authority must protect domain insertion, versioned mutation and unlink. Mutex release/acquire can establish snapshot publication and scan exclusion; immutable descriptors may be release-published and acquire-read. Plain RC pointer/data/refcount accesses in the current source are not made safe by inserting a fence beside them. Root values moved by GC must be reloaded through the owning slot before use. No ABI or ISO C memory-model proof is claimed here.
+
+* RESEARCH Seven duties before idle
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-idle
+:END:
+
+The [[file:root-producer-census-matrix.org][canonical settlement rows]] bind seven categories to source anchors: copy initialization, inline Tail, allocation cursor, publication, scanner frame, still-derived work and idle transition.
+
+| Source control flow | What can be closed statically | What remains open |
+|---------------------+-------------------------------+-------------------|
+| forwarding CAS then synchronous copy | forwarding is earlier than copy completion; caller cannot idle while the call is on stack | exact CAS/layout/compiler memory ordering |
+| inline first-field tail and PAIR body fast path | both scanning paths exist; body-only analysis would omit responsibility | all object subtypes and descriptor coverage |
+| local alloc commit before return | private cursor is committed before returning from mark/captured-frame routines | arbitrary frame/copy subtask refinement |
+| incomplete chunk scanner | uses current allocation endpoint; no mandatory FIFO publication | real span partition and scan frontier proof |
+| popped still node/dequeued chunk | scan call executes before local loop resumes | exceptional native exits and future asynchronous worker handoff |
+| still then movable repeated loop | still work generated by movable scan causes another local iteration | full producer universe, not just selected calls |
+| count decrement/wake | local drain precedes decrement; nonzero wake reacquires credit | complete owner coverage and C synchronization |
+
+The protocol represents duties as ghost obligations, not seven mandatory runtime atomic counters. A category denotes nonemptiness of an arbitrary multiset of tasks; clearing it is sound only after the final represented task settles. The finite model intentionally contains one copy/scan per worker and does not prove that multiplicity abstraction.
+
+A public queue item remains covered until an active receiver accepts it; a private chunk remains owned locally until scanned. If producer lifetime detaches from its worker, this argument fails and durable accepted-work credit must replace it. Queue emptiness cannot substitute for live scanner frames or private debt.
+
+* RESEARCH Models, counterexamples and refinement limits
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-models
+:END:
+
+** QNT safety model
+
+Twelve abstract families represent VM and symbol roots; two global partitions; two continuation groups; two register/saved/cache/processor groups; two external-still groups; and two RC chains. This is a deliberately explicit grouping, not twelve real native slots. The native SysML projection fixes this finite scope to two processors and twelve families.
+
+Actions model accepted write commit/abort, admission close, freeze, scan version, producer close, copy/Tail/cursor/publication, private and stolen scanning, derived work, idle and receipt issuance. Twenty-one scenarios include eleven negative controls. Two bounded random campaigns use known and unknown manifests. Safety is checked; liveness, arbitrary worker count and native behavior are not established. The writerGcCycle scenario retains a pending writer awaiting GC: closing admission cannot freeze or issue a receipt. This models the refusal boundary, not a complete progress solution.
+
+The omission witness deliberately clears the nonzero RC observation while allowing accounted work to terminate. It demonstrates that =done= and root completeness are different propositions. It is a source-shaped injected witness, not an action admitted by the safe scheduler or a native reproduction. Forcing a receipt afterward violates safety. Other negative controls cover freezing an accepted writer, post-scan payload replacement, idle with each duty, marker allocation before rooting, and unknown manifests.
+
+** Lean obligations
+
+Eleven conditional lemmas check stable scan update, per-owner root requirements, omitted-root rejection, stale scan after mutation, freeze lease drain, zero-active debt closure, custody transfer, manifest admission, preallocation rooting and net-benefit arithmetic. They do not assert complete source simulation or inductive preservation of every C operation.
+
+The general =committedWriteInvalidates= lemma is important: even perfect work termination cannot rescue a root snapshot changed after scanning. =transferPreserves= requires active receiver credit before ownership changes. =zeroClosesDebts= requires coverage of every debt, which cannot be assumed from an incomplete root inventory.
+
+** ASCENT binding and independent controls
+
+SysML owns RPC-H/I/S/E subject paths/scopes and dependency on =StrongClosureReceipt::source=. Actual ASCENT joins source anchors with action/lemma bindings, matches subject hash and scope, and blocks missing prerequisites or false admission gates. Ten local cases include missing QNT receipt, stale hash, wrong scope, source-anchor omission, model-step omission and parent-model omission and omission of the nonzero-RC family binding. All twelve census entries and seven settlement categories have canonical action/lemma mappings; the DSL checks nineteen component mappings. These are obligation mappings, not source-equivalence proofs. Only a synthetic all-qualified case may become a candidate. It is never actual runtime admission.
+
+The driver checks actual model declarations and hashes for parent and root-level models. These edges are explicit refinement obligations, not a proof that two independently checked models compose. Host attestation remains inherited-unresolved and is not rerun.
+
+* RESEARCH Benefits, costs and retirement
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-benefit
+:END:
+
+Let =R= be physical admitted roots, =Rmiss= previously unscanned root slots, =W= registered writes/removals, =D= traced object edges and =P= participants. Reuse preserves the existing tracing cost =O(R+D)=; correctness adds =O(Rmiss)= scanning where roots were omitted. A manifest over root domains adds =O(number-of-domains)= metadata, not necessarily a second object-graph walk. Explicit writer synchronization adds a cost per accepted operation; its exact algorithm and contention remain design inputs.
+
+| Choice | Avoidable work | New work | Positive-net-benefit condition |
+|--------+----------------+----------+--------------------------------|
+| reuse existing barrier and tracing walkers | extra all-worker rendezvous and duplicate tracing pass, if a candidate would introduce them | stable epoch acknowledgements and qualified classification | one existing rendezvous carries all required results; no extra pass is hidden elsewhere |
+| synchronous active-owner custody | per-copy/per-chunk extra publication counters | structured private state and strict idle/exit rules | all duties stay covered; no detached publisher |
+| explicit all-domain root manifest | duplicated root inventories and accidental root omission | scan Rmiss slots and maintain domain/lease metadata | semantic completeness and supported extension profiles justify the necessary cost |
+| modern C root adapters | scattered ad hoc payload/link ownership | typed adapters, synchronization and preallocation rooting | old processor-zero-only authority and uncontrolled writes actually retire |
+
+No absolute speedup, percentage or person-day estimate follows. =saved work > added work= is the cost threshold; correctness repairs cannot be marketed as faster GC. Zig adds no mechanism needed to establish these invariants. Modern C can carry the complete contract, and remains the required line.
+
+Retirement order is: complete source manifest and configuration admission; root adapters and accepted-writer protocol; preallocation callback root protection; all-domain scan ownership and processor-exit storage handoff; source/ABI refinement; then retire processor-zero-only RC scan authority and unmanaged registration/write/unlink for supported profiles. Valid existing still and frame walkers remain reusable. The old exported paths cannot be declared retired while external consumers bypass admission.
+
+* RESEARCH Closure report and reproducibility
+:PROPERTIES:
+:CUSTOM_ID: root-producer-census-closure
+:END:
+
+Closed at the structural source level: in-tree strong/setup entry census, existence of nonzero processor register/saved/cache/continuation/still paths, synchronous local drain call order, and RC owner/scan asymmetry. Closed in local formal scope: the guarded protocol scenarios and conditional lemmas described above.
+
+Open: exact generated root maps; uncontrolled external aliases/callers; RC ownership migration; marker preallocation protection; arbitrary work multiplicity/source simulation; C happens-before; callback/processor retirement; native profile qualification. All seven end-to-end admission gates remain false. Narrow source findings must not be promoted into full closure.
+
+#+begin_src text
+.venv/bin/python dev/modeling/tools/root-producer-census-study.py
+#+end_src
+
+Read [[file:../../../evidence/research/root-producer-census/checks.json][structured results]] and [[file:../../../evidence/research/root-producer-census/prior-model-alignment.json][parent obligation mapping]]. Raw stdout/stderr stay task-local in cache. Source and artifact hashes bind the dirty checkout, not HEAD alone. Failed local attempts remain retained.

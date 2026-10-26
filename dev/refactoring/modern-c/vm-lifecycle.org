@@ -1,0 +1,107 @@
+#+TITLE: VM Ownership and Global Reclamation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: IMPLEMENTED CHECKED | ADMITTED BLOCKED
+
+* IMPLEMENTED One VM cannot grant another owner's global teardown :modern_c:ownership:
+:PROPERTIES:
+:CUSTOM_ID: vm-lifecycle-global-reclaim
+:AUTHORITY: GambitVmLifecycle
+:STATUS: SOURCE-IMPLEMENTED; SCOPED-NATIVE-PASS; MIXED-TREE-NOT-ADMITTED
+:END:
+
+[[file:models/sysml/vm-lifecycle.sysml][SysML]] owns roles, transfers and model selection. Its finite admission
+schedule is [[file:models/quint/vm_registry.qnt][QNT]]; no second Lean state machine is introduced. Existing root and
+round algebra stays with RuntimeRoles. [[file:../../../evidence/research/revision-admission/vm-lifecycle-results.json][The evidence packet]] separates source,
+finite-model, prototype native and final-cohort observations.
+
+** Real producer and consumer replacement
+
+| Owner | Actual C path | Authority and acknowledgement | Retired work |
+|---+---+---+---|
+| Registry | =lib/_setup/vm-registry.inc= | Signal readers borrow a stable topology; one exclusive writer owns membership publication and removal | Unlocked signal traversal and the destroyable =vm_list_mut= |
+| VM constructor | =___setup_vmstate= and =setup_vmstate_owned= | An initialized LIVE VM is published after setup; unknown constructor debt stays registered | Allocator-side early list insertion |
+| VM owner | =___cleanup_vmstate= and =cleanup_vmstate_owned= | Bound single-context owner, no active catcher/root borrow or resize/source debt; BOOL confirms completed teardown and unlink | Void refusal and implicit global destruction of another owner's VM |
+| Global coordinator | =cleanup_runtime= | Exclusive registry, no secondary node, successful primary resize/cleanup, then global free | Continuing after an ignored per-VM refusal; interrupt shutdown before admission |
+| Effectful still cleanup | =___prepare_pstate_cleanup= and =free_still_objs= | Existing VM escrow holds pending object, payload and release function before calling it; failure/throw retains without replay | A C-local cursor that disappears on exceptional exit |
+
+The global caller no longer loops over secondary VMs and assumes success. Their
+owners explicitly retire them. A remaining node is an outstanding dependency,
+even when that VM cannot run. Registry exclusivity closes the race in which a
+constructor or reader appears after an unlocked list preflight.
+
+The actual source callers of VM setup/cleanup are the global setup/coordinator
+and their C function-table exports. The pthread/client/main examples consume
+process-global setup/cleanup. The new C-host fixture follows the existing
+=tests/client.c= / test8 library path. Generated Scheme names remain unchanged;
+old C declarations/function tables migrate together to BOOL cleanup results.
+Old native objects must be rebuilt against the new header.
+
+** Failure and concurrency boundaries
+
+A failed setup result alone does not release host-owned VM storage. Known
+pre-context rollback reaches CLOSED; unknown context construction remains
+registered and denies global free. A false cleanup result likewise retains
+ownership. No retry replays an unresolved foreign release. A killed registry
+writer supplies no release receipt: it cannot be stolen or reset merely to make
+progress. This protocol does not claim arbitrary native owner-death recovery.
+
+A same-owner SFUN root borrow prevents VM retirement. Closing lifecycle and
+owner-cleanup phase reject managed reentry before destructors can allocate new
+Scheme state. Returned foreign errors and captured Gambit throws keep the
+pending cursor and native payload in the existing cleanup escrow. Other live VMs
+may continue; retained storage remains a real memory cost.
+
+Signal dispatch queues bits instead of waiting on a mutator it may have
+interrupted. Only complete LIVE nodes are visited. =INTR_USER= still targets
+VM0/processor0. Asynchronous qualification currently requires native full-word
+atomics; an emulated mutex-based CAS does not inherit that claim.
+
+Setup publication is an invocation-local receipt. Reading SETUP from the shared
+registry after returning from an old invocation could observe a newer setup and
+close the wrong generation. The local receipt avoids that inference. It does
+not grant arbitrary stale raw-pointer use or cross-VM movable-object sharing.
+
+** CHECKED Tests and mathematical responsibilities
+
+#+NAME: vm-lifecycle-qualification-boundary
+| Evidence | Established scope | Limit |
+|---+---+---|
+| Native Scheme/C lifecycle fixture | Duplicate setup refusal; concurrent denied registration; deferred interrupt delivery; RC borrow refusal; owner retirement; release failure escrow/no replay; healthy primary GC | Secondary VM Scheme execution and GC are not claimed |
+| Native C host | Live secondary denies global free; owner acknowledgement permits global cleanup; duplicate global setup/cleanup refused | Cooperative host ownership, not arbitrary foreign-thread stop |
+| QNT | Three declared histories; exhaustive 156-state finite safety check; old void-refusal and late-publication counterexamples retained | No unbounded/weak-memory/C refinement theorem |
+| Lean | Existing unchanged root/round algebra remains under its own component | No duplicate registry schedule or new registry theorem |
+| Full bootstrap | c925 whole two-pass406.118 s; distribution-only successor2c5d whole two-pass358.346 s, both within600 | Earlier600-second failure retained; different seed/context prevents a matched speedup claim |
+| Native campaign | c925 sixteen named cases PASS in218.683 s; seven role/fault commands PASS | Executed runtime identities retained; no retag onto successor binaries |
+
+Both native cases are selected by SysML and generated into Gambit's own Scheme
+catalog and CI. The =scheme-host= mode uses the existing =-D___LIBRARY= path,
+keeps the library source basename and uses the same compiler/runtime profile.
+The common Scheme runner also fingerprints both new setup fragments.
+
+** Benefit and additional cost
+
+#+NAME: vm-lifecycle-benefit-cost
+| Dimension | Removed or enabled | Additional cost / refutation |
+|---+---+---|
+| Global safety | A secondary refusal can no longer be ignored before global free | Retained VM resources can live indefinitely; no forced reclaim claim |
+| Ownership | Explicit owner receipt replaces global authority over all VMs | Hosts must finish/acknowledge secondary retirement before global teardown |
+| PSTATE teardown | Primary PSTATE memory cleanup executes once instead of being repeated by VM memory cleanup | Effectful teardown still requires drain and exception handling |
+| Registry storage | Reuses intrusive VM nodes; removes global OS mutex; no separate identity table | Two global words and lifecycle/stage fields per VM; a matched complete-candidate sizeof delta is not established |
+| Signal path | Safe topology borrow and deferred delivery replace an unprotected walk | Atomic admission/pending operations; dispatch remains linear in live VMs/processors |
+| Build reuse | Corrected native stage reused configuration and 51 generated C files; phase3 5.324 s, phase4 3.548 s in the prototype observation | Not a cold-build speedup; full two-pass358.346 s is a separate completed observation |
+
+Whole-VM throughput, complete SMP milestones, generational GC, universal CFFI,
+independent carrier death recovery and frontend/Darwin generation optimization
+remain programme work. None is inferred from these lifecycle receipts.
+
+* Delivery boundary
+
+This work belongs to the lifecycle step in [[file:runtime-role-realization.org::#responsibility-delivery-order][the existing delivery programme]].
+It is retained as research source and evidence while the mixed149-path tree is
+partitioned. It must not force complete GC/CFFI modernization into a lossless
+organization or role-storage submission. Safety of any included adapter remains
+mandatory. No additional native campaign or repair is started merely to close
+the whole programme.

@@ -1,0 +1,93 @@
+#+TITLE: Cleanup ingress — benefit, issuer and closure matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitCleanupIngress
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| nested-shutdown | 0 blocking self-drain waits in requestClose; no forced premature root release | stable requested-close record and later owner finalization | request and final retirement are separate operations | conditional-model |
+| known-SFUN-unwind | reuse existing throw-as-result cleanup route and marker retirement | exact session identity and guard registration before collecting conversion | no raw foreign exit bypasses landing; generated code qualified | source-bound/conditional |
+| shared-admission | 0 mandatory duplicate gates for run and its internal call | one outer authority plus scoped child grants; all raw bypasses refused or mediated | private delegated internal calls distinguished from fresh public calls | design-only |
+| delayed-results | avoid treating callback return as all-storage drain | O(R) origin holds for R outstanding native result releases | Tcl release callback and module/provider lifetime remain callable | unresolved-native |
+| retirement | 0 current runtime paths retired by formal checks | typed request/await/result and cleanup adapter; retained unknown ledger | all native callers, exception and storage closure | design-only |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| sequential-host | embedding-client | call generated Scheme API then release string then cleanup | host owns sequential lifecycle | does not prove concurrent external caller closure |
+| threaded-host | pthread-client | ON_THROW inside host mutex; external pthread joins before cleanup | all host worker threads joined by main in example | mutex serialization is example policy, not modern SMP design |
+| run-call | run-marker | run establishes marker; call may propagate past nested C frame | C stack marker/catcher and Scheme roots until exact landing | phase check does not grant storage lifetime before first dereference |
+| sfun-end | generated-end | end_sfun releases root bank before propagate_error | common generated cleanup landing | foreign jumps around macro cleanup remain outside closure |
+| tcl-command | tcl-callback | Tcl dispatch -> data_rc -> tcltk_call -> Scheme apply | command source lifetime plus nested scope | Tcl command deletion/late dispatch require source-owner agreement |
+| tcl-release | tcl-result | Tcl_SetResult installs runtime release_string callback | result allocation and runtime code until disposal | not drained by join of an unrelated Scheme worker |
+| process-exit | exit-policy | cleanup then unconditional exit_process | process policy rather than reusable VM retirement | no recoverable retirement receipt inferred |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| embedding-owner | public-table | stable entry authority closes fresh host calls; remains live after close | setup_state alone is not concurrent gate |
+| parent-scope | sfun-landing | preauthorized child/source grant and pending child debt | normal parent cannot settle while child or grant remains |
+| landing-owner | generated-end | exact activation marker/catcher plus cleanup-completed guard identity | no receipt from arbitrary longjmp or multishot stale completion |
+| result-owner | tcl-result | one-time native result release with origin/module hold | delayed Tcl disposal or unknown free may outlive callbacks |
+| retirement-coordinator | parent-model | combine ingress drain, physical cohort, worker join and storage closure | current void APIs do not expose authoritative final status |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| ingress-safety | conditional-model | close request preserves active scopes; settle after children and known landing |
+| source-boundaries | source-bound | actual cleanup call sites, SFUN landing/end and Tcl delayed result release |
+| public-callers | unresolved | all direct and indirect public APIs acquire stable outer authority before first raw pointer/TLS access |
+| nested-grants | unresolved | preauthorized callback/source identity and bounded grant must be explicit; arbitrary late callbacks refused |
+| exception-closure | unresolved | exact catcher/marker landing and one-time guard settlement; raw foreign longjmp/cancellation not covered |
+| storage-completion | unresolved | all delayed result, RC, still, descriptor and allocator-origin debts settled |
+| c23-refinement | unresolved | closed admission atomic linearization, release/acquire and effective native sync/join |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| reserveChild | CleanupIngress.reserveChildPreserves | cleanup-entry | ingress-safety |
+| enterChild | CleanupIngress.enterChildPreserves | cleanup-entry | ingress-safety |
+| returnChild | CleanupIngress.returnChildPreserves | sfun-landing | ingress-safety |
+| cancelPermit | CleanupIngress.cancelPermitPreserves | cleanup-entry | ingress-safety |
+| requestClose | CleanupIngress.requestClosePreserves | cleanup-entry | ingress-safety |
+| loseBoundary | CleanupIngress.loseBoundaryPreserves | sfun-landing | ingress-safety |
+| recoverLanding | CleanupIngress.recoverLandingPreserves | sfun-landing | ingress-safety |
+| exportResult | CleanupIngress.exportResultPreserves | tcl-result | ingress-safety |
+| releaseResult | CleanupIngress.releaseResultPreserves | tcl-result | ingress-safety |
+| finishOuter | CleanupIngress.finishOuterPreserves | sfun-landing | ingress-safety |
+| drainCollective | CleanupIngress.drainCollectivePreserves | cleanup-entry | ingress-safety |
+| joinUnknown | CleanupIngress.joinUnknownPreserves | cleanup-entry | ingress-safety |
+| joinKnown | CleanupIngress.joinKnownPreserves | cleanup-entry | ingress-safety |
+| retireDomain | CleanupIngress.retireDomainPreserves | cleanup-entry | ingress-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| cleanup-entry | vendor/gambit/lib/setup.c | if (___GSTATE->setup_state != 1) | plain setup lifecycle check; not atomic cross-thread admission/drain |
+| same-carrier | vendor/gambit/lib/setup.c | same-carrier refusal, not general cross-VM shutdown admission | reject frozen owner before destruction; no general nested-call census |
+| public-table | vendor/gambit/lib/setup.c | ___GSTATE->___cleanup | native table also exports pstate/vmstate cleanup; no stable public close receipt |
+| call-unwind | vendor/gambit/lib/setup.c | stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2] | call may throw past its own activation before normal return |
+| run-marker | vendor/gambit/lib/setup.c | ___kill_sfun_stack_marker (marker); | run catches then kills marker; not an all-nested-guards completion proof |
+| sfun-landing | vendor/gambit/lib/c_intf.c | call_sfun_with_cleanup | throw versus returned error tracked by unwinding flag |
+| generated-end | vendor/gambit/include/_gambit/foreign_conversion.h.in | #define ___END_SFUN } | end_sfun before propagate_error; source macro not current generated module qualification |
+| catcher | vendor/gambit/include/_gambit/foreign_conversion.h.in | ___ps->catcher = ___old_catcher | normal END_TRY restoration; arbitrary foreign longjmp may bypass |
+| tcl-callback | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | raw data_rc at callback entry needs prior source lifetime |
+| tcl-result | vendor/gambit/examples/tcltk/tcltk.scm | ___CAST(Tcl_FreeProc*,___EXT(___release_string)) | Tcl owns delayed native string release; callback return is not debt completion |
+| embedding-client | vendor/gambit/tests/client.c | ___cleanup (); | sequential generated API calls then cleanup; example not universal admission contract |
+| pthread-client | vendor/gambit/examples/pthread/pthread.c | pthread_join (tid[i], &results[i]); | external host joins before cleanup; serialized Scheme calls in this example |
+| main-cleanup | vendor/gambit/lib/main.c | ___cleanup (); | after successful setup return; main owns lifecycle |
+| exit-policy | vendor/gambit/lib/setup.c | ___exit_process (status); | cleanup_and_exit is process termination even if cleanup retained/refused |
+| parent-model | dev/refactoring/modern-c/models/quint/cohort_retirement.qnt | action retireDomain= | actual previous model; retain external reader and join duties |

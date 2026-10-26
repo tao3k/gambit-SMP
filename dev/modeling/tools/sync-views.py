@@ -12,6 +12,9 @@ MODEL = ROOT / 'dev/organization.sysml'
 RELATIONS = ROOT / 'dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml'
 
 def sha(p): return hashlib.sha256(p.read_bytes()).hexdigest()
+def require_reproducible_org(name, body):
+    if name.endswith('.org') and re.search(r'\.cache(?:/|\b)', body):
+        raise ValueError(f'{name}: Org must reference repository-retained evidence, not local execution storage')
 def file_link(source, target, label):
     path, sep, search = target.partition('::')
     return '[[file:' + os.path.relpath(ROOT / path, (ROOT / source).parent) + (sep + search if sep else '') + '][' + label + ']]'
@@ -1157,7 +1160,11 @@ def main():
     if os.environ.get('GAMBIT_SMP_TASK_ID'):
         from gambit_smp.workspace import task_output
         TASK=task_output(ROOT,'.cache/sysml-repair-views')
+    for document in (ROOT/'dev').rglob('*.org'):
+        require_reproducible_org(str(document.relative_to(ROOT)), document.read_text())
     outputs,receipt=derive();drift=[]
+    for name,body in outputs.items():
+        require_reproducible_org(name, body)
     for name,body in outputs.items():
         p=ROOT/name
         if not p.exists() or p.read_text()!=body:

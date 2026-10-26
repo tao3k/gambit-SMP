@@ -1,0 +1,90 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-ci-wide-roots",
+  "scope": "Independent exact-source module; local C/kernel checks cannot supply this Scheme observation",
+  "budgetSeconds": 90,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/modular-smp-bootstrap/qualified/source.lock.json",
+    "evidence/research/modular-smp-bootstrap/qualified/source-overlay.patch",
+    "evidence/research/modular-smp-bootstrap/ci-producer.json",
+    "vendor/gambit/tests/frame-continuation-roots.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [
+
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/research/modular-smp-bootstrap/qualified/source.lock.json"
+      }
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "candidate"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "producer": "evidence/research/modular-smp-bootstrap/ci-producer.json"
+      }
+    },
+    {
+      "id": "wide-roots",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "runtime"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/frame-continuation-roots.scm",
+        "stdout": "FRAME-CONTINUATION-ROOTS-PASS\nFORCED-GC-COMPLETE count=11\n",
+        "processorTopology": "fixture-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "wide-roots"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": [
+
+          ]
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

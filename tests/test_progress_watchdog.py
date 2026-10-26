@@ -253,6 +253,48 @@ class ProgressWatchdogTests(unittest.TestCase):
         self.assertEqual(7, progress(transcript, ""))
         self.assertEqual(7, progress(transcript + "*** making phase1\n", ""))
 
+    def test_phase_observations_do_not_invent_timing_for_buffered_announcements(self):
+        ticks = iter((10.0, 12.0, 25.0))
+        progress = BootstrapPhaseProgress(clock=lambda: next(ticks))
+        self.assertEqual(0, progress("*** making phase1\n", ""))
+        self.assertEqual(2, progress("*** making phase1\n*** making phase2\n*** making phase3\n", ""))
+        self.assertEqual([2.0, 15.0, 15.0],
+                         [row["firstObservedSeconds"] for row in progress.boundaries])
+        self.assertEqual([1, 2, 3], [row["phase"] for row in progress.boundaries])
+        # Re-reading the same prefix must neither create receipts nor renew work.
+        self.assertEqual(2, progress("*** making phase1\n*** making phase2\n*** making phase3\n", ""))
+
+    def test_phase_observer_retains_prefix_before_caller_finalization(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "phase-observations.json"
+            progress = BootstrapPhaseProgress(observation_path=path)
+            first = "*** making phase1\n"
+            progress(first, "diagnostic\n")
+            self.assertFalse(json.loads(path.read_text())["completionObserved"])
+            self.assertEqual(first, (path.parent / "from-scratch.partial.stdout").read_text())
+            # A repeated poll cannot duplicate bytes; no success/finalizer is called.
+            progress(first, "diagnostic\n")
+            self.assertEqual(first, (path.parent / "from-scratch.partial.stdout").read_text())
+            progress(first + "*** making phase2\n", "diagnostic\n")
+            self.assertEqual(2, len(json.loads(path.read_text())["boundaries"]))
+
+    def test_phase_prefix_survives_killed_observer_without_success_receipt(self):
+        program = ("from pathlib import Path\nimport os,signal,sys\n"
+                   "from gambit_smp.gambit_build_primitives import BootstrapPhaseProgress\n"
+                   "p=BootstrapPhaseProgress(observation_path=Path(sys.argv[1]))\n"
+                   "p('*** making phase1\\n', '')\n"
+                   "print('PREFIX-SAVED',flush=True)\nos.kill(os.getpid(),signal.SIGKILL)\n")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "phase-observations.json"
+            observed = capture([sys.executable, "-c", program, str(path)],
+                               directory, 2, None)
+            self.assertFalse(observed.timeout)
+            self.assertEqual(-9, observed.exit)
+            self.assertIn("PREFIX-SAVED", observed.stdout)
+            self.assertFalse(json.loads(path.read_text())["completionObserved"])
+            self.assertEqual("*** making phase1\n",
+                             (path.parent / "from-scratch.partial.stdout").read_text())
+
     def test_bootstrap_real_progress_survives_wall_window(self):
         program = "import time\nfor i in (1,2,3,4,1,2,3,4):\n print('*** making phase%d' % i,flush=True)\n time.sleep(.2)"
         with tempfile.TemporaryDirectory() as temporary:

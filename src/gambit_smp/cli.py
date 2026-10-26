@@ -100,7 +100,11 @@ def main(argv=None, *, _callback=None):
     def invoke():
         token=_dispatch.set(True)
         address=_observation_address.set((selected_root, args.task or os.environ.get('GAMBIT_SMP_TASK_ID')))
-        presenter=_observation_presenter.set(lambda result: observation_evidence(result, selected_root))
+        # Native execution returns its bound receipt. Catalog expansion is an
+        # explicit read, never hidden work after the native budget has ended.
+        presenter=_observation_presenter.set(
+            (lambda result: result) if args.command == 'research' and '--run' in args.arguments
+            else (lambda result: observation_evidence(result, selected_root)))
         try:return target()
         finally:
             _observation_presenter.reset(presenter)

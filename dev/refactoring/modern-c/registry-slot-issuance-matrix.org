@@ -1,0 +1,308 @@
+#+TITLE: Registry and SlotKey Issuance — Identity, Overlap and Lease Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRegistrySlotIssuance
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Raw data_rc copy before generated entry; no explicit lease here |
+| tcl-delete-native | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (___CAST(void*,client_data)); | Delete adapter must close admission and defer physical release while leased |
+| tcl-install | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Tcl caller initializes payload before command publication; raw setter remains public |
+| rc-register | vendor/gambit/lib/_mem/rc-allocation.inc | tail->next = h; | Plain list insertion requires owner and collector exclusion |
+| rc-free | vendor/gambit/lib/_mem/rc-allocation.inc | if (--h->refcount == 0) | Nonatomic decrement and unlink are not safe arbitrary-thread admission |
+| rc-read | vendor/gambit/lib/_mem/rc-allocation.inc | return h->data; | Raw native copy is not a registered update slot |
+| rc-write | vendor/gambit/lib/_mem/rc-allocation.inc | h->data = val; | All semantic writers must join freeze/generation protocol or deny admission |
+| rc-cleanup | vendor/gambit/lib/_mem/rc-allocation.inc | ___HIDDEN void cleanup_rc | Bulk cleanup frees chain independent of per-entry leases |
+| rc-scan | vendor/gambit/lib/_mem/rc-roots.inc | mark_array (work, &h->data, 1); | Actual GC slot update; target private carrier is not implicitly scanned |
+| retire-refuse | vendor/gambit/lib/_mem/capacity-resize.inc | return 0; /* no freeze receipt for external RC/native borrowers */ | Current processor retirement refuses nonempty RC rather than manufacturing a lease |
+| pstate-cleanup | vendor/gambit/lib/_mem/memory-lifecycle.inc | free_still_objs (___ps); | cleanup_mem_pstate frees still storage before cleanup_rc; not an active-lease release helper |
+| setter-export | vendor/gambit/lib/setup.c | = ___set_data_rc; | Public GSTATE function pointer permits indirect/out-of-tree callers; lexical sites do not close writer authority |
+| register-export | vendor/gambit/lib/setup.c | = ___register_rc; | Public registration ABI is not a stable VM SourceOwner registry |
+| closure-writer | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Concrete semantic payload installer, architecture conditional |
+| epoch-limit | vendor/gambit/lib/_mem/heap-sections.inc | if (___vms->gc_round.epoch >= ___MAX_FIX) | Existing round identity refuses exhaustion; no unchecked wrapping receipt |
+| epoch-new | vendor/gambit/lib/_mem/heap-sections.inc | ___vms->gc_round.epoch++; | Round number created at setup, distinct from semantic payload generation |
+| origin-publish | vendor/gambit/lib/_mem/heap-sections.inc | !___gc_root_task_publish(&___vms->gc_root_tasks[i], | Publish follows frozen origin; not generic new-source enrollment |
+| origin-claim | vendor/gambit/lib/_mem/collection-round.inc | if (___gc_root_task_claim(task,___vms->gc_round.epoch,owner)) | Actual claim checks current round and worker owner |
+| origin-finish | vendor/gambit/lib/_mem/collection-round.inc | if (!___gc_root_task_finish(task,___vms->gc_round.epoch,owner)) | Task finish has exact owner and epoch boundary |
+| origin-thaw | vendor/gambit/lib/_mem/collection-round.inc | if (!___gc_origin_thaw(&___vms->gc_root_tasks[id],___vms->gc_round.epoch)) | Resume requires completed origin; not a payload-version receipt |
+| view-drain | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | Root view grace cut precedes ordinary execution |
+| shrink-cleanup | vendor/gambit/lib/setup.c | ___transfer_retired_still (ps, ___ps); | Shrink known join transfers still before cleanup; does not qualify arbitrary native roots |
+| vm-root-retained | vendor/gambit/lib/setup.c | return; /* do not erase retained source roots through repeated setup */ | Whole VM cleanup checks resize source requests; generic SourceRegistry not covered |
+| vm-request-slots | vendor/gambit/lib/_mem/root-origins.inc | &___vms->resize_requests[i].thunk | All VM request slots scanned independently of participant membership; precedent not generic registry |
+| context-rc-roots | vendor/gambit/lib/_mem/root-origins.inc | mark_rc (work, context); | RC roots reached through frozen execution origin |
+| context-startup | vendor/gambit/lib/_mem/root-origins.inc | &context->startup_thunk | Startup root remains a stable update slot |
+| root-hook | vendor/gambit/lib/_mem/root-origins.inc | ___GC_ROOT_CONTROL(work); | Default hook has no storage or code; not proof of generic carrier coverage |
+| origin-layout | vendor/gambit/include/_gambit/runtime_roles.h.in | typedef struct ___gc_root_origin_struct | Stable context identity and pinned origin storage, not an arbitrary host lease |
+| task-layout | vendor/gambit/include/_gambit/runtime_roles.h.in | typedef struct ___gc_root_task_struct | Task contains origin pointer, incarnation, epoch, claim state |
+| origin-freeze-body | vendor/gambit/include/_gambit/vm_state.h.in | ___STARTUP_INLINE int ___gc_origin_freeze | Real publisher requires physical root-writer stop and exclusive round admission |
+| task-publish-body | vendor/gambit/include/_gambit/vm_state.h.in | t->origin = o; t->incarnation = o->incarnation; t->epoch = epoch; | Descriptor publication assumes exclusive slot reuse and drained prior readers |
+| task-claim-body | vendor/gambit/include/_gambit/vm_state.h.in | t->incarnation != t->origin->incarnation | Claim dereferences descriptor/origin before CAS; not a safe retain of freed storage |
+| task-finish-body | vendor/gambit/include/_gambit/vm_state.h.in | ___gc_cas(&t->claim,owner,2) == owner | Exact owner completion within a stable pinned round |
+| origin-thaw-body | vendor/gambit/include/_gambit/vm_state.h.in | ___gc_atomic_load(&t->claim) == 2 | Completion does not itself supply whole-round resume permission |
+| vm-root-layout | vendor/gambit/include/_gambit/vm_state.h.in | ___gc_root_task gc_root_tasks[___MAX_PROCESSORS]; | VM allocation stores task descriptors; current task census is processor origins |
+| incarnation-issuer | vendor/gambit/lib/setup.c | ___vms->gc_origins[i].incarnation++; | Real context incarnation signer after finite exhaustion check |
+| cas-wrapper | vendor/gambit/include/_gambit/vm_state.h.in | return ___COMPARE_AND_SWAP_WORD(p,old_value,new_value); | Platform-selecting CAS is not an explicit C23 atomic ABI |
+| cas-sync-builtins | vendor/gambit/include/_gambit/activity_log.h.in | __sync_val_compare_and_swap(p,oldval,newval) | One alternative implementation; effective Darwin selection remains open |
+| slot-read | vendor/gambit/lib/_mem/copy-reservations.inc | ___WORD obj = *cell; | Ordinary root-slot load requires writer and duplicate-scanner exclusion |
+| copy-loser-slot-write | vendor/gambit/lib/_mem/copy-reservations.inc | *cell = ___TAG(___UNTAG_AS(head_now, ___FORW), ___TYP(obj)); | Forwarding loser still writes the root slot |
+| copy-winner-slot-write | vendor/gambit/lib/_mem/copy-reservations.inc | *cell = ___TAG(alloc - ___REFERENCE_TO_BODY, ___TYP(obj)); | Forwarding winner writes the root slot before copying all payload |
+| already-forwarded-slot-write | vendor/gambit/lib/_mem/copy-reservations.inc | *cell = ___TAG(___UNTAG_AS(head, ___FORW), ___TYP(obj)); | Same object in two cells still needs both cell updates |
+| default-root-hook | vendor/gambit/lib/_mem/copy-reservations.inc | #define ___GC_ROOT_CONTROL(work) ((void)0) | No general VM carrier registry consumer is supplied by this hook |
+| umbrella | vendor/gambit/include/gambit.h.in | #include "_gambit/memory_state.h.in" | Bind modular umbrella and layout producer |
+| header-config | vendor/gambit/include/makefile.in | HEADER_CONFIG = | Ordered configured header composition; generated artifact provenance open |
+| header-target | vendor/gambit/include/makefile.in | gambit.h: gambit.h.in $(HEADER_TEMPLATES) | All template inputs matter; do not run configuration |
+| mem-order | vendor/gambit/lib/mem.c | #include "_mem/rc-allocation.inc" | Bind new implementation inclusion path/order |
+| rc-layout | vendor/gambit/include/_gambit/memory_state.h.in | typedef struct ___rc_header_struct | Links/refcount/data do not contain VM storage identity or extent |
+| root-field | vendor/gambit/include/_gambit/memory_state.h.in | ___SCMOBJ data; /* needed for C closures */ | Root coordinate comes from schema field, not payload address |
+| rc-allocation | vendor/gambit/lib/_mem/rc-allocation.inc | ___ALLOC_MEM(bytes + sizeof (___rc_header)) | Allocation lacks durable identity and checked-extent receipt |
+| rc-address | vendor/gambit/lib/_mem/rc-allocation.inc | return ___CAST(void*,h+1); | Native payload address is not root-cell address |
+| allocator-export | vendor/gambit/lib/setup.c | = ___alloc_rc_no_register; | Indirect allocation authority remains public |
+| public-register | vendor/gambit/include/_gambit/runtime_protocols.h.in | ___IMP_FUNC(void*,___register_rc) | Public declaration and implementation spelling require effective ABI qualification |
+| tcl-allocation | vendor/gambit/examples/tcltk/tcltk.scm | void *cd = ___EXT(___alloc_rc) (0); | Zero payload allocation still owns a root-bearing header |
+| string-resource | vendor/gambit/lib/c_intf.c | ___EXP_FUNC(void,___release_string) | Native strings share RC allocator; classify Scheme payload separately |
+| os-resource | vendor/gambit/lib/os_io.c | void *ev = ___alloc_rc | OS resource user is not implicitly a Scheme root source |
+| file-resource | vendor/gambit/lib/os_files.c | ___alloc_rc (___PSA(___PSTATE) | Directory/native resource ownership survives allocator redesign |
+
+** Module
+
+| key | path | responsibility | modelOwner |
+|---+---+---+---|
+| layout | vendor/gambit/include/_gambit/memory_state.h.in | RC header, field coordinates, context memory | storage |
+| roles | vendor/gambit/include/_gambit/runtime_roles.h.in | Execution/root/task/worker types | registry |
+| protocol | vendor/gambit/include/_gambit/vm_state.h.in | VM root arrays and origin/round publication | registry |
+| sync-current | vendor/gambit/include/_gambit/activity_log.h.in | Current CAS alternatives are here; filename is not a semantic boundary | generation |
+| exports | vendor/gambit/include/_gambit/global_state.h.in | Indirect native function table | writer |
+| declarations | vendor/gambit/include/_gambit/runtime_protocols.h.in | Public native ABI declarations | registry |
+| allocator | vendor/gambit/lib/_mem/rc-allocation.inc | Allocate, register, set, retain and free | storage |
+| cleanup | vendor/gambit/lib/_mem/memory-lifecycle.inc | Still/RC destructive cleanup ordering | storage |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| allocation | VM + StorageId + generation + checked extent | Allocator owner publishes identity before any derived keys | Raw address and refcount cannot issue ownership |
+| view | Parent StorageId/generation + offset/count + provenance | Known contained view shares parent identity | Containment without provenance is insufficient |
+| slot | Allocation key + schema word offset | Physical aliases receive one canonical key | Native pointer/key adequacy, process/VM ownership and concurrent overlap completeness open |
+| registry | EntryId + entry generation + immutable SlotUseSpec | Publish roots, owners and metadata together | Arbitrary idempotency ledger and entry reuse not modeled |
+| payload | Semantic binding generation, separate from storage/GC | Alias freezes source; independent copy preserves old binding | GC relocation is not semantic setter execution |
+| lease | SourceId/generation + LeaseId + binding policy | Exact old lease completion releases writer exclusion | Fixed model identities do not prove arbitrary concurrent lease accounting |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| storage | VM allocator/storage owner | alloc_rc_no_register and RC header layout | No canonical VM StorageId issuer found | Issue extent/provenance and reject contradictory live overlaps |
+| registry | VM registry commit owner | Context register_rc and fixed resize request roots | No generic VM root registry signer found | Commit complete rooted bundle and same-identity result record |
+| view | Storage provenance owner and schema generator | RC data field and fixed context array layouts | Subview certificate absent | Check extent arithmetic alignment policy and parent generation |
+| generation | Stable storage index retirement owner | setup_pstate incarnation and collector epoch have exhaustion checks | Existing counters belong to other identity domains | Drain old accepted users then strictly advance; never wrap |
+| writer | Managed source setter owner | Tcl/C closure installs and GSTATE setter export | Complete writer authority unclosed | Serialize all semantic writes against alias/source leases |
+| release | Source lease completion plus root/grace owners | Current native callers have no generic alias lease receipt | Native signer absent | Copy needs known persistent root; alias needs final user and scan drain |
+| cleanup | Root-cell arena and foreign-resource owners | Still transfer plus free_still_objs then cleanup_rc | Whole-registry settlement absent | Separate header root-cell ownership from Scheme payload backing/code/context |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| overlap | Known subviews normalize; unowned overlap rejects | Complete live/pending/retained allocation authority and proven parent provenance | No second storage identity for same cell | Finite interval examples do not prove native allocator census |
+| generation | Close/drain before strict generation advance | Checked representation; no accepted old user or scan | Saved old key cannot match reused record | Two modeled incarnations; native ABA/index proof open |
+| alias-lease | Freeze semantic source binding through alias lifetime | Every setter mediated; lookups users scans settled | Bound payload equals source while alias remains | Actual FFI and writer closure missing |
+| copy-lease | Keep source until independent registered root is known | Private rooting and every-GC coverage plus backing ownership | Source may change while old copy stays bound | Native initialization/root/payload product open |
+| unknown | Unknown publication blocks lease return and retirement | Exact keyed query and stable owner can settle | No timeout inferred release | No liveness or bounded-retention proof |
+| modularity | Bind current header and memory fragments | Include order and configured header inputs are hashed | Evidence follows actual module locations | Lexical graph is not preprocessing or native ABI proof |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| allocate | Publish initialized storage record | Acquire before SlotKey validation | Pin actual block; check byte extent and complete overlap domain | Extent index and allocation record |
+| commit | Publish rooted metadata and owners together | Acquire immutable complete bundle | No root/metadata split; lost ack retains source | Commit record and query path |
+| write | Setter checks exact source generation and lease | Collector updates relocation under root protocol | Atomic metadata alone cannot legalize unmediated root writes | Writer gate plus rooted candidate |
+| close | Close admission atomically with accepted-user accounting | Acquire all last-use completions before reclaim | No separate zero-count snapshot as quiescence evidence | Tombstone and grace retention |
+| return | Copy observes known target; alias observes final drain | Only old LeaseId completion may settle old writer exclusion | Continuation replay cannot release a later lease | Stable completion record |
+| reuse | Reclaim then publish strictly newer generation | Reject stale handle through stable index before dereference | No wrap; exhaustion refuses reuse | Checked counters and retained unknown outcomes |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| canonical | Duplicate allocation identities/root work | Authoritative extent/provenance index | All allocator and FFI imports mediated |
+| alias | Target root copy allocation and scan | Source write stall, header/arena retention | Immutable source binding appropriate for alias lifetime |
+| copy | Source lifecycle/write coupling after known transfer | Independent root cell and per-GC scan; backing settlement | Actual target every-round coverage; payload arena separate |
+| reuse | Whole-context retention due solely to local metadata | Storage generations, exact drain and stable index | Other context/arena/code/native users independently settled |
+| language | Shared generated C23 root/layout/FFI contract | Storage and GC protocols remain necessary in C and Zig | Extra Zig return requires actual support retirement; not established |
+
+** Cost
+
+| key | avoided | added | positiveCondition | boundary |
+|---+---+---+---+---|
+| index | K*(M-S)*visit_cost plus duplicate identity work | validate + normalize + pin + grace | avoided > added | No measured duplicate rate; required S slot updates remain |
+| alias | One target slot plus K scans | source_write_stall + retained_header + retained_arena + unknowns | saved target cost > source coupling | Zero-copy can be negative or indefinitely stall a setter |
+| copy | Source-write stalls and source-header/context retention | target_slot + K scans + backing transfer + grace | coupling removed > independent ownership work | Root copy alone does not authorize still/foreign cleanup |
+| generation | Accidental aliasing/ABA and lifetime rediscovery | generation index + tombstones + reuse delay | native acceptance and all old-user drains proved | No native retirement or performance percentage |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| AllocatorOwner | StorageRecord | Checked VM identity and extent |
+| StorageRecord | SubviewCertificate | Proven parent and containment |
+| UnknownOverlap | RefuseKey | No conflicting new identity |
+| SubviewCertificate | SlotKey | Same parent generation and schema |
+| SlotKey | RegistryCandidate | Complete rooted slot runs |
+| SourceWriteLease | RegistryCandidate | Freeze old semantic binding |
+| RegistryCandidate | CommitRecord | Publish rooted bundle |
+| CommitRecord | KnownCoverage | Exact result query |
+| KnownCoverage | CopyLeaseRelease | Independent persistent target root |
+| CopyLeaseRelease | SourceLeaseLedger | Settle exact copied-source lease |
+| CloseAliasAdmission | AliasDrain | Drain lookup users and scans |
+| AliasDrain | AliasLeaseRelease | Exact old lease completion |
+| AliasLeaseRelease | SourceLeaseLedger | Settle exact drained alias lease |
+| SourceClose | StorageClose | Close writers and native borrow admission |
+| StorageClose | BackingSettlement | Root cell and payload arena separate |
+| BackingSettlement | StorageReclaimPermit | Backing ownership settled |
+| ReclaimStorage | NextGeneration | Strict advance or refuse exhaustion |
+| NextGeneration | RejectStaleKey | Validate before pointer access |
+| UnknownOutcome | RetainedCustody | No timeout inferred release |
+| SourceLeaseLedger | SourceWriteAdmission | Write only if source remains open |
+| StorageClose | SourceWriteAdmission | Closed source rejects writes |
+| StorageClose | StorageReclaimPermit | Admission closed |
+| SourceLeaseLedger | StorageReclaimPermit | No outstanding source lease |
+| NativeBorrowDrain | StorageReclaimPermit | Accepted native users settled |
+| ScanGrace | StorageReclaimPermit | No frozen GC view |
+| StorageReclaimPermit | ReclaimStorage | All custody conditions |
+| StorageClose | NativeBorrowDrain | Drain accepted native users |
+| AbortReceipt | SourceLeaseLedger | Known nonpublication only |
+| FreshDisjointStorage | RegistryCandidate | Copy mode requires valid signed target extent |
+
+** Metric
+
+| key | unit | baseline | candidate | acceptance |
+|---+---+---+---+---|
+| root-work | slot visits per round | Legacy admitted logical references M | Canonical physical cells S | Potential removed visits M-S only if current baseline actually duplicates |
+| copy-storage | SCMOBJ words plus separately reported metadata/backing bytes | Alias adds no target root word but retains source dependencies | Independent copied cell adds one root word per slot plus descriptor/index storage | Do not infer total bytes without native layout and backing census |
+| writer-wait | source setter blocked duration | Alias holds until final alias drain | Copy can release after known persistent coverage | Potential saving only if real source writes occur; inspected Tcl/C closure bodies only install initially |
+| decision | cost vector: work, live bytes over time, blocked duration | Matched semantic and lifetime workload | Report each dimension separately | Pareto improvement or explicit workload weights; never add bytes to seconds without weights |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| registry_slot_issuance.probeSubview | SlotIssuance.probeSubviewPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.probeAdjacent | SlotIssuance.probeAdjacentPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.probeOverlap | SlotIssuance.probeOverlapPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.probeUnownedExact | SlotIssuance.probeUnownedExactPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.issueSubview | SlotIssuance.issueSubviewPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.issueFresh | SlotIssuance.issueFreshPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.rejectOverlap | SlotIssuance.rejectOverlapPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.rejectUnownedExact | SlotIssuance.rejectUnownedExactPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.saveKey | SlotIssuance.saveKeyPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.prepareAlias | SlotIssuance.prepareAliasPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.prepareCopy | SlotIssuance.prepareCopyPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.materializeCopy | SlotIssuance.materializeCopyPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.publishAlias | SlotIssuance.publishAliasPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.publishCopy | SlotIssuance.publishCopyPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.queryCommit | SlotIssuance.queryCommitPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.releaseCopyLease | SlotIssuance.releaseCopyLeasePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.beginLookup | SlotIssuance.beginLookupPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.acceptBorrow | SlotIssuance.acceptBorrowPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.lookupUnknown | SlotIssuance.lookupUnknownPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.resolveLookup | SlotIssuance.resolveLookupPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.rejectLookup | SlotIssuance.rejectLookupPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.returnBorrow | SlotIssuance.returnBorrowPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.closeRegistry | SlotIssuance.closeRegistryPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.beginScan | SlotIssuance.beginScanPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.finishScan | SlotIssuance.finishScanPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.scanUnknown | SlotIssuance.scanUnknownPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.resolveScan | SlotIssuance.resolveScanPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.retireRegistry | SlotIssuance.retireRegistryPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.releaseRetiredAliasLease | SlotIssuance.releaseRetiredAliasLeasePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.abortCandidate | SlotIssuance.abortCandidatePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.sourceWrite | SlotIssuance.sourceWritePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.sourceBorrowBegin | SlotIssuance.sourceBorrowBeginPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.sourceBorrowReturn | SlotIssuance.sourceBorrowReturnPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.closeStorage | SlotIssuance.closeStoragePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.settleBacking | SlotIssuance.settleBackingPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.reclaimStorage | SlotIssuance.reclaimStoragePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.reuseStorage | SlotIssuance.reuseStoragePreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+| registry_slot_issuance.rejectStaleKey | SlotIssuance.rejectStaleKeyPreserves | one registry entry; fixed lease/users; two storage incarnations; native fidelity open |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | SlotIssuance.stepPreserves |
+| reachableSafe | SlotIssuance.reachableSafe |
+| aliasBindingStable | SlotIssuance.aliasBindingStable |
+| publicationUnknownBlocksCopyRelease | SlotIssuance.publicationUnknownBlocksCopyRelease |
+| aliasBlocksSourceWrite | SlotIssuance.aliasBlocksSourceWrite |
+| aliasReleaseRequiresRetirement | SlotIssuance.aliasReleaseRequiresRetirement |
+| copyReleaseRequiresKnownRoot | SlotIssuance.copyReleaseRequiresKnownRoot |
+| reuseAdvancesGeneration | SlotIssuance.reuseAdvancesGeneration |
+| exhaustionDeniesReuse | SlotIssuance.exhaustionDeniesReuse |
+| staleKeyCannotPrepare | SlotIssuance.staleKeyCannotPrepare |
+| freshIssuedDisjoint | SlotIssuance.freshIssuedDisjoint |
+| unknownAckBlocksRetirement | SlotIssuance.unknownAckBlocksRetirement |
+| adjacencyDisjoint | StorageIntervals.adjacencyDisjoint |
+| overlapCannotMintFresh | StorageIntervals.overlapCannotMintFresh |
+| subviewOffsetInside | StorageIntervals.subviewOffsetInside |
+| exactUnownedRangeOverlaps | StorageIntervals.exactUnownedRangeOverlaps |
+| pointInBothContradictsDisjoint | StorageIntervals.pointInBothContradictsDisjoint |
+| generationSeparatesKey | StorageIntervals.generationSeparatesKey |
+| aliasKeepsBackingPremise | SlotIssuanceBridge.aliasKeepsBackingPremise |
+| oldParentAliasFreeDenied | SlotIssuanceBridge.oldParentAliasFreeDenied |
+| backingReceiptSeparate | SlotIssuanceBridge.backingReceiptSeparate |
+| copyLeaseDoesNotDrainTargetBorrow | SlotIssuanceBridge.copyLeaseDoesNotDrainTargetBorrow |
+| copyReleaseHasDisjointTarget | SlotIssuance.copyReleaseHasDisjointTarget |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| storage | registry_slot_issuance.issueSubview | SlotIssuance.issueSubviewPreserves | root-field | SI-source |
+| storage | registry_slot_issuance.issueFresh | SlotIssuance.issueFreshPreserves | rc-allocation | SI-source |
+| storage | registry_slot_issuance.rejectOverlap | SlotIssuance.rejectOverlapPreserves | rc-address | SI-source |
+| registry | registry_slot_issuance.publishAlias | SlotIssuance.publishAliasPreserves | rc-register | SI-roots |
+| registry | registry_slot_issuance.publishCopy | SlotIssuance.publishCopyPreserves | vm-request-slots | SI-roots |
+| registry | registry_slot_issuance.queryCommit | SlotIssuance.queryCommitPreserves | register-export | SI-roots |
+| writer | registry_slot_issuance.prepareAlias | SlotIssuance.prepareAliasPreserves | tcl-install | SI-writers |
+| writer | registry_slot_issuance.sourceWrite | SlotIssuance.sourceWritePreserves | rc-write | SI-writers |
+| lease | registry_slot_issuance.releaseCopyLease | SlotIssuance.releaseCopyLeasePreserves | tcl-call | SI-execution |
+| lease | registry_slot_issuance.releaseRetiredAliasLease | SlotIssuance.releaseRetiredAliasLeasePreserves | tcl-delete-native | SI-execution |
+| lease | registry_slot_issuance.lookupUnknown | SlotIssuance.lookupUnknownPreserves | task-claim-body | SI-execution |
+| storage | registry_slot_issuance.reclaimStorage | SlotIssuance.reclaimStoragePreserves | pstate-cleanup | SI-storage |
+| generation | registry_slot_issuance.reuseStorage | SlotIssuance.reuseStoragePreserves | incarnation-issuer | SI-platform |
+| generation | registry_slot_issuance.rejectStaleKey | SlotIssuance.rejectStaleKeyPreserves | task-publish-body | SI-platform |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| SI-formal | induction | dev/refactoring/modern-c/models/lean/SlotIssuance.lean | bounded storage/lease all-step induction; not native execution |
+| SI-bridge | composition | dev/refactoring/modern-c/models/lean/SlotIssuanceBridge.lean | generic interval/generation algebra and conditional parent boundaries |
+| SI-source | source | vendor/gambit/lib/_mem/rc-allocation.inc | complete VM allocation/provenance census and canonical SlotKey issuer |
+| SI-execution | source | vendor/gambit/examples/tcltk/tcltk.scm | actual LeaseId signers and every indirect/native borrower |
+| SI-roots | source | vendor/gambit/lib/_mem/root-origins.inc | atomic registry/root publication and every-round target coverage |
+| SI-writers | source | vendor/gambit/include/_gambit/global_state.h.in | all direct/indirect/native header writers mediated |
+| SI-platform | platform | vendor/gambit/include/_gambit/vm_state.h.in | native finite generations index/ABA and C23 refinement |
+| SI-storage | source | vendor/gambit/lib/_mem/memory-lifecycle.inc | complete root-cell/arena/code/context/foreign cleanup owners |
+
+** Closure observation
+
+| Obligation | Owner | Status | Scoped subject |
+|---+---+---+---|
+| SI-formal | lease | provided: scoped conditional formal receipt | bounded storage/lease all-step induction; not native execution |
+| SI-bridge | lease | provided: scoped conditional formal receipt | generic interval/generation algebra and conditional parent boundaries |
+| SI-source | storage | unresolved | complete VM allocation/provenance census and canonical SlotKey issuer |
+| SI-execution | lease | unresolved | actual LeaseId signers and every indirect/native borrower |
+| SI-roots | registry | unresolved | atomic registry/root publication and every-round target coverage |
+| SI-writers | writer | unresolved | all direct/indirect/native header writers mediated |
+| SI-platform | generation | unresolved | native finite generations index/ABA and C23 refinement |
+| SI-storage | storage | unresolved | complete root-cell/arena/code/context/foreign cleanup owners |

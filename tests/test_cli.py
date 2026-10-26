@@ -14,6 +14,17 @@ from gambit_smp.framework import ROOT, project_root
 
 
 class CommandTests(unittest.TestCase):
+    def test_native_run_returns_receipt_without_evaluating_the_evidence_catalog(self):
+        from gambit_smp.task_entry import present_observation
+        value={'recipe':'native-request','outcome':'DENY','runtimeAdmitted':False}
+        seen=[]
+        adapter=SimpleNamespace(main=lambda: seen.append(present_observation(value)) or 2)
+        with patch.object(cli,'import_module',return_value=adapter), \
+                patch('gambit_smp.trajectory_exploration.repository_clues') as query:
+            self.assertEqual(2,cli.main(['research','--run','selected.recipe.json']))
+        query.assert_not_called()
+        self.assertIs(seen[0],value)
+
     def test_read_presentation_is_dispatcher_owned_and_does_not_leak_to_workers(self):
         from gambit_smp.task_entry import present_observation
         value = {'recipe': 'declared-recipe', 'outcome': 'DENY'}

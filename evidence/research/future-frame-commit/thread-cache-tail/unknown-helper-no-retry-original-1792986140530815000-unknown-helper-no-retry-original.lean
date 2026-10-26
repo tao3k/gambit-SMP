@@ -1,0 +1,9 @@
+import ThreadCacheTail
+open ThreadCacheTailAst
+def witness : State := unknownHelperNext (helperPushNext (selectHelperNext (sampleHighNext (initial))))
+example : sampleHighGuard (initial) := by simp [sampleHighGuard,initial]
+example : selectHelperGuard (sampleHighNext (initial)) := by simp [selectHelperGuard,initial,sampleHighNext]
+example : helperPushGuard (selectHelperNext (sampleHighNext (initial))) := by simp [helperPushGuard,initial,sampleHighNext,selectHelperNext]
+example : unknownHelperGuard (helperPushNext (selectHelperNext (sampleHighNext (initial)))) := by simp [unknownHelperGuard,initial,sampleHighNext,selectHelperNext,helperPushNext]
+example : Safe witness := by simp [Safe,witness,initial,sampleHighNext,selectHelperNext,helperPushNext,unknownHelperNext,enterChildGuard,childCleanupKnownGuard,beginChildRestoreGuard,knownChildRestoreGuard,claimExtraGuard,returnExtraGuard,denyOwnerGuard,sampleEmptyGuard,sampleLowGuard,sampleNearGuard,sampleHighGuard,selectFastGuard,selectHelperGuard,attestFastTailGuard,writeFastLinkGuard,publishFastHeadGuard,incrementFastCountGuard,publishFastReceiptGuard,helperPushGuard,helperFlush800Guard,helperKnownReturnGuard,unknownHelperGuard,handoffParentGuard,beginParentRestoreGuard,knownParentRestoreGuard]
+example : ¬ (helperPushGuard witness) := by simp [Safe,witness,initial,sampleHighNext,selectHelperNext,helperPushNext,unknownHelperNext,enterChildGuard,childCleanupKnownGuard,beginChildRestoreGuard,knownChildRestoreGuard,claimExtraGuard,returnExtraGuard,denyOwnerGuard,sampleEmptyGuard,sampleLowGuard,sampleNearGuard,sampleHighGuard,selectFastGuard,selectHelperGuard,attestFastTailGuard,writeFastLinkGuard,publishFastHeadGuard,incrementFastCountGuard,publishFastReceiptGuard,helperPushGuard,helperFlush800Guard,helperKnownReturnGuard,unknownHelperGuard,handoffParentGuard,beginParentRestoreGuard,knownParentRestoreGuard]

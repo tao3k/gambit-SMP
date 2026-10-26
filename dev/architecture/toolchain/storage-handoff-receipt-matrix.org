@@ -1,0 +1,71 @@
+#+TITLE: Storage Handoff, Still Accounting and Foreign Duty Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: storage-handoff-receipt-matrix
+:AUTHORITY: StorageHandoff
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Caller
+
+| key | anchor | condition |
+|---+---+---|
+| still-allocator | mem.c:1556-1690,6800-6805 | PSTATE still chain owns physical blocks; charged and deferred words are distinct; pending allocation reservation must settle before seal |
+| c-closure | os_dyn.c:744-769,1047-1058; c_intf.c:1731-1738 | Native RC code holds Scheme proc; relocation root and executable allocation lifetime are separate; no assumption that proc is still |
+| tcl-client | examples/tcltk/tcltk.scm:136-194,297-338 | Tcl holds RC client data plus still vector; callback result string has separate Tcl release_string lifetime; failed creation needs qualified ownership evidence |
+| foreign-release | c_intf.c:1683-1710,5156-5190; mem.c:4397-4406,4437-4448 | Foreign wrapper release clears callback/pointer before invocation; collector frees wrapper without propagating returned error; new asynchronous duty requires explicit settlement |
+| exit-and-census | setup.c:918-978; mem.c:4928-4934,6268-6291 | Old cleanup frees still chain then native RC headers; live census enumerates current processors only; VM arena must join scan and capacity census |
+
+** Protocol
+
+| key | anchor | condition |
+|---+---+---|
+| close-and-seal | mem.c:1571-1684,4210-4247; proposed admission cut | Close native writers and allocation; drain raw borrows and accepted operations; exact whole arena membership, generation and GC epoch; roots and release lane admitted |
+| atomic-authority | mem.c:723-739,1681-1684; proposed VM arena authority | Publish destination storage/RC membership, accounting delta, release duty and exact receipt together; source cleanup loses authority at same commit |
+| unknown-outcome | setup.c:973-978; proposed durable receipt lookup | Precommit source retains custody; postcommit VM authority retains it; unknown ack blocks reclaim, not necessarily exit; repeated reclaim preserves monotonic retired identities |
+| gc-and-exit | mem.c:4210-4247,6268-6291,7002-7038; setup.c:930-933 | Serialize handoff with epoch freeze; invalidate stale seal after GC; destination scanner/census remains after processor leaves; join is not transfer |
+| release-and-retire | c_intf.c:1699-1707; examples/tcltk/tcltk.scm:188-194 | Lease/root survival differs from raw pin; destructor owner outlives creator; drain callbacks before final release; error or unknown retains separate task custody without blind pointer retry |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| registration | mem.c:1571-1684; os_dyn.c:764-769 | seal | rawBlocksSeal | No in-flight raw borrow, writer, allocation, requested reserve or creator-only affinity at seal |
+| accounting | mem.c:1605,1624-1633,1668,6804-6805 | commitHandoff | chargeConservation | Fold deferred charge once; remove source authority and publish target chain/RC/receipt atomically |
+| coverage | mem.c:4210-4247,6268-6291 | endGC | epochInvalidates | Source-or-target arena scanned and counted once independently of processor membership; GC invalidates seal |
+| retirement | c_intf.c:1699-1707; mem.c:4404-4406 | reclaim | releaseErrorRetains | Error/unknown task, unresolved receipt, lease and scan ticket prevent reclaim; no callback retry after pointer clear |
+| resize | setup.c:930-978; mem.c:4928-4934 | depart | transferredMayExit | Committed durable VM authority permits processor departure even if caller acknowledgement remains unknown |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| arena-handoff | Payload graph copying solely to escape creator processor; repeat root rebinding per borrower | O(1) ownership commit only after O(N+R) admission inventory or maintained metadata; retained whole-arena memory | Positive only when avoided copy/rebinding work exceeds inventory, synchronization and retained-memory cost; no claim of zero-copy across VM |
+| capacity-and-scan | Duplicate enumeration or missing target arenas after shrink; source/target double charge | Epoch membership, exact scanner assignment and charged/deferred/reserve ledger; O(N) tracing retained | Correctness gain is structural; scanning remains mandatory; consolidation need not improve asymptotic GC time |
+| compiler-service | Creator-processor affinity for qualified shared semantic bundles and native holders | Lease/receipt authority, foreign owner lane, callback drain and unknown-result retention | Parallel span improves only when affinity was critical path and independent sessions exist; unbounded leases can erase memory benefit |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| seal | closeAdmission;seal;failAllocation | rawBlocksSeal;reserveBlocksSeal | Close every refcount/data/list writer, allocation and native callback admission; no waiting with an allocation lock or GC participation debt |
+| transfer | commitHandoff;lookupReceipt | chargeConservation;handoffNoDoubleCharge;exactChain;rcDetached | Linearize complete arena authority and exact idempotent receipt; prove C release/acquire plus exclusive plain-list mutation and allocation debt settlement |
+| epoch | beginGC;scan;endGC;depart | epochInvalidates;transferredMayExit | Refine source scan/mark/sweep/capacity census and resize barriers; root graph/still-object scanner retained; no stale receipt after membership changes |
+| retire | startRelease;errorRelease;settleRelease;reclaim | leaseBlocksFree;unknownBlocksFree;releaseErrorRetains;netBenefit | All true native holders, callback/continuation pins and destructor outcomes accounted; real source behavior and net work/span/retention remain open |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| producer-closure | False | Exact still/RC/refcount writers, Tcl callback/delete/failure and native trampoline configuration admitted |
+| vm-ownership | False | Whole arena/RC/roots/receipt authority implemented and source cleanup excluded after transfer |
+| gc-seal | False | Actual allocation reserve, preaccepted writer and GC participant quiescence refined without circular waiting |
+| scan-coverage | False | Target arena included exactly once in setup, strong/weak/sweep and capacity/bytes census after resize |
+| retirement | False | Destructor thread/VM affinity, in-flight callbacks, native pins, continuations and unknown outcomes closed |
+| source-replacement | False | Old per-PSTATE free/RC/root/accounting authority retired only for migrated domains; unsupported foreign users excluded |
+| platform | False | C weak memory, configured ABI/GC, host registration, native correctness and measured benefit remain unqualified |

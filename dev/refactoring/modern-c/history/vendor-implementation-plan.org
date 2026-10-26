@@ -1,0 +1,176 @@
+#+TITLE: Modern C Runtime Implementation Plan
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: PLANNED BLOCKED | ACCEPTED RETIRED
+
+* Archived source record
+:PROPERTIES:
+:ORIGINAL_PATH: vendor/gambit/dev/modern-c/implementation-plan.org
+:STATUS: HISTORICAL; NOT-CURRENT-IMPLEMENTATION-AUTHORITY
+:END:
+Moved from the vendor checkout at the user's request. Relative source paths
+below retain their original context. Current code and receipts are described in
+[[file:../frame-contract-realization.org][the frame-contract realization record]]. This is not an active vendor plan.
+
+* Scope and authority
+:PROPERTIES:
+:CUSTOM_ID: modern-c-implementation-plan
+:END:
+This action board is generated from the research checkout's dev/architecture/runtime/gc/models/sysml/writer-stop-handoff.sysml. It adds no separate runtime semantics. Branch: modern-c; source base: 7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882. The existing vector.scm edit is outside this work.
+This turn delivered documentation and formal-model checks only. Runtime patches, native tests, commits and pushes have not been performed. A step being model-ready is not source/native acceptance. This is a connected first slice of the wider GC/SMP refactoring blueprint, not a reduction of that blueprint to an FFI patch.
+
+* Execution order and gates
+** PLANNED MC-SCOPE
+:PROPERTIES:
+:CUSTOM_ID: mc-scope
+:SOURCE_STATUS: PLANNED
+:FILES: include/gambit.h.in;lib/setup.c
+:END:
+*** Change
+VM-resident bounded NativeActivationScope/WriterLease/ExitSpec, explicit gate, exact generation and terminal outcome; no Scheme evaluation during repair
+*** Dependencies
+RootRegistry and prior OB-FIRST/OB-ROOT remain prerequisites; no raw-marker switch yet
+*** Acceptance after runtime work is authorized
+Schema/layout bounds and failure custody reviewed; all new scope slots safe empty before exposure
+*** Failure custody and withdrawal
+No active managed callers; remove unused fields only after no live readers
+
+** PLANNED MC-GENERATE
+:PROPERTIES:
+:CUSTOM_ID: mc-generate
+:SOURCE_STATUS: PLANNED
+:FILES: gsc/_ptree2.scm;c-lambda/c-define generation
+:END:
+*** Change
+Emit effect and exit scopes independent of cleanup?; enumerate conversions, early returns and nonlocal error edges
+*** Dependencies
+MC-SCOPE; WS-CFUN; WS-SFUN
+*** Acceptance after runtime work is authorized
+Generator fixtures show every admitted exit; raw unknown C escape explicitly rejected
+*** Failure custody and withdrawal
+Keep whole selected entry on old path until connected adapter qualifies
+
+** BLOCKED MC-ROOT
+:PROPERTIES:
+:CUSTOM_ID: mc-root
+:SOURCE_STATUS: BLOCKED-SOURCE
+:FILES: lib/c_intf.c;lib/mem.c;include/gambit.h.in
+:END:
+*** Change
+RootHandle before make_sfun_stack_marker allocation; canonical VM scan adapter on every processor; exact marker disposition
+*** Dependencies
+MC-GENERATE; OB-ROOT; nonzero processor RC scan closure
+*** Acceptance after runtime work is authorized
+Root remains updateable across allocation/GC; no unrooted proc_or_false window
+*** Failure custody and withdrawal
+Do not admit managed entry without complete source; preserve old caller root
+
+** PLANNED MC-CATCH
+:PROPERTIES:
+:CUSTOM_ID: mc-catch
+:SOURCE_STATUS: PLANNED
+:FILES: lib/setup.c:___call/___run/___propagate_error;include/gambit.h.in
+:END:
+*** Change
+Common post-catcher noescape close/transfer funnel; preserve original exception/result; both run callers scoped
+*** Dependencies
+MC-ROOT; WS-RUN; generated SFUN/CFUN exits
+*** Acceptance after runtime work is authorized
+Nested escapes, marker-allocation failure, skipped normal kill and cleanup nonreturn retain exactly one custodian
+*** Failure custody and withdrawal
+Disable selected connected entry before ABI removal; never free live scope
+
+** BLOCKED MC-HELP
+:PROPERTIES:
+:CUSTOM_ID: mc-help
+:SOURCE_STATUS: BLOCKED-C-MEMORY
+:FILES: lib/setup.c;future internal scope service
+:END:
+*** Change
+Close admission/drain permit protocol; per-helper exact generation seals; bounded canonical lease and query after lost return
+*** Dependencies
+MC-CATCH; WS-HELP; WS-ORDER
+*** Acceptance after runtime work is authorized
+No delayed old store/CAS reaches successor; exhaustion refuses; result unknown query never re-evaluates Scheme
+*** Failure custody and withdrawal
+Retain VM journal/source for unknown stop; no blind force-unlock
+
+** BLOCKED MC-THREAD
+:PROPERTIES:
+:CUSTOM_ID: mc-thread
+:SOURCE_STATUS: BLOCKED-SOURCE
+:FILES: lib/setup.c:resize/start_processor_execution;lib/os_thread.c
+:END:
+*** Change
+VM custody before PSTATE cleanup; rooted startup descriptors; typed join/create outcomes and complete producer census
+*** Dependencies
+MC-HELP; WS-THREAD; GC membership/root admission gates
+*** Acceptance after runtime work is authorized
+Partial create failure and failed/unknown join preserve resources; no member freed on unverified exit
+*** Failure custody and withdrawal
+Shrink cannot destroy live source or scan facilities; quarantine unresolved member
+
+** PLANNED MC-SELECT
+:PROPERTIES:
+:CUSTOM_ID: mc-select
+:SOURCE_STATUS: PLANNED
+:FILES: lib/_kernel.scm:current-vm-resize;generated lib/_kernel.c;two run callers
+:END:
+*** Change
+Switch one connected resize/start/entry/exit service using generated typed source references and stable identity
+*** Dependencies
+MC-THREAD and all source/C/native gates for selected slice
+*** Acceptance after runtime work is authorized
+Future authorized bootstrap, GCC/Darwin compiler, nested FFI, GC and SMP acceptance pass; tracked generated C refreshed from exact source
+*** Failure custody and withdrawal
+One slice switches as a unit; no indefinitely co-maintained competing ownership system
+
+** BLOCKED MC-RETIRE
+:PROPERTIES:
+:CUSTOM_ID: mc-retire
+:SOURCE_STATUS: BLOCKED-ACCEPTANCE
+:FILES: gsc/_ptree2.scm;include/gambit.h.in;lib/c_intf.c;lib/setup.c
+:END:
+*** Change
+Retire selected raw thunk handoff, marker-only lifetime, cleanup?-only scope selection, ignored join and PSTATE-only journal
+*** Dependencies
+MC-SELECT with full caller inventory and native acceptance
+*** Acceptance after runtime work is authorized
+No selected consumer uses removed macros/implicit ownership; old paths for unaudited FFI stay explicitly outside managed profile
+*** Failure custody and withdrawal
+No retirement claimed by design/QNT/Lean alone
+
+* Machine-associated proof duties
+| Step | Required obligation |
+|---+---|
+| MC-SCOPE | WS-H |
+| MC-SCOPE | WS-I |
+| MC-SCOPE | OB-ROOT |
+| MC-GENERATE | WS-CFUN |
+| MC-GENERATE | WS-SFUN |
+| MC-ROOT | WS-SFUN |
+| MC-ROOT | OB-ROOT |
+| MC-CATCH | WS-RUN |
+| MC-CATCH | WS-SFUN |
+| MC-CATCH | WS-CFUN |
+| MC-HELP | WS-HELP |
+| MC-HELP | WS-ORDER |
+| MC-HELP | OB-STOP |
+| MC-THREAD | WS-THREAD |
+| MC-THREAD | OB-ROOT |
+| MC-SELECT | WS-RUN |
+| MC-SELECT | WS-THREAD |
+| MC-SELECT | WS-HELP |
+| MC-SELECT | WS-ORDER |
+| MC-SELECT | OB-ROOT |
+| MC-RETIRE | WS-SFUN |
+| MC-RETIRE | WS-CFUN |
+| MC-RETIRE | WS-RUN |
+| MC-RETIRE | WS-THREAD |
+| MC-RETIRE | WS-HELP |
+| MC-RETIRE | WS-ORDER |
+
+* First patch boundary
+MC-SCOPE is the first source edit: bounded resident control schema plus no-effect lifecycle operations. It cannot activate a raw marker or new GC path. MC-GENERATE through MC-THREAD form the connected ownership slice; MC-SELECT is the first behavior switch. MC-RETIRE follows complete caller and native evidence. No second Zig ownership implementation is required.
+Future acceptance must independently check exact-source generation, clean bootstrap, selected GCC/Darwin profiles, GC during marker allocation, nonzero processors, nested continuation/exception escape, failed/unknown join, helper interruption and shutdown draining. These are planned checks; none was run here.

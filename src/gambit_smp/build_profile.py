@@ -13,7 +13,20 @@ def read_profile(path):
             or record.get("platform") != "Darwin" or not isinstance(text, str)
             or hashlib.sha256(text.encode()).hexdigest() != record.get("sourceSha256")):
         raise ValueError("typed byte-bound Bazel build profile data required")
-    return dict(darwin_profile(text), sourceSha256=record["sourceSha256"])
+    profile = darwin_profile(text)
+    standard = record.get("languageStandard")
+    if standard is not None:
+        if standard != "c23":
+            raise ValueError("modern-C managed language standard must be c23")
+        # Retain the original Bazel arrays and their digest. This is a typed
+        # goal overlay, not fabricated sourceText or a changed base profile.
+        # Common CFLAGS reaches both generated Scheme C and runtime C. Putting
+        # the standard only in --enable-c-opt misses the separate RTS O3 path.
+        profile["profileCflags"] = profile["cflags"]
+        profile["cflags"] += " -std=c23"
+        profile["requiredGoalOverlay"] = [*profile["requiredGoalOverlay"], "-std=c23"]
+        profile["languageStandard"] = standard
+    return dict(profile, sourceSha256=record["sourceSha256"])
 
 
 def darwin_profile(text):

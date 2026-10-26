@@ -3,6 +3,61 @@
 ;; Exact candidate tree, source manifest, profile, artifact and evidence digests
 ;; prevent reuse across source/profile changes; hashes do not attest truth.
 (relation commitStudyFact (claim))
+;; Independent branch test observations. A source-bound case PASS is not a
+;; semantic requirement count, patch-line credit or commit permission.
+(relation branchQualificationPlanFact (plan revision source profile))
+(relation branchQualificationCaseFact (plan case))
+(relation branchQualificationProducerFact (producer revision source profile overlay))
+(relation branchQualificationFrozenProducerFact (plan producer))
+(relation branchQualificationObservedFact (plan producer case scenario kind status exit timeout quiescent complete))
+(relation branchQualificationBound (plan producer))
+(relation branchQualificationPass (scenario case kind))
+(relation branchQualificationFailure (scenario case kind))
+(relation branchQualificationExpectPassFact (scenario))
+(relation branchQualificationExpectBlockedFact (scenario))
+(relation branchQualificationControlFailure (scenario reason))
+((branchQualificationBound P A) <--
+ (branchQualificationPlanFact P R S F)
+ (branchQualificationProducerFact A R S F (lit "false"))
+ (branchQualificationFrozenProducerFact P A))
+((branchQualificationPass X C K) <--
+ (branchQualificationBound P A) (branchQualificationCaseFact P C)
+ (branchQualificationObservedFact P A C X K (lit "PASS") (lit "0")
+   (lit "false") (lit "true") (lit "true")))
+((branchQualificationFailure X C K) <--
+ (branchQualificationBound P A) (branchQualificationCaseFact P C)
+ (branchQualificationObservedFact P A C X K (lit "FAIL") _ _ _ _))
+((branchQualificationControlFailure X (lit "expected-pass")) <--
+ (branchQualificationExpectPassFact X) (not (branchQualificationPass X _ _)))
+((branchQualificationControlFailure X (lit "unexpected-pass")) <--
+ (branchQualificationExpectBlockedFact X) (branchQualificationPass X _ _))
+;; Native SysML routes a comparison to an existing semantic milestone label.
+;; Support for original cases is distinct from eligibility for whole-gate
+;; review. Neither relation awards a numeric milestone or supplies commitReady.
+;; Caller truth and native provenance still require independent source review.
+(relation milestoneReviewFact (claim source gate evidenceClass))
+(relation milestoneReviewInputsFact (claim sameRecipes sameFixtures sameLimits))
+(relation milestoneReviewOutcomeFact (claim passed fullGate appliesToPublished branchCoverageEstablished))
+(relation milestoneReviewSupport (claim source gate evidenceClass))
+(relation milestoneReviewEligible (claim source gate evidenceClass))
+(relation milestoneReviewExpectSupportFact (claim))
+(relation milestoneReviewExpectEligibleFact (claim))
+(relation milestoneReviewExpectBlockedFact (claim))
+(relation milestoneReviewControlFailure (claim reason))
+((milestoneReviewSupport C S G K) <--
+ (milestoneReviewFact C S G K)
+ (milestoneReviewInputsFact C (lit "true") (lit "true") _)
+ (milestoneReviewOutcomeFact C (lit "true") _ _ _))
+((milestoneReviewEligible C S G K) <--
+ (milestoneReviewSupport C S G K)
+ (milestoneReviewInputsFact C _ _ (lit "true"))
+ (milestoneReviewOutcomeFact C _ (lit "true") (lit "true") (lit "true")))
+((milestoneReviewControlFailure C (lit "expected-support")) <--
+ (milestoneReviewExpectSupportFact C) (not (milestoneReviewSupport C _ _ _)))
+((milestoneReviewControlFailure C (lit "expected-eligible")) <--
+ (milestoneReviewExpectEligibleFact C) (not (milestoneReviewEligible C _ _ _)))
+((milestoneReviewControlFailure C (lit "unexpected-eligibility")) <--
+ (milestoneReviewExpectBlockedFact C) (milestoneReviewEligible C _ _ _))
 (relation commitPolicyFact (digest))
 (relation commitBoundStudy (claim))
 (relation commitGateFact (gate purpose))

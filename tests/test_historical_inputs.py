@@ -8,6 +8,79 @@ from gambit_smp import historical_inputs as history
 
 
 class HistoricalInputTests(unittest.TestCase):
+    def observed_model(self, observed=None):
+        name='dev/runtime/models/sysml/roots.sysml'
+        archived=digest(self.root/self.archived)
+        (self.root/'run').mkdir(exist_ok=True)
+        self.child=self.root/'run/receipt.json'
+        self.child.write_text(json.dumps({'steps':observed if observed is not None else [
+            {'observedInputs':{str(self.root/name):archived}}]}))
+        self.receipt.write_text(json.dumps({'schema':'sealed-research-run.v1','inputs':{},
+                                           'childReceiptSha256':digest(self.child)}))
+        self.record['receiptSha256']=digest(self.receipt)
+        self.record['inputs'][0]['original']=name
+        self.save()
+        return name
+
+    def test_observed_model_archive_requires_exact_parent_child_and_source_bytes(self):
+        name=self.observed_model()
+        mapping,_=history.bindings(self.root,self.receipt,self.manifest)
+        self.assertTrue(history.match({str(self.root/name):digest(self.root/self.archived)},mapping))
+        self.child.write_text('{}')
+        with self.assertRaisesRegex(ValueError,'authenticated child'):
+            history.bindings(self.root,self.receipt,self.manifest)
+
+    def test_unobserved_or_conflicting_model_identities_cannot_be_archived(self):
+        name='dev/runtime/models/sysml/roots.sysml'
+        for observed in ([],[{'observedInputs':{str(self.root/name):'0'*64}},
+                             {'observedInputs':{str(self.root/name):'1'*64}}]):
+            self.observed_model(observed)
+            with self.assertRaisesRegex(ValueError,'unique original observed'):
+                history.bindings(self.root,self.receipt,self.manifest)
+
+    def test_dev_executables_are_not_model_source_archives(self):
+        self.observed_model()
+        self.record['inputs'][0]['original']='dev/tools/helper.py'
+        self.save()
+        with self.assertRaisesRegex(ValueError,'only versioned source'):
+            history.bindings(self.root,self.receipt,self.manifest)
+
+    def test_deleted_original_is_bound_only_by_its_exact_archived_bytes(self):
+        original=self.root/self.original
+        original.unlink()
+        mapping,_=history.bindings(self.root,self.receipt,self.manifest)
+        self.assertTrue(history.match({str(original):digest(self.root/self.archived)},mapping))
+        self.assertFalse(original.exists())
+        (self.root/self.archived).write_text('wrong history')
+        with self.assertRaisesRegex(ValueError,'exact versioned'):
+            history.bindings(self.root,self.receipt,self.manifest)
+
+    def test_vendor_source_binding_never_rebinds_a_runtime_or_compiler_output(self):
+        for name, allowed in (
+                ('vendor/gambit/native-profile.m4', True),
+                ('vendor/gambit/gsc/native-build.scm', True),
+                ('vendor/gambit/lib/_mem/configuration.inc', True),
+                ('vendor/gambit/gsi/gsi', False),
+                ('vendor/gambit/gsc/gsc', False),
+                ('vendor/gambit/lib/libgambit.a', False),
+                ('vendor/gambit/lib/mem.o', False),
+                ('vendor/other/native-profile.m4', False)):
+            path=self.root/name; path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('changed current bytes')
+            old_sha=digest(self.root/self.archived)
+            self.receipt.write_text(json.dumps({'inputs': {name: old_sha}}))
+            self.record['receiptSha256']=digest(self.receipt)
+            self.record['inputs'][0]['original']=name
+            self.save()
+            with self.subTest(name=name):
+                if allowed:
+                    mapping,_=history.bindings(self.root,self.receipt,self.manifest)
+                    self.assertTrue(history.match({str(path):old_sha},mapping))
+                    self.assertEqual(path.read_text(),'changed current bytes')
+                else:
+                    with self.assertRaisesRegex(ValueError,'only versioned source'):
+                        history.bindings(self.root,self.receipt,self.manifest)
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -120,6 +193,9 @@ class HistoricalInputTests(unittest.TestCase):
         self.assertTrue(result["recordedStateBound"])
         self.assertFalse(result["currentBytesEstablished"])
         self.assertFalse(result["runtimeAdmitted"])
+        original.unlink()
+        self.assertTrue(checked_workspace_state(self.root,reference,inventory,
+                         input_bindings=mapping)['recordedStateBound'])
         (source/"runtime").write_text("changed product")
         with self.assertRaisesRegex(ValueError,"does not match producer"):
             checked_workspace_state(self.root,reference,tree_identity(source),input_bindings=mapping)

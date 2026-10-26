@@ -47,6 +47,56 @@ class GrokSessionTests(unittest.TestCase):
         prompt.write_text("authorized diagnostic")
         return Launch(root, "diagnostic", prompt, "user consent in current thread", task="repair", **extra)
 
+    def test_existing_session_adoption_preserves_binding_and_requires_confirmation(self):
+        import hashlib
+        for matching in (True, False):
+            with self.subTest(matching=matching), tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp).resolve();launch=self.make_launch(root)
+                session=root/'.state/provider-sessions/repair/diagnostic.json'
+                session.parent.mkdir(parents=True,exist_ok=True)
+                previous=json.dumps(dict(task='repair',owner='diagnostic',sessionId='01a15562-916b-7da0-b55e-5d85db65485a',authorizationReference='old')).encode()
+                session.write_bytes(previous)
+                requested='b962c586-91d1-4919-870f-11741aa5f3b5'
+                adopt=replace(launch,resume=requested,adopt_binding_sha256=hashlib.sha256(previous).hexdigest())
+                with self.assertRaisesRegex(ValueError,'not bound'):
+                    replace(adopt,adopt_binding_sha256=None).prepare()
+                with self.assertRaisesRegex(ValueError,'changed'):
+                    replace(adopt,adopt_binding_sha256='0'*64).prepare()
+                self.assertFalse(run(adopt)['executed'])
+                self.assertEqual(session.read_bytes(),previous)
+                binary=root/'grok'
+                observed=requested if matching else '01a15562-916b-7da0-b55e-5d85db65485a'
+                binary.write_text("#!/bin/sh\nprintf '%s\\n' '" + json.dumps(dict(type="end",stopReason="end_turn",sessionId=observed)) + "'\n")
+                binary.chmod(0o700)
+                with patch.dict(os.environ,PATH=provider_path(root)):
+                    result=run(adopt,execute=True,wall_seconds=5)
+                self.assertEqual(result['sessionCompleted'],matching)
+                if matching:
+                    self.assertEqual(json.loads(session.read_text())['sessionId'],requested)
+                    self.assertEqual((Path(result['attempt'])/'previous-provider-binding.json').read_bytes(),previous)
+                else:
+                    self.assertEqual(session.read_bytes(),previous)
+                    self.assertIn('sessionBindingError',result)
+
+    def test_adoption_timeout_preserves_previous_binding(self):
+        import hashlib
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp).resolve();launch=self.make_launch(root)
+            session=root/'.state/provider-sessions/repair/diagnostic.json'
+            session.parent.mkdir(parents=True,exist_ok=True)
+            previous=json.dumps(dict(task='repair',owner='diagnostic',sessionId='01a15562-916b-7da0-b55e-5d85db65485a')).encode()
+            session.write_bytes(previous)
+            launch=replace(launch,resume='b962c586-91d1-4919-870f-11741aa5f3b5',adopt_binding_sha256=hashlib.sha256(previous).hexdigest())
+            binary=root/'grok'
+            binary.write_text("#!/bin/sh\nprintf '%s\\n' '{\"type\":\"init\",\"sessionId\":\"b962c586-91d1-4919-870f-11741aa5f3b5\"}'\n/bin/sleep 20\n")
+            binary.chmod(0o700)
+            with patch.dict(os.environ,PATH=provider_path(root)):
+                result=run(launch,execute=True,wall_seconds=1)
+            self.assertTrue(result['timedOut'])
+            self.assertFalse(result['sessionCompleted'])
+            self.assertEqual(session.read_bytes(),previous)
+            self.assertFalse((Path(result['attempt'])/'previous-provider-binding.json').exists())
+
     def test_owner_escape_and_shell_script_payload_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp).resolve()

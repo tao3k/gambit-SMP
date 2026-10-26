@@ -1,0 +1,246 @@
+#+TITLE: Sealed Emission View, Writer Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitEmissionViewCorrespondence
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| heap-state | vendor/gambit/gsc/_t-c-1.scm | (define targ-glo-vars #f) | Request-local tables must replace shared mutable backend globals |
+| state-reset | vendor/gambit/gsc/_t-c-1.scm | (set! targ-prc-objs-to-scan (queue-empty)) | Reset/end lifecycle is a writer; no two sessions can own same state |
+| initial-drain | vendor/gambit/gsc/_t-c-1.scm | (queue-get! targ-prc-objs-to-scan) | Initial procedure drain precedes late descriptor/C-object registration |
+| descriptor-late | vendor/gambit/gsc/_t-c-1.scm | (targ-use-obj module-descr) | Descriptor root added after initial drain |
+| c-object-late | vendor/gambit/gsc/_t-c-1.scm | (map (lambda (x) (cons (car x) (targ-use-obj (cdr x)))) c-objs) | Actual late C-object arguments register before heap-dump enters |
+| object-recursion | vendor/gambit/gsc/_t-c-1.scm | (targ-use-obj (cdr obj)) | Pair/subtyped traversal can grow resource closure |
+| procedure-path | vendor/gambit/gsc/_t-c-1.scm | (targ-use-prc obj #f) | Generic use-obj can enqueue a previously unseen procedure |
+| queue-enqueue | vendor/gambit/gsc/_t-c-1.scm | (queue-put! targ-prc-objs-to-scan z) | Closure must account for new queued work |
+| number-intern | vendor/gambit/gsc/_t-c-1.scm | (table-set! targ-num-objs obj obj) | Numeric interning identity and encoded bits belong to sealed view |
+| resource-flags | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-demanders-set! (cdr x) '("")) | Existing global lookup may still write demander metadata |
+| resource-vector | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Shallow resource records remain mutable |
+| literal-bind | vendor/gambit/gsc/_t-c-1.scm | (c-inits (c-intf-inits c-intf)) | List binding aliases original fragments |
+| interface-clear | vendor/gambit/gsc/_t-c-1.scm | (c-intf-inits-set! c-intf '()) | Clearing interface field does not deep-copy payloads |
+| list-snapshot | vendor/gambit/gsc/_t-c-1.scm | (queue->list targ-prc-objs) | Procedure snapshot is queue spine alias |
+| sorted-resources | vendor/gambit/gsc/_t-c-1.scm | (targ-sort (table->list targ-glo-vars) symbol->string) | Sorted list still contains mutable entries/cells |
+| symbol-backfill | vendor/gambit/gsc/_t-c-1.scm | (targ-cell-set! (cdr s) i) | Heap dump performs layout mutation |
+| keyword-backfill | vendor/gambit/gsc/_t-c-1.scm | (targ-cell-set! (cdr k) i) | Keyword index cell assigned during dump |
+| global-backfill | vendor/gambit/gsc/_t-c-1.scm | (targ-cell-set! (cadr g) i) | Global index cell assigned during dump |
+| primitive-late-helper | vendor/gambit/gsc/_t-c-1.scm | (targ-use-glo (string->symbol name) #f) | Dump-mod still invokes potentially mutating helper twice through def-mod-prm-glo |
+| unique-name-write | vendor/gambit/gsc/_t-c-1.scm | (vector-set! state 0 count+1) | Name allocation and retroactive conflict-cell update must complete before freeze |
+| cell-representation | vendor/gambit/gsc/_t-c-1.scm | (cons 'cell x) | Cells are shared pairs referenced by IR nodes |
+| cell-mutation | vendor/gambit/gsc/_t-c-1.scm | (set-cdr! x y) | Cell payload is mutable through aliases |
+| cell-render | vendor/gambit/gsc/_t-c-1.scm | ((cell)        (targ-code tail)) | Renderer dereferences current cell contents |
+| string-reference | vendor/gambit/gsc/_t-c-1.scm | (cons 'c-string str) | C-string wrapper retains original mutable Scheme string |
+| init-output | vendor/gambit/gsc/_t-c-1.scm |     c-inits) | Opaque C init fragments are emitted in stored order |
+| decl-output | vendor/gambit/gsc/_t-c-1.scm |         c-decls))) | C declarations can be append/cell IR, not only strings |
+| stream-open | vendor/gambit/gsc/_t-c-1.scm | (set! targ-port (open-output-file-preserving-case filename)) | Legacy output opens final path before all output succeeds |
+| stream-close | vendor/gambit/gsc/_t-c-1.scm | (close-output-port targ-port) | Known completion needed; no rollback/paired-publication guarantee follows |
+| source-map-write | vendor/gambit/gsc/_t-c-1.scm | (set! targ-source-line-number (cadr x)) | Emission-only cursor state must remain private |
+| link-read | vendor/gambit/gsc/_t-c-1.scm | (read in)))) | Link metadata parsing not an immutable whole-artifact snapshot |
+| link-header-check | vendor/gambit/gsc/_t-c-1.scm | (equal? (car info) (compiler-version)) | Header identity check does not establish complete schema/content correspondence |
+| link-vector-copy | vendor/gambit/gsc/_t-c-1.scm | (link-info (list->vector (caddr file-and-flags-and-link-info))) | Only top-level list->vector; nested lists and strings remain shared |
+| link-flag-merge | vendor/gambit/gsc/_t-c-1.scm | (append flags1 flags2) | Append reuses tail; ordered inherited flags must remain stable |
+| link-order | vendor/gambit/gsc/_t-c-1.scm | (append old-mods-and-flags new-mods-and-flags) | Dedup ownership cannot dedup initializer sequence |
+| scan-record-update | vendor/gambit/gsc/_t-c-2.scm | (set-car! p | Procedure record shared with queue/table is filled by scanner |
+| scan-label-write | vendor/gambit/gsc/_t-c-2.scm | (set! targ-lbl-alloc (+ targ-lbl-alloc (+ i 1))) | Label count changes during closure completion |
+| scan-debug-root | vendor/gambit/gsc/_t-c-2.scm | (targ-use-obj info) | Debug metadata generation creates additional object roots |
+| scan-code-write | vendor/gambit/gsc/_t-c-2.scm | (stretchable-vector-set! targ-proc-code targ-proc-code-length code) | Procedure instruction vector mutates before sealing |
+| scan-rc-map | vendor/gambit/gsc/_t-c-2.scm | (stretchable-vector-set! targ-module-rd-res i #t) | Module/procedure resource bitmaps share mutable state |
+| scan-decl-append | vendor/gambit/gsc/_t-c-2.scm | (queue-put! c-decls-queue | Out-of-line C procedure scan appends generated declaration IR |
+| queue-alias | vendor/gambit/gsc/_utils.scm | (define (queue->list queue) | Implementation returns underlying car, not a copy |
+| queue-append-alias | vendor/gambit/gsc/_utils.scm | (set-cdr! (cdr queue) entry) | Appending changes previously returned list spine |
+| ordered-entry-alias | vendor/gambit/gsc/_utils.scm | (cons (stretchable-vector-ref (vector-ref ot 1) i) lst) | Fresh outer list retains stored key/result entry pairs |
+| ordered-producer | vendor/gambit/gsc/_utils.scm | (stretchable-vector-set! (vector-ref ot 1) i (cons key result)) | Entry storage and returned result may alias mutable cells |
+| parse-init | vendor/gambit/gsc/_ptree1.scm | (add-c-init body) | Two parser paths retain original source string |
+| parse-decl | vendor/gambit/gsc/_ptree1.scm | (add-c-decl body) | Declarations share source payload identity |
+| fragment-add | vendor/gambit/gsc/_ptree2.scm | (cons initialization-code-string c-interface-inits) | No deep payload copy on native init capture |
+| fragment-end | vendor/gambit/gsc/_ptree2.scm | (reverse c-interface-inits) | Fresh list spine does not own mutable string contents |
+| interface-vector | vendor/gambit/gsc/_ptree2.scm | (define (c-intf-inits-set! c-intf x) (vector-set! c-intf 2 x)) | Interface setter only replaces vector slot |
+| actual-c-object | vendor/gambit/gsc/_ptree2.scm | (add-c-obj name tag-list) | Only named call found in bounded gsc Scheme inventory uses tag-list |
+| tag-check | vendor/gambit/gsc/_ptree2.scm | (symbol-object? tag) | Checked native type tags restrict ordinary caller payload domain |
+| tag-list-check | vendor/gambit/gsc/_ptree2.scm | (proper-length tag) | Proper tag lists checked elementwise for symbols; exact checker scope matters |
+| debug-sharing | vendor/gambit/gsc/_gvm.scm | (define (debug-info-compact-using-sharing sharing-table obj) | Compactor mutates sharing table and builds cyclic payload graph |
+| debug-string-alias | vendor/gambit/gsc/_gvm.scm | (table-set! sharing-table obj obj) | String branch deliberately shares original string |
+| host-case-profile | vendor/gambit/gsc/_host.scm | (define (open-input-file*-preserving-case path) | Host branches differ; Gambit branch constructs standard case-preserving readtable |
+| host-write-profile | vendor/gambit/gsc/_host.scm | (define (write-returning-len-without-read-macros obj port) | Host-dependent writer and encoding must be bound to pair receipt |
+| native-abi-macro | vendor/gambit/include/gambit.h.in | #define ___BEGIN_MOD_SYM_KEY | C text correspondence differs from macro-expanded native layout proof |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| backend-global-writes | vendor/gambit/gsc/_t-c-1.scm | \(set!\s+targ-[\w!?-]+ | 64 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| scanner-global-writes | vendor/gambit/gsc/_t-c-2.scm | \(set!\s+targ-[\w!?-]+ | 42 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| layout-cell-write-calls | vendor/gambit/gsc/_t-c-1.scm | \(targ-cell-set!\s | 5 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| scanner-cell-write-calls | vendor/gambit/gsc/_t-c-2.scm | \(targ-cell-set!\s | 8 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| parser-init-callers | vendor/gambit/gsc/_ptree1.scm | \(add-c-init body\) | 2 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| c-object-tag-caller | vendor/gambit/gsc/_ptree2.scm | \(add-c-obj name tag-list\) | 1 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| dump-global-helper | vendor/gambit/gsc/_t-c-1.scm | \(targ-use-glo \(string->symbol name\) #f\) | 1 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+| ordered-entry-exposure | vendor/gambit/gsc/_utils.scm | \(cons \(stretchable-vector-ref \(vector-ref ot 1\) i\) lst\) | 1 | Exact lexical file scope; includes reset/lifecycle forms and is not whole-program alias/semantic closure |
+
+** Writer
+
+| key | storage | writers | aliasing | sealing |
+|---+---+---+---+---|
+| backend-lifecycle | targ heap tables queues resource masks config | heap-begin/end and target setup | Process globals may be visible to nested/concurrent compile | Request-private owner; no reset/rebind while a capsule lease exists |
+| recursive-object-graph | pairs vectors boxes symbols numeric objects | use-obj ordered-table entry and recursive children | eq identity table keys reference original payloads | Owned graph or complete stable borrow; preserve sharing cycles symbol identity and numeric bits |
+| procedure-work | prc seen/table queues and proc payload | use-prc enqueue; scan-procedure set-car and code/labels/FrameSpec writes | queue->list is shared spine; result records shared in seen table | Seed late roots and drain to fixed point before layout |
+| index-cells | symbol key global procedure label cells | scan and dump-sym-key-glo callbacks | cell setter mutates pair observed by renderer | Resolve every used cell to immutable indices before C/Spec emission |
+| global-flags | resource demander/supplier vectors | use-glo even on existing entry; dump-mod primitive helper | Sorted resource lists share vector payloads | Capture separate header/native-use roles before readonly lookup; do not blindly hoist writes |
+| unique-names | name table conflict cells and per-proc mappings | scan and emission call unique-name | Second same-name proc patches first name cell | Close all proc identity/name assignments; emission cannot allocate missing name |
+| debug-graph | sharing table and compacted pairs boxes vectors strings | debug-info-generate/compact and scanner use-obj | String branch keeps original; containers may be rebuilt/shared | Copy/own string bytes and graph identities; compaction is not deep freeze |
+| C-interface | decl/proc/init/object vectors lists bodies | parse/extract defs add-c-*; interface-end; dump captures and clears | Clearing fields/reversing list leaves mutable bodies aliased | Ordered immutable fragment bytes/IR plus provenance; no universal effect inference |
+| resource-maps-scratch | module/proc rd/wr maps FP/representation scratch | scanner resource writes and temporary lowering | Final code may refer to unresolved cells and mutable maps | Materialize finalized code/maps; discard private scratch without aliasing capsule |
+| linker-inputs | link-info nested lists metadata names flags | file read get-mod combine-meta-info resource merge | Top-level vector copy and append tail reuse retain aliases | Parse owned input bytes; deep typed snapshot preserving order and duplicate flags |
+| output-private | port macro formatting source cursor | start-dump code/display line tracking close | Globals are mutable but need not belong to frozen semantic view | Per-output private state; known close and pair publication receipt |
+| profile-and-ABI | target options c-id prefix host writer gambit.h definitions | target setup compiler config and host-specific encoders | Equal resource counts may still encode different bytes/layouts | Bind complete effective profile and distinguish text macro-layout and ownership receipts |
+
+** Consumer
+
+| key | callers | custody | gap |
+|---+---+---+---|
+| late-use-obj | initial scan loop -> descriptor/C-object use -> heap-dump | All late roots and any resulting work must enter closure | Generic procedure possibility is not an established legal late-proc witness |
+| ordinary-C-tags | check-c-type -> converter -> add-c-obj tag-list | Checked symbol/list domain explains current named caller | Compiler extension/mutable alias/cycle domain still requires qualification |
+| layout-render | dump-sym/key/glo and unique-name -> targ-code cell | Mutable cells must be resolved before immutable snapshot | Current dump is not a readonly pass |
+| C-fragments | parser -> c-interface-end -> dump-mod/prc | Ordered exact payload and source/host encoding | Opaque effect metadata is separate from exact text coverage |
+| link-input | link-info read -> get-mod shallow copy -> linker output | Own bytes plus nested schema identities and flags | Actual input snapshot stability and complete encoder proof OPEN |
+| pair-publication | start-dump -> end-dump -> planned ModuleSpec service | Same epoch and complete artifacts before pair receipt | Close/output error and postclose visibility not an atomic pair today |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| two-cuts | Discovery fixed point then layout/name/flag resolution then immutable capsule | All root seeds accepted writers aliases and future registration helpers covered | Previous pre-heap-dump location alone cannot certify immutability | No current controlled capsule or complete writer closure |
+| readonly-emission | Preassigned ResourceId PointId names indices and ordered native fragments | Emission helper cannot allocate or mutate resource; preserve temporal header/native roles | C and ModuleSpec can run as independent consumers of same capsule | Prove use-glo and unique-name existing lookup behavior for admitted domain |
+| pair-fidelity | Same capsule epoch plus per-constructor emission/witness proof and known I/O close | Structured witness covers all C regions in exact order with payload and profile | Hashes/counts identify artifacts but do not prove correspondence | Actual full C encoder/ModuleSpec schema proof OPEN |
+| opaque-separation | Record opaque fragments verbatim without pretending to infer their native effects | Text receipt cannot become native ownership receipt without adapter | Unqualified native effects need not prohibit byte-faithful text recording | Open-world dependency envelope and native ABI layout still unqualified |
+| input-ownership | Owned input artifact bytes plus nested typed projection | Host readtable/encoding path errors and metadata semantics preserved | Top-level list->vector is insufficient for freeze | Content/profile/schema/source-map reflection obligation OPEN |
+| close-custody | Close admits completion only for previously accepted writers/work | Unknown writer/output retains operation and artifacts until reconciliation | Queue empty does not mean all producers are closed | Actual service C11/GC/exception refinement OPEN |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| writer-close | Same authority orders writer reservation and close | Accepted writer credit persists through publish/known return; unknown remains debt | No native implementation or actual producer exclusion proof |
+| root-fixpoint | Capture descriptor C objects and debug roots then complete all work | Closure requires empty queue AND no accepted publishers and complete late seed set | Finite-source termination and exact canonical task accounting OPEN |
+| capsule | Private graph owned/rooted through copying and layout resolution | Release-publish immutable capsule; acquire both emitters; no exported mutable alias | GC root/movement and semantic identity preservation OPEN |
+| paired-output | Immutable capsule generation attached to each full output and witness | Both closes known successful before visible pair receipt | Independent raw final-path files and unknown closes cannot certify pair |
+| revocation | Before receipt known premise failure quarantines the operation | Do not delete unknown output or parent work; no semantic reexecution from transport retry | Post-consumption raw mutation cannot be repaired by retroactive revocation |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| parallel-emit | Repeated discovery/layout and unrelated emission serialization | Request-private capsule one-time graph ownership and index assignment | Independent readonly C/Spec consumers; current globals prevent assuming safe concurrency |
+| incremental | Repeated closure/resource derivation for identical sealed producer result | Input/profile digests and immutable capsule storage/verification | Unchanged complete source inputs; repeated genuine init effects not removed |
+| lowering | Mutable backfill lookup during each output serialization | One normalized cell/name/global plan plus readonly accessors | Only replace when baseline final bytes flags names and failures are reflected |
+| native-fragments | Reparsing or regenerating unchanged exact C text | Owned ordered fragments byte encoding and opaque-capability entries | Text caching is distinct from full native ownership qualification |
+| pair-assurance | False reuse based solely on equal counts or one output success | Structured coverage witness full close/outcome and source refinements | Current actual pair receipt stays unqualified |
+| shared-modern-C | Multiple ad hoc layout/member contracts across C and runtime services | Shared typed emission ABI and generation keys | No Zig-specific savings or measured runtime/build speedup established |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| request-owner | discovery-work | Own mutable backend state and accepted producers |
+| late-root-seeds | discovery-work | Descriptor and C objects plus debug roots join fixed point |
+| discovery-work | layout-resolution | All seeds included queue drained and writers settled |
+| mutable-aliases | closure-or-rejection | Shallow list or shared string is not a frozen view |
+| closure-or-rejection | layout-resolution | Own graph and fragments or retain unqualified request |
+| owned-link-inputs | layout-resolution | Bind input bytes nested flags metadata host profile |
+| layout-resolution | immutable-capsule | Resolve cells names primitive globals and FrameSpec references |
+| immutable-capsule | C-output | C |
+| immutable-capsule | ModuleSpec-output | Spec |
+| C-output | coverage-and-known-close | C spans |
+| ModuleSpec-output | coverage-and-known-close | Spec spans |
+| coverage-and-known-close | text-pair-receipt | Qualified verifier and both full outputs; hashes alone insufficient |
+| text-pair-receipt | native-ownership-gate | Separate effective ABI and opaque effect adapter obligations |
+| unknown-writer-or-output | stable-request-custodian | Parent responsibility and partial artifacts survive caller exit |
+| native-ownership-gate | retained-or-controlled-generation | Current native ownership and source correspondence remain OPEN |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| emission_view_correspondence.captureFront | EmissionView.captureFrontPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.captureLate | EmissionView.captureLatePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.discoverChild | EmissionView.discoverChildPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.drainOne | EmissionView.drainOnePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.reserveWriter | EmissionView.reserveWriterPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.writerPublish | EmissionView.writerPublishPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.writerDone | EmissionView.writerDonePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.unknownWriter | EmissionView.unknownWriterPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.escapeAlias | EmissionView.escapeAliasPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.beginClose | EmissionView.beginClosePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.closeAliases | EmissionView.closeAliasesPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.freezeInputs | EmissionView.freezeInputsPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.declareOpaque | EmissionView.declareOpaquePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.copyFragments | EmissionView.copyFragmentsPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.qualifyNative | EmissionView.qualifyNativePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.qualifyVerifier | EmissionView.qualifyVerifierPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.resolveLayout | EmissionView.resolveLayoutPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.lateLayoutWrite | EmissionView.lateLayoutWritePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.freeze | EmissionView.freezePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.emitC | EmissionView.emitCPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.emitSpec | EmissionView.emitSpecPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.verifyCoverage | EmissionView.verifyCoveragePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.closeOutputs | EmissionView.closeOutputsPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.issue | EmissionView.issuePreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.nativePermit | EmissionView.nativePermitPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.rejectSnapshot | EmissionView.rejectSnapshotPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.unknownOutput | EmissionView.unknownOutputPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+| emission_view_correspondence.rejectLateWriter | EmissionView.rejectLateWriterPreserves | Actual typed IR step; complete native source writers/aliases and verifier qualification remain external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| all-step | EmissionView.stepPreserves |
+| reachable | EmissionView.reachableSafe |
+| same-view | EmissionView.receiptSameView |
+| coverage-close | EmissionView.receiptCoverageAndClose |
+| unknown-custody | EmissionView.unknownWriterKeepsCustody |
+| native-qualifier | EmissionView.nativeNeedsQualification |
+| ordered-bytes | EmissionViewComposition.orderedWitnessReplaysBytes |
+| count-counterexample | EmissionViewComposition.matchingCountsDoNotProveBytes |
+| parent-qualifier | EmissionViewComposition.nativeQualifierFitsParent |
+| text-not-native | EmissionViewComposition.textReceiptIsNotNativePermission |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| late-root-frontier | initial-drain | c-object-late | emission_view_correspondence.captureLate | EmissionView.captureLatePreserves |
+| queue-alias | queue-alias | list-snapshot | emission_view_correspondence.closeAliases | EmissionView.closeAliasesPreserves |
+| layout-cells | cell-mutation | symbol-backfill | emission_view_correspondence.resolveLayout | EmissionView.resolveLayoutPreserves |
+| emission-write-helper | resource-flags | primitive-late-helper | emission_view_correspondence.lateLayoutWrite | EmissionView.lateLayoutWritePreserves |
+| C-fragment-payload | parse-init | init-output | emission_view_correspondence.copyFragments | EmissionView.copyFragmentsPreserves |
+| linker-payload | link-read | link-vector-copy | emission_view_correspondence.freezeInputs | EmissionView.freezeInputsPreserves |
+| paired-close | stream-open | stream-close | emission_view_correspondence.issue | EmissionView.receiptCoverageAndClose |
+
+** Seam
+
+| producer.componentId | consumer.componentId | contract | actionName | lemma |
+|---+---+---+---+---|
+| build-publisher | resource-exit | emission-pair-member-contract | emission_view_correspondence.issue | EmissionView.receiptSameView |
+| host-roots | build-publisher | capsule-root-and-borrow-closure | emission_view_correspondence.closeAliases | EmissionView.closeAliasesPreserves |
+| continuation | build-publisher | FrameSpec-and-resolved-cells | emission_view_correspondence.resolveLayout | EmissionView.resolveLayoutPreserves |
+| build-publisher | resource-exit | text-versus-native-qualification | emission_view_correspondence.nativePermit | EmissionViewComposition.nativeQualifierFitsParent |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| EV-history | interleaving | dev/refactoring/modern-c/models/quint/emission_view_correspondence.qnt | Late roots accepted writers alias closure layout output epoch and unknown close histories |
+| EV-induction | induction | dev/refactoring/modern-c/models/lean/EmissionView.lean | All extracted sequential steps; complete producer closure and verifier qualification external |
+| EV-composition | induction | dev/refactoring/modern-c/models/lean/EmissionViewComposition.lean | Ordered symbolic chunks count counterexample and preceding native qualifier only |
+| EV-projection | restricted-projection | dev/refactoring/modern-c/models/lean/EmissionViewAst.lean | Typed state binding field kinds supported expressions and full action roster |
+| EV-source | source-refinement | dev/refactoring/modern-c/emission-view-correspondence-design.org | Actual entire writer/alias/input/GC/exception closure and legal-domain reflection OPEN |
+| EV-platform | native-memory-order | dev/refactoring/modern-c/emission-view-correspondence-design.org | Concrete C11 producer close capsule ownership publication and I/O outcome refinement OPEN |
+| EV-emission | emitter-fidelity | dev/refactoring/modern-c/emission-view-correspondence-design.org | Full per-constructor C encoder ModuleSpec span and profile/macro-layout fidelity OPEN |

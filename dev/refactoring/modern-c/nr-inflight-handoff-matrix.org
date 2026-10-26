@@ -1,0 +1,106 @@
+#+TITLE: NR in-flight handoff — benefit, issuer and closure matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitNrInflightHandoff
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| escrow | reuse existing node/token payload; no blanket deep snapshot copy | one independent in-flight record across pop and abnormal exit | stable record prepared before ownership gap; exact source identity | conditional |
+| split-receipts | 0 effect-as-completion inference; 0 blind token/node retries | two operation identities/receipts or one qualified non-abandoning completion chain | native consumption and pool return can be irreversible separately | conditional-model |
+| same-thread-release | reuse ordinary Tcl pool on its qualified native owner | unknown owners keep affinity; handoff metadata does not move allocator obligations | no cross-thread node pool return without explicit allocator migration proof | source-bound |
+| resolver-fusion | one mapping critical section can fuse validation and record pin | existing pin lifetime beyond lock; stable resolver and closed admission still needed | all mapping readers/close/reuse obey same authority | conditional |
+| record-reuse | drop heavy done record after pins/producers/raw routes drain | generation identity and resolver grace; long-lived resolver state and unknown records | no-wrap refusal and no permanent arbitrary history promise | design-only |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| expression-node | expr | TclNRRunCallbacks -> ExprObjCallback data[0]/data[1] -> Restore or Discard -> return -> node free | data points inside node; token and result objects have separate endpoints | foreign escape before generic free has no normal receipt |
+| rewind-node | rewind | RewindCoroutineCallback restores snapshot then returns to dispatcher | caller Env snapshot scope and node survive until last use | full coroutine exit product remains unresolved |
+| state-cleanup | discard | decrement error/result object refs before freeing snapshot state | exact original token operation | unknown may be partial or already freed; pointer is not recovery handle |
+| small-pool-free | pool-put | TCLNR_FREE -> TclSmallFreeEx -> selected object storage service | owner thread/allocator until put and node last use | not every compile configuration uses this pool branch |
+| typed-query | parent-model | borrow live resolver -> validate generation -> pin record before unlock | pin outlives map lock until reader last use | no record exposure while candidate only validated |
+| mapping-reuse | parent-model | close under same authority; wait record pins; retire; wait anchor readers; publish new generation | record and map/identity graces are separate | process resolver still lives; lock-free alternatives not proved |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| dispatch-owner | pop | pre-pop registered stable escrow and original Env/thread/source identity | current callbackPtr local is not durable abandonment custody |
+| token-endpoint | expr | exact callback Restore/Discard normal return or backend receipt | partial object decrements/state free may have happened on unknown return |
+| node-owner | pool | known last callback data use and owner-affine pool return | pool mutation/ACK and node address reuse need independent control |
+| resolver-owner | parent-model | live lock authority joins generation check with pin acquisition | not implemented by atomic pointer load then refcount increment |
+| retirement-owner | parent-model | closed record entry, final pins, exact completion and sender/raw-route receipts | unknown lock/callback/delivery cannot be erased to produce zero |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| handoff-safety | conditional-model | independent escrow before pop; token and node receipts distinct from effects |
+| source-cuts | source-bound | pop/call/Restore/Discard/pool-free last-use boundaries in fixed local source |
+| native-escrow | unresolved | record prepared without unsafe callout; owner-thread and exact callback/source identity retained |
+| unknown-completion | unresolved | no retry after effect unknown; same-operation backend receipt or non-abandoning tail required |
+| resolver-native | unresolved | live process resolver lock really covers mapping check and pin; abnormal lock holder custody |
+| native-generation | unresolved | all raw readers/senders excluded or drained; no-wrap and identity tuple validated before pointer exposure |
+| c23-refinement | unresolved | effective mutex/atomics, Tcl thread owner and loaded ABI; full product with Gambit roots |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| prepareEscrow | NrInflightHandoff.prepareEscrowPreserves | pop | handoff-safety |
+| popNode | NrInflightHandoff.popNodePreserves | pop | handoff-safety |
+| beginToken | NrInflightHandoff.beginTokenPreserves | discard | handoff-safety |
+| applyTokenEffect | NrInflightHandoff.applyTokenEffectPreserves | discard | handoff-safety |
+| loseTokenReturn | NrInflightHandoff.loseTokenReturnPreserves | discard | handoff-safety |
+| receiveTokenReceipt | NrInflightHandoff.receiveTokenReceiptPreserves | discard | handoff-safety |
+| confirmToken | NrInflightHandoff.confirmTokenPreserves | discard | handoff-safety |
+| beginNodeRelease | NrInflightHandoff.beginNodeReleasePreserves | node-free | handoff-safety |
+| applyNodeEffect | NrInflightHandoff.applyNodeEffectPreserves | node-free | handoff-safety |
+| loseNodeReturn | NrInflightHandoff.loseNodeReturnPreserves | node-free | handoff-safety |
+| receiveNodeReceipt | NrInflightHandoff.receiveNodeReceiptPreserves | node-free | handoff-safety |
+| confirmNode | NrInflightHandoff.confirmNodePreserves | node-free | handoff-safety |
+| publishDone | NrInflightHandoff.publishDonePreserves | node-free | handoff-safety |
+| releaseEscrow | NrInflightHandoff.releaseEscrowPreserves | node-free | handoff-safety |
+| beginLookup | NrInflightHandoff.beginLookupPreserves | parent-model | handoff-safety |
+| validateFirst | NrInflightHandoff.validateFirstPreserves | parent-model | handoff-safety |
+| validateSecond | NrInflightHandoff.validateSecondPreserves | parent-model | handoff-safety |
+| installPin | NrInflightHandoff.installPinPreserves | parent-model | handoff-safety |
+| unlockLookup | NrInflightHandoff.unlockLookupPreserves | parent-model | handoff-safety |
+| releasePin | NrInflightHandoff.releasePinPreserves | parent-model | handoff-safety |
+| rejectClosedLookup | NrInflightHandoff.rejectClosedLookupPreserves | parent-model | handoff-safety |
+| rejectOldFirst | NrInflightHandoff.rejectOldFirstPreserves | parent-model | handoff-safety |
+| acquireClose | NrInflightHandoff.acquireClosePreserves | parent-model | handoff-safety |
+| closeGate | NrInflightHandoff.closeGatePreserves | parent-model | handoff-safety |
+| closeSenders | NrInflightHandoff.closeSendersPreserves | parent-model | handoff-safety |
+| closeRawRoutes | NrInflightHandoff.closeRawRoutesPreserves | parent-model | handoff-safety |
+| retireRecord | NrInflightHandoff.retireRecordPreserves | parent-model | handoff-safety |
+| unlockClose | NrInflightHandoff.unlockClosePreserves | parent-model | handoff-safety |
+| acquireReuse | NrInflightHandoff.acquireReusePreserves | parent-model | handoff-safety |
+| commitReuse | NrInflightHandoff.commitReusePreserves | parent-model | handoff-safety |
+| unlockReuse | NrInflightHandoff.unlockReusePreserves | parent-model | handoff-safety |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| pop | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | TOP_CB(interp) = callbackPtr->nextPtr; | last queued custody must hand off before callback callout |
+| invoke | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | result = procPtr(callbackPtr->data, interp, result); | callback data pointer into node remains valid through call |
+| node-free | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | TCLNR_FREE(interp, callbackPtr); | only reached after proc returns normally; not token destructor |
+| expr | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclExecute.c | Tcl_InterpState state = (Tcl_InterpState)data[0]; | known callback kind provides token-specific Restore/Discard endpoint |
+| restore | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | Tcl_DiscardInterpState(state); | Restore may already mutate interp fields before final discard |
+| discard | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c | ckfree(statePtr); | multiple object decrements precede state allocation free |
+| pool | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | DO NOT LET THEM CROSS THREAD BOUNDARIES | small node allocator is owner/thread sensitive |
+| pool-put | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | cachePtr->firstObjPtr = objPtr; | pool return makes address reusable; not necessarily libc free |
+| decr | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | TclFreeObj(objPtr); | internal-representation destruction slow path; selected effects need qualification |
+| rewind | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c | return Tcl_RestoreInterpState(interp, (Tcl_InterpState)data[0]); | actual rewind token callback; different caller and coroutine Env lifetimes |
+| parent-model | dev/refactoring/modern-c/models/quint/nr_anchor_retirement.qnt | action finishLanding= | earlier collapsed node-release/done action is refined here |
+| gambit-landing | vendor/gambit/lib/c_intf.c | call_sfun_with_cleanup | Tcl token completion does not discharge Scheme native-frame/RC roots |

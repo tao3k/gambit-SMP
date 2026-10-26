@@ -1,0 +1,206 @@
+#+TITLE: Source Pin, Carrier Enrollment and Guard Handoff Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitSourcePinHandoff
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Raw data_rc copy before generated entry; no explicit lease here |
+| tcl-delete-scheme | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_scmobj) (___EXT(___data_rc) | Scheme payload release is distinct from native RC release |
+| tcl-delete-native | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (___CAST(void*,client_data)); | Delete adapter must close admission and defer physical release while leased |
+| tcl-install | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Tcl caller initializes payload before command publication; raw setter remains public |
+| tcl-vector | vendor/gambit/examples/tcltk/tcltk.scm | ___SCMOBJ vect = ___EXT(___make_vector) (___ps, 1, ___FAL); | Existing still vector ownership does not certify generic moving arguments |
+| rc-init | vendor/gambit/lib/memory/rc-allocation.inc | h->data = ___FAL; | Native allocation initializes data before registration; not a source lease |
+| rc-register | vendor/gambit/lib/memory/rc-allocation.inc | tail->next = h; | Plain list insertion requires owner and collector exclusion |
+| rc-free | vendor/gambit/lib/memory/rc-allocation.inc | if (--h->refcount == 0) | Nonatomic decrement and unlink are not safe arbitrary-thread admission |
+| rc-retain | vendor/gambit/lib/memory/rc-allocation.inc | h->refcount++; | Dereferences existing header; cannot safely retain already-freed raw client_data |
+| rc-read | vendor/gambit/lib/memory/rc-allocation.inc | return h->data; | Raw native copy is not a registered update slot |
+| rc-write | vendor/gambit/lib/memory/rc-allocation.inc | h->data = val; | All semantic writers must join freeze/generation protocol or deny admission |
+| rc-cleanup | vendor/gambit/lib/memory/rc-allocation.inc | ___HIDDEN void cleanup_rc | Bulk cleanup frees chain independent of per-entry leases |
+| rc-scan | vendor/gambit/lib/memory/rc-roots.inc | mark_array (work, &h->data, 1); | Actual GC slot update; target private carrier is not implicitly scanned |
+| rc-next | vendor/gambit/lib/memory/rc-roots.inc | ___rc_header *next = h->next; | RC unlink/free must exclude in-flight scanner list dereferences |
+| origin-context | vendor/gambit/lib/memory/root-origins.inc | ___execution_context *context = task->origin->context; | Worker scans origin context; source lifetime is not worker identity |
+| origin-frozen | vendor/gambit/lib/memory/root-origins.inc | The collective published this complete root origin | Source/target registration cut must respect frozen roster |
+| context-scan | vendor/gambit/lib/memory/root-origins.inc | mark_rc (work, context); | Existing RC consumer reusable after origin/epoch qualification |
+| request-root | vendor/gambit/lib/memory/root-origins.inc | mark_array (work, &___vms->resize_requests[i].thunk, 1); | VM-owned root precedent survives absent source origin; not generic pin implementation |
+| retire-refuse | vendor/gambit/lib/memory/capacity-resize.inc | return 0; /* no freeze receipt for external RC/native borrowers */ | Current processor retirement refuses nonempty RC rather than manufacturing a lease |
+| storage-transfer | vendor/gambit/lib/memory/capacity-resize.inc | void ___transfer_retired_still | Root transfer alone does not transfer backing still arena |
+| still-dec | vendor/gambit/lib/memory/still-refcount.inc | ___BODY0(obj)[___STILL_REFCOUNT-___STILL_BODY]--; | Still ownership decrement differs from movable object root update |
+| release-object | vendor/gambit/lib/memory/object-allocation.inc | ___still_obj_refcount_dec (obj); | release_scmobj only acts on allocated still objects in this branch |
+| reload | vendor/gambit/lib/c_intf.c | proc_or_false = *proc_root; /* reload after allocating the marker */ | Reload from admitted slot after allocation; pointer address is not admission |
+| ambient | vendor/gambit/lib/c_intf.c | ___data_rc (___c_closure_self ()) | Payload selection must be bound before reentrant allocating work |
+| legacy | vendor/gambit/lib/c_intf.c | Legacy raw SFUN entry is not made a registered-root interface | No complete generic source-pin issuer identified |
+| closure-set | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Other concrete RC payload producer; platform conditional |
+| sfun-prologue | vendor/gambit/gsc/_ptree2.scm | (define (c-make-function sfun? name param-typs result-typ make-body) | Pre-marker bootstrap spans generated host entry and source adapter |
+| pstate-cleanup | vendor/gambit/lib/memory/memory-lifecycle.inc | free_still_objs (___ps); | cleanup_mem_pstate frees still storage before cleanup_rc; not an active-lease release helper |
+| vm-cleanup | vendor/gambit/lib/memory/memory-lifecycle.inc | ___cleanup_mem_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms)); | VM cleanup still has other-processors TODO; global retirement qualification cannot be inferred |
+| pstate-wrapper | vendor/gambit/lib/setup.c | ___cleanup_mem_pstate (___ps); | PSTATE cleanup wrapper reaches destructive memory cleanup before OS cleanup |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| source | VM SourceSlotId + generation + payload lineage | Stable metadata exists before client_data dereference | Do not CAS a freed native header |
+| pin | SourceId + PinId + owner generation | Exact return is idempotent; nested pin distinct | Lifetime pin is not an immovable-object pin |
+| carrier | ReservedSlotId + registration generation + GC round | Private candidate cannot become authoritative until enrollment acknowledged | Release/acquire alone does not enroll frozen root set |
+| handoff | PinId + CarrierId + GuardId + commit identity | Source pin drops only after exact commit outcome and target custody known | Unknown reply is not failed reservation |
+| payload | Semantic payload identity plus GC relocation revision | GC relocation preserves identity; managed semantic replacement changes generation | Two fixed leases model no arbitrary mutable payload replacement |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| pin | Stable source-domain owner before native dispatch | data_rc/addref_rc dereference raw headers; no complete source gate | Required native owner adapter | Validate generation; atomically accept pin before close without allocation |
+| close | Source deletion adapter on qualified owner | scheme_delete_cmd releases Scheme and native resources directly | Must redesign logical delete versus physical cleanup | Close new pins immediately; defer release without blocking callback/GC |
+| enroll | RootRegistry or collective root-origin owner | mark_rc scans actual slots; origin set published before work | Generic carrier enrollment receipt absent | Validate same GC round and refresh candidate if source moved |
+| guard | Stable host operation owner | Rooted helper reloads after allocation; generic wrapper disclaims registration | Reservation/exit owner still not implemented | Bind exact carrier and source; retain record on unknown outcome |
+| resolve | Same reservation commit owner | No new keyed commit service implemented | Conditional model oracle | Answer committed/failed by exact operation; query is not execution retry |
+| storage | VM storage/retirement owner | can_retire_pstate refuses external RC; still transfer has closed-collective preconditions | Existing fail-closed path reusable | Keep backing arena and root descriptor alive through all pin/scan leases |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| close-pin | One metadata gate/count or serialized owner decision | Stable control record and no overflow | Pin linearizes before close or is rejected | Raw header lifetime and actual C23 primitive selection open |
+| gc-private | GC leaves private candidate unregistered; enrollment compares relocation revision | Source lease stays scan-visible; freeze excludes root mutations | Stale candidate cannot enroll without refresh | Source-to-native moving-GC simulation open |
+| nested | Two independent exact pin records | Real source adapter covers entry and deletion | Returning outer pin cannot settle nested pin | Arbitrary nesting, exhaustion and finite generation open |
+| unknown | Reserved/unknown guard retains both source pin and carrier | Exact commit-owner lookup | No blind retry or early source retirement | Actual non-abandonable owner and eventual reconciliation open |
+| bridge | CarrierAdmission relation to prior bootstrap model | Same carrier revision and supplied prior safety | Prior guard reservation remains safe | Not a complete runtime source simulation |
+| storage | Separate root liveness from still backing storage | All arenas and source context retirements accounted | Root receipt alone never permits freeing backing memory | VM-wide storage freeze and foreign cleanup closure unresolved |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| gate | Close/pin serialized on stable SourceControl metadata | Acquire sees generation and admission outcome | No check-open then later increment; no count wrap; no lock across GC | Bounded atomic or owner-thread metadata operation |
+| candidate | Source read under registered root-access interval | Private copy may become stale when GC runs | Pin prevents owner deletion, not relocation or concurrent raw setter | Nonallocating root-access and refresh |
+| enrollment | Register target under same GC round or defer until source refresh | Collector acknowledges target slot coverage | Do not release source when target missed frozen origin set | Root-origin ack and one slot per admitted ingress |
+| guard | Allocating reservation reads enrolled target after GC | Commit response or keyed query names same carrier | Unknown keeps pin and target; no owner lock while allocating | Stable record and retained query result |
+| source-delete | After gate closed and all source pins gone, outside scan interval | Native block and Scheme ownership released separately | Retain scan descriptor and storage if any maintenance reader remains | Deferred deletion and scan-drain coordination |
+| nested | Each invocation owns its PinId and carrier | Outer return cannot decrement child custody | No mutable ambient source retarget | Depth-dependent reserved capacity |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| root-reuse | New generic roots where an admitted existing RC slot already suffices | Source pin, GC participation and root-domain proof | Keep source registered if safe; do not mandate carrier copy for every static/owner path |
+| carrier | Ad hoc per-wrapper roots and lost-outcome recovery | Reserved slots and registration acknowledgements | Retire actual duplicated support instead of retaining two paths |
+| no-block-delete | Delete/GC/callback cycle caused by synchronous wait | Deferred logical deletion and owner polling/query | Old owner remains participant; no drain while holding needed lock |
+| nested | Duplicate settlement or parent-child custody corruption | Exact pin record and carrier per nested activation | Capacity/overflow and arbitrary nesting remain admission obligations |
+| normalization | At most one redundant metadata traversal | Pin, enrollment, refresh, scan and unknown-retention costs | Positive only after real source/guard/writer/storage gates and all marginal costs |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Stable source adapter | Admission gate | lookup stable generation before raw payload access |
+| Admission gate | Exact source pin | pin before close or reject; no allocation |
+| Exact source pin | Private carrier | read under root access; source remains scanned |
+| Private carrier | Enrollment owner | same round or refresh after source moved |
+| Enrollment owner | Stable guard owner | target scan coverage acknowledged before allocating |
+| Stable guard owner | Commit lookup | reply lost queries same operation |
+| Commit lookup | Source pin return | release only after target and guard outcome known |
+| Stable guard owner | Nested callback | independent pin and carrier |
+| Source pin return | Deferred source deletion | all source pins gone and scanners drained |
+| Deferred source deletion | VM storage owner | root liveness and backing arena lifetime separate |
+| Stable guard owner | Unknown escrow | retain source pin plus enrolled carrier |
+| Unknown escrow | Commit lookup | exact owner resolves; no blind re-execution |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| source_pin_handoff.pinOuter | SourcePin.pinOuterPreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.pinNested | SourcePin.pinNestedPreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.closeSource | SourcePin.closeSourcePreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.rejectLatePin | SourcePin.rejectLatePinPreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.copy0 | SourcePin.copy0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.refresh0 | SourcePin.refresh0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.enroll0 | SourcePin.enroll0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.reserveGuard0 | SourcePin.reserveGuard0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.commitGuard0 | SourcePin.commitGuard0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.lostReservation0 | SourcePin.lostReservation0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.resolveCommitted0 | SourcePin.resolveCommitted0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.resolveFailed0 | SourcePin.resolveFailed0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.queryAck0 | SourcePin.queryAck0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.returnPin0 | SourcePin.returnPin0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.repeatReturn0 | SourcePin.repeatReturn0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.abortBeforeGuard0 | SourcePin.abortBeforeGuard0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.outerExit0 | SourcePin.outerExit0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.retireCarrier0 | SourcePin.retireCarrier0Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.copy1 | SourcePin.copy1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.refresh1 | SourcePin.refresh1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.enroll1 | SourcePin.enroll1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.reserveGuard1 | SourcePin.reserveGuard1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.commitGuard1 | SourcePin.commitGuard1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.lostReservation1 | SourcePin.lostReservation1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.resolveCommitted1 | SourcePin.resolveCommitted1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.resolveFailed1 | SourcePin.resolveFailed1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.queryAck1 | SourcePin.queryAck1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.returnPin1 | SourcePin.returnPin1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.repeatReturn1 | SourcePin.repeatReturn1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.abortBeforeGuard1 | SourcePin.abortBeforeGuard1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.outerExit1 | SourcePin.outerExit1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.retireCarrier1 | SourcePin.retireCarrier1Preserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.retireSource | SourcePin.retireSourcePreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.freezeGc | SourcePin.freezeGcPreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.finishGcNone | SourcePin.finishGcNonePreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.finishGcOuter | SourcePin.finishGcOuterPreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.finishGcNested | SourcePin.finishGcNestedPreserves | typed two-fixed-pin model; real source/GC authorities external |
+| source_pin_handoff.finishGcBoth | SourcePin.finishGcBothPreserves | typed two-fixed-pin model; real source/GC authorities external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | SourcePin.stepPreserves |
+| reachableSafe | SourcePin.reachableSafe |
+| noRetireWithOuterPin | SourcePin.noRetireWithOuterPin |
+| noRetireWithNestedPin | SourcePin.noRetireWithNestedPin |
+| staleCandidateCannotEnroll | SourcePin.staleCandidateCannotEnroll |
+| unknownRetainsCustody | SourcePin.unknownRetainsCustody |
+| duplicateReturnPreservesChild | SourcePin.duplicateReturnPreservesChild |
+| enrolledCarrierFresh | SourcePin.enrolledCarrierFresh |
+| closedSourceRejectsPin | SourcePin.closedSourceRejectsPin |
+| sourceReleaseOutsideScan | SourcePin.sourceReleaseOutsideScan |
+| guardReservationAgreement | SourcePinBridge.guardReservationAgreement |
+| collectorRevisionAgreement | SourcePinBridge.collectorRevisionAgreement |
+| reservationSuccessorSafe | SourcePinBridge.reservationSuccessorSafe |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| source | source_pin_handoff.pinOuter | SourcePin.pinOuterPreserves | rc-retain | SP-source |
+| source | source_pin_handoff.pinNested | SourcePin.pinNestedPreserves | tcl-call | SP-source |
+| source | source_pin_handoff.closeSource | SourcePin.closeSourcePreserves | tcl-delete-native | SP-source |
+| roots | source_pin_handoff.copy0 | SourcePin.copy0Preserves | rc-read | SP-roots |
+| roots | source_pin_handoff.enroll0 | SourcePin.enroll0Preserves | origin-frozen | SP-roots |
+| roots | source_pin_handoff.finishGcBoth | SourcePin.finishGcBothPreserves | rc-scan | SP-roots |
+| guard | source_pin_handoff.reserveGuard0 | SourcePin.reserveGuard0Preserves | reload | SP-execution |
+| guard | source_pin_handoff.lostReservation0 | SourcePin.lostReservation0Preserves | legacy | SP-execution |
+| guard | source_pin_handoff.resolveCommitted0 | SourcePin.resolveCommitted0Preserves | legacy | SP-execution |
+| source | source_pin_handoff.returnPin1 | SourcePin.returnPin1Preserves | tcl-delete-scheme | SP-source |
+| storage | source_pin_handoff.retireSource | SourcePin.retireSourcePreserves | retire-refuse | SP-storage |
+| roots | source_pin_handoff.retireCarrier0 | SourcePin.retireCarrier0Preserves | rc-next | SP-roots |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| SP-formal | induction | dev/refactoring/modern-c/models/lean/SourcePin.lean | two fixed leases, private/enrolled revision and deletion safety |
+| SP-bridge | composition | dev/refactoring/modern-c/models/lean/SourcePinBridge.lean | carrier revision and prior guard-reservation agreement under explicit relation |
+| SP-source | source | vendor/gambit/examples/tcltk/tcltk.scm | stable handle lookup, actual nonallocating source pin and logical deletion adapter |
+| SP-execution | source | vendor/gambit/lib/c_intf.c | stable reservation issuer, exact commit lookup and exception completion owner |
+| SP-roots | source | vendor/gambit/lib/memory/root-origins.inc | source access exclusion, target enrollment and frozen-round scan acknowledgement |
+| SP-writers | source | vendor/gambit/lib/memory/rc-allocation.inc | all raw setter, release, bulk cleanup and indirect borrower closure |
+| SP-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 atomic gate/count, finite IDs overflow, generation ABA and actual Darwin profile |
+| SP-storage | source | vendor/gambit/lib/memory/capacity-resize.inc | backing storage and old participant/scan-domain retirement closure |

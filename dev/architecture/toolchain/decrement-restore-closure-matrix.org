@@ -1,0 +1,67 @@
+#+TITLE: Decrement and Restoration — Closure and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: decrement-restore-closure-matrix
+:AUTHORITY: DecrementRestoreClosure
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Contract
+
+| key | anchor | actionName | lemmaName | guardName | duty | status |
+|---+---+---+---+---+---+---|
+| derived-credit | setup.c:3383-3390; gambit.h.in:9981-9988 | decrementClaim | handoffReleaseCovered | s.published[i] | Release claim only after published and acknowledged execution-session ownership; subsequent PSTATE accesses remain covered | new handoff contract |
+| execution-owner | setup.c:3276-3390; gambit.h.in:6815-6841 | prepareOwner | adoptedCovers | s.claim[i] | Adopt original VM execution context before claim release; retain owner through host epilogue, catch restoration and caller tail | stable native anchor required |
+| host-restore | gambit.h.in:6815-6841,6909,6956,7082-7098,8109-8117 | reenterHost | activeRestoreNeedsOwner | s.phase[i]==3 | R1 to SELF and host spill/reload remain under execution ownership; same-host edges need their own live-carrier proof | effective generated mask open |
+| storage-commit | gambit.h.in:6377-6387,6587-6605,6654-6667 | retireVm | captureBlocksVmRetirement | not(futureVm) | VM retirement requires settled execution and exported continuation/invocation authority; native empty receipt is narrower | parent source/native closure retained |
+| catch-restore | gambit.h.in:9981-9988; setup.c:3383-3389 | restoreCatcher | noBareReleaseDuringRestore | s.phase[i]==5 | THROW and END_TRY access catcher and longjmp_err; call epilogue still accesses fp and PSR0 | last decrement cannot precede these without handoff |
+| abnormal-guard | setup.c:3383-3417; c_intf.c:6555-6563; gambit.h.in:10043-10059 | unwindGuard | deadMarkerDeniesC | s.error[i] | Required abnormal completion guard invalidates C marker and settles roots even when lexical normal cleanup is bypassed | current all-caller cleanup not proved |
+| continuation-context | _kernel.scm:1020-1065; gambit.h.in:6377-6387,6654-6667 | invokeK | captureDoesNotPinOldProcessor | s.processors.contains(p) | Retained continuation holds VM/frame authority; restore acquires a valid current processor in same VM, not resurrected original PSTATE | export and arena handoff premises open |
+| leaf-release | setup.c:3383-3417; gambit.h.in:10043-10059 | decrementLeaf | leafRequiresSettled | s.phase[i]==9 | Leaf decrement only in stable outer custodian after marker, conversion/error propagation and restoration boundary settle | no universal existing source line |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| session-reuse | For b batches sharing s execution sessions, potentially replace b per-batch session lease pairs by s pairs when s<=b | Still b claim settlements and handoff receipts plus session lifetime and root accounting | Only a proved shared-session contract permits b-s lease-pair reduction; current code has no such receipt and no speed gain is established |
+| closure-retention | Avoid premature VM/PSTATE retirement and false completion at handler or host return | Retain actual restoration debt and exported-handle/invocation authority; memory retention lasts until those obligations close | Continuation roots retain required VM state, not every original processor indefinitely; no arbitrary forced timeout |
+| guard-support | Share generated normal/abnormal completion metadata across Scheme, FFI and native entry boundaries | Completion guard records, catcher-stack integration, exactly-once settlement and unknown-result query | Reuse must cover longjmp and multi-shot re-entry; ordinary local cleanup flag or lexical return is insufficient |
+| c-baseline | Modern C reuses existing GVM roots, host masks, markers and Scheme continuation semantics | Typed session/handle contract and C memory-model plus configuration/provenance obligations | No measured throughput or build gain; Zig cannot remove these obligations and no additional net benefit is established |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| darwin-artifact-match | False | Installed driver/header statically pinned; effective argv, environment overrides, compiler macro identity and checked-in _kernel.c/object relation unresolved |
+| smp-profile | False | Installed header defaults to single-threaded VM; not qualification of current SMP processor roster or native ABI |
+| restore-graph | False | Exact R1/SELF masks, same-host and host-switch, catcher stacks, generated return and exceptional edges complete |
+| unwind-cleanup | False | Every throw/escape caller invalidates markers and settles roots exactly once; existing lexical cleanup is not sufficient proof |
+| continuation-export | False | All external continuation holders and invocation leases registered without VM self-retention cycle; processor/arena migration proof |
+| c11-publication | False | Execution lease establishment before immutable handoff publication and claim decrement; full C/builtin-setjmp refinement open |
+| native-retirement | False | Parent root/roster/OS cleanup and inherited host attestation unresolved; no native admission |
+
+** Profile
+
+| key | driver | header | compiler | declaredMode | macroParity | sourceMatch | status |
+|---+---+---+---+---+---+---+---|
+| installed-darwin-source | /opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/bin/gambuild-C | /opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/include/gambit.h | /opt/homebrew/bin/gcc-16 | C; SINGLE_HOST; INLINE_JUMPS; TRUST_C_TCO; header default SINGLE_THREADED_VMS | Six literal macro spans match template; effective branch and object relation remain open | False | static installed declarations; no effective argv or SMP object match |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| derived-credit | execution-owner | Execution owner established before published handoff release |
+| host-restore | derived-credit | After claim decrement PSTATE use needs other owner |
+| catch-restore | host-restore | Host restoration can reach catch and caller tail |
+| abnormal-guard | catch-restore | Catch completion is not abnormal marker completion |
+| leaf-release | abnormal-guard | Leaf release follows normal or abnormal boundary settlement |
+| continuation-context | abnormal-guard | Dead C marker does not remove continuation restore obligation |
+| storage-commit | continuation-context | Export and invocation can retain old VM after original processor exits |
+| storage-commit | leaf-release | Native return settlement precedes execution-owner retirement |
+| leaf-release | catch-restore | Leaf completion requires catcher restoration before caller tail settles |
+| storage-commit | execution-owner | Final retirement excludes all execution owners |

@@ -1,0 +1,161 @@
+#+TITLE: Copy Producer Envelope — FrameSpec and Source Budget Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitCopyProducerEnvelope
+:STATUS: conditional-model; source-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| validated-fs | vendor/gambit/gsc/_t-c-3.scm | (integer? fs) (exact? fs) (<= 0 fs) (< fs 16384) | Stored-size check is active in constructor, unlike unused 4096 declaration |
+| mutable-spec | vendor/gambit/gsc/_t-c-3.scm | (vector 'frame-spec kind fs actual-fs link gc-map out-of-line?) | Returned Scheme vector is mutable; emission needs private sealed view |
+| effective-fs | vendor/gambit/gsc/_t-c-3.scm | (define (targ-internal-fs fs) | Producer computes aligned stored size plus saved-register layout |
+| link-map | vendor/gambit/gsc/_t-c-3.scm | (< gc-map (expt 2 actual-fs)) | Bounds root-map integer but not module/native root coverage |
+| wrappers | vendor/gambit/gsc/_t-c-2.scm | (targ-make-frame-spec 'internal fs link gc-map) | Actual internal-label constructor path |
+| liveness | vendor/gambit/gsc/_t-c-2.scm | all saved GVM regs are live | RETI generation constructs physical saved-register root map |
+| emit | vendor/gambit/gsc/_t-c-1.scm | (fs (targ-frame-spec-stored-fs info)) | Emitter consumes stored frame size from retained spec |
+| ofd | vendor/gambit/include/gambit.h.in | #define ___OFD_FS_WIDTH 14 | Native packed descriptor matches checked stored-size field |
+| decode | vendor/gambit/include/gambit.h.in | frame.fs = internal ? ___RETI_CFS_TO_FS(frame.stored_fs) : frame.stored_fs; | Consumer expands internal layout exactly once |
+| runtime-reti | vendor/gambit/include/gambit.h.in | #define ___RETI_CFS_TO_FS(fs) | Consumer depends on native register count and alignment |
+| source-span | vendor/gambit/include/gambit.h.in | #define ___FRAME_SPACE(n) | Rounded physical frame charge differs from copied fs plus two |
+| push | vendor/gambit/lib/_kernel.scm | ___PUSH_REGS /* push all GVM registers (live or not) */ | Three handler producers save native registers |
+| align-push | vendor/gambit/lib/_kernel.scm | ___ADJFP(___ROUND_TO_MULT(fs,___FRAME_ALIGN)-fs) | Padding produced before saved registers |
+| captured | vendor/gambit/lib/mem.c | words = fs + ___FRAME_EXTRA_SLOTS; | Captured-frame copy grant has one extra slot plus object header |
+| frame-header | vendor/gambit/lib/mem.c | #error "___SUBTYPED_BODY != 1" | Captured path explicitly excludes handle body layout |
+| frame-forward | vendor/gambit/lib/mem.c | ___FP_SET_STK(fp,link+1,forw) | Canonical frame forwarding must support one source charge |
+| inline-guard | vendor/gambit/lib/_kernel.scm | if (words > ___MSECTION_BIGGEST) | Dynamic constructor-family split is not a global ordinary-object bound |
+| runtime-frame | vendor/gambit/lib/_kernel.scm | ___ALLOC_SCMOBJ_INLINE(FRAME, ___WORD, n, 0); | make-frame producer follows inline/still split and descriptor-derived length |
+| temporary | vendor/gambit/lib/_kernel.scm | ___BEGIN_ALLOC_VECTOR(np) | Rest and keyword-rest temporary roots bypass generic small-family split |
+| np | vendor/gambit/include/gambit.h.in | #define ___NBPARMS_WIDTH 12 | Decoded temporary argument-vector np is below 4096 |
+| static-vector | vendor/gambit/gsc/_t-c-2.scm | (targ-c-unsigned-long n))) | Static generator lengths must be enumerated per operation and module |
+| vector-generator | vendor/gambit/gsc/_t-c-2.scm | (define (targ-apply-vector proc-safe? kind) | Literal arity controls emitted allocation; no 255 branch in this emitter |
+| closure-generator | vendor/gambit/gsc/_t-c-2.scm | (list "ALLOC_CLO" (targ-c-unsigned-long (length opnds))) | Closure capture count is another static producer |
+| closure-native | vendor/gambit/include/gambit.h.in | #define ___CLO_FREEVARS (1+___CLO_LOWLEVEL_TRAMPOLINE_SIZE) | Include lowlevel trampoline and native header when computing G |
+| heap-check | vendor/gambit/gsc/_t-c-2.scm | (targ-update-fr-and-check-heap space sn) | Safepoint accounting is not a per-object still-allocation decision |
+| flonum | vendor/gambit/include/gambit.h.in | #define ___MEM_ALLOCATED_FLONUM_ALLOC(val) | Boxing materialization versus self-tagged/NAN profile changes coverage |
+| weak-object | vendor/gambit/lib/_system.scm | if (words > ___MSECTION_BIGGEST) | GC hash table constructor has its own size/heap/still policy |
+| bignum | vendor/gambit/lib/_num.scm | if (words > ___MSECTION_BIGGEST) | Bignum constructor has base-width and alignment-specific policy |
+| origin | vendor/gambit/lib/mem.c | GC copy source is not in frozen fromspace | Header origin alone does not prove body range or a source partition |
+| census | vendor/gambit/lib/mem.c | #define words_movable_objs(ps) | Factor-two accounting does not establish unique physical Q |
+| threshold | vendor/gambit/lib/mem.c | alloc_heap_chunk_limit = work->context->mem.alloc_heap_ptr_ + ___MSECTION_CHUNK; | Threshold overhead must share the same nonrefundable source envelope |
+| regs-profile | vendor/gambit/gsc/_t-c-1.scm | nb-gvm-regs <= ___NB_GVM_REGS | Existing option relation is weaker than matched producer/consumer effective-layout receipt |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| inline-family | vendor/gambit/lib/_kernel.scm | ^___ALLOC_SCMOBJ_INLINE\( | 16 | Lexical invocation inventory; macro definition excluded; no external native closure |
+| temporary-vectors | vendor/gambit/lib/_kernel.scm | ___BEGIN_ALLOC_VECTOR\(np\) | 2 | Rest and keyword-rest producer blocks only |
+| native-reti | vendor/gambit/lib/_kernel.scm | /\* setup internal return continuation frame \*/ | 3 | Stack-limit heap-limit force blocks only |
+| typed-return-wrappers | vendor/gambit/gsc/_t-c-2.scm | \(targ-make-frame-spec '(?:normal\vert{}task\vert{}internal) | 3 | Local return-label wrappers; raw native/manual metadata outside closure |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| frame-cap | Active stored-size validation plus expanded RETI arithmetic | Unmodified spec; supported body1 alignment4 reserve3 and matched ABI | Normal/task <=16385; default five-reg RETI <=16395; <=25-reg RETI <=16415 | Accepted-range bounds, not emitted maxima or all native frame producers |
+| ordinary-cap | Separate guarded dynamic and emitted static/native constructors | Per-constructor ObjectSpec incl bytes header padding trampoline and completion | Small family <=255 on 64-bit, conservatively <=256 on 32-bit; static max is per module | No universal 255 theorem; unsafe raw C and unknown aliases route to alternative |
+| B | Canonical physical source charges + alignment + threshold count | Identity keyed by allocation/epoch/physical offset, not descriptor spelling; complete old source | B>=U+T; frame destination strictly smaller than full rounded stack source | Source writer/alias partition, newer VM resize-request roots and all-phase charge injection still open |
+| issuer | Scheme generator seals validated FrameSpec; runtime combines profiles and source epoch | Independent object/root/source witnesses and all live old-module descriptors | FrameSpec signs local size/layout witness, not whole VM capacity by itself | Native relocation, post-validation mutation and unknown modules prevent tight admission |
+| reuse | Retain immutable producer summaries across builds and GC rounds | Bind generator source, ABI, module identity and constructor manifest | Reuse size maxima and root layouts; recompute frozen source occupancy each round | Summary invalidation and old-code retirement remain mandatory |
+
+** Memory
+
+| key | publication | consumer | gap |
+|---+---+---+---|
+| seal | Complete immutable/private view before release publication | Emitter/native loader acquires exact identity and ABI | A mutable Scheme vector is not the sealed record |
+| old-module | Pin all descriptors reachable from live frames before snapshot | Module summaries retired only after continuation/frame/maintenance users | Unloaded public entry does not imply descriptor dead |
+| source | Root writers close before validating physical source coverage | GC updates root values under existing authority; control endpoints remain frozen | Lease/root publication plus C11 adapters still open |
+| activation | New module or raw native producer cannot enter frozen scope | Before-copy change revokes receipt; during-copy activation deferred | No use of a stale lower G after activation |
+| budget | Strong-to-weak preserves U/B/source identities and spent credit | Forwarding losers reclaim private reservation without refunding canonical committed charge | All-source native uniqueness and marker mapping remain open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| active-check | Replace unproved reliance on unused 4096/8192 macros | Per-label semantic and layout validation; private emission snapshot | Current active 14-bit constructor check supports local arithmetic only |
+| module-summary | Avoid rescanning every old descriptor for each GC | Maintain maxima and constructor coverage for every still-live module | Costs amortize only with exact ABI/invalidation and old-code pins |
+| ordinary-spec | Use actual static object/closure maxima instead of generic half-section cap | New ObjectSpec inventory and native producer maintenance | No benefit if any live producer lacks a finite qualified cap |
+| source-envelope | Reuse producer charge lemmas while freezing actual source Q | Root/alias/extent witness and threshold accounting per GC | FrameSpec alone cannot issue B |
+| retirement | Retire repeated C layout interpretation and manual duplicated bounds | Generated C and runtime must consume the same sealed semantic record | No runtime path retired by this research; Zig not required |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| semantic-FrameSpec | private-emission-view | Validate stored actual link root-map and full ABI; exclude mutable aliases |
+| private-emission-view | frame-size-witness | Reconcile stored encoding with native RETI reconstruction |
+| ObjectSpec | ordinary-size-witness | Enumerate guarded static closure temporary and boxing producers |
+| old-module-pins | profile-union | Keep descriptors from live older continuations in the maximum |
+| frame-size-witness | profile-union | Use actual effective fs plus captured header/extra slot |
+| ordinary-size-witness | profile-union | No global 255 shortcut; raw producers require their own scope |
+| profile-union | G-receipt | All live producer families covered; ABI and generation agree |
+| frozen-source | B-receipt | Disjoint canonical physical Q plus alignment and nonrefundable threshold charge |
+| G-receipt | capacity-receipt | Use prior contiguous packing theorem with actual G |
+| B-receipt | capacity-receipt | Use same source epoch across strong and weak phases |
+| capacity-receipt | copy-entry | Start only with current signed scopes and all old modules pinned |
+| profile-change | alternative-or-defer | Revoke before start; defer activation after start; keep old roots |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| copy_producer_envelope.coverObjects | ProducerEnvelope.coverObjectsPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.coverFrames | ProducerEnvelope.coverFramesPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.chooseCap | ProducerEnvelope.chooseCapPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.abiMismatch | ProducerEnvelope.abiMismatchPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.opaqueProducer | ProducerEnvelope.opaqueProducerPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.missingOldModule | ProducerEnvelope.missingOldModulePreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.missingSourceWitness | ProducerEnvelope.missingSourceWitnessPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.freeze64 | ProducerEnvelope.freeze64Preserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.freeze32 | ProducerEnvelope.freeze32Preserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.issue | ProducerEnvelope.issuePreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.start | ProducerEnvelope.startPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.consume | ProducerEnvelope.consumePreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.weakCut | ProducerEnvelope.weakCutPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.deferLateModule | ProducerEnvelope.deferLateModulePreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+| copy_producer_envelope.replaceBeforeStart | ProducerEnvelope.replaceBeforeStartPreserves | Actual typed-IR action preservation; witness realization remains source obligation |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| normal-span | ProducerCapacity.normalCapturedFits |
+| internal-span | ProducerCapacity.internalSpanExact |
+| internal-copy | ProducerCapacity.internalCapturedFits |
+| normal-cap | ProducerCapacity.normalStoredCap |
+| default-reti | ProducerCapacity.defaultInternalCap |
+| supported-reti | ProducerCapacity.supportedRegisterCap |
+| abi-counter | ProducerCapacity.abiMismatchIsReal |
+| layout-equivalence | ProducerCapacity.producerConsumerArithmetic |
+| descriptor-roundtrip | ProducerCapacity.descriptorStoredRoundTrip |
+| small64 | ProducerCapacity.smallConstructorCap64 |
+| small32 | ProducerCapacity.smallConstructorCap32 |
+| rest-vector | ProducerCapacity.argumentVectorCap |
+| closure | ProducerCapacity.closureBound |
+| threshold | ProducerCapacity.thresholdBudget |
+| source-handoff | ProducerCapacity.sourceBudgetHandoff |
+| packing-handoff | ProducerCapacity.packingHandoff |
+| live-scope | ProducerCapacity.startedScope |
+| ordinary-counter | ProducerCapacity.directObjectCounterexample |
+| budget-cut | ProducerEnvelope.weakCutKeepsEnvelope |
+| source-cover | ProducerCapacity.coverBounds |
+| source-budget | ProducerCapacity.sourceCoverBudget |
+| overlap-control | ProducerCapacity.overlapRejected |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| PE-history | interleaving | dev/refactoring/modern-c/models/quint/copy_producer_envelope.qnt | Module profile coverage publication invalidation and strong weak source credit histories |
+| PE-induction | induction | dev/refactoring/modern-c/models/lean/ProducerEnvelope.lean | All actual typed producer-envelope AST actions |
+| PE-composition | induction | dev/refactoring/modern-c/models/lean/ProducerCapacity.lean | Exact size arithmetic plus handoff to preceding symbolic packing proof |
+| PE-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ProducerEnvelopeAst.lean | Typed JSON bound-state identity extraction |
+| PE-source | source-refinement | dev/refactoring/modern-c/copy-producer-envelope-design.org | Actual all-producer closure immutable view old module pins and canonical source partition open |
+| PE-platform | native-memory-order | dev/refactoring/modern-c/copy-producer-envelope-design.org | Effective ABI native relocation alias closure and C11 receipt publication open |
