@@ -2,8 +2,8 @@ package GambitRevisionDelivery {
   private import ScalarValues::*;
   ref part admission = GambitCommitGates::tests;
   attribute policy:String="Each REV is an independently reviewable responsibility replacement with its own source tree, tests and five ASCENT gates. A file may contain multiple responsibilities: intermediate trees select exact source blocks, never all staged content. Push only qualified commits; preserve unqualified working research. No patch-series progress transfers to this branch.";
-  attribute currentScope:String="Modern C architecture ownership. First select execution-root storage in the existing flat public header and existing build entrypoints; then qualify GC participants/root domains and collector work as distinct dependency-bound trees. Keep configured-tool cleanup, phase-loop edits, global C23 compiler-admission changes and tfib diagnosis parked. No entire-SMP completion claim follows from one REV.";
-  attribute currentDeliveryHold:String="Official target names remain unchanged. Configured-tool cleanup and phase-loop changes are parked after user scope correction; no further commit or push of these candidates. The local configured-tool commit was removed from the branch while preserving index/working content. Future selection starts from DEV architecture necessity, not ease of submitting isolated Make changes.";
+  attribute currentScope:String="Modern C architecture ownership. Qualify execution-root storage, GC participants/root domains and collector work as distinct dependency-bound trees. Under the later classified-queue request, the separately modeled stage12 phase-result authority may advance only with actual failure witnesses and five gates. Keep configured-tool cleanup, global C23 compiler-admission changes and tfib diagnosis parked. No entire-SMP completion claim follows from one REV.";
+  attribute currentDeliveryHold:String="Official target names remain unchanged. Historical scope correction parked configured-tool cleanup and phase-loop candidates and removed the local configured-tool commit while preserving pending content. The later explicit request to advance classified Changes permits reconsidering only the separately modeled stage12 phase-result authority, after actual false-success witnesses, full unchanged-profile tests and five gates. This is not permission to revive cleanup policy, rename targets or bulk-submit Make edits. Configured-tool cleanup stays parked; native bootstrap results, not ease of editing a line, justify the bounded cut.";
   attribute architectureOrder:String="execution-context-storage -> root-origin-dispatch -> collector-arena-and-restoration. Entry/exit-root-custody depends on execution storage; VM membership/retirement depends on root dispatch and entry/exit custody. Each successor needs its own exact source tree and native observations; dependency links do not transfer acceptance.";
   attribute firstPatchBoundary:String="Move execution-root storage and every actual accessor to stable VM slots while retaining synchronous binding, pstate_mem, collector algorithm and ordinary configure/Make entries. Preserve descriptor/version and validate existing size checks before cached completion or mutation; held old-layout binaries must remain rejected on repeated load. na and heap_limit stay uniquely with existing call/allocator guards. No new ABI marker, official target rename, cleanup policy or tfib investigation.";
   attribute cuttingRule:String="Aggregate nodes retain historical programme scope and failed observations; they are not submission trees. Current leaf cuts require exact lexical-block selection and a buildable intermediate ABI, with source/output identity and five scoped gates. File-pattern ownership is an inventory aid, not proof that every hunk belongs to one REV. Generated C required by a changed Scheme producer belongs to that same qualified tree, never an unspecified later catch-all commit.";
@@ -211,6 +211,15 @@ package GambitRevisionDelivery {
     attribute :>> retired="PSTATE payload for stack_limit/fp/stack_start/stack_break/hp/r/pc/saved/type_cache/processor_scmobj; direct carrier-field consumers of those roots";
     attribute :>> excluded="Scalar na/heap_limit retain unique carrier storage; generic CPU instruction dispatch/register allocation are unchanged. Allocator/RC/still and collector work remain in the existing pstate_mem for this transitional cut. No participant protocol, new worker/arena, W<R scheduling, live rebinding, owner death recovery, CFFI policy, cleanup change, header-module split or whole GC correctness claim";
   }
+  part rootSourceAdapters:Revision {
+    attribute :>> activeArchitecture=true;
+    attribute :>> id="root-source-adapters";
+    attribute :>> responsibility="Phase caller explicitly selects context/RC root sources for six private visitors; collector arguments retain mark/copy resource ownership";
+    attribute :>> sources="lib/_mem/capacity-resize.inc;lib/_mem/collection-round.inc;lib/_mem/continuation-roots.inc;lib/_mem/rc-roots.inc;lib/_mem/root-origins.inc";
+    attribute :>> tests="Exact five-file tree bootstrap, existing frame/multi-shot/root/exit controls and original GSI; baseline failures remain disclosed, no unrelated generated-C products selected";
+    attribute :>> retired="Six visitors' hidden carrier-derived source selection; no public ABI or GC protocol changes";
+    attribute :>> excluded="RC-domain/task/freeze/retirement implementation, cross-VM writers and whole SMP acceptance; existing QNT/Lean unchanged";
+  }
   part rootDispatch:Revision {
     attribute :>> activeArchitecture=true;
     attribute :>> id="root-origin-dispatch";
@@ -250,7 +259,8 @@ package GambitRevisionDelivery {
   part cutDependency0:Dependency { ref part :>> predecessor=toolsLifecycle; ref part :>> successor=compilerExecution; }
   part cutDependency1:Dependency { ref part :>> predecessor=phaseFailure; ref part :>> successor=compilerExecution; }
   part cutDependency2:Dependency { ref part :>> predecessor=compilerExecution; ref part :>> successor=generationConfig; }
-  part cutDependency5:Dependency { ref part :>> predecessor=runtimeBinding; ref part :>> successor=rootDispatch; }
+  part cutDependency5:Dependency { ref part :>> predecessor=runtimeBinding; ref part :>> successor=rootSourceAdapters; }
+  part rootAdapterDependency:Dependency { ref part :>> predecessor=rootSourceAdapters; ref part :>> successor=rootDispatch; }
   part cutDependency6:Dependency { ref part :>> predecessor=rootDispatch; ref part :>> successor=workerMemory; }
   part cutDependency7:Dependency { ref part :>> predecessor=runtimeBinding; ref part :>> successor=entryRoots; }
   part cutDependency8:Dependency { ref part :>> predecessor=rootDispatch; ref part :>> successor=vmMembership; }
