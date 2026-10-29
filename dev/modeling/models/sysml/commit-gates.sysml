@@ -50,5 +50,6 @@ package GambitCommitGates {
     attribute result : String;
     attribute progressDelta : Integer;
     attribute supportPaths : String;
+    attribute testModules : String default = "";
   }
 }

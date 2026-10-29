@@ -56,6 +56,7 @@ class RevisionCommentPolicyTests(unittest.TestCase):
             commitArtifactFact=[[model_name, model_hash]],
             commitEvidenceFact=[["policy-control", model_hash, "synthetic-policy-control"]],
             commitSourceFact=[source], commitScenarioClassFact=[],
+            commitUnitFact=[],
             commitCandidateFact=[], commitObservationFact=[],
             commitAuditRequiredFact=[[field] for field in fields],
             commitAuditPacketFact=[], commitAuditFieldFact=[],
@@ -64,10 +65,13 @@ class RevisionCommentPolicyTests(unittest.TestCase):
             commitMatrixPacketFact=[],commitMatrixRowFact=[],commitMatrixFieldFact=[],
             commitMatrixRefFact=[],commitMatrixValueValidFact=[],
             controlExpectReadyFact=[["complete-comment"]], controlExpectBlockedFact=[])
-        scenarios = ["complete-comment", "absent-comment", "stale-comment",
+        scenarios = ["complete-comment", "absent-unit", "absent-comment", "stale-comment",
                      *["omit-" + field for field in fields], "absent-matrix", "stale-matrix",
                      "empty-matrix", "missing-matrix-field", "missing-matrix-evidence", "wrong-matrix-evidence", "invalid-matrix-value"]
         for scenario in scenarios:
+            # This is an audit-policy control, not a runtime integration.
+            if scenario != "absent-unit":
+                facts["commitUnitFact"].append([scenario, "support", "", "0"])
             facts["commitCandidateFact"].append([scenario, *source])
             facts["commitScenarioClassFact"].append([scenario, "synthetic-policy-control"])
             if scenario != "complete-comment":
@@ -101,12 +105,15 @@ class RevisionCommentPolicyTests(unittest.TestCase):
                 row = [packet_hash, field, text]
                 if row not in facts["commitAuditFieldFact"]:
                     facts["commitAuditFieldFact"].append(row)
-        names = ("commitReady", "commitMissing", "commitAuditMissing", "commitMatrixMissing", "controlFailure")
+        names = ("commitReady", "commitMissing", "commitAuditMissing", "commitMatrixMissing", "controlFailure",
+                 "commitUnitGap", "commitProgressReady")
         answers = {name: [list(row) for row in rows] for name, rows in
                    query(facts, catalog, {name: name for name in names}).items()}
         self.assertEqual(answers["commitReady"], [["complete-comment"]])
         self.assertEqual(answers["commitMissing"], [])  # underlying gates all pass
         self.assertEqual(answers["controlFailure"], [])
+        self.assertEqual(answers["commitProgressReady"], [])
+        self.assertIn(["absent-unit", "missing-submission-unit"], answers["commitUnitGap"])
         self.assertTrue(answers["commitMatrixMissing"])
         for field in fields:
             self.assertIn(["omit-" + field, field], answers["commitAuditMissing"])

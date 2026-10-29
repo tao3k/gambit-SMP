@@ -319,7 +319,7 @@ class RevisionSubmission:
                       "commitUnitRequired", "supportSurfaces", "supportFiles", "deliveryRule", "deliveryRegistry",
                       "derivedAuditFiles", "publicationPolicy"):
             queries["comment." + field] = "GambitCommitGates::revisionAudit." + field
-        for field in ("kind", "result", "progressDelta", "supportPaths"):
+        for field in ("kind", "result", "progressDelta", "supportPaths", "testModules"):
             queries["unit." + field] = namespace + "::submission." + field
         for field in ("sourceCases", "requiredCases"):
             if re.search(r"attribute\s+" + field + r"\s*:", text):
@@ -408,10 +408,33 @@ class RevisionSubmission:
             raise ValueError("invalid SysML submission unit")
         if self.framework_support and kind != "support":
             raise ValueError("framework-support qualification cannot authorize runtime integration")
+        if self.framework_support:
+            required_tests = p.get("unit.testModules", "").split(";")
+            receipt = self.native.get("frameworkTestReceipt")
+            if not isinstance(receipt, str) or receipt not in self.native["artifacts"]:
+                raise ValueError("source-bound framework test-consumer receipt required")
+            if digest(self.workspace / receipt) != self.native["artifacts"][receipt]:
+                raise ValueError("framework test-consumer receipt changed")
+            test_receipt = json.loads((self.workspace / receipt).read_text())
+            if test_receipt.get("complete") is not True:
+                raise ValueError("framework test-consumer receipt is incomplete")
+            tests = test_receipt.get("qualifiedTestModules", [])
+            names = [row.get("path") for row in tests]
+            if (not all(required_tests) or len(set(required_tests)) != len(required_tests)
+                    or len(names) != len(set(names)) or set(names) != set(required_tests)):
+                raise ValueError("all SysML-declared framework test consumers must be qualified")
+            for row in tests:
+                if (row.get("complete") is not True or row.get("skipped") != 0
+                        or type(row.get("tests")) is not int or row["tests"] < 1
+                        or self.native["canonicalSources"].get(row["path"]) != row.get("sha256")):
+                    raise ValueError("framework test consumer is failed, skipped, unbound or missing")
         changed = self.git("diff", "--name-only", "-z", self.base, self.tree).decode().split("\0")
         changed = sorted(n for n in changed if n)
         contract = dict(kind=kind, result=target, progressDelta=progress,
                         changedPaths=changed, requirements=[], evidence={})
+        if self.framework_support:
+            contract["testConsumers"] = tests
+            contract["testReceipt"] = dict(path=receipt, sha256=self.native["artifacts"][receipt])
         if kind == "support":
             if target != "" or progress != 0:
                 raise ValueError("support correction cannot claim an integration result or progress")

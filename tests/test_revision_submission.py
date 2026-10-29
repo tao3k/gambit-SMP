@@ -650,8 +650,11 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
         # Actual Git transport of a framework-only review envelope. Admission
         # inference is tested separately; this fixture cannot admit Gambit.
         self.root = self.repo
-        (self.workspace / 'receipt.json').write_text('{"complete":true}\n')
+        (self.workspace / 'receipt.json').write_text(json.dumps(dict(complete=True,
+            qualifiedTestModules=[dict(path='a.c', complete=True, skipped=0, tests=1,
+                                      sha256=self.sha(self.workspace / 'a.c'))])))
         self.native = dict(self.native, qualificationKind='framework-support',
+            frameworkTestReceipt='receipt.json',
             canonicalSources={'a.c': self.sha(self.workspace / 'a.c')},
             artifacts={'receipt.json': self.sha(self.workspace / 'receipt.json')})
         sub = self.submission()
@@ -661,6 +664,7 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
         report = self.audit(sub)
         sub.values.update({'comment.supportFiles': 'a.c;receipt.json',
             'unit.supportPaths': 'a.c;receipt.json',
+            'unit.testModules': 'a.c',
             'comment.derivedAuditFiles': 'source.json;source-manifest.json;model-contract.json;comment.json;admission.json',
             'comment.maxMetadataBytes': 65536})
         audit = sub.prepare_audit(report)
@@ -676,3 +680,25 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
         self.assertEqual(set(changed), {'evidence/' + x for x in sub.values['comment.derivedAuditFiles'].split(';')})
         self.assertEqual(self.git('show', 'HEAD:a.c'), b'selected\n')
         self.assertEqual(self.git('ls-files', '--stage', '-z'), before)
+
+    def test_framework_cannot_omit_skip_or_change_declared_test_consumer(self):
+        sub, _ = self.integration()
+        sub.framework_support = True  # Controlled validator fixture only.
+        sub.values.update({'unit.kind': 'support', 'unit.result': '', 'unit.progressDelta': 0,
+                           'unit.testModules': 'a.c;lib/gc.c'})
+        first = dict(path='a.c', complete=True, skipped=0, tests=1,
+                     sha256=sub.native['canonicalSources']['a.c'])
+        second = dict(path='lib/gc.c', complete=True, skipped=0, tests=1,
+                      sha256=sub.native['canonicalSources']['lib/gc.c'])
+        receipt = self.workspace / 'test-consumers.json'
+        sub.native['frameworkTestReceipt'] = receipt.name
+        def publish(rows):
+            receipt.write_text(json.dumps(dict(complete=True, qualifiedTestModules=rows)))
+            sub.native['artifacts'][receipt.name] = self.sha(receipt)
+        publish([first])
+        with self.assertRaisesRegex(ValueError, 'all SysML-declared'):
+            sub.delivery_contract()
+        for change in ({'complete': False}, {'skipped': 1}, {'sha256': 'different'}, {'tests': 0}):
+            publish([first, dict(second, **change)])
+            with self.assertRaisesRegex(ValueError, 'failed, skipped, unbound or missing'):
+                sub.delivery_contract()
