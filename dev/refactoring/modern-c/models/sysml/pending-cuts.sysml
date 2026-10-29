@@ -34,10 +34,10 @@ package GambitPendingCuts {
     ref part :>> stage=GambitModernCDeliveryPlan::workers;
     attribute :>> id="capacity";
     attribute :>> responsibility="Physical copy/restoration reservations and unique allocation authority";
-    attribute :>> tests="Census bound, contiguous interval packing, CAS-loss refund and actual failure custody";
+    attribute :>> tests="Census bound, contiguous prefix certificate, pre-reserve source contention and unknown failure custody";
     attribute :>> blocker="Complete source/frame upper bounds and real physical layout; never increase heap";
     attribute :>> ordering="after complete frozen root population";
-    attribute :>> paths="lib/_mem/aligned-allocation.inc;lib/_mem/allocation-limits.inc;lib/_mem/allocation-statistics.inc;lib/_mem/capacity-resize.inc;lib/_mem/copy-reservations.inc;lib/_mem/heap-sections.inc;lib/_mem/movable-sections.inc;lib/_mem/object-allocation.inc;lib/_mem/permanent-allocation.inc";
+    attribute :>> paths="lib/_mem/aligned-allocation.inc;lib/_mem/allocation-limits.inc;lib/_mem/allocation-statistics.inc;lib/_mem/capacity-resize.inc;lib/_mem/copy-planning.inc;lib/_mem/copy-reservations.inc;lib/_mem/heap-sections.inc;lib/_mem/movable-sections.inc;lib/_mem/object-allocation.inc;lib/_mem/permanent-allocation.inc";
     attribute :>> status="UNQUALIFIED_PENDING";
   }
   part workers:Cut {
@@ -47,7 +47,7 @@ package GambitPendingCuts {
     attribute :>> tests="W<R, claimed/private/Tail work, worker exit, map multi-shot GC and unknown join";
     attribute :>> blocker="No carrier-index authority; all root tasks and restoration owners accounted";
     attribute :>> ordering="after roots and capacity";
-    attribute :>> paths="lib/_mem/collection-round.inc;lib/_mem/configuration.inc;lib/_mem/diagnostics.inc;lib/_mem/memory-lifecycle.inc;lib/_mem/object-scanning.inc;lib/_mem/still-refcount.inc;lib/_mem/still-sweep.inc;lib/_mem/weak-tables.inc;lib/_mem/wills.inc;lib/mem.c;lib/mem.h;tests/makefile.in;tests/runtime-roles.c;tests/smp/gc/native-fault-adapter.c;tests/smp/gc/native-fault-calibration.c;tests/smp/gc/worker-arena.scm;tests/smp/gc/worker-root-domains.scm";
+    attribute :>> paths="lib/_mem/collection-round.inc;lib/_mem/configuration.inc;lib/_mem/diagnostics.inc;lib/_mem/memory-lifecycle.inc;lib/_mem/object-scanning.inc;lib/_mem/still-refcount.inc;lib/_mem/still-sweep.inc;lib/_mem/weak-tables.inc;lib/_mem/wills.inc;lib/collector.h;lib/mem.c;lib/mem.h;tests/makefile.in;tests/runtime-roles.c;tests/smp/gc/native-fault-adapter.c;tests/smp/gc/native-fault-calibration.c;tests/smp/gc/worker-arena.scm;tests/smp/gc/worker-root-domains.scm";
     attribute :>> status="UNQUALIFIED_PENDING";
   }
   part retirement:Cut {
@@ -110,6 +110,7 @@ package GambitPendingCuts {
     attribute :>> paths="gsc/_t-cpu-abstract-machine.c;lib/_io.c;lib/_module.c;lib/_nonstd.c;lib/_num.c;lib/_system.c";
     attribute :>> status="UNQUALIFIED_PENDING";
   }
+  attribute collectorSourceExtension:String="The historical127-path pending catalogue predates the complete second cut. Add copy-planning.inc to capacity and collector.h to workers as primary owners; these are source paths in one integration result, not new progress units. The tested selected source tree owns shared-file hunks and preserves unrelated staged prototypes.";
   part def Delivery {
     ref part stage:GambitModernCDeliveryPlan::Stage;
     attribute id:String; attribute order:Integer; attribute kind:String;

@@ -19,6 +19,39 @@ MODELS = ["dev/modeling/models/sysml/commit-gates.sysml",
 
 
 class ModernCOutcomesTests(unittest.TestCase):
+    def test_collector_bootstrap_cannot_discharge_capacity_and_restore_cases(self):
+        model = "dev/refactoring/modern-c/models/sysml/collector-integration.sysml"
+        result = run([shutil.which(os.environ.get("SYSML", "sysml")),
+                      "-strict", "-validate", "-json",
+                      "-e", "GambitCollectorIntegration::sourceCases",
+                      "-e", "GambitCollectorIntegration::requiredCases",
+                      *MODELS, model], cwd=ROOT, capture_output=True,
+                     text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        values = [json.loads(line[4:]) for line in json.loads(result.stdout)["output"]
+                  if line.startswith("  = ")]
+        cases = ["source:" + x for x in values[0].split(";")]
+        cases += ["native:" + x for x in values[1].split(";")]
+        self.assertEqual(len(cases), len(set(cases)))
+        engine = Engine()
+        try:
+            session = engine.open_sources(
+                (ROOT / "dev/modeling/ascent/modern-c-outcomes.rules.scm").read_text())
+            session.run(queries=["missing", "resultClosed"])
+            session.replace(dict(source=[["tree", "profile"]],
+                result=[["collector"]], needs=[["collector", "producer"]],
+                observed=[["producer", "tree", "profile"]],
+                caseNeed=[["collector", x] for x in cases],
+                caseObserved=[["native:bootstrap", "tree", "profile"]]))
+            answer = session.run(queries=["missing", "resultClosed"])
+            self.assertTrue(answer["complete"])
+            self.assertFalse(answer["relations"]["resultClosed"])
+            for case in ("source:source-census", "source:interval-packing",
+                         "source:refusal-thaw", "native:implementation-shrink"):
+                self.assertIn(["collector", case], answer["relations"]["missing"])
+        finally:
+            engine.close()
+
     def test_frozen_union_cases_refine_aggregate_evidence(self):
         argv = [shutil.which(os.environ.get("SYSML", "sysml")),
                 "-strict", "-validate", "-json"]
