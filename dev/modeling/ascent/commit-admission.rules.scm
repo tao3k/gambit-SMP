@@ -3,6 +3,49 @@
 ;; Exact candidate tree, source manifest, profile, artifact and evidence digests
 ;; prevent reuse across source/profile changes; hashes do not attest truth.
 (relation commitStudyFact (claim))
+;; A complete audit is necessary but not a complete architecture delivery.
+;; SysML owns the unit and required closure. Python validates durable receipts
+;; and actual changed paths before supplying these source-bound observations.
+(relation commitUnitFact (scenario kind target progress))
+(relation commitUnitNeedFact (target obligation))
+(relation commitUnitEvidenceFact (scenario head tree manifest profile target obligation artifact digest))
+(relation commitUnitPathViolationFact (scenario path))
+(relation commitUnitRuntimeFact (scenario path))
+(relation commitUnitCovered (scenario target obligation))
+(relation commitUnitGap (scenario reason))
+(relation commitUnitReady (scenario))
+(relation commitProgressReady (scenario target))
+(relation commitUnitClassified (scenario))
+(relation commitUnitSupportValid (scenario))
+(relation commitUnitIntegrationValid (scenario))
+((commitUnitClassified S) <-- (commitUnitFact S (lit "support") _ _))
+((commitUnitClassified S) <-- (commitUnitFact S (lit "integration") _ _))
+((commitUnitSupportValid S) <-- (commitUnitFact S (lit "support") (lit "") (lit "0")))
+((commitUnitIntegrationValid S) <-- (commitUnitFact S (lit "integration") _ (lit "1")))
+((commitUnitCovered S R O) <-- (commitBoundCandidate S H T M P)
+ (commitUnitEvidenceFact S H T M P R O A D) (commitArtifactFact A D))
+((commitUnitGap S (lit "missing-submission-unit")) <-- (commitScenario S)
+ (not (commitUnitFact S _ _ _)))
+((commitUnitGap S (lit "invalid-submission-unit")) <--
+ (commitUnitFact S _ _ _) (not (commitUnitClassified S)))
+((commitUnitGap S (lit "invalid-support-target-or-progress")) <--
+ (commitUnitFact S (lit "support") _ _) (not (commitUnitSupportValid S)))
+((commitUnitGap S (lit "mixed-submission-kinds")) <--
+ (commitUnitFact S (lit "support") _ _) (commitUnitFact S (lit "integration") _ _))
+((commitUnitGap S (lit "unapproved-support-path")) <-- (commitUnitPathViolationFact S _))
+((commitUnitGap S (lit "integration-without-runtime-change")) <--
+ (commitUnitFact S (lit "integration") _ _) (not (commitUnitRuntimeFact S _)))
+((commitUnitGap S (lit "integration-without-result-contract")) <--
+ (commitUnitFact S (lit "integration") R _) (not (commitUnitNeedFact R _)))
+((commitUnitGap S (lit "invalid-integration-progress")) <--
+ (commitUnitFact S (lit "integration") _ _) (not (commitUnitIntegrationValid S)))
+((commitUnitGap S O) <-- (commitUnitFact S (lit "integration") R _)
+ (commitUnitNeedFact R O) (not (commitUnitCovered S R O)))
+((commitUnitReady S) <-- (commitBoundCandidate S _ _ _ _) (commitUnitFact S _ _ _)
+ (not (commitUnitGap S _)))
+((commitProgressReady S R) <-- (commitUnitReady S)
+ (commitReady S) (commitUnitFact S (lit "integration") R (lit "1")))
+((commitBlocked S) <-- (commitUnitGap S _))
 ;; Independent branch test observations. A source-bound case PASS is not a
 ;; semantic requirement count, patch-line credit or commit permission.
 (relation branchQualificationPlanFact (plan revision source profile))

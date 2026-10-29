@@ -9,7 +9,7 @@ from gambit_smp.revision_submission import RevisionSubmission
 from gambit_smp.task_processes import run
 
 
-class RevisionSubmissionTests(unittest.TestCase):
+class RevisionSubmissionFixture(unittest.TestCase):
     def setUp(self):
         self.temporary = TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -56,6 +56,11 @@ class RevisionSubmissionTests(unittest.TestCase):
         # Transport fixture only; real native SysML projection is qualified
         # separately. No fixture claim establishes a runtime admission.
         submission.values.update({"comment.allRevisions": True,
+            "comment.commitUnitRequired": True,
+            "comment.supportSurfaces": "tests/",
+            "comment.supportFiles": "a.c;gsc/_sample.c",
+            "unit.kind": "support", "unit.result": "", "unit.progressDelta": 0,
+            "unit.supportPaths": "a.c;gsc/_sample.c",
             "comment.fields": "responsibility,retired,validation,benefits,costs,process,checklist,models,open",
             "comment.matrixRequired": True,
             "comment.matrixFields": "id,kind,metric,unit,direction,baseline,candidate,workload,method,evidence,limitation",
@@ -76,6 +81,8 @@ class RevisionSubmissionTests(unittest.TestCase):
                     checklist="dev/revision-checklist.org#selected-cut",
                     models="Mock projection only; no QNT/Lean or native proof claimed.",
                     open="Whole-runtime correctness remains outside this transport fixture.")
+
+class RevisionSubmissionTests(RevisionSubmissionFixture):
 
     def test_cumulative_cut_does_not_trust_last_sync_path_list(self):
         import os
@@ -222,6 +229,7 @@ class RevisionSubmissionTests(unittest.TestCase):
             self.assertTrue(any(row[9] == 'literal "quoted" scope'
                                 for row in facts["commitObservationFact"]))
             answers = dict(commitReady=[["current"]], controlFailure=[],
+                commitUnitReady=[["current"]], commitUnitGap=[], commitProgressReady=[],
                 commitCovered=[["current", name] for name in ("native", "audit")],
                 commitGateReady=[["current", gate] for gate in
                     ("tests", "learning", "process", "models", "questions")])
@@ -229,7 +237,7 @@ class RevisionSubmissionTests(unittest.TestCase):
 
         with patch("gambit_smp.ascent_program.query", side_effect=observe):
             admission = submission.admit()
-        self.assertEqual(admission["negativeControls"], 22)
+        self.assertEqual(admission["negativeControls"], 26)
         self.assertFalse((submission.evidence / "query.ss").exists())
         (directory / "commit-context.rules.scm").write_text("changed policy schema")
         with self.assertRaisesRegex(ValueError, "admission artifact changed"):
@@ -433,3 +441,238 @@ class RevisionSubmissionTests(unittest.TestCase):
         submission.apply_staging_plan(plan)
         self.assertEqual(self.git("show", ":a.c"), b"selected\n")
         self.assertEqual(self.git("show", ":b.c"), b"unrelated staged work\n")
+
+
+class CompleteDeliveryTests(RevisionSubmissionFixture):
+    """Real Git/ASCENT transport controls, never native Gambit acceptance."""
+
+    def integration(self):
+        (self.workspace / 'a.c').write_text('base\n')
+        self.native['canonicalSources']['a.c'] = self.sha(self.workspace / 'a.c')
+        (self.workspace / 'lib').mkdir()
+        (self.workspace / 'lib/gc.c').write_text('selected runtime replacement\n')
+        self.native['canonicalSources']['lib/gc.c'] = self.sha(self.workspace / 'lib/gc.c')
+        sub = self.submission()
+        sub.prepare(['lib/gc.c'], self.profile)
+        sub.values = {}
+        report = self.audit(sub)
+        sub.values.update({'unit.kind': 'integration', 'unit.result': 'owned-lifetime',
+                           'unit.progressDelta': 1, 'unit.supportPaths': '',
+                           'unit.sourceCases': 'ownership', 'unit.requiredCases': 'unknown-join'})
+        obligations = {
+            'frozen-roots': ['ROOT-SOURCE-UNION', 'ROOT-NATIVE-UNION', 'ROOT-CONSUMERS'],
+            'independent-collector': ['COPY-PHYSICAL', 'WORKER-RESTORE', 'COLLECTOR-CONSUMERS'],
+            'owned-lifetime': ['MEMBER-OWNERSHIP', 'RETIREMENT-EFFECTS', 'LIFETIME-CONSUMERS']}
+        for target, names in obligations.items():
+            for name in names:
+                prefix = 'resultNeed.' + name
+                sub.values[prefix + '.id'] = name
+                sub.values[prefix + '.result.id'] = target
+        for number, (before, after) in enumerate([('frozen-roots', 'independent-collector'),
+                                                ('independent-collector', 'owned-lifetime')]):
+            prefix = 'resultEdge.edge' + str(number)
+            sub.values[prefix + '.predecessor.id'] = before
+            sub.values[prefix + '.successor.id'] = after
+        requirements = [x for xs in obligations.values() for x in xs] + ['source:ownership', 'native:unknown-join']
+        receipt = dict(complete=True, sourceTree=sub.tree, baseRevision=sub.base,
+                       profileSha256=sub.source['profileSha256'], result='owned-lifetime',
+                       requirements=requirements, scope='Synthetic framework transport only')
+        (self.root / 'receipt.json').write_text(json.dumps(receipt))
+        packet = dict(receipt, observations=[dict(requirement=x, artifact='receipt.json',
+            sha256=self.sha(self.root / 'receipt.json'), status='pass') for x in requirements])
+        (self.root / 'delivery.json').write_text(json.dumps(packet))
+        sub.native['deliveryEvidence'] = 'delivery.json'
+        sub.model_inputs = {}
+        return sub, report
+
+    def real_policy(self, sub):
+        sub.need_names = []
+        for gate in ('tests', 'learning', 'process', 'models', 'questions'):
+            name = 'need_' + gate
+            sub.need_names.append(name)
+            for key, value in {'id': name, 'gate.id': gate,
+                               'method': 'native' if gate == 'tests' else 'source-analysis',
+                               'artifact': 'receipt.json', 'scope': 'Transport control only'}.items():
+                sub.values[name + '.' + key] = value
+            sub.values['gate.' + gate + '.id'] = gate
+            sub.values['gate.' + gate + '.purpose'] = 'Transport control: ' + gate
+        target = self.root / 'dev/modeling/ascent'
+        target.mkdir(parents=True)
+        maintained = Path(__file__).resolve().parents[1] / 'dev/modeling/ascent'
+        for name in ('commit-context.rules.scm', 'commit-admission.rules.scm'):
+            (target / name).write_bytes((maintained / name).read_bytes())
+        (sub.storage / 'sysml.stdout').write_text('explicit synthetic projection; no native claim')
+
+    def test_whole_result_includes_all_predecessors_and_component_cases(self):
+        sub, _ = self.integration()
+        contract = sub.delivery_contract()
+        self.assertEqual(len(contract['requirements']), 11)
+        self.assertIn('ROOT-NATIVE-UNION', contract['requirements'])
+        self.assertIn('WORKER-RESTORE', contract['requirements'])
+        self.assertEqual(contract['runtimePaths'], ['lib/gc.c'])
+
+    def test_missing_or_duplicate_obligation_cannot_be_a_smaller_rev(self):
+        sub, report = self.integration()
+        path = self.root / 'delivery.json'
+        packet = json.loads(path.read_text())
+        for rows in (packet['observations'][1:], packet['observations'] + [packet['observations'][0]]):
+            path.write_text(json.dumps(dict(packet, observations=rows)))
+            with self.assertRaisesRegex(ValueError, 'exactly once'):
+                sub.prepare_audit(report)
+            self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), self.head)
+
+    def test_stale_failed_or_wrong_result_receipt_cannot_close_delivery(self):
+        sub, report = self.integration()
+        path = self.root / 'delivery.json'
+        packet = json.loads(path.read_text())
+        for field in ('sourceTree', 'baseRevision', 'profileSha256', 'result'):
+            path.write_text(json.dumps(dict(packet, **{field: 'different'})))
+            with self.assertRaisesRegex(ValueError, 'another source/result/profile'):
+                sub.prepare_audit(report)
+        path.write_text(json.dumps(packet))
+        receipt = self.root / 'receipt.json'
+        receipt.write_text(json.dumps(dict(json.loads(receipt.read_text()), complete=False)))
+        packet['observations'] = [dict(x, sha256=self.sha(receipt)) for x in packet['observations']]
+        path.write_text(json.dumps(packet))
+        with self.assertRaisesRegex(ValueError, 'complete obligation receipt'):
+            sub.prepare_audit(report)
+
+    def test_runtime_cannot_be_relabelled_support_or_hidden_in_paths(self):
+        sub, report = self.integration()
+        sub.values.update({'unit.kind': 'support', 'unit.result': '', 'unit.progressDelta': 0,
+                           'unit.supportPaths': 'lib/gc.c'})
+        with self.assertRaisesRegex(ValueError, 'non-runtime surface'):
+            sub.prepare_audit(report)
+        sub.values['unit.supportPaths'] = 'tests/*'
+        with self.assertRaisesRegex(ValueError, 'exact non-runtime'):
+            sub.prepare_audit(report)
+        sub.values['unit.supportPaths'] = 'tests/allowed.scm'
+        with self.assertRaisesRegex(ValueError, 'undeclared path'):
+            sub.prepare_audit(report)
+
+    def test_unclassified_and_support_progress_are_rejected_before_audit(self):
+        sub = self.submission()
+        sub.prepare(['a.c'], self.profile)
+        sub.values = {}
+        report = self.audit(sub)
+        del sub.values['unit.kind']
+        with self.assertRaisesRegex(ValueError, 'explicit SysML submission unit'):
+            sub.prepare_audit(report)
+        sub.values.update({'unit.kind': 'support', 'unit.progressDelta': 1})
+        with self.assertRaisesRegex(ValueError, 'cannot claim'):
+            sub.prepare_audit(report)
+
+    def test_real_ascent_blocks_fragments_even_with_five_gates_covered(self):
+        sub, report = self.integration()
+        self.real_policy(sub)
+        sub.prepare_audit(report)
+        admitted = sub.admit()
+        self.assertEqual(admitted['answers']['commitReady'], [['current']])
+        self.assertEqual(admitted['answers']['commitProgressReady'], [['current', 'owned-lifetime']])
+        self.assertEqual(len(admitted['gateReady']), 5)
+        for requirement in sub.delivery_contract()['requirements']:
+            scenario = 'missing-delivery:' + requirement
+            self.assertEqual(sum(row[0] == scenario for row in admitted['answers']['commitGateReady']), 5)
+            self.assertIn([scenario, requirement], admitted['answers']['commitUnitGap'])
+            self.assertNotIn([scenario], admitted['answers']['commitReady'])
+        self.assertEqual(admitted['negativeControls'], 41)
+
+    def test_real_support_admission_never_advances_result(self):
+        sub = self.submission()
+        sub.prepare(['a.c'], self.profile)
+        sub.values = {}
+        report = self.audit(sub)
+        (self.root / 'receipt.json').write_text(json.dumps({'complete': True}))
+        sub.model_inputs = {}
+        self.real_policy(sub)
+        sub.prepare_audit(report)
+        admitted = sub.admit()
+        self.assertEqual(admitted['answers']['commitProgressReady'], [])
+        self.assertEqual(admitted['progressDelta'], 0)
+        self.assertEqual(admitted['negativeControls'], 29)
+
+    def test_delivery_drift_after_admission_refuses_git_commit(self):
+        sub, report = self.integration()
+        self.real_policy(sub)
+        sub.prepare_audit(report)
+        admitted = sub.admit()
+        (self.root / 'receipt.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError, 'delivery obligation evidence'):
+            sub.commit('must reject fragment\n', admitted)
+        self.assertEqual(self.git('rev-parse', 'HEAD').decode().strip(), self.head)
+
+    def test_framework_support_scope_is_exact_and_cannot_qualify_vendor(self):
+        native = dict(self.native, qualificationKind='framework-support')
+        with self.assertRaisesRegex(ValueError, 'framework repository'):
+            RevisionSubmission(self.root, self.repo, self.workspace, self.root / 'reject',
+                               self.root / 'reject-evidence', native)
+        native['canonicalSources'] = {'a.c': self.sha(self.workspace / 'a.c')}
+        native['artifacts'] = {'receipt.json': self.sha(self.workspace / 'runtime')}
+        (self.workspace / 'receipt.json').write_bytes((self.workspace / 'runtime').read_bytes())
+        sub = RevisionSubmission(self.repo, self.repo, self.workspace, self.root / 'support',
+                                 self.repo / 'evidence', native)
+        with self.assertRaisesRegex(ValueError, 'exactly its tested sources'):
+            sub.prepare(['a.c'], self.profile)
+        # First preparation did not touch a branch or the shared index.
+        sub = RevisionSubmission(self.repo, self.repo, self.workspace, self.root / 'support-complete',
+                                 self.repo / 'evidence', native)
+        source = sub.prepare(['a.c', 'receipt.json'], self.profile)
+        self.assertFalse(source['canonicalInputEquivalence'])
+        self.assertEqual(source['qualificationScope'], 'framework-support')
+        sub.values = {'comment.commitUnitRequired': True, 'unit.kind': 'integration',
+                      'unit.result': 'owned-lifetime', 'unit.progressDelta': 1, 'unit.supportPaths': ''}
+        with self.assertRaisesRegex(ValueError, 'cannot authorize runtime integration'):
+            sub.delivery_contract()
+
+    def test_native_sysml_projects_whole_lifecycle_without_python_requirement_list(self):
+        sub, _ = self.integration()
+        temporary_root = sub.root
+        project = Path(__file__).resolve().parents[1]
+        sub.root = project
+        models = ['dev/modeling/models/sysml/commit-gates.sysml'] + [
+            'dev/refactoring/modern-c/models/sysml/' + name + '.sysml'
+            for name in ('revision-delivery', 'delivery-plan', 'pending-cuts', 'delivery-outcomes')]
+        values = sub.project('dev/refactoring/modern-c/models/sysml/owned-lifetime.sysml',
+                             'GambitOwnedLifetime', models)
+        sub.root = temporary_root
+        self.assertEqual(values['unit.result'], 'owned-lifetime')
+        self.assertEqual(values['unit.progressDelta'], 1)
+        self.assertIn('MEMBER-OWNERSHIP', values.values())
+        self.assertIn('WORKER-RESTORE', values.values())
+        self.assertIn('ROOT-NATIVE-UNION', values.values())
+        self.assertEqual(len(values['unit.sourceCases'].split(';')), 5)
+        self.assertEqual(len(values['unit.requiredCases'].split(';')), 8)
+        # Synthetic11-case packet cannot satisfy actual SysML's22 obligations.
+        with self.assertRaisesRegex(ValueError, 'exactly once'):
+            sub.delivery_contract()
+
+    def test_framework_publication_adds_only_review_metadata_to_tested_subject(self):
+        # Actual Git transport of a framework-only review envelope. Admission
+        # inference is tested separately; this fixture cannot admit Gambit.
+        self.root = self.repo
+        (self.workspace / 'receipt.json').write_text('{"complete":true}\n')
+        self.native = dict(self.native, qualificationKind='framework-support',
+            canonicalSources={'a.c': self.sha(self.workspace / 'a.c')},
+            artifacts={'receipt.json': self.sha(self.workspace / 'receipt.json')})
+        sub = self.submission()
+        source = sub.prepare(['a.c', 'receipt.json'], self.profile)
+        sub.model_inputs = {}
+        sub.values = {}
+        report = self.audit(sub)
+        sub.values.update({'comment.supportFiles': 'a.c;receipt.json',
+            'unit.supportPaths': 'a.c;receipt.json',
+            'comment.derivedAuditFiles': 'source.json;source-manifest.json;model-contract.json;comment.json;admission.json',
+            'comment.maxMetadataBytes': 65536})
+        audit = sub.prepare_audit(report)
+        sub.admission = dict(commitAdmitted=True, tree=source['tree'], artifacts={}, auditSha256=audit)
+        (sub.evidence / 'model-contract.json').write_text('{"fixture":true}\n')
+        (sub.evidence / 'admission.json').write_text(json.dumps(sub.admission))
+        before = self.git('ls-files', '--stage', '-z')
+        revision = sub.commit('framework-only transport\n', sub.admission)
+        self.assertEqual(revision['testedSourceTree'], source['tree'])
+        self.assertNotEqual(revision['tree'], source['tree'])
+        self.assertEqual(revision['progressDelta'], 0)
+        changed = self.git('diff', '--name-only', source['tree'], revision['tree']).decode().splitlines()
+        self.assertEqual(set(changed), {'evidence/' + x for x in sub.values['comment.derivedAuditFiles'].split(';')})
+        self.assertEqual(self.git('show', 'HEAD:a.c'), b'selected\n')
+        self.assertEqual(self.git('ls-files', '--stage', '-z'), before)

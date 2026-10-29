@@ -1,0 +1,21 @@
+package GambitOwnedLifetime {
+  private import ScalarValues::*;
+  ref part outcome=GambitModernCOutcomes::lifetime;
+  attribute scope:String="One complete ownership replacement: rooted startup request, physical reservation, initialization and membership publication, writer/root/worker drain, owner-affine cleanup and unknown-join isolation. Keep shared multi-shot continuation and C portability. Pending prototype files are references, not already-qualified implementation.";
+  attribute stage:String="OPEN: runtime result3. Framework enforcement is separate support work; no runtime/source/native obligation is declared closed by this model.";
+  attribute formalDuty:String="Use existing ownership/lifecycle QNT schedules for publication, drain and unknown custody; existing Lean conditional identity/capacity laws retain their premises. Here SysML selects the complete source/native refinement and ASCENT submission closure. Do not repeat the schedule proof in Lean or count the model as C implementation.";
+  attribute sourceCases:String="request-roots;physical-members;writer-close;registry-lifetime;unknown-isolation";
+  attribute requiredCases:String="partial-create-known;partial-create-unknown;nonzero-processor-roots;multi-shot-continuation;owner-cleanup;healthy-vm-gc;replay-shrink;original-consumers";
+  attribute graph:String="request -> roots -> reserve -> initialize -> parked -> members; members -> root_tasks -> restore; restore -> writer_close -> drain -> owner_cleanup -> retire; parked -> uncertain -> retained; retained -> healthy_gc; retained -> deny_global_free; predecessors -> all_cases -> admission; all_cases -> retire;";
+  part submission:GambitCommitGates::SubmissionUnit {
+    attribute :>> kind="integration";
+    attribute :>> result=GambitModernCOutcomes::lifetime.id;
+    attribute :>> progressDelta=1; attribute :>> supportPaths="";
+  }
+  part def Need { ref part gate:GambitCommitGates::Gate; attribute id:String; attribute method:String; attribute artifact:String; attribute scope:String; }
+  part tests:Need { ref part :>> gate=GambitCommitGates::tests; attribute :>> id="LIFETIME-NATIVE"; attribute :>> method="native"; attribute :>> artifact="evidence/research/retained/modern-c/owned-lifetime/receipt.json"; attribute :>> scope="Final exact-source native producer, complete current root/worker regressions, startup/retirement/cleanup/unknown isolation, implementation PBT replay/shrink and original consumers on the unchanged cache/profile/limits. Evidence not yet available."; }
+  part learning:Need { ref part :>> gate=GambitCommitGates::learning; attribute :>> id="LIFETIME-LEARNING"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/delivery-contract.org"; attribute :>> scope="Replace carrier lifetime assumptions by explicit roots, execution participation, worker debts and resource-specific retirement; no copied repair patch."; }
+  part process:Need { ref part :>> gate=GambitCommitGates::process; attribute :>> id="LIFETIME-PROCESS"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/delivery-contract.org"; attribute :>> scope="All9 programme obligations across current result and its two predecessors plus5 source/8 native cases gate one result. Scheduler/request-product is the next result, not part of this one."; }
+  part models:Need { ref part :>> gate=GambitCommitGates::models; attribute :>> id="LIFETIME-MODELS"; attribute :>> method="source-refinement"; attribute :>> artifact="evidence/research/retained/modern-c/owned-lifetime/source-review.json"; attribute :>> scope="Current source/receipt adapters must establish actual ownership and C ordering premises before existing model consequences apply. Prototype observation cannot qualify these adapters."; }
+  part questions:Need { ref part :>> gate=GambitCommitGates::questions; attribute :>> id="LIFETIME-QUESTIONS"; attribute :>> method="source-analysis"; attribute :>> artifact="dev/refactoring/modern-c/delivery-contract.org"; attribute :>> scope="Which stopped/closed facts authorize each free? Who owns uncertain native effects and roots? Can a retained VM avoid blocking healthy VM GC without permitting global reclamation? How are shared multi-shot frames preserved?"; }
+}

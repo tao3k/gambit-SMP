@@ -34,6 +34,9 @@ class RevisionSubmission:
         self.workspace, self.storage = Path(workspace), Path(storage)
         self.evidence = Path(evidence)
         self.native = native
+        self.framework_support = native.get("qualificationKind") == "framework-support"
+        if self.framework_support and self.repository.resolve() != self.root.resolve():
+            raise ValueError("framework-support scope is restricted to the framework repository")
         self.environment = dict(os.environ, GIT_OPTIONAL_LOCKS="0",
                                 GIT_TERMINAL_PROMPT="0")
         self.storage.mkdir(parents=True, exist_ok=True)
@@ -217,10 +220,15 @@ class RevisionSubmission:
             raise ValueError("fresh alternate submission index required")
         self.index_environment = dict(self.environment, GIT_INDEX_FILE=str(self.index))
         self.git("read-tree", self.base, environment=self.index_environment)
-        base = archive_sources(self.git("archive", self.base))
         self.paths = list(paths)
         if not self.paths or len(set(self.paths)) != len(self.paths):
             raise ValueError("unique nonempty source cut required")
+        if self.framework_support and set(self.paths) != set(self.native["canonicalSources"]) | set(self.native["artifacts"]):
+            raise ValueError("framework support must select exactly its tested sources and evidence artifacts")
+        for name in self.paths:
+            if Path(name).is_absolute() or ".." in Path(name).parts:
+                raise ValueError("repository-relative source path required")
+        base = self.source_archive(self.base)
         for name in self.paths:
             path = Path(name)
             if path.is_absolute() or ".." in path.parts:
@@ -257,9 +265,11 @@ class RevisionSubmission:
             self.git("diff", "--cached", "--check", *comparison, "--", *handwritten,
                      environment=self.index_environment)
         self.tree = self.git("write-tree", environment=self.index_environment).decode().strip()
-        files = source_manifest(archive_sources(self.git("archive", self.tree)))
+        files = source_manifest(self.source_archive(self.tree))
         for name, row in files.items():
             if canonical_source(name) and row["mode"] != "120000":
+                if self.framework_support and name not in self.paths:
+                    continue
                 if digest(self.workspace / name) != row["sha256"]:
                     raise ValueError("submission contains untested canonical input: " + name)
         # The complete inventory is execution custody.  The published source
@@ -270,13 +280,17 @@ class RevisionSubmission:
         write_json(self.evidence / "source-manifest.json", dict(
             baseRevision=self.base, tree=self.tree, fileCount=len(files),
             fullManifestSha256=digest(inventory),
-            inventoryMethod="branch_evidence.source_manifest(Git archive of tree)",
-            canonicalInputEquivalence=True,
+            inventoryMethod=("Git archive of exact framework-support paths" if self.framework_support
+                             else "branch_evidence.source_manifest(Git archive of tree)"),
+            canonicalInputEquivalence=not self.framework_support,
+            qualificationScope="framework-support" if self.framework_support else "complete-native-source",
             selected={name: files.get(name) for name in self.paths}))
         self.source = dict(baseRevision=self.base, tree=self.tree, paths=self.paths,
                            manifestSha256=digest(self.evidence / "source-manifest.json"),
                            profileSha256=digest(profile), artifacts=self.native["artifacts"],
-                           canonicalInputEquivalence=True, realIndexSha256=self.index_digest,
+                           canonicalInputEquivalence=not self.framework_support,
+                           qualificationScope="framework-support" if self.framework_support else "complete-native-source",
+                           realIndexSha256=self.index_digest,
                            stagedSha256=hashlib.sha256(self.staged).hexdigest(),
                            workingDiffSha256=self.working, sourceCopies=0,
                            wholeSmpAdmitted=False)
@@ -287,6 +301,13 @@ class RevisionSubmission:
         write_json(self.evidence / "source.json", self.source)
         return self.source
 
+    def source_archive(self, revision):
+        if not self.framework_support:
+            return archive_sources(self.git("archive", revision))
+        names = self.git("ls-tree", "-r", "--name-only", "-z", revision, "--", *self.paths)
+        selected = [name.decode() for name in names.split(b"\0") if name]
+        return archive_sources(self.git("archive", revision, "--", *selected)) if selected else {}
+
     def project(self, model, namespace, inputs):
         text = (self.root / model).read_text()
         names = re.findall(r"part (\w+):Need \{", text)
@@ -294,8 +315,15 @@ class RevisionSubmission:
             raise ValueError("SysML delivery needs required")
         queries = {field: namespace + "::" + field
                    for field in ("scope", "stage", "formalDuty")}
-        for field in ("fields", "allRevisions", "rule", "matrixRequired", "matrixFields", "matrixKinds", "matrixRule"):
+        for field in ("fields", "allRevisions", "rule", "matrixRequired", "matrixFields", "matrixKinds", "matrixRule",
+                      "commitUnitRequired", "supportSurfaces", "supportFiles", "deliveryRule", "deliveryRegistry",
+                      "derivedAuditFiles", "publicationPolicy"):
             queries["comment." + field] = "GambitCommitGates::revisionAudit." + field
+        for field in ("kind", "result", "progressDelta", "supportPaths"):
+            queries["unit." + field] = namespace + "::submission." + field
+        for field in ("sourceCases", "requiredCases"):
+            if re.search(r"attribute\s+" + field + r"\s*:", text):
+                queries["unit." + field] = namespace + "::" + field
         for name in names:
             for field in ("id", "gate.id", "method", "artifact", "scope"):
                 queries[name + "." + field] = namespace + "::" + name + "." + field
@@ -317,10 +345,141 @@ class RevisionSubmission:
         if parsed["exit"] or len(values) != len(queries):
             raise ValueError("complete native SysML projection required")
         self.values = dict(zip(queries, values))
+        if self.framework_support:
+            policy = self.values["comment.publicationPolicy"]
+            path = Path(policy)
+            if path.is_absolute() or ".." in path.parts or ".cache" in path.parts:
+                raise ValueError("repository publication policy required")
+            self.model_inputs[policy] = digest(self.root / path)
+            result = run([shutil.which(os.environ.get("SYSML", "sysml")), "-strict", "-validate", "-json",
+                          "-e", "GambitResearchStorage::policy.maxMetadataBytes", *self.model_inputs],
+                         cwd=self.root, capture_output=True, text=True, timeout=60)
+            parsed = json.loads(result.stdout) if not result.returncode else {}
+            values = [json.loads(line[4:]) for line in parsed.get("output", []) if line.startswith("  = ")]
+            if result.returncode or parsed.get("exit") or len(values) != 1 or type(values[0]) is not int or values[0] <= 0:
+                raise ValueError("native documentary publication bound required")
+            self.values["comment.maxMetadataBytes"] = values[0]
+            with (self.storage / "sysml.stdout").open("a") as output:
+                output.write("\n" + result.stdout)
+        if self.values["unit.kind"] == "integration":
+            # Resolve the registry from native SysML; never maintain a second
+            # Python list of result IDs or their required obligations.
+            registry = self.values["comment.deliveryRegistry"]
+            if registry not in self.model_inputs:
+                raise ValueError("integration registry and dependencies must be projected inputs")
+            registry_text = (self.root / registry).read_text()
+            required = {}
+            for member in re.findall(r"part (\w+):Need \{", registry_text):
+                for field in ("id", "result.id"):
+                    required["resultNeed." + member + "." + field] = "GambitModernCOutcomes::" + member + "." + field
+            for member in re.findall(r"part (\w+):Depends \{", registry_text):
+                for field in ("predecessor.id", "successor.id"):
+                    required["resultEdge." + member + "." + field] = "GambitModernCOutcomes::" + member + "." + field
+            argv = [shutil.which(os.environ.get("SYSML", "sysml")), "-strict", "-validate", "-json"]
+            for expression in required.values():
+                argv += ["-e", expression]
+            result = run([*argv, *self.model_inputs], cwd=self.root, capture_output=True, text=True, timeout=60)
+            with (self.storage / "sysml.stdout").open("a") as output:
+                output.write("\n" + result.stdout)
+            if result.returncode:
+                raise ValueError("native delivery registry projection failed: " + result.stdout[:2500])
+            parsed = json.loads(result.stdout)
+            values = [json.loads(line[4:]) for line in parsed["output"] if line.startswith("  = ")]
+            if parsed["exit"] or not required or len(values) != len(required):
+                raise ValueError("complete native delivery registry projection required")
+            self.values.update(zip(required, values))
         self.need_names = names
         write_json(self.evidence / "model-contract.json", dict(inputs=self.model_inputs,
                    values=self.values, nativeOutputSha256=digest(self.storage / "sysml.stdout")))
         return self.values
+
+    def delivery_contract(self):
+        """Bind a complete integration or a strictly non-runtime support cut.
+
+        Receipt contents still require source/native review; this enforces their
+        identity, completeness and custody, not the truth of arbitrary JSON.
+        """
+        p = getattr(self, "values", {})
+        required = ("unit.kind", "unit.result", "unit.progressDelta", "unit.supportPaths")
+        if p.get("comment.commitUnitRequired") is not True or any(k not in p for k in required):
+            raise ValueError("explicit SysML submission unit required; five gates alone are insufficient")
+        kind, target, progress = (p["unit." + k] for k in ("kind", "result", "progressDelta"))
+        if kind not in {"integration", "support"} or type(progress) is not int:
+            raise ValueError("invalid SysML submission unit")
+        if self.framework_support and kind != "support":
+            raise ValueError("framework-support qualification cannot authorize runtime integration")
+        changed = self.git("diff", "--name-only", "-z", self.base, self.tree).decode().split("\0")
+        changed = sorted(n for n in changed if n)
+        contract = dict(kind=kind, result=target, progressDelta=progress,
+                        changedPaths=changed, requirements=[], evidence={})
+        if kind == "support":
+            if target != "" or progress != 0:
+                raise ValueError("support correction cannot claim an integration result or progress")
+            allowed = p["unit.supportPaths"].split(";") if p["unit.supportPaths"] else []
+            surfaces = tuple(x for x in p["comment.supportSurfaces"].split(";") if x)
+            files = p["comment.supportFiles"].split(";")
+            for name in allowed:
+                path = Path(name)
+                if (path.is_absolute() or ".." in path.parts or any(c in name for c in "*?[]")
+                        or str(path) != name or not (name.startswith(surfaces) or name in files)):
+                    raise ValueError("support path is not an exact non-runtime surface: " + name)
+            if not set(changed) <= set(allowed):
+                raise ValueError("runtime or undeclared path cannot enter a support correction")
+            return contract
+        if progress != 1 or p["unit.supportPaths"]:
+            raise ValueError("integration must deliver one whole result, without a support-path escape")
+        edges = [(value, p[key.replace("predecessor.id", "successor.id")])
+                 for key, value in p.items() if key.startswith("resultEdge.") and key.endswith("predecessor.id")]
+        members = {target}
+        while True:
+            expanded = members | {a for a, b in edges if b in members}
+            if expanded == members:
+                break
+            members = expanded
+        needs = {value for key, value in p.items() if key.startswith("resultNeed.") and key.endswith(".id")
+                 and not key.endswith("result.id") and p[key[:-2] + "result.id"] in members}
+        own = {value for key, value in p.items() if key.startswith("resultNeed.") and key.endswith(".id")
+               and not key.endswith("result.id") and p[key[:-2] + "result.id"] == target}
+        if not own or not p.get("unit.sourceCases") or not p.get("unit.requiredCases"):
+            raise ValueError("whole integration result and source/native cases required")
+        needs |= {"source:" + x for x in p["unit.sourceCases"].split(";") if x}
+        needs |= {"native:" + x for x in p["unit.requiredCases"].split(";") if x}
+        runtime = [n for n in changed if n.startswith(("lib/", "include/", "gsc/"))
+                   and not n.endswith(("makefile.in", "makefile"))
+                   and n not in self.native.get("generatedArtifacts", {})]
+        if not runtime:
+            raise ValueError("integration progress requires an actual runtime/generator responsibility replacement")
+        contract.update(requirements=sorted(needs), runtimePaths=runtime)
+        name = self.native.get("deliveryEvidence")
+        path = Path(name) if isinstance(name, str) else None
+        if (path is None or path.is_absolute() or ".." in path.parts or ".cache" in path.parts
+                or not (self.root / path).is_file()
+                or not (self.root / path).resolve().is_relative_to(self.root.resolve())):
+            raise ValueError("durable complete-delivery evidence required")
+        packet = json.loads((self.root / path).read_text())
+        expected = dict(sourceTree=self.tree, baseRevision=self.base,
+                        profileSha256=self.source["profileSha256"], result=target)
+        if any(packet.get(k) != v for k, v in expected.items()):
+            raise ValueError("delivery evidence belongs to another source/result/profile")
+        observations = packet.get("observations", [])
+        observed = [row.get("requirement") for row in observations]
+        if len(observed) != len(set(observed)) or set(observed) != needs:
+            raise ValueError("complete result/predecessor/component requirements must be observed exactly once")
+        evidence = {str(path): digest(self.root / path)}
+        for row in observations:
+            artifact = Path(row["artifact"])
+            if (artifact.is_absolute() or ".." in artifact.parts or ".cache" in artifact.parts
+                    or not (self.root / artifact).is_file()
+                    or not (self.root / artifact).resolve().is_relative_to(self.root.resolve())
+                    or row.get("status") != "pass" or digest(self.root / artifact) != row.get("sha256")):
+                raise ValueError("missing, failed or changed delivery obligation evidence")
+            receipt = json.loads((self.root / artifact).read_text())
+            if (receipt.get("complete") is not True or any(receipt.get(k) != v for k, v in expected.items())
+                    or row["requirement"] not in receipt.get("requirements", [])):
+                raise ValueError("source-bound complete obligation receipt required")
+            evidence[str(artifact)] = row["sha256"]
+        contract.update(evidence=evidence, observations=observations)
+        return contract
 
     def prepare_audit(self, report):
         """Freeze the model-required, human-reviewed REV comment before admission.
@@ -339,6 +498,7 @@ class RevisionSubmission:
             raise ValueError("REV audit must supply every model-required field")
         if any(not isinstance(report[field], str) or not report[field].strip() for field in fields):
             raise ValueError("REV audit fields must contain explicit review text")
+        delivery = self.delivery_contract()
         from gambit_smp.revision_matrix import normalize_matrix
         if values.get("comment.matrixRequired") is not True:
             raise ValueError("native SysML matrix contract required")
@@ -360,7 +520,8 @@ class RevisionSubmission:
             profileSha256=self.source["profileSha256"],
             manifestSha256=self.source["manifestSha256"],
             checklistSha256=digest(self.root / checklist),
-            fields={field: report[field].strip() for field in fields}, matrix=matrix))
+            fields={field: report[field].strip() for field in fields}, matrix=matrix,
+            delivery=delivery))
         return digest(self.audit_path)
 
     def audit_comment(self, expected_digest):
@@ -380,11 +541,18 @@ class RevisionSubmission:
             self.values["comment.matrixKinds"].split(","))
         if verified != report["matrix"]:
             raise ValueError("reviewed REV matrix evidence changed")
+        if self.delivery_contract() != report.get("delivery"):
+            raise ValueError("reviewed complete-delivery contract changed")
         lines = ["REV audit", "", "Base: " + self.base, "Tree: " + self.tree,
                  "Profile-SHA256: " + report["profileSha256"],
                  "Source-manifest-SHA256: " + report["manifestSha256"],
                  "Checklist-SHA256: " + report["checklistSha256"],
                  "Audit-SHA256: " + expected_digest]
+        unit = report["delivery"]
+        lines += ["Submission-unit: " + unit["kind"],
+                  "Integration-result: " + (unit["result"] or "none"),
+                  "Progress-delta: " + str(unit["progressDelta"]),
+                  "Required-delivery-obligations: " + str(len(unit["requirements"]))]
         for field, value in report["fields"].items():
             lines += ["", field.capitalize() + ":", value]
         lines += ["", "Matrix-SHA256: " + content_digest(report["matrix"]),
@@ -435,6 +603,8 @@ class RevisionSubmission:
         missing_obligations = {"missing-obligation:" + row[0]: row[0] for row in needs}
         report = json.loads(self.audit_path.read_text())
         matrix = report["matrix"]
+        unit = self.delivery_contract()
+        artifacts.update(unit["evidence"])
         for path, expected in matrix["evidence"].items():
             if digest(self.root / path) != expected:
                 raise ValueError("reviewed REV matrix evidence changed")
@@ -443,7 +613,10 @@ class RevisionSubmission:
         scenarios = ("current", "missing-native", "stale-tree", "wrong-artifact",
                      "wrong-profile", "model-only", *missing_obligations,
                      "missing-audit-packet", "stale-audit-tree", *missing_audit,
-                     "missing-matrix", "stale-matrix", "missing-matrix-row", "missing-matrix-evidence")
+                     "missing-matrix", "stale-matrix", "missing-matrix-row", "missing-matrix-evidence",
+                     "missing-submission-unit", "support-progress", "unapproved-support-path",
+                     "fragment-integration", *["missing-delivery:" + x for x in unit["requirements"]],
+                     *(["stale-delivery-tree"] if unit["kind"] == "integration" else []))
         rows = dict(
             commitStudyFact=[[case]], commitPolicyFact=[[digest(policy)]],
             commitGateFact=[[p["gate." + name + ".id"], p["gate." + name + ".purpose"]]
@@ -460,10 +633,30 @@ class RevisionSubmission:
             commitMatrixFieldRequiredFact=[[field] for field in self.values["comment.matrixFields"].split(",")],
             commitMatrixPacketFact=[], commitMatrixRowFact=[], commitMatrixFieldFact=[],
             commitMatrixRefFact=[], commitMatrixValueValidFact=[],
+            commitUnitFact=[], commitUnitNeedFact=[[unit["result"], x] for x in unit["requirements"]],
+            commitUnitEvidenceFact=[], commitUnitPathViolationFact=[], commitUnitRuntimeFact=[],
             controlExpectReadyFact=[["current"]],
             controlExpectBlockedFact=[[name] for name in scenarios[1:]],
         )
         for scenario in scenarios:
+            if scenario != "missing-submission-unit":
+                kind, target, progress = unit["kind"], unit["result"], unit["progressDelta"]
+                if scenario == "support-progress":
+                    kind, target, progress = "support", "", 1
+                if scenario == "fragment-integration":
+                    kind, target, progress = "integration", "undeclared-fragment", 1
+                rows["commitUnitFact"].append([scenario, kind, target, str(progress)])
+            if scenario == "unapproved-support-path":
+                rows["commitUnitPathViolationFact"].append([scenario, "lib/unapproved-runtime.c"])
+            for path in unit.get("runtimePaths", []):
+                rows["commitUnitRuntimeFact"].append([scenario, path])
+            for observation in unit.get("observations", []):
+                if scenario == "missing-delivery:" + observation["requirement"]:
+                    continue
+                rows["commitUnitEvidenceFact"].append([
+                    scenario, head, "different" if scenario == "stale-delivery-tree" else tree,
+                    manifest, profile, unit["result"], observation["requirement"],
+                    observation["artifact"], observation["sha256"]])
             rows["commitScenarioClassFact"].append([
                 scenario, "model-only" if scenario == "model-only" else "selected-source-and-native"])
             rows["commitCandidateFact"].append([
@@ -504,7 +697,8 @@ class RevisionSubmission:
                     scenario, head, tree, manifest, profile, obligation, method,
                     artifact, observed, scope, "pass", obligation, artifacts[artifact]])
         queries = {name: name for name in ("commitReady", "commitCovered", "commitMissing",
-                                          "commitGateReady", "commitAuditMissing", "commitMatrixMissing", "controlFailure")}
+                                          "commitGateReady", "commitAuditMissing", "commitMatrixMissing", "controlFailure",
+                                          "commitUnitReady", "commitUnitGap", "commitProgressReady")}
         pairs = [("target-model-bundle-sha256", content_digest(self.model_inputs)),
                  ("native-output-sha256", digest(self.storage / "sysml.stdout")),
                  ("planner-dsl-sha256", digest(policy))]
@@ -524,7 +718,10 @@ class RevisionSubmission:
         write_json(self.storage / "answers.json", answers)
         write_json(self.storage / "ascent-metrics.json", metrics)
         covered = [row for row in answers["commitCovered"] if row[0] == "current"]
-        if answers["commitReady"] != [["current"]] or answers["controlFailure"] or len(covered) != len(needs):
+        if (answers["commitReady"] != [["current"]] or answers["controlFailure"]
+                or len(covered) != len(needs)
+                or [row for row in answers["commitUnitReady"] if row[0] == "current"] != [["current"]]
+                or answers["commitProgressReady"] != ([["current", unit["result"]]] if unit["kind"] == "integration" else [])):
             raise ValueError("selected REV or rejection controls failed shared ASCENT policy")
         self.check_custody()
         self.audit_comment(audit_digest)
@@ -534,6 +731,7 @@ class RevisionSubmission:
                                          if row[0] == "current"],
                               modelInputs=self.model_inputs, commitAdmitted=True,
                               auditSha256=audit_digest, matrixSha256=content_digest(matrix),
+                              deliveryContract=unit, progressDelta=unit["progressDelta"],
                               wholeSmpAdmitted=False)
         write_json(self.evidence / "admission.json", self.admission)
         return self.admission
@@ -549,6 +747,31 @@ class RevisionSubmission:
                 raise ValueError("admission artifact changed")
         if self.git("write-tree", environment=self.index_environment).decode().strip() != self.tree:
             raise ValueError("submission index changed")
+        publication_tree = self.tree
+        if self.framework_support:
+            # A framework reviews its own source tree. Its generated review
+            # envelope cannot contain its own commit hash. Add only the five
+            # model-declared JSON outputs after source admission, preserving
+            # the separately bound tested subject tree and unchanged code.
+            names = self.values["comment.derivedAuditFiles"].split(";")
+            if set(names) != {"source.json", "source-manifest.json", "model-contract.json", "comment.json", "admission.json"}:
+                raise ValueError("only fixed generated audit metadata may extend framework publication")
+            metadata = []
+            for name in names:
+                path = self.evidence / name
+                raw = path.read_bytes()
+                if len(raw) > self.values["comment.maxMetadataBytes"]:
+                    raise ValueError("audit metadata exceeds documentary publication bound")
+                json.loads(raw)
+                relative = str(path.relative_to(self.root))
+                blob = self.git("hash-object", "-w", "--stdin", data=raw).decode().strip()
+                self.git("update-index", "--add", "--cacheinfo", "100644," + blob + "," + relative,
+                         environment=self.index_environment)
+                metadata.append(relative)
+            publication_tree = self.git("write-tree", environment=self.index_environment).decode().strip()
+            extra = self.git("diff", "--name-only", "-z", self.tree, publication_tree).decode().split("\0")
+            if not set(x for x in extra if x) <= set(metadata):
+                raise ValueError("framework audit envelope changed tested source")
         body = self.storage / "message.txt"
         body.write_text(message.rstrip() + "\n\n" + comment)
         if self.merge_parent:
@@ -561,14 +784,17 @@ class RevisionSubmission:
             output = self.git("commit", "--file", str(body), environment=self.index_environment)
         (self.storage / "commit.stdout").write_bytes(output)
         revision = self.git("rev-parse", "HEAD").decode().strip()
-        if self.git("rev-parse", "HEAD^{tree}").decode().strip() != self.tree:
+        if self.git("rev-parse", "HEAD^{tree}").decode().strip() != publication_tree:
             raise ValueError("committed tree differs from admission")
         if digest(self.gitdir / "index") != self.index_digest:
             raise ValueError("commit changed unrelated index custody")
         result = dict(repository=str(self.repository.relative_to(self.root)),
                       branch=self.branch, revision=revision, parent=self.base,
-                      tree=self.tree, paths=self.paths, realIndexUnchanged=True,
+                      tree=publication_tree, testedSourceTree=self.tree, paths=self.paths, realIndexUnchanged=True,
                       sourceCopies=0, pushed=False, wholeSmpAdmitted=False)
+        unit = self.delivery_contract()
+        result.update(submissionKind=unit["kind"], integrationResult=unit["result"],
+                      progressDelta=unit["progressDelta"])
         if self.merge_parent:
             result["mergeParent"] = self.merge_parent
         write_json(self.evidence / "revision.json", result)

@@ -30,6 +30,13 @@ package GambitCommitGates {
     part evidence : MetricEvidenceRef [1..*];
   }
   part revisionAudit {
+    attribute commitUnitRequired : Boolean = true;
+    attribute deliveryRegistry : String = "dev/refactoring/modern-c/models/sysml/delivery-outcomes.sysml";
+    attribute supportSurfaces : String = "tests/;.github/;dev/;docs/;evidence/;src/gambit_smp/;tools/";
+    attribute supportFiles : String = "configure;configure.ac;aclocal.m4;makefile.in;gsc/makefile.in;gsi/makefile.in;lib/makefile.in;bin/makefile.in";
+    attribute derivedAuditFiles : String = "source.json;source-manifest.json;model-contract.json;comment.json;admission.json";
+    attribute publicationPolicy : String = "dev/modeling/models/sysml/research-storage.sysml";
+    attribute deliveryRule : String = "Every submission declares one integration result or an explicit support correction. Runtime integration requires every result obligation, transitive predecessor obligation and component source/native case on the exact tested tree/profile, with durable reviewed evidence; five audit gates alone never permit a fragment. Support corrections declare exact non-runtime paths, no integration target and zero progress. Header/runtime/generator semantic work cannot disguise itself as support. Missing classification, omitted case, stale receipt, unrelated runtime path or claimed support progress blocks. Historical admissions remain immutable; future models must adopt this contract. Raw Git remains a human/external boundary, not an authority enforced by this framework.";
     attribute allRevisions : Boolean = true;
     attribute matrixRequired : Boolean = true;
     attribute matrixFields : String = "id,kind,metric,unit,direction,baseline,candidate,workload,method,evidence,limitation";
@@ -37,5 +44,11 @@ package GambitCommitGates {
     attribute matrixRule : String = "Every future REV audit binds a nonempty structured benefit/cost matrix to the same base/tree/profile. Numeric values, units and sample counts come from durable source-bound evidence, with raw origin pointers checked against the recorded values, not literal narrative guesses. Record workload, method and limitation for each row. Compute signed delta/percent only with defined baselines; zero baseline has no percentage or ratio. Single observations remain observations; control timings, source accounting and structural benefits are not runtime speedup. Missing/stale matrix, row fields or evidence block ASCENT admission. Historical published audit packets remain immutable; later supplements are labeled separately.";
     attribute fields : String = "responsibility,retired,validation,benefits,costs,process,checklist,models,open";
     attribute rule : String = "Every REV, including small corrections, must publish its reviewed audit in the Git commit body: exact responsibility/retirement, reproducible tests and results, evidenced benefits, added costs, current process, repository Org checklist, distinct model duties and remaining gaps. Bind the report before ASCENT admission and reject later changes. Every user-facing progress/final report must identify the problem solved or still under qualification, stable checklist item, closed and remaining obligations with their counting unit, position/dependencies in the programme, and why the retired authority/work is a fundamental responsibility replacement with a falsifier. A planned item, scoped leaf, whole-stage closure and full SMP acceptance are different units; never derive an SMP percentage from test or REV counts. DEV refactoring progress is independent of SMP patch-line milestones; no 8-12 credit transfers";
+  }
+  part def SubmissionUnit {
+    attribute kind : String;
+    attribute result : String;
+    attribute progressDelta : Integer;
+    attribute supportPaths : String;
   }
 }
