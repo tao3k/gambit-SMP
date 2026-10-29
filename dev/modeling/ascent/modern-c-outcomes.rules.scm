@@ -6,6 +6,10 @@
  (relation result ((id string?)))
  (relation needs ((result string?) (evidence string?)))
  (relation observed ((evidence string?) (tree string?) (profile string?)))
+ ;; SysML component cases refine an integration need. A bootstrap or a broad
+ ;; receipt cannot hide a missing writer, borrow, exit or native counterexample.
+ (relation caseNeed ((result string?) (id string?)))
+ (relation caseObserved ((id string?) (tree string?) (profile string?)))
  (relation dependency ((before string?) (next string?)))
  (relation reachable ((before string?) (next string?)))
  (relation hasNeed ((result string?)))
@@ -33,6 +37,7 @@
  ((reachable A C) <-- (reachable A B) (dependency B C))
  ((hasNeed R) <-- (needs R _))
  ((missing R N) <-- (source T P) (result R) (needs R N) (not (observed N T P)))
+ ((missing R C) <-- (source T P) (result R) (caseNeed R C) (not (caseObserved C T P)))
  ((directComplete R T P) <-- (source T P) (result R) (hasNeed R) (not (missing R _)))
  ((prerequisiteMissing R Prior) <-- (source T P) (reachable Prior R) (not (directComplete Prior T P)))
  ((resultClosed R T P) <-- (directComplete R T P) (not (prerequisiteMissing R _)) (not (planGap _ _)))

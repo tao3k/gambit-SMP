@@ -179,6 +179,24 @@ class RevisionSubmission:
             self.git("update-index", "--add", "--cacheinfo",
                      row["mode"] + "," + row["blob"] + "," + row["name"])
 
+    def qualified_paths(self):
+        """Cumulative source cut, independent of the last synchronization delta.
+
+        A reused producer can report only its latest changed paths.  Its exact
+        tested tree and generated-product identities remain the authority.
+        Native binaries are never inferred to be publishable source products.
+        """
+        target, base = self.native["targetTree"], self.native["baseRevision"]
+        names = self.git("diff", "--name-only", "-z", base, target).decode().split("\0")
+        paths = {name for name in names if name}
+        for name, expected in self.native.get("generatedArtifacts", {}).items():
+            old = run(["git", "--no-optional-locks", "-C", str(self.repository),
+                       "show", base + ":" + name], cwd=self.root,
+                      capture_output=True, timeout=30)
+            if old.returncode or hashlib.sha256(old.stdout).hexdigest() != expected:
+                paths.add(name)
+        return sorted(paths)
+
     def prepare(self, paths, profile):
         self.base = self.git("rev-parse", "HEAD").decode().strip()
         if self.base != self.native["baseRevision"]:
@@ -244,8 +262,17 @@ class RevisionSubmission:
             if canonical_source(name) and row["mode"] != "120000":
                 if digest(self.workspace / name) != row["sha256"]:
                     raise ValueError("submission contains untested canonical input: " + name)
-        write_json(self.evidence / "source-manifest.json",
-                   dict(baseRevision=self.base, tree=self.tree, files=files))
+        # The complete inventory is execution custody.  The published source
+        # contract keeps reviewed paths plus a digest of the whole Git tree;
+        # it can be reproduced from that tree without a private run directory.
+        inventory = self.storage / "source-manifest.json"
+        write_json(inventory, dict(baseRevision=self.base, tree=self.tree, files=files))
+        write_json(self.evidence / "source-manifest.json", dict(
+            baseRevision=self.base, tree=self.tree, fileCount=len(files),
+            fullManifestSha256=digest(inventory),
+            inventoryMethod="branch_evidence.source_manifest(Git archive of tree)",
+            canonicalInputEquivalence=True,
+            selected={name: files.get(name) for name in self.paths}))
         self.source = dict(baseRevision=self.base, tree=self.tree, paths=self.paths,
                            manifestSha256=digest(self.evidence / "source-manifest.json"),
                            profileSha256=digest(profile), artifacts=self.native["artifacts"],
@@ -291,7 +318,7 @@ class RevisionSubmission:
             raise ValueError("complete native SysML projection required")
         self.values = dict(zip(queries, values))
         self.need_names = names
-        write_json(self.evidence / "model.json", dict(inputs=self.model_inputs,
+        write_json(self.evidence / "model-contract.json", dict(inputs=self.model_inputs,
                    values=self.values, nativeOutputSha256=digest(self.storage / "sysml.stdout")))
         return self.values
 

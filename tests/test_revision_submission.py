@@ -77,6 +77,39 @@ class RevisionSubmissionTests(unittest.TestCase):
                     models="Mock projection only; no QNT/Lean or native proof claimed.",
                     open="Whole-runtime correctness remains outside this transport fixture.")
 
+    def test_cumulative_cut_does_not_trust_last_sync_path_list(self):
+        import os
+        environment = dict(os.environ, GIT_INDEX_FILE=str(self.root / "producer.index"))
+
+        def producer(*arguments):
+            result = run(["git", "-C", str(self.repo), *arguments], env=environment,
+                         capture_output=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout.decode().strip()
+
+        producer("read-tree", self.head)
+        blob = producer("hash-object", "-w", str(self.workspace / "a.c"))
+        producer("update-index", "--cacheinfo", "100644," + blob + ",a.c")
+        self.native.update(targetTree=producer("write-tree"), sourcePaths=[])
+        submission = self.submission()
+        self.assertEqual(submission.qualified_paths(), ["a.c"])
+        submission.prepare(submission.qualified_paths(), self.profile)
+        self.assertEqual(self.git("show", submission.tree + ":a.c"), b"selected\n")
+        self.assertEqual(self.git("show", submission.tree + ":b.c"), b"base\n")
+
+    def test_reviewed_manifest_keeps_full_inventory_in_execution_custody(self):
+        submission = self.submission()
+        submission.prepare(["a.c"], self.profile)
+        full = json.loads((submission.storage / "source-manifest.json").read_text())
+        reviewed = json.loads((submission.evidence / "source-manifest.json").read_text())
+        self.assertEqual(set(full["files"]), {"a.c", "b.c"})
+        self.assertEqual(set(reviewed["selected"]), {"a.c"})
+        self.assertEqual(reviewed["fullManifestSha256"],
+                         self.sha(submission.storage / "source-manifest.json"))
+        self.assertEqual(reviewed["fileCount"], 2)
+        self.assertEqual(reviewed["tree"], submission.tree)
+        self.assertTrue(reviewed["canonicalInputEquivalence"])
+
     def test_exact_tree_excludes_unrelated_staged_content(self):
         before = self.git("ls-files", "--stage", "-z")
         submission = self.submission()

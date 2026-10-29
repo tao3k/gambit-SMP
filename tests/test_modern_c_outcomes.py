@@ -19,6 +19,52 @@ MODELS = ["dev/modeling/models/sysml/commit-gates.sysml",
 
 
 class ModernCOutcomesTests(unittest.TestCase):
+    def test_frozen_union_cases_refine_aggregate_evidence(self):
+        argv = [shutil.which(os.environ.get("SYSML", "sysml")),
+                "-strict", "-validate", "-json"]
+        fields = ["sourceCases", "requiredCases", "graph", "control.obligation"]
+        for field in fields:
+            argv += ["-e", "GambitFrozenRootUnion::" + field]
+        model = "dev/refactoring/modern-c/models/sysml/frozen-root-union.sysml"
+        result = run([*argv, *MODELS, model], cwd=ROOT, capture_output=True,
+                     text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        values = [json.loads(line[4:]) for line in json.loads(result.stdout)["output"]
+                  if line.startswith("  = ")]
+        cases = ["source:" + x for x in values[0].split(";")]
+        cases += ["native:" + x for x in values[1].split(";")]
+        self.assertEqual(len(cases), len(set(cases)))
+        self.assertIn("shared-writers", values[0])
+        self.assertIn("resume", values[2])
+        self.assertIn("physical unwind", values[3])
+        engine = Engine()
+        try:
+            session = engine.open_sources(
+                (ROOT / "dev/modeling/ascent/modern-c-outcomes.rules.scm").read_text())
+            session.run(queries=["missing", "resultClosed"])
+            facts = dict(source=[["tree", "profile"]], result=[["roots"]],
+                needs=[["roots", "aggregate"]],
+                observed=[["aggregate", "tree", "profile"]],
+                caseNeed=[["roots", x] for x in cases],
+                caseObserved=[[x, "tree", "profile"] for x in cases
+                              if x != "source:shared-writers"])
+            session.replace(facts)
+            answer = session.run(queries=["missing", "resultClosed"])
+            self.assertTrue(answer["complete"])
+            self.assertIn(["roots", "source:shared-writers"],
+                          answer["relations"]["missing"])
+            self.assertFalse(answer["relations"]["resultClosed"])
+            facts["caseObserved"].append(["source:shared-writers", "tree", "profile"])
+            session.replace(facts)
+            self.assertEqual(session.run(queries=["resultClosed"])["relations"]["resultClosed"],
+                             [["roots", "tree", "profile"]])
+            # Wrong source identity does not satisfy the same semantic case.
+            facts["caseObserved"][-1][1] = "other-tree"
+            session.replace(facts)
+            self.assertFalse(session.run(queries=["resultClosed"])["relations"]["resultClosed"])
+        finally:
+            engine.close()
+
     def test_native_sysml_integration_and_review_units_are_distinct(self):
         argv = [shutil.which(os.environ.get("SYSML", "sysml")),
                 "-strict", "-validate", "-json"]

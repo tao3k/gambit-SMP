@@ -1,0 +1,258 @@
+#+TITLE: Frozen root union implementation and admission
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+TODO: OPEN | QUALIFIED
+#+PROPERTY: header-args :eval never
+#+COLUMNS: %38ITEM(Obligation) %STATUS(State) %EVIDENCE(Evidence)
+
+* QUALIFIED Frozen root population :modern_c:refactoring:roots:
+:PROPERTIES:
+:CUSTOM_ID: FROZEN-ROOT-UNION
+:AUTHORITY: GambitFrozenRootUnion
+:SOURCE: models/sysml/frozen-root-union.sysml
+:SOURCE_BASE: 043a9341168645caa1fc8f13cb586ef63a352dcc
+:RESULT_ID: frozen-roots
+:STATUS: QUALIFIED_C_TARGET
+:END:
+
+This is the first integration result of the four-result board, not another
+setter REV. Runtime code is in the modern-c vendor checkout. The selected
+candidate is assembled from the published base; incompatible future worker
+prototypes are not implicitly admitted. Existing staged prototypes remain in
+the real index. Distinct overwritten working versions are preserved in the
+[[file:../../../evidence/research/retained/modern-c/frozen-root-union/source-custody.json][source custody manifest]]
+and protected local Git trees. These preserve unqualified working versions;
+they are not dependencies of native qualification. No source changes are
+submitted while any required case is unresolved.
+
+** Complete implemented path
+
+1. Each participant materializes its existing stack/heap/context view and joins
+   the GC collective before the coordinator captures the complete roster.
+2. One VM round supplies every member's epoch, including a newly created RC
+   domain. The union owns VM and symbol/keyword tasks plus each member's RC,
+   globals, stack and bank tasks and immutable global descriptor.
+3. Joining the union closes RC registration, rebinding and new root borrowing.
+   Existing loans remain scanned and reloadable. Ordinary generated,
+   reflective and module-init stores use the actual canonical cell and a
+   noncollecting current-owner check. No per-store mutex is added.
+4. Existing source scanners preserve VM/symkey, RC, globals, stack, bank order,
+   actual frame repair and precise-root coverage. No copied frame snapshot or
+   one-shot continuation limitation is introduced.
+5. Strong completion joins every source, including empty global shards.
+   =joined_round= still forbids domain cleanup after local DONE. Only the
+   restored collective drops those leases and retires the union.
+6. The actual SFUN emitter registers raw Scheme parameters before marker or
+   conversion allocation, reloads the GC-updated cell at argument transfer,
+   and releases the banks at physical exit/catcher propagation. =___run=
+   marker cleanup also follows its catcher rather than only normal return.
+
+** Logical continuation transfer is not physical C exit
+
+=___call= runs a trampoline, compares the returned frame's marker with its own
+marker, and propagates an unwind when the markers differ. A restored Scheme
+continuation can therefore run while an inner C invocation remains physically
+on the stack. Its parameter roots must stay registered during that interval,
+including subsequent GC. Declaring them leaked at the Scheme =call/cc= return
+point would be an incorrect oracle; releasing them there would be unsafe.
+
+The native test requires both cuts: roots remain present after logical escape
+and moving GC, then both banks drain after return to an actual outer host
+marker. This learns from Gambit's own multi-shot control protocol rather than
+imposing a one-shot or immediate C-stack-unwind model.
+
+** Obligations and independent evidence
+
+The adjacent [[file:../../../evidence/research/retained/modern-c/frozen-root-union/receipt.json][retained receipt]]
+is the result authority; a planning row or this prose is not a native pass.
+
+#+NAME: frozen-root-closure
+| Obligation | Method and boundary | Admission |
+|------------+---------------------+-----------|
+| Six-kind population, common epoch and joined exit | Actual C adapters plus implementation histories | QUALIFIED: actual implementation histories and coherent production tree |
+| Canonical ordinary cell and cooperative store | Header, generator, setup caller and nonallocating owner interval | QUALIFIED: actual canonical cells/current-owner interval |
+| Raw callback input before allocation | Actual generated SFUN and interposed real marker allocator | QUALIFIED: marker296 actions, nested logical/physical exit and partial bank failures |
+| Shared primitive writes and raw aliases | VM-local override, shared permanent code; actual _gsclib/reflection/module callers | QUALIFIED: relocation flags=7, three VM cycles, rebind/isolation and actual raw-access census |
+| Old module/header binding | Actual module size checks and current header/function table | QUALIFIED: old ABI refused; current module executes continuation |
+| Original consumers | Unchanged official manifests and limits | QUALIFIED scoped GSI408/408 and all original Make prerequisites; family failures remain |
+| Joint predecessor causality | Actual selected predecessor behavior versus candidate | QUALIFIED: real pre-REV C cleanup body contrasted with production, plus historical shared-cell failure; mutation remains oracle-only |
+
+*** Shared primitive ownership :decision:counterexample:
+:PROPERTIES:
+:CUSTOM_ID: SHARED-PRIMITIVE-OWNERSHIP
+:STATUS: VM_LOCAL_OVERRIDE_SELECTED
+:END:
+
+The real =GLOBALVARPRIMSET= / =GLOBALVARPRIMREF= path stores a captured closure
+in =glo_struct.prm=. The moving-GC probe checks three independent bits:
+the input is movable (1), the caller's precise root is relocated (2), and the
+primitive cell equals the relocated closure (4). The observed result is3;
+required is7. The probe restores the previous primitive before returning and
+never dereferences the stale closure. It is an actual missing-cell witness,
+not a new model counterexample or a waived SMP scheduler failure.
+
+The original root and marker populations still execute in full. This small
+admission witness uses the existing fixture's feature mechanism, as the Tcl
+and marker variants do, with the same runtime/profile and compiler limit.
+
+#+NAME: primitive-ownership-decision
+| Choice | Source/runtime contract | Planned cost and unresolved question |
+|--------+-------------------------+--------------------------------------|
+| VM-local mutable primitive overrides; shared code template | Scheme closure roots belong to the VM that owns their heap; globals tasks scan ordinary and override slots; existing names remain | On this multi-VM64-bit profile, a dense override array plus one presence bit per existing20000-capacity global needs162504 additional native bytes per VM. This is a design accounting formula, not allocated/measured memory. Requires explicit module-rebinding/override precedence and single-VM representation; lookup adds slot/flag work. |
+| Preserve cross-VM mutable primitive binding | Define who may read a foreign movable closure, which collector owns it, and how swaps/readers/VM exit retain it | Requires a shared-root/read-barrier or shared-heap protocol. Do not guess latency, memory or a positive net benefit before that protocol exists; a global mutex around another VM's copying can couple GC progress. |
+
+The user selected VM-local mutable overrides plus shared code templates.
+The runtime now implements that selection through existing names. This is an
+intentional cross-VM binding semantic choice, not an inferred compatibility
+promise. =GLOBALVARPRIMSET= writes the owning VM; =PRM= reads its override or
+the image template. =DEF_MOD_PRM= publishes permanent image code and resets
+only the loading VM's override. Other VM overrides remain independent.
+
+One multiple-VM allocation contains ordinary cells, override cells and presence
+bits. The owning globals task scans canonical ordinary and active override
+cells; no collector traverses another VM's movable closure through a shared
+image field. A cleared bit leaves the old value physically intact until the
+owning stopped scan, so a concurrent reader that previously saw the bit cannot
+load a cleared cell. Global publication serializes bitmap read/modify/write.
+Readers use acquire loads and publications use release stores. No Scheme
+allocation, callback or GC wait occurs inside that publication interval.
+
+Single-VM builds retain their existing unbounded global list and add local
+override/value fields to each record. The existing multiple-VM20000 capacity
+is reused; this REV does not invent another identity table or capacity policy.
+VM setup checks storage allocation before publishing a usable VM. Failure
+rolls back linked VM storage and OS state; successful cleanup frees the whole
+block after source leases/borrowers drain. Native qualification is still
+required for the selected representation and each lifecycle cut.
+
+** Actual writer/reader and lifecycle boundary
+
+#+NAME: frozen-root-source-census
+| Producer / consumer | Canonical source and ownership | Retirement or boundary |
+|---------------------+--------------------------------+------------------------|
+| Scheme SET_GLO / reflective GLOBALVARSET / DEF_MOD_GLO | =include/gambit.h.in= calls =store_global= with the actual loading/current processor | Retires unchecked managed ordinary stores; source interval cannot poll or collect |
+| _gsclib primitive definition and reflective GLOBALVARPRIMSET | =gsc/_gsclib.scm= retains its Scheme operation; header routes to current VM override | Retires shared mutable heap pointers in image =prm= |
+| PRM / reflective GLOBALVARPRIMREF / reverse-global search | Header and =global-bindings.inc= select owning VM override before image default | Added owner check, presence load and value load; no copied root alias |
+| DEF_MOD_PRM / setup_mod | Explicit loading processor; =bind_primitive= only admits permanent image/default values | Rebind clears only loading VM override; other VMs retain theirs |
+| Kernel fixed-label consumers | =setup_kernel_handlers= and raw =PRMCELL= in =_kernel.scm= read immutable image code | They require specific frame/label layouts and cannot select arbitrary user closures |
+| Kernel apply-global and module undefined-binding checks | Actual canonical ordinary cells use atomic reads | Retires remaining managed plain read versus atomic store races |
+| CPU machine-code fixups3/4 | Historical fixups exported unrestricted writable global/primitive cell addresses | Explicit =UNIMPL= propagation before executing partially patched code; CPU borrow/reload code generation is outside C-target admission |
+| Symbol/global allocation and image hash relocation | Unpublished record initialization; bootstrap relocates hash before code publication | Not a running VM mutable-root store; cannot treat this special construction state as runtime authority |
+| SFUN and ___run | Existing raw Scheme input RC slots precede collecting marker; physical exit/catcher releases them | Logical multi-shot transfer retains live C-stack roots; full affine foreign-resource retirement belongs to result3 |
+| VM setup / failure rollback / cleanup | One checked slot block, initialized presence bits, explicit error propagation and source-drained release | Repeated lifecycle native cases; no release of an unknown/leased source |
+
+Raw address escape is a real boundary, not a promise that a modern-C macro
+silently makes every private extension safe. Managed C code uses value/store
+interfaces. The CPU backend needs a later explicit borrow/read/write lowering;
+its old fixup cannot select a VM override through one raw address. Rejecting
+that unsupported operation avoids both a compile-time lvalue error and unsafe
+execution, without a legacy alias namespace. Public Scheme names remain.
+
+The locked Gerbil default-build cohort has its own retained1778-file source
+manifest. Its native/private primitive/global-field census must match those
+bytes; arbitrary native extensions, custom load roots and whole Gerbil product
+acceptance remain outside this source admission.
+
+** Native control meaning
+
+The historical closure witness ran the actual pre-override runtime and observed
+3 rather than7. The selected implementation must produce7 on the same profile.
+The new retirement control executes the selected043a9341 =rc_can_close= and
+=rc_prepare_cleanup= predicate/body against the same real domain. A fresh
+source first permits cleanup as a positive control, then joins an actual
+=RootRound=. The old body permits cleanup while the new production entry
+refuses. Neither destroys the retained source; the child exits with that
+partial round still in custody. It never resets or requeues unknown work.
+This is distinct from the composed history's labeled observation mutation,
+which calibrates only the history oracle and shrinking.
+
+The original Make consumer includes its actual compiled GSC/mixed-C entry
+checks and every current original prerequisite. The separate twelve-family
+GSC criterion is compilation/execution of all408 unit files. Passing the former
+does not claim the latter, independent collector admission, or any Repair9
+workload improvement.
+
+** Benefit and added-cost matrix
+
+#+NAME: frozen-root-benefits
+| Mechanism | Structural benefit | Added cost / boundary |
+|-----------+--------------------+-----------------------|
+| VM-wide epoch and population | New RC sources no longer invent independent GC round identities | One coordinator-owned round; measured descriptor size in retained native receipt |
+| Persistent six-kind task union | Task completion no longer destroys the enclosing root lifetime | Three member task records plus descriptors and existing RC task; bounded coordinator allocation |
+| Joined source lease through restoration | Local DONE cannot authorize cleanup or source reuse | Two new pointers per RC domain; four additional GC collectives versus selected base |
+| Canonical ordinary writer | Generated, reflective and module-init stores share one owner interval | One noncollecting helper/guard per store; primitive overrides have explicit VM ownership |
+| VM-local primitive override | A shared image slot no longer retains a foreign or stale movable closure | Existing CAP override words plus bitmap per VM; primitive read branch/loads, publication mutex and active-slot scan; single-VM two fields per global |
+| Raw native input roots | A by-value C argument no longer crosses marker GC unregistered | One existing RC allocation per raw Scheme input; NARGS+1 native pointer slots and catcher per entry |
+| Physical-exit cleanup | Preserves roots across logical multi-shot transfer, then releases at the actual host boundary | Legitimate retention during the live C trampoline; affine conversion cleanup remains separately audited |
+| Throughput, GC latency, RSS | NOT MEASURED | Bootstrap times are build observations, not a matched runtime speedup or net-performance proof |
+
+** Model duties
+
+- SysML owns the component boundary, exact case population, C premises and
+  dependency on the first integration result.
+- ASCENT consumes the projected source/native case requirements. An absent
+  shared-writer, physical-exit or original-consumer case keeps =missing= true,
+  even if an aggregate receipt or bootstrap claims completion.
+- Existing Quint models own temporal writer/borrow, source coverage and
+  collective histories. They are unchanged, not duplicated or newly claimed
+  as an execution proof.
+- Existing Lean laws own conditional canonical-cell, coverage and relocated
+  reload consequences. C source must establish their premises. No duplicate
+  schedule model or C weak-memory theorem is added.
+- LLM review in the current environment traces the actual code and assumptions;
+  it does not issue a substitute native receipt.
+
+** Five submission gates
+
+- [X] Tests: complete required cases on the same source/profile; retain failures.
+- [X] Learning: reconcile actual shared-cell and host-return contracts with C.
+- [X] Process: close the first integration result without admitting later prototypes.
+- [X] Models: native SysML projection and ASCENT case closure; distinct proof duties.
+- [X] Questions: all required writer/borrow/exit/binding counterexamples answered.
+
+The scoped C-target architecture board is1/4 qualified,3 integration results
+remain. The independent SMP ledger stays1/12,11 families remain open. The
+current408/408 observation does not erase the earlier retained scheduler
+failure or qualify the separate full compiled-unit, stress or product manifests.
+
+** Closed current-source evidence and next responsibility
+
+The admitted candidate contains14 handwritten files and16 generated C products.
+Its input Git tree and generated-product delivery tree are distinct, explicitly
+linked by complete canonical-input and native-product byte equality in the
+[[file:../../../evidence/research/retained/modern-c/frozen-root-union/source.json][source contract]]. The actual [[file:../../../evidence/research/retained/modern-c/frozen-root-union/case-closure.json][ASCENT case closure]] covers15 source obligations and20 native cases.
+The [[file:../../../evidence/research/retained/modern-c/frozen-root-union/native-review.json][reviewed native observations]] retain consumer markers, stream hashes and
+the failed historical witness. Full execution streams remain execution custody;
+reproduction uses repository source and the unchanged original commands.
+
+| Current-source check | Result / observed cost | Boundary |
+|----------------------+------------------------+----------|
+| Complete two-pass bootstrap | PASS257.154s; stock core66.653s | Same600-second producer ceiling, p1/j11, original configuration |
+| Official interpreted inventory |408/408 PASS22.300s | Existing300-second domain cap; retained family failure remains |
+| All remaining original Make prerequisites | PASS61.497s | Existing120-second cap; no test removed or waived |
+| Frame/continuation |2387 checks,306 fixtures, all290 assertions;102 cases;18 captured frames/36 wide-live roots | Multiple Scheme restores retained; no one-shot restriction |
+| Composed six-kind union |12 histories252 actions; serialized13-to1 oracle control | Observer mutation is not an executed predecessor |
+| Native entry/marker |12 histories296 actions; actual constructor13-to1 replay; three raw-bank allocation boundaries | Actual logical escape retains roots until enclosing physical host return |
+| VM primitive representation |flags=7 witness; three setup/cleanup cycles;162504 additional bytes/VM | Root correctness/isolation, not runtime throughput |
+| Root-domain retirement | Open-source positive1; pre-REV admission1; production unsafe admission0 | Actual old C predicate/body on the same current domain, not an old whole-runtime race |
+| Module ABI | Old header module rejected; current module executes continuation | Requires rebuilding old modules; public Scheme names unchanged |
+| Native model/policy | SysML validation; actual ASCENT closure;3 policy tests | Existing QNT/Lean unchanged, no weak-memory theorem claimed |
+
+The next complete result is source census/physical interval planning and
+independent worker/restoration ownership. It must remove carrier-owned copy
+resources and restore R contexts with W workers; this result deliberately does
+not claim W!=R, unknown-join healthy-VM progress, generational GC or Repair9
+capacity. Affine destructor/foreign-owner lifecycle remains result3.
+
+** Existing-model refinement cuts
+
+| Existing duty | Actual C cut / premise | Claim |
+|---------------+------------------------+-------|
+| root_store_projection.closeAdmission / freeze | Complete views + stopped roster; joined_round closes new writes/loans, then every RC domain freezes before publication | Private coordination steps refine the closed interval; no executing asynchronous native cell reader is admitted |
+| root_store_projection canonical cell / parkBorrow | Each actual caller holds a stable RC cell; enclosing C invocations pause while Scheme runs/collects; reload occurs after allocation | A borrow pins lifetime, not an arbitrary C thread's stale copied address |
+| root_enumeration expected / publish | VM/symkey plus per-member RC/globals/stack/bank; one immutable count/epoch and canonical override selection | Equal values do not collapse distinct source slots; image templates are permanent nonroots |
+| runtime_roles close / scan / strong / restore | Existing GC collectives plus explicit union publication and restored collective | Copying/queue termination is still a premise, owned by result2 rather than silently proved here |
+| Root task DONE / root_store_projection.releaseStorage | DRAINING retains joined leases through weak/cleanup/context restoration; end alone drops them | A completed source scan is not a source-retirement permit |
+| RuntimeOwnership canonical aliases / rewrite coverage / reload agreement | C scanners update canonical slots and generated SFUN_ARG reloads the root bank | Conditional Lean consequences reuse these C premises; no duplicate temporal schedule or new C compiler correctness theorem |
+
+[[file:diagrams/frozen-root-union.d2][D2 derived from the native SysML source-kind/phase graph]].
