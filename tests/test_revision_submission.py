@@ -52,6 +52,31 @@ class RevisionSubmissionTests(unittest.TestCase):
                                   self.root / "submission", self.root / "evidence",
                                   self.native)
 
+    def audit(self, submission):
+        # Transport fixture only; real native SysML projection is qualified
+        # separately. No fixture claim establishes a runtime admission.
+        submission.values.update({"comment.allRevisions": True,
+            "comment.fields": "responsibility,retired,validation,benefits,costs,process,checklist,models,open",
+            "comment.matrixRequired": True,
+            "comment.matrixFields": "id,kind,metric,unit,direction,baseline,candidate,workload,method,evidence,limitation",
+            "comment.matrixKinds": "measurement,control,accounted-cost,structural,unmeasured"})
+        checklist = self.root / "dev/revision-checklist.org"
+        checklist.parent.mkdir(exist_ok=True)
+        checklist.write_text("#+TITLE: Transport fixture\n* Selected cut\n:PROPERTIES:\n:CUSTOM_ID: selected-cut\n:END:\n")
+        matrix = {"rows": [dict(id="runtime", kind="unmeasured", metric="Runtime throughput",
+            unit="ops/s", direction="none", baseline=None, candidate=None,
+            workload="No runtime is launched by this transport fixture", method="not measured",
+            evidence=["dev/revision-checklist.org"], limitation="No speedup claim")]}
+        return dict(matrix=matrix, responsibility="Select a.c without unrelated b.c.",
+                    retired="Shared-index publication for this selected cut.",
+                    validation="Git fixture: selected bytes and both merge parents verified; no runtime test claimed.",
+                    benefits="Measured by this fixture: unrelated staged bytes remain unchanged.",
+                    costs="One bounded alternate index and reviewed comment artifact.",
+                    process="Publication transport test; runtime refactoring remains outside this fixture.",
+                    checklist="dev/revision-checklist.org#selected-cut",
+                    models="Mock projection only; no QNT/Lean or native proof claimed.",
+                    open="Whole-runtime correctness remains outside this transport fixture.")
+
     def test_exact_tree_excludes_unrelated_staged_content(self):
         before = self.git("ls-files", "--stage", "-z")
         submission = self.submission()
@@ -142,6 +167,7 @@ class RevisionSubmissionTests(unittest.TestCase):
         for gate in ("tests", "learning", "process", "models", "questions"):
             submission.values["gate." + gate + ".id"] = gate
             submission.values["gate." + gate + ".purpose"] = gate
+        submission.prepare_audit(self.audit(submission))
         directory = self.root / "dev/modeling/ascent"
         directory.mkdir(parents=True)
         maintained = Path(__file__).resolve().parents[1] / "dev/modeling/ascent"
@@ -170,7 +196,7 @@ class RevisionSubmissionTests(unittest.TestCase):
 
         with patch("gambit_smp.ascent_program.query", side_effect=observe):
             admission = submission.admit()
-        self.assertEqual(admission["negativeControls"], 7)
+        self.assertEqual(admission["negativeControls"], 22)
         self.assertFalse((submission.evidence / "query.ss").exists())
         (directory / "commit-context.rules.scm").write_text("changed policy schema")
         with self.assertRaisesRegex(ValueError, "admission artifact changed"):
@@ -191,15 +217,137 @@ class RevisionSubmissionTests(unittest.TestCase):
         submission = self.submission()
         source = submission.prepare(["a.c"], self.profile)
         submission.model_inputs = {}
+        submission.values = {}
+        audit_digest = submission.prepare_audit(self.audit(submission))
         # Isolate Git publication here; actual ASCENT rejection controls are
         # exercised by the source-bound native delivery, not simulated by Git.
         submission.admission = dict(commitAdmitted=True, tree=source["tree"],
-                                    artifacts={})
+                                    artifacts={}, auditSha256=audit_digest)
         revision = submission.commit("qualified merge\n", submission.admission)
         parents = self.git("show", "-s", "--format=%P", revision["revision"]).decode().split()
         self.assertEqual(parents, [self.head, other])
         self.assertEqual(self.git("ls-files", "--stage", "-z"), before)
         self.assertEqual((self.repo / "b.c").read_text(), "unrelated staged work\n")
+        message = self.git("show", "-s", "--format=%B", revision["revision"]).decode()
+        for label in ("REV audit", "Validation:", "Benefits:", "Costs:", "Checklist:", "Open:", "REV benefit/cost matrix", "Matrix-SHA256:"):
+            self.assertIn(label, message)
+        self.assertIn("Tree: " + source["tree"], message)
+        from gambit_smp.revision_matrix import render_matrix
+        reviewed = json.loads(submission.audit_path.read_text())["matrix"]
+        self.assertIn(render_matrix(reviewed), message)
+
+    def test_actual_commit_contains_reviewed_numeric_matrix(self):
+        submission = self.submission()
+        source = submission.prepare(["a.c"], self.profile)
+        submission.model_inputs = {}
+        submission.values = {}
+        report = self.audit(submission)
+        quantities = dict(baseRevision=source["baseRevision"], sourceTree=source["tree"],
+                          profileSha256=source["profileSha256"])
+        raw = dict(quantities, before=dict(value=20, unit="s", samples=1),
+                   after=dict(value=25, unit="s", samples=1))
+        (self.root / "raw.json").write_text(json.dumps(raw))
+        for name in ("before", "after"):
+            quantities[name] = dict(raw[name], origin=dict(path="raw.json", pointer="/" + name))
+        (self.root / "quantities.json").write_text(json.dumps(quantities))
+        row = report["matrix"]["rows"][0]
+        row.update(id="elapsed", kind="measurement", metric="Elapsed time", unit="s",
+                   direction="lower", baseline=dict(path="quantities.json", pointer="/before"),
+                   candidate=dict(path="quantities.json", pointer="/after"),
+                   workload="Synthetic transport quantities; no runtime benchmark",
+                   method="Exact commit-body transport control", evidence=["quantities.json"],
+                   limitation="Not a Gambit performance observation")
+        audit_digest = submission.prepare_audit(report)
+        # The native policy is exercised separately; this is actual Git transport.
+        submission.admission = dict(commitAdmitted=True, tree=source["tree"],
+                                    artifacts={}, auditSha256=audit_digest)
+        revision = submission.commit("audit matrix transport\n", submission.admission)
+        message = self.git("show", "-s", "--format=%B", revision["revision"]).decode()
+        from gambit_smp.revision_matrix import render_matrix
+        reviewed = json.loads(submission.audit_path.read_text())["matrix"]
+        self.assertIn(render_matrix(reviewed), message)
+        self.assertIn("observed-regression", message)
+        self.assertIn("| 20 | 25 | s | 1/1 | 25.00 |", message)
+        self.assertIn("Matrix-SHA256:", message)
+
+    def test_missing_or_empty_comment_field_blocks_every_size_of_rev(self):
+        submission = self.submission()
+        submission.prepare(["a.c"], self.profile)
+        submission.values = {}
+        report = self.audit(submission)
+        for field in (x for x in report if x != "matrix"):
+            with self.subTest(field=field):
+                missing = dict(report)
+                del missing[field]
+                with self.assertRaisesRegex(ValueError, "every model-required field"):
+                    submission.prepare_audit(missing)
+                empty = dict(report, **{field: "  "})
+                with self.assertRaisesRegex(ValueError, "explicit review text"):
+                    submission.prepare_audit(empty)
+        self.assertEqual(self.git("rev-parse", "HEAD").decode().strip(), self.head)
+
+    def test_ordinary_rev_publishes_reviewed_comment_without_staging_other_work(self):
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.invalid")
+        before = self.git("ls-files", "--stage", "-z")
+        submission = self.submission()
+        source = submission.prepare(["a.c"], self.profile)
+        submission.model_inputs = {}
+        submission.values = {}
+        audit_digest = submission.prepare_audit(self.audit(submission))
+        submission.admission = dict(commitAdmitted=True, tree=source["tree"],
+                                    artifacts={}, auditSha256=audit_digest)
+        revision = submission.commit("test: selected small REV\n", submission.admission)
+        message = self.git("show", "-s", "--format=%B", revision["revision"]).decode()
+        self.assertIn("Audit-SHA256: " + audit_digest, message)
+        self.assertIn("Validation:\nGit fixture:", message)
+        self.assertIn("Benefits:\nMeasured by this fixture:", message)
+        self.assertIn("Checklist:\ndev/revision-checklist.org#selected-cut", message)
+        self.assertEqual(self.git("ls-files", "--stage", "-z"), before)
+
+    def test_cache_checklist_and_small_revision_exemption_are_rejected(self):
+        submission = self.submission()
+        submission.prepare(["a.c"], self.profile)
+        submission.values = {}
+        report = self.audit(submission)
+        with self.assertRaisesRegex(ValueError, "repository Org checklist"):
+            submission.prepare_audit(dict(report, checklist=".cache/checklist.org"))
+        with self.assertRaisesRegex(ValueError, "real Org ID anchor"):
+            submission.prepare_audit(dict(report, checklist="dev/revision-checklist.org#missing"))
+        submission.values["comment.allRevisions"] = False
+        with self.assertRaisesRegex(ValueError, "every REV"):
+            submission.prepare_audit(report)
+
+    def test_reviewed_comment_cannot_change_after_admission(self):
+        submission = self.submission()
+        source = submission.prepare(["a.c"], self.profile)
+        submission.model_inputs = {}
+        submission.values = {}
+        audit_digest = submission.prepare_audit(self.audit(submission))
+        submission.admission = dict(commitAdmitted=True, tree=source["tree"],
+                                    artifacts={}, auditSha256=audit_digest)
+        report = json.loads(submission.audit_path.read_text())
+        report["fields"]["benefits"] = "Unreviewed claim."
+        submission.audit_path.write_text(json.dumps(report))
+        with self.assertRaisesRegex(ValueError, "audit changed after admission"):
+            submission.commit("small correction\n", submission.admission)
+        self.assertEqual(self.git("rev-parse", "HEAD").decode().strip(), self.head)
+
+    def test_no_comment_report_cannot_enter_ascent_admission(self):
+        submission = self.submission()
+        submission.prepare(["a.c"], self.profile)
+        with self.assertRaisesRegex(ValueError, "audit required before ASCENT"):
+            submission.admit()
+
+    def test_checklist_cannot_change_after_review(self):
+        submission = self.submission()
+        submission.prepare(["a.c"], self.profile)
+        submission.values = {}
+        report = self.audit(submission)
+        audit_digest = submission.prepare_audit(report)
+        (self.root / report["checklist"].split("#")[0]).write_text("changed checklist\n")
+        with self.assertRaisesRegex(ValueError, "checklist changed after audit"):
+            submission.audit_comment(audit_digest)
 
     def test_incoming_delta_preserves_pending_source_in_both_views(self):
         original = "one\ntwo\nthree\nfour\nfive\nsix\n"

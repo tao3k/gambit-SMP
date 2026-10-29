@@ -267,6 +267,8 @@ class RevisionSubmission:
             raise ValueError("SysML delivery needs required")
         queries = {field: namespace + "::" + field
                    for field in ("scope", "stage", "formalDuty")}
+        for field in ("fields", "allRevisions", "rule", "matrixRequired", "matrixFields", "matrixKinds", "matrixRule"):
+            queries["comment." + field] = "GambitCommitGates::revisionAudit." + field
         for name in names:
             for field in ("id", "gate.id", "method", "artifact", "scope"):
                 queries[name + "." + field] = namespace + "::" + name + "." + field
@@ -293,6 +295,75 @@ class RevisionSubmission:
                    values=self.values, nativeOutputSha256=digest(self.storage / "sysml.stdout")))
         return self.values
 
+    def prepare_audit(self, report):
+        """Freeze the model-required, human-reviewed REV comment before admission.
+
+        The narrative is not another proof engine. ASCENT still requires actual
+        scoped observations. This binds what the reviewer saw to what Git will
+        publish, including the checklist and remaining gaps for a small REV.
+        """
+        values = getattr(self, "values", {})
+        if values.get("comment.allRevisions") is not True:
+            raise ValueError("native SysML comment contract required for every REV")
+        fields = values.get("comment.fields", "").split(",")
+        if not fields or any(not field for field in fields) or len(fields) != len(set(fields)):
+            raise ValueError("complete SysML REV comment fields required")
+        if not isinstance(report, dict) or set(report) != set(fields) | {"matrix"}:
+            raise ValueError("REV audit must supply every model-required field")
+        if any(not isinstance(report[field], str) or not report[field].strip() for field in fields):
+            raise ValueError("REV audit fields must contain explicit review text")
+        from gambit_smp.revision_matrix import normalize_matrix
+        if values.get("comment.matrixRequired") is not True:
+            raise ValueError("native SysML matrix contract required")
+        matrix = normalize_matrix(self.root, report["matrix"], self.source,
+            values["comment.matrixFields"].split(","),
+            values["comment.matrixKinds"].split(","))
+        checklist = Path(report["checklist"].split("#", 1)[0])
+        if (checklist.is_absolute() or ".." in checklist.parts or ".cache" in checklist.parts
+                or checklist.suffix != ".org"
+                or not (self.root / checklist).is_file()
+                or not (self.root / checklist).resolve().is_relative_to(self.root.resolve())):
+            raise ValueError("repository Org checklist required; cache locators are not audit assets")
+        anchor = report["checklist"].partition("#")[2]
+        if anchor and len(re.findall(r"(?m)^\s*:(?:CUSTOM_ID|ID):\s*" + re.escape(anchor) + r"\s*$",
+                                     (self.root / checklist).read_text())) != 1:
+            raise ValueError("REV checklist requires one real Org ID anchor")
+        self.audit_path = self.evidence / "comment.json"
+        write_json(self.audit_path, dict(baseRevision=self.base, tree=self.tree,
+            profileSha256=self.source["profileSha256"],
+            manifestSha256=self.source["manifestSha256"],
+            checklistSha256=digest(self.root / checklist),
+            fields={field: report[field].strip() for field in fields}, matrix=matrix))
+        return digest(self.audit_path)
+
+    def audit_comment(self, expected_digest):
+        if not getattr(self, "audit_path", None) or digest(self.audit_path) != expected_digest:
+            raise ValueError("reviewed REV audit changed after admission")
+        report = json.loads(self.audit_path.read_text())
+        checklist = self.root / report["fields"]["checklist"].split("#", 1)[0]
+        if not checklist.is_file() or digest(checklist) != report["checklistSha256"]:
+            raise ValueError("reviewed REV checklist changed after audit preparation")
+        if (report["tree"] != self.tree or report["baseRevision"] != self.base
+                or report["profileSha256"] != self.source["profileSha256"]
+                or report["manifestSha256"] != self.source["manifestSha256"]):
+            raise ValueError("REV audit belongs to another source cut")
+        from gambit_smp.revision_matrix import normalize_matrix, render_matrix
+        verified = normalize_matrix(self.root, report["matrix"]["input"], self.source,
+            self.values["comment.matrixFields"].split(","),
+            self.values["comment.matrixKinds"].split(","))
+        if verified != report["matrix"]:
+            raise ValueError("reviewed REV matrix evidence changed")
+        lines = ["REV audit", "", "Base: " + self.base, "Tree: " + self.tree,
+                 "Profile-SHA256: " + report["profileSha256"],
+                 "Source-manifest-SHA256: " + report["manifestSha256"],
+                 "Checklist-SHA256: " + report["checklistSha256"],
+                 "Audit-SHA256: " + expected_digest]
+        for field, value in report["fields"].items():
+            lines += ["", field.capitalize() + ":", value]
+        lines += ["", "Matrix-SHA256: " + content_digest(report["matrix"]),
+                  render_matrix(report["matrix"])]
+        return "\n".join(lines) + "\n"
+
     def check_custody(self):
         self.check_native()
         if self.git("rev-parse", "HEAD").decode().strip() != self.base:
@@ -310,6 +381,10 @@ class RevisionSubmission:
     def admit(self):
         """Evaluate the shared policy; absence/staleness controls use real rules."""
         from gambit_smp.ascent_program import load_catalog, query
+        if not getattr(self, "audit_path", None):
+            raise ValueError("reviewed REV audit required before ASCENT admission")
+        audit_digest = digest(self.audit_path)
+        self.audit_comment(audit_digest)
         p = self.values
         needs = [[p[name + "." + field]
                   for field in ("id", "gate.id", "method", "artifact", "scope")]
@@ -331,8 +406,17 @@ class RevisionSubmission:
         manifest, profile = self.source["manifestSha256"], self.source["profileSha256"]
         case = str(self.evidence.relative_to(self.root))
         missing_obligations = {"missing-obligation:" + row[0]: row[0] for row in needs}
+        report = json.loads(self.audit_path.read_text())
+        matrix = report["matrix"]
+        for path, expected in matrix["evidence"].items():
+            if digest(self.root / path) != expected:
+                raise ValueError("reviewed REV matrix evidence changed")
+            artifacts[path] = expected
+        missing_audit = {"missing-audit:" + field: field for field in report["fields"]}
         scenarios = ("current", "missing-native", "stale-tree", "wrong-artifact",
-                     "wrong-profile", "model-only", *missing_obligations)
+                     "wrong-profile", "model-only", *missing_obligations,
+                     "missing-audit-packet", "stale-audit-tree", *missing_audit,
+                     "missing-matrix", "stale-matrix", "missing-matrix-row", "missing-matrix-evidence")
         rows = dict(
             commitStudyFact=[[case]], commitPolicyFact=[[digest(policy)]],
             commitGateFact=[[p["gate." + name + ".id"], p["gate." + name + ".purpose"]]
@@ -343,6 +427,12 @@ class RevisionSubmission:
                                 for row in needs],
             commitScenarioClassFact=[], commitSourceFact=[[head, tree, manifest, profile]],
             commitCandidateFact=[], commitObservationFact=[],
+            commitAuditRequiredFact=[[field] for field in report["fields"]],
+            commitAuditPacketFact=[], commitAuditFieldFact=[],
+            commitMatrixRequiredFact=[["matrix"]],
+            commitMatrixFieldRequiredFact=[[field] for field in self.values["comment.matrixFields"].split(",")],
+            commitMatrixPacketFact=[], commitMatrixRowFact=[], commitMatrixFieldFact=[],
+            commitMatrixRefFact=[], commitMatrixValueValidFact=[],
             controlExpectReadyFact=[["current"]],
             controlExpectBlockedFact=[[name] for name in scenarios[1:]],
         )
@@ -352,6 +442,30 @@ class RevisionSubmission:
             rows["commitCandidateFact"].append([
                 scenario, head, "different" if scenario == "stale-tree" else tree,
                 manifest, "different" if scenario == "wrong-profile" else profile])
+            if scenario != "missing-audit-packet":
+                fields = {field: text for field, text in report["fields"].items()
+                          if field != missing_audit.get(scenario)}
+                report_digest = (content_digest(fields) if scenario in missing_audit else audit_digest)
+                rows["commitAuditPacketFact"].append([
+                    scenario, head, "different" if scenario == "stale-audit-tree" else tree,
+                    manifest, profile, report_digest])
+                for field, text in fields.items():
+                    row = [report_digest, field, text]
+                    if row not in rows["commitAuditFieldFact"]:
+                        rows["commitAuditFieldFact"].append(row)
+            if scenario not in {"missing-matrix", "missing-audit-packet"}:
+                mh = content_digest(matrix) if scenario == "current" else content_digest([matrix, scenario])
+                ah = "wrong-audit" if scenario == "stale-matrix" else report_digest
+                if scenario != "missing-audit-packet":
+                    rows["commitMatrixPacketFact"].append([scenario, ah, mh])
+                for metric in ([] if scenario == "missing-matrix-row" else matrix["rows"]):
+                    mid = metric["id"]
+                    rows["commitMatrixRowFact"].append([mh, mid, metric["kind"], metric["unit"]])
+                    rows["commitMatrixValueValidFact"].append([mh, mid])
+                    for field in self.values["comment.matrixFields"].split(","):
+                        rows["commitMatrixFieldFact"].append([mh, mid, field, content_digest(metric[field])])
+                    for path, expected in ([] if scenario == "missing-matrix-evidence" else metric["evidenceSha256"].items()):
+                        rows["commitMatrixRefFact"].append([mh, mid, path, expected])
             for obligation, _, method, artifact, scope in needs:
                 if scenario == "missing-native" and obligation == missing:
                     continue
@@ -363,7 +477,7 @@ class RevisionSubmission:
                     scenario, head, tree, manifest, profile, obligation, method,
                     artifact, observed, scope, "pass", obligation, artifacts[artifact]])
         queries = {name: name for name in ("commitReady", "commitCovered", "commitMissing",
-                                          "commitGateReady", "controlFailure")}
+                                          "commitGateReady", "commitAuditMissing", "commitMatrixMissing", "controlFailure")}
         pairs = [("target-model-bundle-sha256", content_digest(self.model_inputs)),
                  ("native-output-sha256", digest(self.storage / "sysml.stdout")),
                  ("planner-dsl-sha256", digest(policy))]
@@ -386,11 +500,13 @@ class RevisionSubmission:
         if answers["commitReady"] != [["current"]] or answers["controlFailure"] or len(covered) != len(needs):
             raise ValueError("selected REV or rejection controls failed shared ASCENT policy")
         self.check_custody()
+        self.audit_comment(audit_digest)
         self.admission = dict(tree=tree, baseRevision=head, artifacts=artifacts,
                               answers=answers, negativeControls=len(scenarios)-1,
                               gateReady=[row[1] for row in answers["commitGateReady"]
                                          if row[0] == "current"],
                               modelInputs=self.model_inputs, commitAdmitted=True,
+                              auditSha256=audit_digest, matrixSha256=content_digest(matrix),
                               wholeSmpAdmitted=False)
         write_json(self.evidence / "admission.json", self.admission)
         return self.admission
@@ -399,6 +515,7 @@ class RevisionSubmission:
         if (admission is not getattr(self, "admission", None)
                 or admission.get("commitAdmitted") is not True or admission.get("tree") != self.tree):
             raise ValueError("matching ASCENT admission required")
+        comment = self.audit_comment(admission.get("auditSha256"))
         self.check_custody()
         for name, expected in admission["artifacts"].items():
             if digest(self.root / name) != expected:
@@ -406,7 +523,7 @@ class RevisionSubmission:
         if self.git("write-tree", environment=self.index_environment).decode().strip() != self.tree:
             raise ValueError("submission index changed")
         body = self.storage / "message.txt"
-        body.write_text(message)
+        body.write_text(message.rstrip() + "\n\n" + comment)
         if self.merge_parent:
             output = self.git("commit-tree", self.tree, "-p", self.base,
                               "-p", self.merge_parent, "-F", str(body))
