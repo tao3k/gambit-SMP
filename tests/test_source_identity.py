@@ -17,6 +17,106 @@ class SourceIdentityTests(unittest.TestCase):
         w.start(self.root,'repair',adopt=True)
         w.write(self.root/'.state/task-policy.json',{'defaultTask':'repair'})
 
+    def test_attestations_keep_installed_and_repository_owners_distinct(self):
+        from gambit_smp.ascent_program import engine_api, component_asset, input_attestations
+        import hashlib
+        with engine_api():
+            asset = component_asset(self.root/'components.json', 'package:ascent/checkpoint_rules.ss')
+            package_sha = hashlib.sha256(asset.read_bytes()).hexdigest()
+            source = self.root/'local.ss';source.write_bytes(b'local source')
+            local_sha = hashlib.sha256(source.read_bytes()).hexdigest()
+            self.assertEqual({'local.ss': local_sha, 'package:ascent/checkpoint_rules.ss': package_sha},
+                input_attestations(self.root, {str(source): local_sha, str(asset): package_sha}))
+            elsewhere = self.root/'elsewhere';elsewhere.mkdir()
+            self.assertEqual({'package:ascent/checkpoint_rules.ss': package_sha},
+                input_attestations(elsewhere, {str(asset): package_sha}))
+            with self.assertRaisesRegex(ValueError, 'no declared owner'):
+                input_attestations(elsewhere, {str(source): local_sha})
+            source.write_bytes(b'drift')
+            with self.assertRaisesRegex(ValueError, 'source changed'):
+                input_attestations(self.root, {str(source): local_sha})
+
+    def test_live_fixture_owns_mutations_without_changing_immutable_origin(self):
+        import hashlib
+        from tests.support import copy_live_view
+        from gambit_smp.evidence_views import load
+        source = self.root / 'source.c'
+        source.write_bytes(b'base source\n')
+        w.git(self.root, 'add', 'source.c')
+        w.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+              'commit', '-qm', 'source base')
+        identity = git_source(self.root, '.', w.git(self.root, 'rev-parse', 'HEAD'), 'source.c')
+        folder = self.root / 'evidence'
+        folder.mkdir(exist_ok=True)
+        (folder/'rules.ss').write_text('(define-evidence (make) (sources input) (outputs input) (relation input (value)))')
+        (folder/'components.json').write_text(json.dumps(dict(schema='ascent.evidence-components.v1',
+            components=[dict(id='fixture', source='rules.ss', exports=['make'], dependencies=[])])))
+        name = 'evidence/live.view.json'
+        view = dict(schema='ascent.evidence-view.v1', id='source-role', manifest='evidence/components.json',
+                    entry='fixture', constructor='make', facts={'input': [[{'reference': 'source'}]]},
+                    queries={'input': 'input'}, references=[dict(id='source', path='source.c',
+                    sha256=identity['sha256'], pointer=None, identity=identity)])
+        (self.root/name).write_text(json.dumps(view))
+        original = (self.root/name).read_bytes()
+        source.write_bytes(b'changed original working file\n')
+        destination = self.root/'live'
+        copied = copy_live_view(self.root, destination, name)
+        self.assertEqual(b'base source\n', (destination/'source.c').read_bytes())
+        self.assertNotIn('identity', copied['references'][0])
+        self.assertEqual(identity['sha256'], load(destination, name)[1]['input'][0][0])
+        (destination/'source.c').write_bytes(b'live mutation\n')
+        copied['references'][0]['sha256'] = hashlib.sha256(b'live mutation\n').hexdigest()
+        (destination/name).write_text(json.dumps(copied))
+        self.assertEqual(copied['references'][0]['sha256'], load(destination, name)[1]['input'][0][0])
+        self.assertEqual(b'base source\n', read_source(self.root, identity))
+        self.assertEqual(original, (self.root/name).read_bytes())
+
+    def test_immutable_fixture_borrows_objects_without_becoming_a_checkout(self):
+        from tests.support import borrow_git_sources
+        source = self.root/'source.c'
+        source.write_bytes(b'original\n')
+        w.git(self.root, 'add', 'source.c')
+        w.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+              'commit', '-qm', 'original')
+        identity = git_source(self.root, '.', w.git(self.root, 'rev-parse', 'HEAD'), 'source.c')
+        destination = self.root/'borrower'
+        borrow_git_sources(self.root, destination, [identity])
+        self.assertEqual(b'original\n', read_source(destination, identity))
+        self.assertFalse((destination/'source.c').exists())
+        self.assertEqual('source.c', identity['path'])
+        with self.assertRaisesRegex(ValueError, 'isolated fixture'):
+            borrow_git_sources(self.root, self.root, [identity])
+        with self.assertRaisesRegex(ValueError, 'explicit Git'):
+            borrow_git_sources(self.root, destination, [dict(kind='task-checkpoint')])
+
+    def test_publication_fixture_keeps_only_owned_source_origins(self):
+        from tests.support import copy_output_observations
+        from gambit_smp.output_observations import observe, read_bytes, REGISTRY
+        names = ['evidence/a/output.log', 'evidence/b/output.log']
+        data = b'original output\n'
+        for name in names:
+            path = self.root/name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+        w.git(self.root, 'add', '-f', *names)
+        w.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+              'commit', '-qm', 'outputs')
+        revision = w.git(self.root, 'rev-parse', 'HEAD')
+        value = dict(observe(data), origins=names,
+                     sources={name: git_source(self.root, '.', revision, name) for name in names})
+        registry = self.root/REGISTRY
+        registry.write_text(json.dumps(dict(schema='published-evidence-inputs.v1', records={},
+                                            observations={value['sha256']: value})))
+        original = registry.read_bytes()
+        target = self.root/'fixture'
+        copy_output_observations(self.root, target, Path('evidence/a'))
+        row = json.loads((target/REGISTRY).read_bytes())['observations'][value['sha256']]
+        self.assertEqual([names[0]], row['origins'])
+        self.assertEqual([names[0]], list(row['sources']))
+        self.assertEqual(data, read_bytes(target, names[0], value['sha256'])[0])
+        with self.assertRaises(ValueError):
+            read_bytes(target, names[1], value['sha256'])
+        self.assertFalse((target/names[0]).exists())
+        self.assertEqual(original, registry.read_bytes())
+
     def test_git_identity_survives_worktree_edits_and_rejects_wrong_blob(self):
         p=self.root/'source.ss';p.write_bytes(b'committed\n')
         w.git(self.root,'add','source.ss')

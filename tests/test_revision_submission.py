@@ -17,6 +17,8 @@ class RevisionSubmissionFixture(unittest.TestCase):
         self.repo = self.root / "repo"
         self.repo.mkdir()
         self.git("init", "-q", "-b", "modern-c")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
         for name in ("a.c", "b.c"):
             (self.repo / name).write_text("base\n")
         self.git("add", ".")

@@ -175,6 +175,7 @@ def _declaration(root, snapshot, view_path):
 def _native_exchange(root, snapshot, engine):
     from ascent.trajectory import ClueExchange
     from gambit_smp.evidence_views import reference_witnesses
+    from gambit_smp.ascent_program import input_attestations
 
     _current(snapshot)
     owner = None
@@ -182,8 +183,7 @@ def _native_exchange(root, snapshot, engine):
         if not {"clue", "factor", "link"}.issubset(retained["queries"]):
             continue
         document, facts, sources, inputs = _declaration(root, snapshot, retained["path"])
-        attestations = {str(Path(path).relative_to(Path(root).resolve())): sha
-                        for path, sha in inputs.items()}
+        attestations = input_attestations(root, inputs)
         attestations.update({row["label"]: row["digest"]
                              for row in reference_witnesses(root, document).values()})
         if owner is None:
@@ -201,8 +201,7 @@ def _native_exchange(root, snapshot, engine):
                     "view-reference:" + identity, view["declarationSha256"],
                     "evidence-view-current:" + view["id"], view["id"], view["path"],
                     ref["path"], ref["expected"], ref["observed"] or "absent", ref["reason"]])
-        attestations = {str(Path(path).relative_to(Path(root).resolve())): sha
-                        for path, sha in snapshot["inputs"].items() if sha is not None}
+        attestations = input_attestations(root, {path: sha for path, sha in snapshot["inputs"].items() if sha is not None})
         if owner is None:
             owner = ClueExchange(engine, sources, availability["constructor"], facts, attestations)
         else:
@@ -216,6 +215,7 @@ def _native_exchange(root, snapshot, engine):
 def read_view(root, snapshot, view_id, query_name, engine):
     """Read a declared relation directly, without fabricating an observed Clue."""
     from gambit_smp.evidence_views import evaluate
+    from gambit_smp.ascent_program import input_attestations
 
     _current(snapshot)
     matches = [view for view in snapshot.get("evidenceViews", ())
@@ -229,8 +229,7 @@ def read_view(root, snapshot, view_id, query_name, engine):
     _current(snapshot)
     return dict(view=view_id, query=query_name, answers=current["answers"][query_name],
                 contextIdentity=snapshot["sourceIdentity"],
-                sourceInputs={str(Path(path).relative_to(Path(root).resolve())): sha
-                              for path, sha in current["inputs"].items()},
+                sourceInputs=input_attestations(root, current["inputs"]),
                 executionAuthorized=False, runtimeAdmitted=False)
 
 

@@ -1,11 +1,49 @@
 """Isolated validator fixtures, never published as research evidence."""
 from contextlib import contextmanager
 import json
+import hashlib
 from pathlib import Path
 import shutil
 import tempfile
 
 from gambit_smp.framework import digest
+
+
+def borrow_git_sources(repository, root, identities):
+    """Give an isolated fixture real read-only Git object provenance.
+
+    Object alternates borrow an existing repository; no checkout, branch or
+    source file is copied. This never proves the fixture HEAD/index is a build.
+    """
+    from gambit_smp import workspace
+    from gambit_smp.source_identity import read_source
+    repository, root = Path(repository).resolve(), Path(root).resolve()
+    if root == repository:
+        raise ValueError('isolated fixture source owner required')
+    for identity in identities:
+        if identity.get('kind') != 'git':
+            raise ValueError('fixture needs an explicit Git source identity')
+        read_source(repository, identity)
+        source = (repository / identity['repository']).resolve()
+        target = (root / identity['repository']).resolve()
+        target.relative_to(root)
+        target.mkdir(parents=True, exist_ok=True)
+        if not (target / '.git').exists():
+            workspace.git(target, 'init', '-q')
+        if Path(workspace.git(target, 'rev-parse', '--show-toplevel')).resolve() != target:
+            raise ValueError('fixture Git source owner is not exact')
+        objects = Path(workspace.git(source, 'rev-parse', '--git-path', 'objects'))
+        if not objects.is_absolute():
+            objects = source / objects
+        destination = Path(workspace.git(target, 'rev-parse', '--git-path', 'objects'))
+        if not destination.is_absolute():
+            destination = target / destination
+        destination.resolve().relative_to(root)
+        path = destination / 'info/alternates'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        names = path.read_text().splitlines() if path.exists() else []
+        if str(objects.resolve()) not in names:
+            path.write_text('\n'.join([*names, str(objects.resolve())]) + '\n')
 
 
 def copy_output_observations(repository, root, prefix):
@@ -17,7 +55,55 @@ def copy_output_observations(repository, root, prefix):
                 if name.startswith(str(prefix).rstrip('/')+'/')])
                 for identity, item in source.get('observations', {}).items()
                 if any(name.startswith(str(prefix).rstrip('/')+'/') for name in item['origins'])}
+    for item in selected.values():
+        if 'sources' in item:
+            item['sources'] = {name: value for name, value in item['sources'].items()
+                               if name in item['origins']}
+    borrow_git_sources(repository, root, [identity for item in selected.values()
+                                         for identity in item.get('sources', {}).values()])
     path.write_text(json.dumps(dict(schema=source['schema'], records={}, observations=selected)))
+
+
+def copy_live_view(repository, root, name):
+    """Initialize a mutable test view from exact declared source bytes.
+
+    The copied files belong to the isolated fixture, not the original Git
+    repository. Retain their byte/range identities; remove immutable locators
+    only in this explicitly live fixture. Never use this as research evidence.
+    """
+    from gambit_smp.source_identity import reference_bytes
+    document = json.loads((repository / name).read_text())
+    original = json.loads(json.dumps(document))
+    plan = {}
+    for ref in document['references']:
+        raw = reference_bytes(repository, ref)
+        if hashlib.sha256(raw).hexdigest() != ref['sha256']:
+            raise ValueError('live fixture original byte identity differs')
+        if ref['path'] in plan and plan[ref['path']] != raw:
+            raise ValueError('live fixture needs one source epoch per path')
+        plan[ref['path']] = raw
+        ref.pop('identity', None)
+    manifest = document['manifest']
+    catalog = json.loads((repository / manifest).read_text())
+    plan[manifest] = (repository / manifest).read_bytes()
+    for component in catalog['components']:
+        source = component['source']
+        if source.startswith('package:'):
+            continue
+        path = (Path(manifest).parent / source).as_posix()
+        plan[path] = (repository / path).read_bytes()
+    for path, raw in plan.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    target = root / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(document))
+    receipt = root / 'tests/fixture-sources.json'
+    receipt.parent.mkdir(parents=True, exist_ok=True)
+    receipt.write_text(json.dumps(dict(view=name, originalView=original,
+                                      role='isolated mutable test bytes, never research admission')))
+    return document
 
 
 @contextmanager

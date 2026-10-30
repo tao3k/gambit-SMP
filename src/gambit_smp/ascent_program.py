@@ -360,6 +360,39 @@ def _verify_definition_sources(catalog):
         raise ValueError("definition bytes differ from their bound sources")
 
 
+def input_attestations(root, inputs):
+    """Name checked inputs by their actual repository or installed owner.
+
+    Package assets already belong to the verified API inventory; their labels
+    must survive moving the project without pretending they are project files.
+    Every other input must remain inside this repository. No external fallback.
+    """
+    root = Path(root).resolve(strict=True)
+    active = _active_api.get()
+    if active is not None and active['owner'] == (os.getpid(), threading.get_ident()):
+        # The same API owner checks this inventory at both lifetime boundaries.
+        files = active['files']
+    else:
+        files, _, _ = _api_inventory()
+    installed = {path: name for name, path in files.items() if name.startswith('package:')}
+    result = {}
+    for name, expected in inputs.items():
+        path = Path(name).resolve(strict=True)
+        if digest(path) != expected:
+            raise ValueError('attestation source changed')
+        if path in installed:
+            label = installed[path]
+        else:
+            try:
+                label = path.relative_to(root).as_posix()
+            except ValueError:
+                raise ValueError('attestation input has no declared owner') from None
+        if label in result and result[label] != expected:
+            raise ValueError('attestation input label collision')
+        result[label] = expected
+    return result
+
+
 def component_asset(manifest_path, name):
     """Resolve a registered asset; selection and Scheme parsing stay native."""
     if name.startswith("package:"):
