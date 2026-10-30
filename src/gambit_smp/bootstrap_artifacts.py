@@ -155,7 +155,12 @@ def freeze(ctx, source, role):
     destination, incoming = derived_source(ctx, source, role)
     storage = preserve(source, destination)
     ctx.lease_workspace(destination, incoming)
-    ctx.bind([destination.parent / 'preservation.json'])
+    receipt = destination.parent / 'preservation.json'
+    ctx.bind([receipt])
+    storage = dict(storage, sourceWorkspace=str(source.relative_to(ctx.root)),
+                   preservedWorkspace=str(destination.relative_to(ctx.root)),
+                   identitySha256=hashlib.sha256(json.dumps(incoming, sort_keys=True).encode()).hexdigest(),
+                   preservationReceipt=dict(path=str(receipt.relative_to(ctx.root)), sha256=digest(receipt)))
     return destination, storage
 
 

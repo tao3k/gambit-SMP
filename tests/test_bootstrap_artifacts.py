@@ -12,6 +12,73 @@ from gambit_smp.framework import digest
 
 
 class BootstrapArtifactsTests(unittest.TestCase):
+    def test_completed_seed_handoff_retires_only_its_verified_input_chain(self):
+        from unittest.mock import Mock
+        from types import SimpleNamespace
+        from gambit_smp.artifact_storage import seal_workspace_state
+        lock = self.root / 'evidence/input.json'
+        lock.parent.mkdir()
+        lock.write_text('{"input":"fixed"}')
+        bindings = {'evidence/input.json': digest(lock)}
+        before = recipes.tree_identity(self.source)
+        old_state = seal_workspace_state(self.root, self.source, lock.parent/'old.json', bindings)
+        materialized = dict(type='source-tree', path='original', identity=before, stateEvidence=old_state)
+        (self.source/'include/gambit.h').write_text('configured ABI')
+        configured = recipes.tree_identity(self.source)
+        configured_state = seal_workspace_state(self.root, self.source, lock.parent/'configured.json', bindings)
+        old = dict(type='configured-tree', path='original', identity=configured, stateEvidence=configured_state)
+        (self.source/'include/gambit.h').write_text('completed generated ABI')
+        completed = recipes.tree_identity(self.source)
+        saved = self.root/'saved/source'
+        ctx = SimpleNamespace(root=self.root, lease_workspace=Mock(), bind=Mock())
+        with patch.object(a, 'derived_source', return_value=(saved, completed)):
+            target, transfer = a.freeze(ctx, self.source, 'completed-seed')
+        new_state = seal_workspace_state(self.root, target, lock.parent/'new.json', bindings)
+        new = dict(type='seed-runtime', path='saved/source', identity=completed, stateEvidence=new_state)
+        steps = [dict(id='materialize', outcome='PASS', outputs={'source':materialized}),
+                 dict(id='configure', outcome='PASS', outputs={'source':old},
+                      arguments={'source':{'step':'materialize','output':'source'}}),
+                 dict(id='seed', capability='gambit.seed-core', outcome='PASS',
+                      arguments={'source':{'step':'configure','output':'source'}},
+                      preservation=transfer, outputs={'runtime':new})]
+        observed = recipes.inspect_outputs(self.root, steps, root=self.root)
+        self.assertEqual(['RETAINED', 'RETAINED', 'AVAILABLE'], [row['status']for row in observed['outputs']])
+        import time
+        consumer = recipes.ExecutionContext(self.root, self.root, self.root, {},
+                    time.monotonic()+10, {}, dict(steps=steps), {})
+        with self.assertRaisesRegex(ValueError, 'artifact dependency drift'):
+            consumer.artifact({'step':'configure','output':'source'}, 'configured-tree')
+        leaf = saved/'include/gambit.h'
+        leaf.unlink()
+        os.link(self.source/'include/gambit.h', leaf)
+        self.assertNotIn(recipes.inspect_outputs(self.root, steps, root=self.root)['status'],
+                         ('AVAILABLE','RETAINED'))
+        leaf.unlink()
+        leaf.write_text('completed generated ABI')
+        for label in ('missing', 'wrong-capability', 'failed', 'wrong-input',
+                      'wrong-source', 'wrong-target', 'wrong-identity', 'wrong-receipt', 'broken-ancestry'):
+            changed = copy.deepcopy(steps)
+            later = changed[-1]
+            if label == 'missing':del later['preservation']
+            elif label == 'wrong-capability':later['capability']='unrelated.copy'
+            elif label == 'failed':later['outcome']='FAIL'
+            elif label == 'wrong-input':later['arguments']['source']['step']='unrelated'
+            elif label == 'wrong-source':later['preservation']['sourceWorkspace']='another'
+            elif label == 'wrong-target':later['preservation']['preservedWorkspace']='another'
+            elif label == 'wrong-identity':later['preservation']['identitySha256']='0'*64
+            elif label == 'wrong-receipt':later['preservation']['preservationReceipt']['sha256']='0'*64
+            else:changed[1]['arguments']['source']['step']='unrelated'
+            with self.subTest(label=label):
+                self.assertNotIn(recipes.inspect_outputs(self.root, changed, root=self.root)['status'],
+                                 ('AVAILABLE','RETAINED'))
+        (saved/'include/gambit.h').write_text('late target mutation')
+        self.assertNotIn(recipes.inspect_outputs(self.root, steps, root=self.root)['status'],
+                         ('AVAILABLE','RETAINED'))
+        (saved/'include/gambit.h').write_text('completed generated ABI')
+        (self.source/'include/gambit.h').write_text('late source mutation')
+        self.assertNotIn(recipes.inspect_outputs(self.root, steps, root=self.root)['status'],
+                         ('AVAILABLE','RETAINED'))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)

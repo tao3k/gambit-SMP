@@ -799,6 +799,69 @@ def authorization_repair(receipt, allow_native, gcc):
             and config.get("allowNative", False) is False)
 
 
+def preserved_successor(root, out, steps, index, path, *, input_bindings=None):
+    """Recognize a checked completed-seed handoff, never an arbitrary copy."""
+    if root is None:
+        return False
+    for position in range(index + 1, len(steps)):
+        later = steps[position]
+        if later.get("outcome") != "PASS" or later.get("capability") != "gambit.seed-core":
+            continue
+        transfer = later.get("preservation", {})
+        if (transfer.get("sourceUnchanged") is not True or transfer.get("exactIdentity") is not True
+                or transfer.get("purpose") != "completed-output-preservation"
+                or "preservationReceipt" not in transfer):
+            continue
+        if relative(root, transfer["sourceWorkspace"]) != path:
+            continue
+        ref = later.get("arguments", {}).get("source", {})
+        producers = [step for step in steps[:position]
+                     if step.get("id") == ref.get("step") and step.get("outcome") == "PASS"]
+        if len(producers) != 1:
+            continue
+        consumed = producers[0].get("outputs", {}).get(ref.get("output"), {})
+        if (consumed.get("type") != "configured-tree" or "stateEvidence" not in consumed
+                or artifact_path(out, consumed, root=root) != path):
+            continue
+        ancestor = steps.index(producers[0])
+        while ancestor > index:
+            upstream = steps[ancestor].get("arguments", {}).get("source", {})
+            parents = [(i, step) for i, step in enumerate(steps[:ancestor])
+                       if step.get("id") == upstream.get("step") and step.get("outcome") == "PASS"]
+            if len(parents) != 1:
+                break
+            parent_index, parent = parents[0]
+            parent_output = parent.get("outputs", {}).get(upstream.get("output"), {})
+            if not parent_output or artifact_path(out, parent_output, root=root) != path:
+                break
+            ancestor = parent_index
+        if ancestor != index:
+            continue
+        saved = later.get("outputs", {}).get("runtime", {})
+        if saved.get("type") != "seed-runtime" or "stateEvidence" not in saved:
+            continue
+        destination = artifact_path(out, saved, root=root)
+        if (destination == path or destination.is_relative_to(path) or path.is_relative_to(destination)
+                or destination != relative(root, transfer["preservedWorkspace"])):
+            continue
+        reference = transfer["preservationReceipt"]
+        receipt = relative(root, reference["path"])
+        if digest(receipt) != reference["sha256"]:
+            raise ValueError("completed preservation receipt changed")
+        record = read_json(receipt)
+        identity = saved["identity"]
+        if (record.get("completed") is not True or record.get("sourceUnchanged") is not True
+                or record.get("identity") != identity
+                or hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest() != transfer["identitySha256"]):
+            raise ValueError("completed preservation identity differs")
+        from gambit_smp.artifact_storage import checked_workspace_state
+        checked_workspace_state(root, saved["stateEvidence"], identity, input_bindings=input_bindings)
+        if tree_identity(path) == identity and tree_identity(destination) == identity:
+            return all(not os.path.samefile(path / name, destination / name)
+                       for name, entry in identity.items() if "sha256" in entry)
+    return False
+
+
 def inspect_outputs(out, steps, *, root=None, input_bindings=None):
     """Inspect disposable output availability separately from evidence binding."""
     rows = []
@@ -829,6 +892,9 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                                   and "stateEvidence" in item]
                     if state == "MODIFIED" and any(
                             tree_identity(path) == successor.get("identity") for successor in successors):
+                        state = "RETAINED"
+                    if state == "MODIFIED" and preserved_successor(
+                            root, out, steps, index, path, input_bindings=input_bindings):
                         state = "RETAINED"
             except (KeyError, TypeError, ValueError, OSError) as error:
                 state = "UNKNOWN"
