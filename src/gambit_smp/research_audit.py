@@ -55,6 +55,29 @@ def local(root, name):
     return path
 
 
+def historical_source(root, record):
+    """Check immutable source bytes without binding a historical claim to HEAD."""
+    import hashlib
+    from gambit_smp.task_processes import check_output
+    if (set(record) != {"schema", "repository", "revision", "file", "sha256"}
+            or record["schema"] != "gambit-historical-source.v1"):
+        raise ValueError("exact historical source descriptor required")
+    revision = record["revision"]
+    if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
+        raise ValueError("fixed historical source revision required")
+    repository = local(root, record["repository"])
+    name = Path(record["file"])
+    if name.is_absolute() or ".." in name.parts or not name.parts:
+        raise ValueError("historical source path outside repository")
+    import os
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    raw = check_output(["git", "-C", str(repository), "show", revision + ":" + name.as_posix()],
+                       env=environment, timeout=10)
+    if hashlib.sha256(raw).hexdigest() != record["sha256"]:
+        raise ValueError("historical source digest mismatch")
+    return raw
+
+
 def load_audit(root, base):
     path = root / "evidence/research-audit.json"
     audit = json.loads(path.read_text())
@@ -97,6 +120,8 @@ def load_audit(root, base):
             inputs[evidence["path"]] = actual
             if source.suffix == ".json":
                 record = json.loads(source.read_text())
+                if isinstance(record, dict) and record.get("schema") == "gambit-historical-source.v1":
+                    historical_source(root, record)
                 if isinstance(record, dict) and record.get("schema") == "gambit-component-observation-archive.v1":
                     from gambit_smp.native_archive import validate
                     inputs.update(validate(root, evidence["path"]))

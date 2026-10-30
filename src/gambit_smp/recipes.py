@@ -805,6 +805,7 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
     for index, step in enumerate(steps):
         for name, descriptor in step.get("outputs", {}).items():
             material_state = "UNKNOWN"
+            error_detail = None
             custody_state = "UNVERIFIED" if "stateEvidence" in descriptor else "NOT_REQUIRED"
             try:
                 path = artifact_path(out, descriptor, root=root)
@@ -829,10 +830,12 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                     if state == "MODIFIED" and any(
                             tree_identity(path) == successor.get("identity") for successor in successors):
                         state = "RETAINED"
-            except (KeyError, TypeError, ValueError, OSError):
+            except (KeyError, TypeError, ValueError, OSError) as error:
                 state = "UNKNOWN"
+                error_detail = str(error)
             rows.append({"step": step["id"], "output": name, "status": state,
-                         "materialStatus": material_state, "custodyStatus": custody_state})
+                         "materialStatus": material_state, "custodyStatus": custody_state,
+                         **({"error": error_detail} if error_detail is not None else {})})
     states = {row["status"] for row in rows}
     status = next((state for state in ("UNKNOWN", "MODIFIED", "MISSING") if state in states), "AVAILABLE")
     if status == "AVAILABLE" and "RETAINED" in states:
@@ -1175,18 +1178,8 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
     finally:
         workspace_scope.close()
     finalization_started = time.monotonic()
-    try:
-        stable = ((input_plan or FingerprintPlan(inputs)).matches()
-                  and (tool_plan or FingerprintPlan(tools)).matches())
-        for step in receipt["steps"]:
-            stable = stable and fingerprints(Path(name) for name in step.get("observedInputs", {})) == step.get("observedInputs", {})
-            for name, sha in step.get("artifacts", {}).items():
-                stable = stable and digest(relative(out, name)) == sha
-        # In-place successors supersede sealed intermediate inventories, not evidence.
-        availability = inspect_outputs(out, receipt["steps"], root=root)
-        stable = stable and availability["status"] in {"AVAILABLE", "RETAINED"}
-    except (OSError, ValueError):
-        stable = False
+    receipt["finalization"] = finalization_observation(root, out, receipt["steps"], inputs, tools)
+    stable = receipt["finalization"]["stable"]
     receipt["inputsStable"] = stable
     receipt["finalizationCheckSeconds"] = time.monotonic() - finalization_started
     passed = len(receipt["steps"]) == len(steps) and all(step["outcome"] == "PASS" for step in receipt["steps"])
@@ -1196,6 +1189,38 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
     receipt["outcome"] = "STALE" if not stable else "PASS" if passed and "error" not in receipt else "DENY"
     (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
+
+
+def finalization_observation(root, out, steps, inputs, tools):
+    """Record each failed predicate; the acceptance conjunction stays unchanged."""
+    failures = []
+    def check(kind, name, expected):
+        try:
+            actual = digest(Path(name))
+            if actual != expected:
+                failures.append(dict(kind=kind, path=str(name), expected=expected, actual=actual))
+        except (OSError, ValueError) as error:
+            failures.append(dict(kind=kind, path=str(name), error=str(error)))
+    for kind, bindings in (("input", inputs), ("tool", tools)):
+        for name, expected in bindings.items():
+            check(kind, name, expected)
+    for step in steps:
+        for name, expected in step.get("observedInputs", {}).items():
+            check("observed-input", name, expected)
+        for name, expected in step.get("artifacts", {}).items():
+            try:
+                path = relative(out, name)
+            except ValueError as error:
+                failures.append(dict(kind="artifact", path=str(name), error=str(error)))
+            else:
+                check("artifact", path, expected)
+    try:
+        availability = inspect_outputs(out, steps, root=root)
+        if availability["status"] not in {"AVAILABLE", "RETAINED"}:
+            failures.append(dict(kind="output-availability", observation=availability))
+    except (OSError, ValueError) as error:
+        failures.append(dict(kind="output-availability", error=str(error)))
+    return dict(stable=not failures, failures=failures)
 
 
 def main():
