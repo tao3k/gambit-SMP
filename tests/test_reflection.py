@@ -79,17 +79,21 @@ class ReflectionTests(unittest.TestCase):
         expected = {reference["path"] for reference in record["references"]}
         expected.update(artifact["path"] for reference in record["references"]
                         for artifact in reference.get("artifacts", []))
+        from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES, REGISTRY
+        expected = {name for name in expected if Path(name).suffix not in TRANSCRIPT_SUFFIXES} | {REGISTRY}
         self.assertEqual(expected, set(validate(root, record)))
 
     def test_preserved_full_step_timeout_cannot_qualify_as_a_model_pass(self):
-        from gambit_smp.quint_backend import admitted_model
+        from gambit_smp.output_observations import recorded, check_model
+        from tests.support import published_digest
         root = Path(__file__).resolve().parents[1]
         directory = root / "evidence/model-results/gc-source-wait-full-step-safety"
         record = json.loads((directory / "receipt.json").read_text())
         for name, expected in record["artifacts"].items():
-            self.assertEqual(expected, digest(directory / name))
-        log = (directory / "check.portable.log").read_text()
-        self.assertFalse(admitted_model(record["exit"], log, record["timeout"], False))
+            self.assertEqual(expected, published_digest(root, directory / name))
+        output = recorded(root, directory / "check.portable.log")
+        with self.assertRaises(ValueError):
+            check_model(output, dict(variant='protocol', exit=record['exit'], timeout=record['timeout']))
         self.assertFalse(record["accepted"])
         self.assertFalse(record["wholeStateSpaceChecked"])
         self.assertGreater(record["lastReportedStates"]["queued"], 0)

@@ -1,0 +1,119 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "post-join-borrower-drain-incremental",
+  "scope": "Host-managed shrink. Transfer and destroy run only after join 0, handler quiet, and a clear borrower check. Pass only when ___thread_join returns a non-EINVAL errno and the same owner later joins with 0.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/research/processor-interrupt-collective-wait/post-join-borrower-drain.lock.json",
+    "patches/fixtures/post-join-borrower-drain-cumulative.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "models/gambit/native/lifecycle_join_recovery_probe.scm",
+    "evidence/research/execution-rules.ss",
+    "evidence/research/incremental-builds/migration.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 60,
+      "arguments": {
+        "sourceLock": "evidence/research/processor-interrupt-collective-wait/post-join-borrower-drain.lock.json",
+        "buildWorkspace": "gambit-core"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "source"
+      ],
+      "budgetSeconds": 120,
+      "arguments": {
+        "source": {
+          "step": "source",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 180,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      }
+    },
+    {
+      "id": "join-probe",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "core"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "core",
+          "output": "identity"
+        },
+        "program": "models/gambit/native/lifecycle_join_recovery_probe.scm",
+        "stdout": "LIFECYCLE-JOIN:OS-JOIN-ERROR 11\nLIFECYCLE-JOIN:SAME-OWNER-JOIN 0\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "source",
+        "configure",
+        "seed",
+        "core",
+        "join-probe"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "rules": [
+          "evidence/research/execution-rules.ss"
+        ],
+        "queries": {
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        }
+      }
+    }
+  ],
+  "buildMigration": "evidence/research/incremental-builds/migration.json"
+}

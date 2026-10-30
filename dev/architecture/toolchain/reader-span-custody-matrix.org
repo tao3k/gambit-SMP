@@ -1,0 +1,55 @@
+#+TITLE: Reader Span Custody and Net-Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: reader-span-matrix
+:AUTHORITY: ReaderSpanCustody
+:END:
+
+Derived with Python from native SysML evaluation. Source/native refinement remains open.
+
+| Producer | Actual source | Custodian | Interval | Interruption |
+|---+---+---+---+---|
+| port-delivery | stream.ss:49-57; _io.scm:5240-5323 | port then in-flight character delivery | Decoded character read and physical counter update precede char-stream location publication | Refill/error has native-port state; no assertion that every point permits Scheme continuation capture |
+| private-replay | stream.ss:40-48,59-65; lexer.ss:159-167 | original char-stream and acceptance closure | Unread characters keep order and logical position; physical port is not rewound | Partial unget and mutable location updates need explicit substep ownership; arbitrary preemption is a refinement obligation |
+| accepted-reduction | lexer.ss:139-146,158-176; deflexer.ss:50-62 | acceptance record before invoking R | Accepted lexeme excludes speculative suffix; raw source storage must not alias mutable @@ without qualification | R may throw, capture or mutate @@ before a token is returned; acceptance custody cannot depend on successful return |
+| ignored-lexeme | lexer.ss:23-26,62-66; deflexer.ss:40-44; lang-reader.ss:271-274,323-324 | trivia ledger before ignored singleton disappears | Every ignored occurrence needs its own span; singleton $ has neither occurrence identity nor location | Record span before looping; do not rerun an effectful reduction to reconstruct trivia |
+| failed-lexeme | lexer.ss:128-130,185-190; base.ss:28-30 | failed attempt then rooted ERROR token/exception | Unsuccessful consumed prefix belongs to failure horizon, not successful accepted token or unread residue | Token/string allocation and error translation can fail; original attempt retains custody until successor owns it |
+| header-io | lang-reader.ss:88-124 | section header invocation | Two peek sites, three read-char sites and one read-line site bypass the five datum entries | Peek may refill without consuming a logical character; header is outside body ParseError catch |
+| scheme-datum | runtime/syntax.ss:255-266; _io.scm:12694-12698 | readenv and original input domain | Reader consumes datum plus skipped text; callbacks may have effects not represented by the AST span | Readtable and dynamic parameter state must remain live; returned AST extent is not total consumed input |
+| post-action-delivery | lang-reader.ss:169-183,242-245; _thread.scm:8555-8584 | action/result record plus live frame aliases | Action read, reset, following token/location, rule creation and K/E delivery are distinct endpoints | Returning action does not mean downstream delivery completed; captures retain current objects, not restored snapshots |
+
+** Reader and reset paths
+
+| Entry | Source line | Body catch | Consumer | Failure |
+|---+---+---+---+---|
+| module-body | 23 | False | body cons or section dispatch at 25-33 | EOF raises no-definitions error via physical error-location helper |
+| section-id | 99 | False | identifier check then options | Read/header exceptions escape without body ParseError conversion |
+| section-option | 123 | False | cons opt then recursive header read | EOF/comment/newline and raw header probes keep their own observations |
+| parser-action | 166 | True | reset, next token, alternative or K/E at 169-183 | EOF becomes helper syntax error; body ParseError is translated; other exceptions rethrow |
+| lexer-action | 238 | True | reset, fresh location, rule construction, K at 242-245 | EOF helper error and body catch distinct; quote-preserving entry is explicit behavior repair |
+
+| Reset | Line | Next observation | Retirement condition |
+|---+---+---+---|
+| parser-reset | 169 | Immediately reads next token before branch/rule construction | Pending token objects, EOF cache, parser-tail aliases and action completion remain represented; no repeated R/reader call on unknown result |
+| lexer-reset | 242 | Immediately observes fresh stream location without reading | Qualify old zero location versus corrected domain endpoint as observable mode/repair decision before eliminating reset |
+
+** Open gates
+
+| Gate | Qualified | Remaining condition |
+|---+---+---|
+| source-interval-refinement | False | Every character occurrence has one current custodian; pending, accepted, trivia, unread and failure horizons conserve fetched input |
+| mutable-source-isolation | False | No callback-visible mutable @@ alias can corrupt retained source; coordinates alone do not provide replay contents |
+| all-entry-coverage | False | Five datum sites, six raw header sites, error-location helpers and native aliases all mediated or owned legacy |
+| capture-and-error-custody | False | Live captures preserve original stream/domain and wind semantics; error translation transfers roots only after successor custody |
+| reset-retirement | False | Both distinct post-action consumers preserve/repair observations; old aliases drain or retain legacy state; result unknown never implies read retry |
+
+** Net work / modern C baseline
+
+| Mechanism | Avoided work | Added work | Positive threshold / limit |
+|---+---+---+---|
+| reset-construction | Upper bound 2A stream constructor calls plus A initial-location calls; identical to prior bound, not additive | Acceptance/trivia/failure records, pins, grammar-view selection and location adapter | Avoided actual work exceeds added work; no allocation/time estimate inferred |
+| raw-storage | No reconstruct/relex retry merely to recover dropped source | Immutable retained chunks or proven isolated snapshot; mutable @@ cannot be reused freely | Unique retained decoded payload plus O(spans + live views); captures may retain unbounded history |
+| failure-continuation | Avoid accidental repeated callbacks, lost failure text and premature legacy retirement | Per-invocation settlement and root-transfer records; full Scheme continuation refinement remains necessary | Correctness prerequisite; no uniquely Zig saving established over modern C |

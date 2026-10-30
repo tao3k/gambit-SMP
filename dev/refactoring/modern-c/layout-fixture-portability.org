@@ -1,0 +1,79 @@
+#+TITLE: Preserve the layout oracle across the MSVC C consumer
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never-export
+
+* Bounded follow-up :architecture:delivery:
+:PROPERTIES:
+:AUTHORITY: GambitLayoutFixturePortability
+:SOURCE: models/sysml/layout-fixture-portability.sysml
+:BASE_REVISION: bf08f39f691c8811c4c8b8852855fc7cadf46af0
+:CANDIDATE_TREE: 22db9cc5a0d13977dd9ee474b429d528dcf92270
+:STATUS: LOCAL-QUALIFIED; EXACT-HEAD-REMOTE-CI-REQUIRED
+:END:
+
+This source cut changes only =vendor/gambit/tests/frame-spec.scm=. The original
+[[file:execution-storage-publication.org][MSVC failure record]] remains: runtime accessor control, original GSI408
+and Scheme frame2387 checks pass, then generated layout typedef bounds fail
+MSVC constant-expression admission. This is a fixture consumer failure; it
+does not establish a failed GC root update. No root-task implementation is
+included. Public names, workflow, test targets, processor/heap/wait/timeout
+limits, producer source and runtime algorithms retain base bytes.
+
+* Independent layout assertion :source:proof:
+
+The fixture still compares Scheme backend coordinates with C's actual layout.
+For a declared fixed array =a= and an in-bounds literal index =i=, use:
+
+#+begin_src c :eval never
+offsetof(T, a) + i * sizeof(((T *)0)->a[0])
+#+end_src
+
+The array member offset includes structure padding; C array elements are
+contiguous and =sizeof= uses the actual element type. Its operand is unevaluated.
+The expected coordinate remains independently produced by the existing Scheme
+backend. It is not recomputed from C's offset. Existing register indices0..4,
+saved indices0..2 and type-cache indices0..1 remain unchanged.
+
+The Scheme field metadata now records array member and index separately.
+Scalar offsets and optional lowlevel bridge assertions retain their spelling.
+There is no new platform conditional or disabled assertion. This does not
+redefine offsetof, require C++, or evaluate a null-pointer dereference.
+
+Microsoft's [[https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/offsetof-macro?view=msvc-170][offsetof reference]] describes the simple member form; its
+[[https://learn.microsoft.com/en-us/cpp/error-messages/compiler-warnings/c4841?view=msvc-170][compound-designator diagnostic]] advises avoiding compound member designators.
+The latter is C++ documentation, not a substitute for this actual C failure
+log. [[https://www.open-std.org/jtc1/sc22/wg14/issues/c11c17/issue0496.html][WG14 issue496]] documents the portability ambiguity around extended member
+designators. Native MSVC C success must be observed after publication.
+
+* Assertion, benefit and cost matrix :validation:assurance:
+
+| Contract | Local evidence | Benefit / added cost |
+|----------+----------------+----------------------|
+| Preserve all layout assertions |290 declaration IDs and order unchanged;50 array expressions normalized back to old syntax yield byte-identical complete header | No expected offset or feature/target guard changes; only constant-expression spelling grows |
+| Actual C consumers | Original and fixed fixture compile with GCC and Clang, with ordinary and optional lowlevel layouts | C-layout oracle remains independent; local Clang does not stand for MSVC |
+| Wrong layouts still rejected | All20 currently active array assertions reject independently corrupted expected offsets | No weakened equality/bounds test; unchanged guards select the native word size |
+| Existing semantic consumers | Existing test-frame-contract passes2387 Scheme checks/306 frame fixtures,290 layout declarations, repeated continuation and root cases; test-runtime-roles passes | No new SCM module, test runner or changed official entrypoint |
+| Exact producer reuse | All production binaries and generated C products retain their previous qualified identities | Zero production Scheme generation, production native compilation, configure or bootstrap; only necessary test generation/compilation runs |
+
+The actual existing Make consumer uses the retained C23 profile. Additional
+GCC/Clang C syntax checks exercise the common constant-expression subset; they
+do not change the production profile. All290 declarations remain generated;
+the native platform's original word-size/feature guards still select which
+are active. This report does not claim290 simultaneously executed assertions
+on every architecture, or native execution on a foreign target.
+
+* Five-gate staging and question disposition :ascent:
+
+Native SysML selects six source/native/audit/process/model/question needs for
+the existing ASCENT policy. The exact one-file submission tree must match the
+qualified workspace, profile and unchanged production artifacts. All five
+local source-cut gates and the absence/staleness rejection controls must close
+before the vendor commit. Model availability alone grants no permission.
+
+Publication is a separate observation boundary. Push only that qualified REV
+to the existing PR, observe its exact-head MSVC and other platform outcomes,
+and retain the old failure. Until actual new-head CI is all-green, the
+[[file:root-dispatch.org][root-origin dispatch successor]] stays blocked. No timeout/heap change,
+assertion skip, official-name change or original SMP success is inferred.
+The original SMP embedding/inactive-thread evidence is unchanged by this cut.

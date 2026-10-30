@@ -1,0 +1,300 @@
+#+TITLE: Iter Macro Chain and the Gambit-Based Gerbil Compiler Service
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Decision and evidence boundary :modern_c:gambit:gerbil:incremental:
+:PROPERTIES:
+:CUSTOM_ID: iter-compiler-service
+:AUTHORITY: IterCompilerService
+:STATUS: proposed-contracts-source-platform-open
+:EVIDENCE_CLASS: source-and-conditional-formal-research
+:END:
+
+The proposed home of the incremental compiler service is Gerbil running on Gambit.
+Gambit provides explicit compiler-stage/context contracts and the modern C runtime.
+gxi/gxc are clients of one query service. This is a redesign of compiler and build
+interfaces, not a larger subprocess pool. It neither requires Zig nor obtains
+same-VM multicore execution from task scheduling alone.
+
+[[file:models/sysml/iter-compiler-service.sysml][SysML]] owns five source-chain groups and four edges, five stage seams, five context custody groups, five retirement
+conditions, four explicit refinement routes, four net-benefit cases and seven open admission gates. Native SysML
+projects values through [[file:../../modeling/tools/iter-compiler-service-study.py][Python]] to the [[file:iter-compiler-service-matrix.org][matrix]], [[file:diagrams/iter-compiler-service.svg][D2]], and QNT parameters;
+[[file:../../modeling/ascent/iter-compiler-service.rules.scm][ASCENT DSL]] routes IS-H/I/S/E and checks missing/stale/wrong-scope evidence.
+[[file:../../../models/build/iter_compiler_service.qnt][QNT]] explores a two-consumer context protocol; [[file:../../../models/build/IterCompilerService.lean][Lean]] supplies conditional boundary
+lemmas. [[file:../../../evidence/research/iter-compiler-service/checks.json][Receipts]] bind subjects and logs. No runtime/compiler implementation,
+native test, generator execution or performance benchmark is authorized or run.
+
+* RESEARCH Actual iter chain and readiness :source:
+:PROPERTIES:
+:CUSTOM_ID: iter-real-chain
+:SOURCE_SCOPE: checked-imports-and-two-real-consumers
+:CLOSURE_STATUS: direct-edges-confirmed-transitive-effect-closure-open
+:END:
+
+The inspected sources belong to the sibling bootstrap-audit checkout. Its exact
+Git identity and each source digest are recorded with this study, separately from
+the research checkout and vendor Gambit identity.
+
+| Real source | Observed role | Required service result |
+|---+---+---|
+| [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/iter/macros.ss::4][iter/macros]] | Imports std/interface, list-builder, iter/interface and iter/iterators | Phase-resolved helper/program closure and binding projection |
+| [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/iter/macros.ss::10][begin-syntax; for and for1]] | for-binding? validates syntax; for1 creates lambdas; dispatch recognizes in-range et al. | Transformer code and defining lexical environment, not just exported names |
+| [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/iter/api.ss::4][iter/api]] and [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/iter.ss::4][std/iter]] | Import and re-export the public bindings | Re-export identity/provenance projection without duplicating an instance |
+| [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/string/misc.ss::227][string/misc]] | for with in-range in string-substitute-char-if | Expanded semantic result, preserving let/cc, mutation and locations |
+| [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/sync/wg.ss::37][sync/wg]] | for over workers in wg-wait!, with exception handling and thread-join! | Its own expansion/session; runtime joins are not compile-time work |
+
+This establishes actual users, not a claim that all their dependencies have been
+classified. iter/iterators additionally imports std/error and creates interface
+methods; the prelude, implicit compiler helpers, native support and recursive
+initializers are part of the remaining closure. A static import list cannot sign
+the executable-support credential. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/expander/module.ss::853][Positive-phase import handling]] collects module
+dependencies and invokes eval-module; [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/expander/module.ss::102][module evaluation]] also forces preludes.
+
+The current implementation evaluates those dependencies via hash-for-each. This
+is not evidence of a prescribed deterministic initializer order. The replacement
+must record actual dependencies and define an observational refinement of allowed
+orders. It cannot silently sort effectful initializers or parallelize them. Unknown
+or noncommuting effects stay owner-serialized and nonreusable; an explicit stricter
+initialization policy is a language change requiring separate approval/proof.
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/list/list-builder.ss::29][list-builder]] documents shared mutable list state under continuation re-entry.
+That is evidence against treating every reachable helper closure as frozen. It is
+not proof that this particular in-range expansion executes that procedural helper
+or captures its mutable instance. Likewise source use of let/cc in string/misc is
+runtime semantics to preserve, not evidence that its expansion suspends a compiler
+query by invoking a continuation.
+
+** Readiness and safe parallelism
+
+The two consumers may expand concurrently only after (a) their exact binding
+projections resolve, (b) executable transformer/helper support is ready, (c) owned
+fresh lexical/session instances exist, and (d) initializer/effect dependencies are
+settled. Their unrelated phase-zero runtime native objects need not precede that
+expansion. A runtime helper actually required by macro execution DOES precede it.
+The graph is phase-resolved: the same module can have distinct executable and
+ordinary runtime readiness, and may need multiple phase instantiations.
+
+This changes the dependency authority from whole-module completion to requested
+result projections. It does not authorize arbitrary per-form caching. The initial
+query grain remains module × phase × stage × semantic profile.
+
+* RESEARCH Gambit stage interface and independent contexts :contract:
+:PROPERTIES:
+:CUSTOM_ID: iter-gambit-stage-contract
+:CURRENT_API_STATUS: internal-functions-not-admitted-service-interfaces
+:END:
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::647][Gerbil runtime emission]] constructs Scheme code, loaders and nested module outputs.
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::707][Meta emission]] creates SSI and positive-phase Scheme sections. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::787][compile-scm-file]]
+writes declarations and code, then invokes or defers [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::881][gsc-compile-file]]. Thus the real
+handoff is GeneratedSchemeResult, not Gerbil IR mislabeled as Gambit GVM.
+
+#+begin_src text :eval never
+GeneratedSchemeResult = {
+ module, phi, sectionKind(runtime|loader|phase), code,
+ declarations(block, standard/extended bindings, phase inlining policy, ...),
+ semanticIdentity, originMap, dependencyTrace, diagnosticProjection, effectClass
+}
+GambitRequest = { ownedContext, inputResult, requestedStage,
+                 semanticProfile, layoutProfile, inputEpoch, attemptCapability }
+StageOutcome = Success(sealedResult, actualDemands, diagnostics)
+             | Suspended(ownedState, pendingDemands)
+             | Failed(diagnostics, drainResponsibility)
+             | Cancelled(drainResponsibility) | Unknown(retainedCustody)
+#+end_src
+
+These are proposed data contracts, not implemented API names. Gerbil retains
+hygiene/phase/module policy. Gambit owns parsing/normalization of generated Scheme,
+semantic target selection, GVM lowering and modern C emission. The declarations,
+source origin, C interface and supplied/demanded module metadata must cross the
+boundary without loss. A direct in-memory call cannot simply omit reader/source
+location semantics from the previous Scheme serialization roundtrip.
+
+| Cut | Current Gambit source | Proposed returned contract | Invalidation boundary |
+|---+---+---+---|
+| Parse/normalize | [[file:../../../vendor/gambit/gsc/_front.scm::194][compile-frontend-aux]], normalize-program at 250 | Normalized result + environment/C interface + origins + module demands | Reader, semantic compiler options and input/phase effects |
+| GVM lower | [[file:../../../vendor/gambit/gsc/_front.scm::397][compile-parsed-program and module descriptor]] | GVM plus ModuleSpec/FrameSpec/PointId duties | Optimizer facts, semantic target constraints and compiler identity |
+| Modern C emit | [[file:../../../vendor/gambit/gsc/_front.scm::435][target.dump and C interface dump]] | Generated C group + descriptors/native requirements + outcome | Layout/emitter/profile; target semantic changes may invalidate earlier stages |
+| Native action | Existing configured C/link path | Native manifest with tool/header/ABI inputs | A CC-only change does not inherently change expansion |
+
+Generated source bytes, parsed trees and GVM are distinct representations with
+separate fidelity obligations. The existing .gvm dump is diagnostic output, not a
+stable serialization ABI. Cross-stage results either deeply seal all reachable
+mutable data, transfer an exclusive rooted context, or remain private within the
+same live context. No promise of persistent normalized/GVM caching is made before
+that graph/identity closure is proven.
+
+** Concrete mutable state to remove from process-global authority
+
+[[file:../../../vendor/gambit/gsc/_front.scm::317][compile-frontend]] installs compilation options and runs begin/end for environment,
+parse tree, GVM and selected target. The corresponding concrete state is:
+
+- [[file:../../../vendor/gambit/gsc/_env.scm::348][env.begin!/end!]]: variable counter and return/closure/temp variables.
+- [[file:../../../vendor/gambit/gsc/_ptree1.scm::2980][ptree.begin!/end!]]: node/temp counters and diagnostic port. end! clears the
+  counters but does not clear *ptree-port* in the inspected body; end! alone is
+  therefore not a proof of root retirement or port ownership transfer.
+- [[file:../../../vendor/gambit/gsc/_gvm.scm::3022][virtual.begin!/end!]]: operand interning table/allocation cursor. The frontend
+  additionally mutates *bb* and emission state, e.g. [[file:../../../vendor/gambit/gsc/_front.scm::953][basic-block globals]].
+- [[file:../../../vendor/gambit/gsc/_back.scm::388][target-select!]]: target and target-derived dispatch/primitive/frame data.
+  [[file:../../../vendor/gambit/gsc/_back.scm::475][target-unselect!]] resets selected helper objects and invokes target cleanup;
+  the target-specific writable closure still requires a complete census.
+
+The minimal acceptable architecture is not a mutex around this whole list. A
+Gambit CompileContext must own the mutable closure and explicit target-emission
+state. Immutable target descriptions can be shared only after a writer proof;
+semantic-target options cannot be mistaken for CC-only flags. Gerbil needs its
+own owned expander/optimizer/loader context as well. Process isolation can preserve
+current global ownership for early parallel execution, at measurable startup,
+copying and memory costs; it does not certify an in-process API.
+
+** Context state and one-shot outcome
+
+#+begin_src text :eval never
+Created -> Active -> Suspended -> Active -> Sealing -> Draining -> Closed
+                  \-> Failed/Cancelled/Unknown -> Draining -> Closed-or-Quarantined
+#+end_src
+
+Suspension relinquishes CPU capacity, retaining context, roots, borrow/callback
+ownership and the pending dependency list. It must also count retained memory so
+that suspended sessions cannot deadlock the memory budget needed by their producers.
+Context generation + attempt/epoch + owner identity gate every resume. Service
+completion is one-shot even if an internal continuation is multi-shot. A callback
+or saved continuation must not reenter a closed/reassigned context; explicitly
+supported re-entry needs fresh owned state and its own semantic proof.
+
+A success detaches/seals the returned graph and closes context-owned callbacks and
+borrows before context reuse. Failed/unknown execution cannot publish success or
+free its context on a timeout assumption. Unknown work stays retained/quarantined
+until its execution endpoint settles. Borrow closure, root coverage, actual exit
+handlers and failure of cleanup are still source-refinement obligations. The QNT
+protocol abstracts them; it does not prove native root maps or exceptions correct.
+
+* RESEARCH Deep Dune mechanisms, with a fixed source identity :dune:
+:PROPERTIES:
+:CUSTOM_ID: iter-dune-source-learning
+:UPSTREAM_COMMIT: 9efed2e52a69ca16ad5dff8d1b3badd54ac4bec8
+:EVIDENCE: ../../../evidence/research/iter-compiler-service/dune-source-manifest.json
+:END:
+
+Eight official Dune source files were downloaded read-only at the commit above;
+[[file:../../../evidence/research/iter-compiler-service/dune-source-manifest.json][the manifest]] binds their SHA256 values. The upstream commit response is retained.
+No Dune build/test was run. The separate computation.ml lookup returned 404;
+Computation is actually in node.ml. Moving-main web snapshots are not substituted
+for these bytes.
+
+| Pinned source | Mechanism and lesson | Scheme-specific decision / limit |
+|---+---+---|
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-node.ml::48][node.ml run fields]], [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-node.ml::319][update_value]] | Validated and changed runs are distinct; equal output still refreshes dependencies | Refresh actual macro/capability trace after equal result; cutoff compares the full consumed projection |
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-exec.ml::46][exec.ml restore]], [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-exec.ml::134][restoring/computing]] | Restore and recompute are explicit states; callers join in-flight computations | Gerbil uses one producer per result/cohort and owned waiting sessions; process safety is separate |
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-deps.ml::87][deps.ml ordered checks]] | Sequential dependency checks stop after a change; parallel sections permit independent checking | Preserve sequential guard/effect order; do not flatten a recorded trace into an unordered read set |
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-deps_collector.ml::146][deps_collector.ml]] and [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-parallel.ml::3][parallel.ml]] | Branch-local collectors preserve independent sections, including error paths | Each query/branch owns its trace; merge structure without merging live mutable macro instances |
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-node.ml::594][node.ml Computation]] | One force produces one completion; waiters check cycles before waiting | No repeated producer on duplicate demand; report phase cycles instead of silently breaking them |
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-exec.ml::4][exec.ml errors]] | Reproducible errors can be cached; cycle/nonreproducible errors cannot | Initial Scheme design caches admitted successes only; deterministic diagnostic caching needs an additional effect/identity proof |
+| [[file:../../../evidence/research/iter-compiler-service/dune-src-memo-invalidation.ml::76][invalidation.ml]], [[file:../../../evidence/research/iter-compiler-service/dune-src-dune_engine-build_system.ml::431][build_system.ml]] | Explicit invalidation and action-time dependency resolution; scoped locks | Keep invalidation, scheduler and action execution separate; do not imply all locks disappear |
+
+Dune's dependency collector explicitly relies on a cooperative single-threaded
+scheduler; its collector pool is not thread/domain safe. Therefore its Fiber
+concurrency does not prove OCaml domain or Gambit processor parallelism. We learn
+its dependency representation, cutoff and completion discipline; we must provide
+our own thread-safe/process-owned coordination. Memo's in-memory values also do
+not establish portable on-disk caching of Scheme syntax/closure heaps.
+
+The theoretical reference remains [[https://simon.peytonjones.org/assets/pdfs/build-systems-original.pdf][Build Systems a la Carte]]: rebuilding and
+scheduling are distinct design choices. The pinned Dune node source also points
+to the [[https://doi.org/10.1017/S0956796820000088][Theory and Practice]] treatment. This study derives a Scheme application,
+not a proof supplied by either paper. No superiority over Dune is demonstrated.
+
+* RESEARCH Retirement and net-benefit obligations :retirement:benefit:
+:PROPERTIES:
+:CUSTOM_ID: iter-retirement-benefit
+:END:
+
+The generated [[file:iter-compiler-service-matrix.org][matrix]] lists five paths and exact conditions. In order: classify all
+actual consumers and phase supports; define GeneratedSchemeResult fidelity; move
+compiler mutable state into owned contexts; qualify sealed stage results; migrate
+readiness/publication/scheduling consumers; only then remove old authority. gsc as
+standalone tool, the native C compiler, and Scheme semantics remain required.
+
+There is no benefit from merely relocating old loops. A cold cache must still do
+necessary expansion/lowering/native work; a warm trace only avoids work proven
+unchanged. The existing std/make already skips unrelated modules in many leaf
+edits, so that is baseline, not a new saving. Shared immutable programs may avoid
+repeated preparation; fresh lexical/module instances and ordered effects remain.
+
+Let R be avoided work, H added validation + sealing/instantiation + transfer work,
+D removed critical-path delay, K added critical-path delay, and M retained memory.
+Work benefit requires R > H; a strict span reduction requires D > K. Both equations
+need comparable real-stage accounting; they are not speed predictions. Total time
+also depends on available parallel slack, memory/CPU budgets and contention. On
+12 cores, two independent consumer expansions expose at most two-way concurrency
+at this particular cut; they cannot justify an end-to-end twelvefold claim.
+
+For a precisely qualified pipeline cut, let p be the shared executable-phase
+prefix, U a runtime/native branch needed by the final target but not by either
+expansion, and B the maximum remaining consumer-branch span. A whole-module gate
+adds the dependency U -> both consumers, yielding old DAG span p + U + B.
+Removing that edge yields new DAG span p + max(U, B), saving min(U, B) in graph
+span before added coordination. This is a symbolic architecture comparison,
+not a measured number or an assertion that this real chain has a nonzero U.
+If U is required to execute a macro, the edge remains and this saving is zero.
+The production map must establish U and all other edges; finite CPU/memory slots
+can prevent actual elapsed time from reaching the smaller span. New work H and
+new span K remain separate charges, and the scheduling work bound still applies.
+
+| Case | Falsifiable target | Added work / failure of benefit |
+|---+---+---|
+| No-change | Zero recomputation of admitted unchanged demanded stages | Trace/absence/tool validation and materialization remain; hidden input refutes reuse |
+| Changed iter transformer | Invalidate both real users of changed executable support | Same export names do not save expansion; trace comparison may cost more than tiny expansion |
+| Equal consumed result after change | Stop only downstream propagation beyond genuinely equal projections | New dependency trace still replaces old one; relevant origin/effect change defeats equality |
+| Two consumers | Remove unrelated phase-zero/native wait from expansion span | Real macro runtime helpers, serial effects, IPC and retained contexts may dominate |
+| CC/profile-only change | Reuse semantic stages under a proven nonsemantic projection | Semantic target flags, layout dependencies or declarations invalidate broader stages |
+
+Darwin cold generated-C preprocessing remains a separate backend/runtime refactoring
+problem; this graph can avoid unnecessary invocations but does not make a necessary
+GCC macro expansion intrinsically cheaper. No matched platform timing exists in
+this study. The reported Linux/macOS gap cannot be assigned to this design alone.
+
+* RESEARCH Formal refinement and closure matrix :qnt:lean:ascent:
+:PROPERTIES:
+:CUSTOM_ID: iter-service-proof-obligations
+:END:
+
+| Obligation | Actual model/route | What is closed conditionally | What remains open |
+|---+---+---+---|
+| IS-H | SysML -> native constants -> QNT two consumers/two contexts | Stage order, exclusive context/generation, pause-root custody, epoch gate, seal/close/publish, ordered guard control | No real Scheme values, pointer graph, progress/fairness, native completion truth, cleanup failure or full dynamic trace interpreter |
+| IS-I | SysML -> ASCENT induction route -> eight Lean lemmas | Arithmetic work/span consequences; generation, projection, outcome and custody premises | Full transition induction, clean-build observational equivalence and C memory model |
+| IS-S | Actual iter chain and Gambit state writers; depends on IS-H/I/E and IC-S | Concrete source seams and counterexamples identified | Transitive phase/effect closure, complete writer/caller census, each stage's value/identity/root simulation |
+| IS-E | Independent platform route | None admitted by local protocol models | Native ABI, GC/SMP, process/IPC behavior and real performance |
+
+SysML additionally defines typed CompileContext/StageResult records and publication/
+release requirements. These constrain the proposed design; parsing/validation does
+not establish their satisfaction by native code. Four refinement routes name actual
+QNT operations and Lean declarations; the adapter checks those names and ASCENT
+projects the associations. Their evidenceGap fields prevent the associations from
+being misreported as completed refinement proofs.
+
+The new QNT has 18 named scenarios, including six explicit invalid controls.
+Its state integer stages denote generated Scheme, normalized, GVM and C results;
+these are protocol labels, not computed Scheme semantics. Context generations
+reject stale resume tokens. Unknown attempts retain roots until an explicit endpoint acknowledgement; that
+acknowledgement and settle action are assumptions requiring native source refinement.
+The epoch edit abstracts invalidation, retaining old
+execution custody for draining. The ordered-trace example is a hypothetical guard
+that changes before an irrelevant later probe; it is not an observed extra import
+in iter. It exposes why eager probing is not universally sound, without claiming
+that all validation reads are effects or that parallel sections must serialize.
+
+The parent eight-node model checks reuse, dynamic discovery and scheduling. This
+new model adds context/stage custody; neither silently replaces the production
+compiler or proves liveness. ASCENT routes obligations and rejects missing/stale
+receipts; it does not manufacture proofs from file links. All seven source/platform
+gates stay false until their actual evidence is provided, including in the control
+where every formal obligation is synthetically marked checked.
+
+Bootstrap retains an explicit existing-compiler seed -> service artifact -> recorded
+self-rebuild graph, distinct producer identities and optional persistent store.
+Neither a pre-existing daemon nor a populated cache is a correctness requirement.
+The next research priority is the target-specific writer closure and stage result
+sealing/fidelity, rather than another isolated notifier lifetime subproblem.

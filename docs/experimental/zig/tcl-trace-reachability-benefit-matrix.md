@@ -1,0 +1,114 @@
+# Reachability, Semantic Work and Modern C/Zig Net Benefit
+
+[Design](tcl-trace-reachability-design.md), [arguments](tcl-trace-reachability-arguments.md),
+[evidence](tcl-trace-reachability-evidence.md). No person-day, timing, native
+measurement or hypothetical speed percentage is a decision input.
+
+RV01. All thirteen necessary support families remain shared.
+
+The [preceding complete support inventory](tcl-trace-cancel-benefit-matrix.md)
+still applies: schema/policy; target lifetime; immutable bytes; pending/token
+publication; installed/subtree state; checks/diagnostics; durable guard; source
+and owned reset; trace scopes; failure/reentry; deletion/drain/image; public/
+private ABI; evidence/debug. This study refines trace, hook and reset evidence;
+it establishes zero uniquely eliminated necessary support families in Zig.
+
+| Required refinement | Modern generated C support | Zig support | Net boundary |
+|---|---|---|---|
+| Independent record identity and nesting | Generated identities plus real busy/list state | Same identities and state | Shared semantic work |
+| Entry/depth/root contract | Typed operations around actual Tcl entry branches | Same branch/ABI/root rules | No language shortcut |
+| Hook admission | Kind/effect/lifetime/exit and reset authority records | Same records and qualification | defer does not license reentry |
+| Force/private reset migration | Source-event or qualified owned-scope service | Same migration plus C facade | Unknown clients remain blockers |
+| Trace/parent guard handoff | Durable acyclic dependencies and final validation | Same dependencies/validation | Local completion cannot clear target |
+| Evidence-class separation | Public-source/private-body/hook/fixture provenance | Same provenance plus provider qualification | Common evidence benefit |
+
+RV02. Exact conditional work counts are not invented performance numbers.
+
+For the fixed-record family in RD03–RD04:
+
+| Registered records r | Trace callback body executions T(r) | f body executions | Maximum simultaneous callback bodies |
+|---|---|---|---|
+| 1 | 1 | 2 | 1 |
+| 2 | 4 | 5 | 2 |
+| 3 | 15 | 16 | 3 |
+| 4 | 64 | 65 | 4 |
+
+These values are derived by hand from T(k)=k*(1+T(k-1)), not executed. Each
+callback recursively invokes f once and all return OK; records/command are
+stable, limits adequate, and no cancellation/hook/step/deletion occurs. Thus
+this is a semantic workload count, not a claim about typical applications or
+measured runtime. In particular, zero UNWIND is present in this family; its
+callback count cannot be multiplied into a fabricated count of resurrection bugs.
+[RX02–RX04, RP01, RP02]
+
+RV03. Account total and live support costs separately.
+
+| Work/state | Source-matched C or Zig design | Saving condition / counter-cost |
+|---|---|---|
+| Required callbacks | Preserve T(r) for this family | Name-wide suppression reduces work only with changed semantics |
+| Live callback-scope storage | O(r) for the fixed family plus actual dispatcher/native state | Does not imply O(r) total enter/exit/receipt work |
+| Total guard accounting | At least one declared disposition per relevant actual scope, over N callback/dispatcher instances | N can grow as T(r); reservation and compact representations matter |
+| Canonical cancellation state | Shared CancelCell and complete writer closure | Removes replay authority, not all checks or legacy snapshot traffic |
+| Hook/private evidence | Required for supported native domain | Textual absence and function signatures cannot replace qualification |
+| Temporary/history retention | Until actual ancestor/native/record/image frontier closes | Child completion cannot free enclosing snapshot state |
+
+No total time/space dominance follows. The redesign must meet a declared
+semantics/capability objective; measurable cost coefficients remain absent.
+
+RV04. Reachability classification prevents double-counted benefits.
+
+| Claim | Evidence result | Allowed value claim |
+|---|---|---|
+| Same-command independent trace recursion | Public-source construction closed for fixed domain | Required behavior must be preserved or deliberately changed |
+| Ordinary positive-depth U resurrection | Excluded under explicit core writer/root/depth premises | No achieved bug-elimination benefit for this excluded domain |
+| Zero-depth private bracket path | Body-closed, real reset predicate; caller/support unresolved | A concrete private-domain admission obligation |
+| Force reset from a legal hook | Signature/edge/body only, no actual admitted producer | Unresolved requirement, not a certified bug or saving |
+| New child guard clearing beneath old snapshot | Invalid proposed migration schedule | Mandatory dependency design, not a measured legacy failure |
+| Full separated state | Trace snapshot no longer writes cancellation if all writers migrate | Shared structural benefit available in both languages |
+
+RV05. Retirement is about authority and clients, not removing useful semantics.
+
+| Candidate old responsibility | Can retire after | Must remain |
+|---|---|---|
+| Saved trace word as cancellation authority | Every admitted writer/reader uses canonical cell | Original noncancel restoration and declared trace behavior |
+| Untracked private force reset | Actual clients migrate to explicit source/owned operations | Required reset semantics, source points and failure/status contract |
+| Unclassified hook effects | Each supported callback kind has real admission evidence | Native/object lifetime, restrictions and actual cleanup |
+| Child-return-as-target-neutrality shortcut | Actual ancestor/dispatcher/frontier dependency protocol | Local completion and parent target custody |
+
+Zero runtime paths retire here; these refine existing replacement bundles rather
+than add four independent benefits to earlier totals. Public trace/list/root
+machinery is not redundant support that either language can erase. [RD14–RD16]
+
+RV06. The incremental language comparison remains unfavorable to an unproved second provider.
+
+| Decision dimension | Modern generated C | Zig | Current finding |
+|---|---|---|---|
+| Trace state modernization | Common schema and canonical state | Same | C is sufficient |
+| Root/FFI/native exception custody | Explicit runtime support | Same support and C ABI | No language-only elimination |
+| Supported private/hook domain | Source/caller/profile qualification | Same plus provider parity | Same semantic gate, additional provider costs possible |
+| LLVM/MLIR decoupling | Shared native effect contract | Same contract | Not a Zig-exclusive gain |
+| Necessary support family count | 13 | 13 | Zero unique elimination established |
+| Positive total runtime / extra Zig value | Unmeasured | Unproved | Keep C mainline; no language claim substitutes for evidence |
+
+RV07. Countable progress is a research result, not admission.
+
+| Evidence | This study |
+|---|---|
+| Retained committed C/H/M blobs rehashed/searched | 350 |
+| New registration/reset/busy matching files/lines/occurrences | 7 / 41 / 42; includes non-call text |
+| New pinned hook/native-trace manuals | 3; API Git blobs reproduced, not independent tree compared |
+| Conditional proof arguments / inert cases | 9 / 28, including 2 conditional positive controls |
+| Source-closed ordinary multi-record domain | Fixed direct-enter, stable non-imported command, stated no-error premises |
+| Complete real native UNWIND-resurrection caller | Unresolved |
+| Implementations / native profiles / runtime paths retired | 0 / 0 / 0 |
+
+RV08. The decision should follow the modernized semantic contract.
+
+The value is a single state/ownership authority and accurate native admission,
+not assuming every scary bit history is a real bug. The ordinary multi-record
+path is now concrete; U resurrection is excluded in one explicit core domain,
+while private zero-depth and force-hook callers remain qualification gaps. Both
+modern C and Zig can enforce the required architecture; neither has a proven
+total speedup here, and Zig has no demonstrated positive incremental support
+elimination. Preserve semantic work, bound new bookkeeping and retire real
+duplicate authorities before introducing another provider. [RP01–RP09]

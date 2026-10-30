@@ -1,0 +1,212 @@
+#+TITLE: Legal VAR Output — Handler, Reentry and Registry Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitFormatterLegalOutput
+:STATUS: conditional-model; source-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| igsc | vendor/gambit/gsc/igsc.scm | "_gscdebug" | Hook is loaded by the interpreted compiler debug session, not automatically by every gxc/gsc mode |
+| env-init | vendor/gambit/gsc/_env.scm | (define (env.begin!) | Initialize real stamp producer before make-temp-var |
+| var-producer | vendor/gambit/gsc/_env.scm | (define (make-temp-var name) | Real VAR producer preserves constructor invariants for interned long symbol |
+| var-constructor | vendor/gambit/gsc/_envadt.scm | (vector var-tag name bound refs sets source #f #f (next-var-stamp) #f #f temp?) | Valid VAR, no tag forgery |
+| var-predicate | vendor/gambit/gsc/_envadt.scm | (define (var? x) | Matches actual vector/tag |
+| save | vendor/gambit/gsc/_gscdebug.scm | (let ((save-wr ##wr)) | Capture current global H per invocation |
+| install | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! ##default-wr) | Set D before output |
+| restore | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! save-wr) | Plain restore retains old lexical save on each resume |
+| var-payload | vendor/gambit/gsc/_gscdebug.scm | (list 'VAR: (c#var-name obj)) | No PTREE conversion/eval needed for chosen legal branch |
+| write-simple | vendor/gambit/lib/_io.scm | (define-prim (write-simple | Public checked API reaches raw VAR |
+| write-style | vendor/gambit/lib/_io.scm | (define-prim (##write-with-style | Character port path supplies write environment |
+| make-we | vendor/gambit/lib/_io.scm | ((macro-object-port-write-datum port) port obj we2) | Actual output dispatch |
+| string-dispatch | vendor/gambit/lib/_io.scm | (define (write-datum port obj we) | String method dispatch must be disambiguated by source interval |
+| symbol | vendor/gambit/lib/_io.scm | (define-prim (##wr-symbol we obj) | Default symbol writer emits long name |
+| substring | vendor/gambit/lib/_io.scm | (define-prim (##write-substring str start end port) | Fully buffered path fills then drains character buffer |
+| chunk | vendor/gambit/lib/_io.scm | (define chunk-size 32) | String-port chunk size |
+| capacity | vendor/gambit/lib/_io.scm | (##fx< capacity unread) | Strict capacity pressure from published chunk count |
+| timeout-call | vendor/gambit/lib/_io.scm | ((macro-port-wtimeout-thunk port)) | Actual user callback before relock |
+| relock | vendor/gambit/lib/_io.scm | (macro-port-mutex-lock! port) | Must select relock after timeout, not arbitrary matching matchIndex |
+| pipe-constructor | vendor/gambit/lib/_io.scm | (define-prim (,##make-vect-pipe-port | Generated string-pipe peer buffer exchange |
+| pipe-export | vendor/gambit/lib/_io.scm | (define-prim (,open-vect-pipe | Real public constructor generated from string instantiation |
+| timeout-set | vendor/gambit/lib/_io.scm | (define-prim (output-port-timeout-set! | Public accepts procedure and nonpositive timeout |
+| nonpositive | vendor/gambit/lib/_thread.scm | (define-prim (##absrel-timeout->timeout | Integer zero converts to false / immediate wait path |
+| wait-unlock | vendor/gambit/lib/_thread.scm | (define-prim (##mutex-signal-and-condvar-wait! | Both SMP and non-SMP false-timeout arms unlock before returning false |
+| handler-install | vendor/gambit/lib/_thread.scm | (define-prim (with-exception-handler handler thunk) | Dynamic binding uses Gambit original handler |
+| raise | vendor/gambit/lib/_thread#.scm | (##define-macro (macro-raise obj) | Native Gambit handler direct call may return; distinct R7RS wrapper |
+| capture | vendor/gambit/lib/_thread.scm | (define-prim (call-with-current-continuation | Real public capture API |
+| r7rs | vendor/gambit/lib/_thread.scm | (define (##r7rs-with-exception-handler handler thunk) | Do not substitute R7RS noncontinuable semantics |
+| target-begin | vendor/gambit/gsc/_t-c-1.scm | (define (targ-heap-begin!) | Live target registry required for delayed writer |
+| target-end | vendor/gambit/gsc/_t-c-1.scm | (set! targ-glo-vars #f) | Ended registry is not a new usable table |
+| resource-call | vendor/gambit/gsc/_t-c-1.scm | (define (targ-use-glo glo supply?) | Actual callback-callable global lookup and write |
+| canonical | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-demanders-set! (cdr x) '("")) | Same entry canonicalization |
+| resource-raw | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Raw alias can erase canonicality |
+| emitter | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Normal scalar emission still does not directly enter VAR branch |
+| doc-pipe | vendor/gambit/doc/gambit.txi | @deffnx procedure open-string-pipe | Documented legal user interface |
+| doc-timeout | vendor/gambit/doc/gambit.txi | @deffnx procedure output-port-timeout-set! | Documentation is not substituted for EAGAIN source behavior |
+| doc-native-raise | vendor/gambit/doc/gambit.txi | continuation of the call to @code{raise} is invoked. | Gambit manual explicitly permits handler return; source agrees and differs from R7RS raise |
+
+** Window
+
+| key | cause | effect | reachability | gap |
+|---+---+---+---+---|
+| legal-witness | Valid make-temp-var + write-simple + string-pipe capacity 1 + timeout 0 | Callback can occur inside temporary D interval | Source-composable legal igsc debug-session capability witness | No assertion this handler exists in stock compilation; no native run |
+| handler-capture | User timeout thunk explicitly raises to original Gambit handler | call/cc captures output stack then escapes; future resumes retain save | Legal user-installed extension recipe, not existing stock handler body | Per-resume mutable writeenv/port frontier and generated roots not fully simulated |
+| metadata | Delayed callback tail calls targ-use-glo after handler return | One genuine execution per resume; current target table selected at call time | Requires live initialized target and interned symbol capability | Not proof of callback between the selected emitter calls |
+| timeout-doc | Timeout thunk returns false | Some source paths return false/EAGAIN instead of automatically raising | Do not use this as exception producer | Chosen witness explicitly raises; no documentation-only exception edge |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| escape | Capture and escape while D is globally installed | Valid VAR, actual timeout producer, original Gambit handler | Plain restore is skipped | Source construction, not native reproduction |
+| overwrite | Install N while captured frame is parked; resume without reinstalling D | Peer releases pressure; remaining output returns and roots survive | Saved H can overwrite N on each completion | Full mutable I/O multi-shot simulation remains OPEN |
+| canonical | Delayed named write preserves canonical demand only within same entry | Target epoch unchanged; named writer only | No value need for second normalization in qualified profile | Fault/output and alias closure remain OPEN |
+| different-epoch | Callback dynamically resolves current targ-glo-vars | New heap begin before resume | New registry is canonical, but old plan receipt invalid | Cannot infer same-entry equivalence from equal field values |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| view | Two temporary global writes per special invocation | Owned WriterView across 20 recursive applications and multi-shot roots | All consumers migrated; explicit changed registration interleavings |
+| second | At most p*N second normalizations | Qualification Cq and W resolver dispatches at Cv | p*N*Cn > Cq+W*Cv plus source/observation closure |
+| metadata | Repeated validation may share session-level effect policy | Registry epoch identity, callback/capture custody and drain | No target table retirement while callback can still use targ-use-glo |
+| evidence | No longer treat malformed PTREE or OS write error as necessary trigger | Bounded pipe/frontier and handler source refinement | Legal configurable source witness only; no end-to-end speed claim |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Valid VAR | write-simple | real constructor |
+| write-simple | Debug hook | string-port dispatch |
+| Debug hook | Default writer interval | save H; install D |
+| Default writer interval | Bounded pipe | 32-char chunks |
+| Bounded pipe | Timeout thunk | pressure; unlock |
+| Timeout thunk | Gambit handler | explicit raise |
+| Gambit handler | Captured continuation | capture; escape |
+| Captured continuation | Delayed metadata tail | resume after peer drain |
+| Delayed metadata tail | Plain restoration | callback return; relock/unlock |
+| New formatter N | Plain restoration | H overwrites N |
+| Delayed metadata tail | Registry epoch | current table lookup |
+| Registry epoch | Retirement gate | same entry required |
+| Capture roots | Retirement gate | drain or qualified detach |
+| Retirement gate | Second normalization | conditional value + observation |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| formatter_legal_output.prepare | FormatterLegal.preparePreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.enter | FormatterLegal.enterPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.fill | FormatterLegal.fillPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.timeout | FormatterLegal.timeoutPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.captureEscape | FormatterLegal.captureEscapePreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.publish | FormatterLegal.publishPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.drain | FormatterLegal.drainPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.resume | FormatterLegal.resumePreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.returnHandler | FormatterLegal.returnHandlerPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.namedTail | FormatterLegal.namedTailPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.rawTail | FormatterLegal.rawTailPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.rejectDead | FormatterLegal.rejectDeadPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.resetRegistry | FormatterLegal.resetRegistryPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.endRegistry | FormatterLegal.endRegistryPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.callbackReturns | FormatterLegal.callbackReturnsPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.finish | FormatterLegal.finishPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.closeAdmission | FormatterLegal.closeAdmissionPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.detach | FormatterLegal.detachPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.attest | FormatterLegal.attestPreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.issue | FormatterLegal.issuePreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+| formatter_legal_output.attemptStale | FormatterLegal.attemptStalePreserves | Conditional source witness abstraction; mutable frontier and native refinement external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| steps | FormatterLegal.stepPreserves |
+| reachable | FormatterLegal.reachableSafe |
+| drain | FormatterLegal.permitNeedsDrain |
+| epoch | FormatterLegal.permitNeedsEpoch |
+| save | FormatterLegal.resumeKeepsSaved |
+| writer | FormatterLegal.resumeKeepsWriter |
+| chunk | FormatterLegalAlgebra.stringChunkExceedsCapacity |
+| drained | FormatterLegalAlgebra.fullDrainClearsPressure |
+| replay | FormatterLegalAlgebra.replayRestoresCaptured |
+| canonical | FormatterLegalAlgebra.secondUnderNamedWriters |
+| rebase | FormatterLegalAlgebra.readerRebaseConservesPending |
+| publish | FormatterLegalAlgebra.publishConservesPending |
+| pause-count | FormatterLegalAlgebra.pausedPending |
+| drain-pressure | FormatterLegalAlgebra.drainedPressure |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| entry | var-constructor | write-simple | formatter_legal_output.enter | FormatterLegal.enterPreserves |
+| pressure | substring | capacity | formatter_legal_output.timeout | FormatterLegalAlgebra.stringChunkExceedsCapacity |
+| capture | timeout-call | capture | formatter_legal_output.captureEscape | FormatterLegal.captureEscapePreserves |
+| resume | capture | restore | formatter_legal_output.resume | FormatterLegal.resumeKeepsSaved |
+| late-write | resource-call | canonical | formatter_legal_output.namedTail | FormatterLegal.namedTailPreserves |
+| new-epoch | target-begin | resource-call | formatter_legal_output.resetRegistry | FormatterLegal.permitNeedsEpoch |
+| retire | resource-call | emitter | formatter_legal_output.issue | FormatterLegal.permitNeedsDrain |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| debug-capture | vendor/gambit/gsc/_gscdebug.scm | \(call-with-current-continuation\vert{}\(dynamic-wind | 0 | Lexical only; user callback is supplied externally |
+| debug-direct-resource | vendor/gambit/gsc/_gscdebug.scm | targ-use-glo\vert{}targ-rsrc- | 0 | No direct resource writer in hook; indirect user authority remains open |
+| wait-definitions | vendor/gambit/lib/_thread.scm | \(define-prim \(##mutex-signal-and-condvar-wait! | 2 | SMP/non-SMP branches both inspected |
+
+** Policy
+
+| key | writerClass | assumptions | firstExpected | secondExpected | scope |
+|---+---+---+---+---+---|
+| current | named-only |  | false | false | Assumption profile only; not actual source/native permission |
+| synthetic-qualified | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence | false | true | Assumption profile only; not actual source/native permission |
+| synthetic-live-capture | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;fault-equivalence;legal-entry-qualified;output-equivalence | false | false | Assumption profile only; not actual source/native permission |
+| synthetic-new-registry | named-only | first-retained;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified;output-equivalence | false | false | Assumption profile only; not actual source/native permission |
+| synthetic-unknown-handler | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;legal-entry-qualified;output-equivalence | false | false | Assumption profile only; not actual source/native permission |
+| synthetic-output-gap | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;legal-entry-qualified | false | false | Assumption profile only; not actual source/native permission |
+| synthetic-no-entry-proof | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence;output-equivalence | false | false | Assumption profile only; not actual source/native permission |
+
+** Slice
+
+| key | path | beginNeedle | endNeedle | callNeedle | matchIndex | actionName | lemma |
+|---+---+---+---+---+---+---+---|
+| concrete-string | vendor/gambit/lib/_io.scm | (define-prim (##make-string-port | ;;; Implementation of u8vector ports. | (##wr we obj) | 0 | formatter_legal_output.enter | FormatterLegal.enterPreserves |
+| generic-timeout | vendor/gambit/lib/_io.scm | (define (,',vect-wbuf-drain port) | (define (name port) | ((macro-port-wtimeout-thunk port)) | 0 | formatter_legal_output.timeout | FormatterLegal.timeoutPreserves |
+| smp-wait | vendor/gambit/lib/_thread.scm | (define-prim (##mutex-signal-and-condvar-wait! | (define-prim (##wait-for-io! | (macro-mutex-unlock-no-reschedule! mutex) | 0 | formatter_legal_output.captureEscape | FormatterLegal.captureEscapePreserves |
+| non-smp-wait | vendor/gambit/lib/_thread.scm | (define-prim (##mutex-signal-and-condvar-wait! | (define-prim (##wait-for-io! | (macro-mutex-unlock-no-reschedule! mutex) | 1 | formatter_legal_output.captureEscape | FormatterLegal.captureEscapePreserves |
+| original-raise | vendor/gambit/lib/_thread#.scm | (##define-macro (macro-raise obj) | (##define-macro (macro-abort obj) | ((macro-current-exception-handler) obj) | 0 | formatter_legal_output.returnHandler | FormatterLegal.returnHandlerPreserves |
+| named-existing | vendor/gambit/gsc/_t-c-1.scm | (define (targ-use-glo glo supply?) | (define (targ-glo-rsrc g) | (targ-rsrc-demanders-set! (cdr x) '("")) | 0 | formatter_legal_output.namedTail | FormatterLegalAlgebra.secondUnderNamedWriters |
+| debug-restore | vendor/gambit/gsc/_gscdebug.scm | (let ((save-wr ##wr)) | ;;;============================================================================ | (##wr-set! save-wr) | 0 | formatter_legal_output.finish | FormatterLegal.resumeKeepsSaved |
+
+** Frontier
+
+| key | wlo | whi | peerRlo | pressure | scope |
+|---+---+---+---+---+---|
+| paused | 32 | 32 | 0 | 32 > 1 | 64 characters queued before callback |
+| peer-drained | 0 | 32 | 32 | -32 <= 1 | Reader advanced first full chunk and consumed the second |
+| first-fresh-buffer | 32 | 0 | 32 | 0 <= 1 | Resume takes loop and reads current buffer, then publishes it |
+| first-return | 32 | r | 32 | 0 <= 1 | 0 < r < 32 remaining characters fit fresh buffer |
+| peer-drained-again | 0 | r | r | -r <= 1 | Read exactly the known remaining r characters |
+| second-fresh-buffer | r | 0 | r | 0 <= 1 | Old capture does not cache this new buffer in the unexecuted branch |
+| second-return | r | r | r | 0 <= 1 | Remaining substring/close replay; bytes are not claimed identical globally |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| FL-history | interleaving | dev/refactoring/modern-c/models/quint/formatter_legal_output.qnt | 16 histories including five negative controls; source-composed witness, not byte-exact execution |
+| FL-induction | induction | dev/refactoring/modern-c/models/lean/FormatterLegal.lean | Every projected action preserves conditional custody and certificate invariant |
+| FL-algebra | induction | dev/refactoring/modern-c/models/lean/FormatterLegalAlgebra.lean | Chunk threshold, saved restoration and inherited named-writer value algebra |
+| FL-projection | restricted-projection | dev/refactoring/modern-c/models/lean/FormatterLegalAst.lean | Typed IR binding, operator, field and action roster checks; extractor trusted |
+| FL-source | source-refinement | dev/refactoring/modern-c/formatter-legal-output-design.org | Exact mutable I/O frontiers, application-installed callback closure, selected artifact and resume endpoints OPEN |
+| FL-exceptions | exception-equivalence | dev/refactoring/modern-c/formatter-legal-output-design.org | Original Gambit handler distinguished from R7RS; all output/fault prefixes OPEN |
+| FL-platform | c23-platform-qualification | dev/refactoring/modern-c/language-baseline-design.org | Native ownership, generation publication, GC roots and target support OPEN |
+| FL-emission | emitter-fidelity | dev/refactoring/modern-c/formatter-legal-output-design.org | Witness is debug-session capable; selected scalar emission interposition remains OPEN |

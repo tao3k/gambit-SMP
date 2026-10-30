@@ -6,13 +6,14 @@ import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.native_review import historical_observation
 from gambit_smp.ascent_program import engine_api, load_catalog, query
 
 
-ARCHIVE = "evidence/source-results/fixtures/thread-completion-contract/bootstrap-second-core-history"
+ARCHIVE = "tests/fixtures/historical-bootstrap/bootstrap-second-core-history"
 ORIGINAL = "evidence/model-results/bootstrap-018-deny.json"
 PAIRS = [("status", "/status", "/status"), ("exit", "/exit", "/steps/0/exit"),
          ("timeout", "/timeout", "/steps/0/timeout"),
@@ -57,6 +58,24 @@ class HistoricalObservationTransportTests(unittest.TestCase):
     def test_reference_drift_is_rejected(self):
         self.version["original"]["sha256"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "reference drift"):
+            self.observe()
+
+    def test_published_log_membership_is_not_an_ordinary_input_path(self):
+        from gambit_smp.native_archive import validate
+        def published(root, name):
+            result = validate(root, name)
+            result.pop(ARCHIVE + "/bootstrap.log", None)
+            return result
+        with patch("gambit_smp.native_archive.validate", side_effect=published):
+            _, recovered, _, facts = self.observe()
+        self.assertEqual(-9, recovered["steps"][0]["exit"])
+        self.assertEqual(5, len(facts["observation_equal_pointer"]))
+
+    def test_same_log_bytes_outside_archive_cannot_fake_membership(self):
+        other = self.root / "outside.log"
+        shutil.copyfile(self.root / ARCHIVE / "bootstrap.log", other)
+        self.version["log"]["path"] = "outside.log"
+        with self.assertRaisesRegex(ValueError, "belong to the verified archive"):
             self.observe()
 
     def test_archive_member_drift_is_rejected(self):

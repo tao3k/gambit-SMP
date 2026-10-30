@@ -11,6 +11,57 @@ from gambit_smp import recipes
 
 
 class FingerprintPlanTests(unittest.TestCase):
+    def test_finalization_reports_all_drift_without_admitting_any(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            file = root / "input"
+            file.write_text("before")
+            expected = recipes.fingerprints([file])
+            steps = [{"observedInputs": expected, "artifacts": {"input": expected[str(file)]}}]
+            with patch.object(recipes, "inspect_outputs", return_value={"status": "AVAILABLE"}):
+                self.assertTrue(recipes.finalization_observation(root, root, steps, expected, expected)["stable"])
+                file.write_text("after")
+                result = recipes.finalization_observation(root, root, steps, expected, expected)
+                self.assertFalse(result["stable"])
+                self.assertEqual(["input", "tool", "observed-input", "artifact"],
+                                 [row["kind"] for row in result["failures"]])
+                file.unlink()
+                self.assertEqual(4, len(recipes.finalization_observation(root, root, steps, expected, expected)["failures"]))
+
+    def test_finalization_refuses_unknown_output_even_with_unchanged_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for status in ("UNKNOWN", "MODIFIED", "MISSING"):
+                with patch.object(recipes, "inspect_outputs", return_value={"status": status}):
+                    result = recipes.finalization_observation(root, root, [], {}, {})
+                    self.assertFalse(result["stable"])
+                    self.assertEqual("output-availability", result["failures"][0]["kind"])
+            for status in ("AVAILABLE", "RETAINED"):
+                with patch.object(recipes, "inspect_outputs", return_value={"status": status}):
+                    self.assertTrue(recipes.finalization_observation(root, root, [], {}, {})["stable"])
+                    result = recipes.finalization_observation(root, root, [{"artifacts": {"../escape": "0" * 64}}], {}, {})
+                    self.assertFalse(result["stable"])
+                    self.assertEqual("artifact", result["failures"][0]["kind"])
+
+    def test_historical_source_is_revision_bound_and_digest_checked(self):
+        import hashlib
+        from gambit_smp import research_audit as audit
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "vendor").mkdir()
+            record = {"schema": "gambit-historical-source.v1", "repository": "vendor",
+                      "revision": "a" * 40, "file": "include/header.h",
+                      "sha256": hashlib.sha256(b"original").hexdigest()}
+            with patch("gambit_smp.task_processes.check_output", return_value=b"original") as read:
+                self.assertEqual(b"original", audit.historical_source(root, record))
+                self.assertEqual("a" * 40 + ":include/header.h", read.call_args.args[0][-1])
+                with self.assertRaisesRegex(ValueError, "digest mismatch"):
+                    audit.historical_source(root, {**record, "sha256": "0" * 64})
+                with self.assertRaisesRegex(ValueError, "fixed historical"):
+                    audit.historical_source(root, {**record, "revision": "HEAD"})
+                with self.assertRaisesRegex(ValueError, "outside repository"):
+                    audit.historical_source(root, {**record, "file": "../header.h"})
+
     def test_same_size_same_timestamp_change_is_not_cached(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / "source"
@@ -138,6 +189,7 @@ class RecipeTests(unittest.TestCase):
         self.path.write_text(json.dumps(self.recipe))
 
     def simulated_execute(self, argv, root, timeout, **kwargs):
+        kwargs.get('metadata', {}).update(parentReaped=True, processGroupQuiescent=True)
         output = Path(argv[argv.index("--out") + 1])
         if "parse" in argv:
             result = {"stage": "parsing", "errors": [], "modules": [{"name": "control", "declarations": [
@@ -148,6 +200,18 @@ class RecipeTests(unittest.TestCase):
             result = {"stage": "testing", "errors": [], "passed": ["controlTest"], "failed": [], "ignored": []}
         output.write_text(json.dumps(result))
         return 0, "unit-test executor only\n", False, 0.1
+
+    def test_quint_commands_publish_the_shared_completion_observation(self):
+        receipt = self.run_simulated('quint-observations')
+        self.assertEqual('PASS', receipt['outcome'])
+        for name in ('parse', 'test'):
+            row = recipes.read_json(self.root / 'quint-observations' / name / 'raw.process.json')
+            self.assertEqual('OBSERVED', row['state'])
+            self.assertTrue(row['completionObserved'])
+            self.assertTrue(row['parentReaped'])
+            self.assertTrue(row['processGroupQuiescent'])
+            self.assertFalse(row['runtimeAdmitted'])
+        self.assertTrue(all(len(step['commands']) == 1 for step in receipt['steps']))
 
     def run_simulated(self, name, side_effect=None, prior=None):
         with patch.object(recipes, "tool_files", return_value=[self.node, self.quint]), \

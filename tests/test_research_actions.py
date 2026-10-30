@@ -17,6 +17,60 @@ from gambit_smp.framework import ROOT
 
 
 class ActionInferenceTests(unittest.TestCase):
+    validation_after_domains = True
+
+    def test_view_action_rejects_result_changed_after_discovery(self):
+        view = {"id": "gc", "path": "view.json", "inputs": {"source": "a"},
+                "answers": {"open": [["owner", "missing"]]}}
+        action = {"operation": "evidence-view", "view": "view.json", "query": "open",
+                  "selectedEvidenceIdentity": actions.view_evidence_identity(view, "open")}
+        changed = dict(view, answers={"open": [["owner", "changed"]]})
+        snapshot = {"sourceIdentity": "source-a", "inputs": {}, "backend": {},
+                    "nativeExplanation": {}}
+        with tempfile.TemporaryDirectory() as directory, patch(
+                "gambit_smp.ascent_program.engine_api",
+                return_value=contextlib.nullcontext((object(), {}))), patch(
+                "gambit_smp.evidence_views.evaluate", return_value=changed):
+            with self.assertRaisesRegex(ValueError, "STALE selected Evidence view result"):
+                actions._execute_action(Path(directory), action, snapshot,
+                                        Path(directory) / "out", started=0)
+
+    def test_exact_current_view_receipt_can_be_reused_across_action_names(self):
+        view = {"id": "gc", "inputs": {"source": "a"},
+                "answers": {"open": [["owner", "missing"]]}}
+        evidence_identity = actions.view_evidence_identity(view, "open")
+        first = {"id": "inspect-owner", "operation": "evidence-view",
+                 "selectedEvidenceIdentity": evidence_identity}
+        second = dict(first, id="inspect-liveness")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "receipt.json"
+            receipt = {"schema": "research-action-observation.v1",
+                       "operation": "evidence-view", "outcome": "RECORDED",
+                       "sourceIdentity": "source-a", "inputs": {"source": "a"},
+                       "backend": {}, "selectedEvidenceIdentity": evidence_identity}
+            path.write_text(json.dumps(receipt))
+            body = {"action": first["id"], "sourceIdentity": "source-a"}
+            result = {"status": "COMPLETED", "outcome": "RECORDED",
+                      "receipt": str(path), "receiptSHA": actions.digest(path)}
+            snapshot = {"actions": [first, second], "sourceIdentity": "source-a",
+                        "inputs": {"source": "a"}, "backend": {},
+                        "recordedOutcomes": [(json.dumps(body), json.dumps(result))]}
+            reused = actions._reusable_view_result(snapshot, second)
+            self.assertEqual(reused["reusedFromAction"], first["id"])
+            self.assertEqual(reused["receiptSHA"], result["receiptSHA"])
+            aliased = dict(result, reusedFromAction=first["id"])
+            alias_body = dict(body, action=second["id"])
+            third = dict(first, id="inspect-third")
+            snapshot["actions"].append(third)
+            snapshot["recordedOutcomes"] = [(json.dumps(alias_body), json.dumps(aliased))]
+            self.assertEqual(actions._reusable_view_result(snapshot, third)["reusedFromAction"],
+                             first["id"])
+            self.assertIsNone(actions._reusable_view_result(
+                dict(snapshot, sourceIdentity="changed"), second))
+            path.write_text("changed")
+            with self.assertRaisesRegex(ValueError, "receipt changed"):
+                actions._reusable_view_result(snapshot, second)
+
     def test_scheme_generates_and_withdraws_the_study_action_catalog(self):
         catalog = load_evidence_catalog(ROOT / "evidence/dsl/actions.ss",
                                        constructor="make-actions", trusted=True)
@@ -41,6 +95,46 @@ class ActionInferenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate study identity"):
             actions.discover(ROOT, {"studies": ["evidence/scenarios/sigbus-origin/study.json"] * 2})
 
+    def test_discovery_drift_reports_the_exact_input_without_admitting_actions(self):
+        original = actions._inputs
+        source = str((ROOT / "evidence/dsl/actions.ss").resolve(strict=True))
+        calls = 0
+
+        def observed(root, paths):
+            nonlocal calls
+            result = original(root, paths)
+            calls += 1
+            if calls == 2:
+                self.assertIn(source, result)
+                result[source] = "0" * 64
+            return result
+
+        with patch.object(actions, "_inputs", side_effect=observed):
+            with self.assertRaises(ValueError) as raised:
+                actions.discover(ROOT, {"studies": ["evidence/scenarios/sigbus-origin/study.json"]})
+        self.assertEqual(str(raised.exception), "action inputs changed during discovery: " + source)
+
+    def test_duplicate_input_paths_are_read_once_per_pass_but_never_cached(self):
+        from gambit_smp.artifact_storage import cache_path
+        store = cache_path(ROOT, "fixtures")
+        store.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=store) as directory:
+            root = Path(directory).resolve(strict=True)
+            source = root / "source"
+            source.write_bytes(b"before")
+            paths = [source, str(source), source]
+            with patch.object(actions, "digest", wraps=actions.digest) as reads:
+                first = actions._inputs(root, paths)
+                self.assertEqual(reads.call_count, 1)
+                source.write_bytes(b"after!")
+                second = actions._inputs(root, paths)
+                self.assertEqual(reads.call_count, 2)
+            self.assertEqual(set(first), {str(source)})
+            self.assertEqual(set(second), set(first))
+            self.assertNotEqual(first, second)
+            with self.assertRaises(ValueError):
+                actions._inputs(root / "nested", paths)
+
     def test_receipt_observation_changes_real_menu_without_establishing_root_cause(self):
         from gambit_smp.framework import digest
         with tempfile.TemporaryDirectory() as directory:
@@ -57,6 +151,8 @@ class ActionInferenceTests(unittest.TestCase):
                 path.write_bytes((ROOT / name).read_bytes())
             target = root / "study.json"
             target.write_text(json.dumps(study))
+            before = actions.discover(root, {"studies": ["study.json"]})
+            self.assertEqual(before["research"]["recordedObservations"], [])
             original = next(ref for ref in study["references"] if ref["id"] == "compiler-exit")
             original = {key: value for key, value in original.items() if key != "id"}
             record = {"schema": "research-observation.v1", "study": study["id"],
@@ -68,12 +164,16 @@ class ActionInferenceTests(unittest.TestCase):
             context = {"studies": ["study.json"], "observations": [{
                 "path": "observation.json", "sha256": digest(observed), "pointer": "/observations/0"}]}
             state = actions.discover(root, context)
+            self.assertNotEqual(before["revision"], state["revision"])
+            self.assertEqual(state["inputs"][str(observed.resolve())], digest(observed))
             self.assertEqual(2, len(state["research"]["openPredictions"]))
             self.assertEqual(1, len(state["research"]["recordedObservations"]))
             self.assertFalse(state["research"]["causalEstablished"])
             self.assertFalse(state["research"]["coverageEstablished"])
             record["sourceSha256"] = "unrelated"
             observed.write_text(json.dumps({"observations": [record]}))
+            with self.assertRaisesRegex(ValueError, "observation record changed"):
+                actions.discover(root, context)
             context["observations"][0]["sha256"] = digest(observed)
             with self.assertRaisesRegex(ValueError, "source identity mismatch"):
                 actions.discover(root, context)
@@ -336,7 +436,7 @@ class ActionTransportTests(unittest.TestCase):
         with patch.object(sys, "argv", ["actions", "select", "--request", str(path)]), \
                 patch.object(actions, "select", return_value={"result": {"outcome": "DENY"}}), \
                 contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(actions.main(), 2)
+            self.assertEqual(actions.main.__wrapped__(), 2)
 
     def test_concurrent_duplicate_observes_reserved_request_without_second_launch(self):
         entered, release = threading.Event(), threading.Event()

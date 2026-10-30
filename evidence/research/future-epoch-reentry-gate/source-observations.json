@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "publication-through-wakeup",
+    "sourceAnchors": "lib/setup.c:365-393,66-91",
+    "finding": "Publisher writes h.next before lock, links queue under mutex, unlocks then raises interrupt using target PSTATE and select-abort",
+    "hazard": "Closing only queue link leaves post-unlock PSTATE writes or native device wakeup outstanding",
+    "proposedReplacement": "Publication lease begins before header effect and ends after wakeup; close producer admission, preserve exact target incarnation",
+    "nativeWitness": false
+  },
+  {
+    "caller": "dequeue-before-call",
+    "sourceAnchors": "lib/setup.c:170-204",
+    "finding": "Service removes head and updates tail under mutex, unlocks before execute_fn(intr,true)",
+    "hazard": "Queue empty while callback claimed or executing; no current active-call registry in this route",
+    "proposedReplacement": "Publish claim under same exclusion as dequeue before unlocking; close gate wins or registered claim remains owed",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cleanup-callback-under-lock",
+    "sourceAnchors": "lib/setup.c:158-166,396-419",
+    "finding": "Cleanup walks queue and invokes execute_fn(intr,false) while queue mutex held",
+    "hazard": "Calling Scheme or reentrant enqueue under lock can wait on this GC or same lock",
+    "proposedReplacement": "Detach admitted release duties under lock; execute later with explicit effect/owner profile, not guessed cancellation semantics",
+    "nativeWitness": false
+  },
+  {
+    "caller": "external-execute-function",
+    "sourceAnchors": "lib/setup.c:143-154;include/gambit.h.in:11588,13469-13477,14946-14954",
+    "finding": "Init accepts arbitrary execute_fn; GSTATE exports init/raise interface",
+    "hazard": "Local queue code cannot prove external producer quiescence, borrowed payload stability or true/false operation equivalence",
+    "proposedReplacement": "Typed origin/effect/result manifest and unregister/drain or owned queue exclusion; refuse unregistered raw origins",
+    "nativeWitness": false
+  },
+  {
+    "caller": "raw-c-closure-trampoline",
+    "sourceAnchors": "lib/os_dyn.c:744-790,1045-1058",
+    "finding": "Native closure writes global c_closure_self before generated converter; RC payload stores Scheme proc",
+    "hazard": "Gate solely inside ___call is after raw ingress effect/root read; cached function pointer survives logical generation change",
+    "proposedReplacement": "Stable typed native entry thunk and metadata/code lease before first relevant effect; qualify global/TLS closure identity redesign",
+    "nativeWitness": false
+  },
+  {
+    "caller": "generated-sfun-entry",
+    "sourceAnchors": "gsc/_ptree2.scm:2902-3030,3145-3187;include/gambit.h.in:10043-10059",
+    "finding": "Generated callback fetches PSTATE, allocates marker, converts parameters, calls Scheme and may retry handler",
+    "hazard": "Late gate after BEGIN_SFUN already touched owner context and roots",
+    "proposedReplacement": "Generate admission/epoch/owner ticket before PSTATE-dependent conversions and marker allocation; preserve result ABI",
+    "nativeWitness": false
+  },
+  {
+    "caller": "marker-input-roots",
+    "sourceAnchors": "lib/c_intf.c:6509-6564;lib/mem.c:1778-1821",
+    "finding": "make_marker allocates vector before copying proc; source root TODO remains; kill clears then refcount decrements",
+    "hazard": "Future queue metadata alone does not protect movable input or keep native frame valid",
+    "proposedReplacement": "VM root handle before marker allocation, fresh root reload after GC, retained native activation for parked path",
+    "nativeWitness": false
+  },
+  {
+    "caller": "tcl-synchronous-result",
+    "sourceAnchors": "examples/tcltk/tcltk.scm:124-175,221-228",
+    "finding": "scheme_call_cmd calls tcltk_call synchronously and immediately installs returned char string into Tcl",
+    "hazard": "Returning pending/success while Scheme result not computed changes command semantics; argv strings borrowed from native call",
+    "proposedReplacement": "No blanket task deferral; upstream host initiation gate or participating same-call wait, with separate result/input ownership",
+    "nativeWitness": false
+  },
+  {
+    "caller": "tcl-delete-and-result-free",
+    "sourceAnchors": "examples/tcltk/tcltk.scm:178-194,58-120;lib/c_intf.c:1757-1802",
+    "finding": "Delete callback releases Scheme object and RC client_data; result release later invokes Gambit release_string",
+    "hazard": "Deletion or wrapper refcount alone is no proof every copied/native invocation pointer has drained",
+    "proposedReplacement": "Native library origin lifetime evidence plus wrapper active leases; result and client_data custody survive deletion until actual borrower drain",
+    "nativeWitness": false
+  },
+  {
+    "caller": "gc-phases-and-notification",
+    "sourceAnchors": "lib/mem.c:7003-7085;lib/setup.c:1182-1200",
+    "finding": "Strong/weak/cleanup barriers and P0 resize precede per-PSTATE continuation prep; P0 raises INTR_GC before prepare_mem_pstate",
+    "hazard": "GC notification is not proof all context/root/phase gates ready for external reentry",
+    "proposedReplacement": "Coordinator canonical whole-round result and participant preparation receipts before next epoch publish; no current gate issuer inferred",
+    "nativeWitness": false
+  },
+  {
+    "caller": "context-capacity-preparation",
+    "sourceAnchors": "lib/mem.c:4525-4567,7040-7085",
+    "finding": "prepare_mem_pstate writes fp/hp and stack/heap limits, refreshes interrupt limits; heap fudge can acquire next msection",
+    "hazard": "A root-safe task still cannot use old allocators/context limits after GC",
+    "proposedReplacement": "Bind next context incarnation/capacity outcome and reload roots before claim authorizes any managed allocation",
+    "nativeWitness": false
+  },
+  {
+    "caller": "root-view-all-domains",
+    "sourceAnchors": "lib/mem.c:3969-3987,6844-6867;lib/mem.c:684-825",
+    "finding": "Per-PSTATE RC payloads; mark_rc occurs in P0 branch; continuation/register/saved roots scanned per processor",
+    "hazard": "Transferred nonzero roots or native-held closure cannot be inferred covered from current P0 scan",
+    "proposedReplacement": "All-domain VM root registry and frozen parked view, stable handles with post-copy reload; preserve independent RC and still ownership",
+    "nativeWitness": false
+  },
+  {
+    "caller": "owner-binding",
+    "sourceAnchors": "lib/os_thread.c:697-710;lib/setup.c:815-833,6400-6411",
+    "finding": "thread_set_pstate sets binding/TLS and affinity; startup attaches owner before execution",
+    "hazard": "Processor integer/TLS pointer alone is not next-epoch permission or native activation identity",
+    "proposedReplacement": "Exact VM/context/native-thread incarnation binding and fresh permission; unknown/mismatched owner refuses entry",
+    "nativeWitness": false
+  },
+  {
+    "caller": "native-return-continuation",
+    "sourceAnchors": "lib/setup.c:3276-3420;lib/_kernel.scm:1020-1072;include/gambit.h.in:9981-9987",
+    "finding": "___call and return handler preserve native marker/catcher return rights; wrong processor or repeat return rejected",
+    "hazard": "Parked same call cannot be replayed as a fresh task or jumped by worker thread",
+    "proposedReplacement": "Participating wait keeps catcher/continuation roots/native stack live; resume same invocation under new write lease",
+    "nativeWitness": false
+  },
+  {
+    "caller": "resize-cleanup-join",
+    "sourceAnchors": "lib/setup.c:924-980,4665-4672,4834-4875;lib/mem.c:4928-4964;lib/os_thread.c:546-592",
+    "finding": "PSTATE cleanup destroys still/RC/OS resources; shrink joins later and ignores result; VM destroys shared scan facilities",
+    "hazard": "Future task or parked native borrower may outlive source; failed/unknown join does not authorize code/context free",
+    "proposedReplacement": "Canonical VM custody and source borrower closure before data cleanup; retain native envelope on unknown stop",
+    "nativeWitness": false
+  },
+  {
+    "caller": "opaque-native-escape",
+    "sourceAnchors": "include/gambit.h.in:13224-13230,14564-14575;lib/setup.c:5894-5898,6138-6142;tests/server.scm:15-35",
+    "finding": "Public native callback/marker/interrupt functions and real c-define callbacks expose entry capabilities",
+    "hazard": "Swapping pointer or emptying owned queue cannot revoke cached foreign pointer or already-issued machine invocation",
+    "proposedReplacement": "Complete loaded origin/entry manifest, early stable thunk and transport exclusion receipt; unknown alias keeps qualification open",
+    "nativeWitness": false
+  }
+]

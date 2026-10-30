@@ -1,0 +1,36 @@
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -1990,13 +1990,16 @@
+                        (##eq? (##vector-cas! capability 0 2 1) 1)))
+              (##raise 'interrupt-reentry)))
+        (lambda ()
++         ;; The surrounding drain catcher already catches callback errors.
++         ;; Keep mode 1 until the thunk and its normal outcome have returned:
++         ;; any error or continuation escape runs this activation's after
++         ;; with the original attempt, then reaches that outer catcher.
++         ;; Do not capture a second per-request continuation just to rethrow.
+          (let ((outcome
+-                (##with-exception-catcher
+-                 (lambda (exc) (##vector #f exc))
+-                 (lambda ()
+-                   (##c-code "___delivery_thunk_entries++; ___RESULT = ___VOID;")
+-                   (##vector #t ((macro-mutex-name mutex)))))))
+-           (set! finish-mode (if (##vector-ref outcome 0) 0 1))
++                (begin
++                  (##c-code "___delivery_thunk_entries++; ___RESULT = ___VOID;")
++                  (##vector #t ((macro-mutex-name mutex))))))
++           (set! finish-mode 0)
+            (if (##c-code "___RESULT = ___delivery_c1_arm ? ___TRU : ___FAL;")
+                (begin
+                  (##c-code "__atomic_store_n (&___delivery_c1_commit_ready, 1, __ATOMIC_RELEASE); ___RESULT = ___VOID;")
+@@ -2004,9 +2007,7 @@
+            (let ((disposition
+                   (##thread-intr-cleanup-try!
+                    interrupt unit attempt finish-mode outcome capability)))
+-             (if (and (##not (##vector-ref outcome 0))
+-                      (##not (##fx= disposition 4)))
+-                 (##raise (##vector-ref outcome 1))))))
++             (##void))))
+        (lambda ()
+          ;; Same mode as the thunk result. A successful thunk stays a
+          ;; normal commit when the first attempt lost the trylock.

@@ -1,0 +1,10 @@
+import CallbackProducer
+open CallbackProducerAst
+def witness : State := loseResultReleaseNext (beginResultReleaseNext (publishResultNext (landingFirstNext (dispatchChildNext (initial)))))
+example : dispatchChildGuard (initial) := by simp [dispatchChildGuard,initial]
+example : landingFirstGuard (dispatchChildNext (initial)) := by simp [landingFirstGuard,initial,dispatchChildNext]
+example : publishResultGuard (landingFirstNext (dispatchChildNext (initial))) := by simp [publishResultGuard,initial,dispatchChildNext,landingFirstNext]
+example : beginResultReleaseGuard (publishResultNext (landingFirstNext (dispatchChildNext (initial)))) := by simp [beginResultReleaseGuard,initial,dispatchChildNext,landingFirstNext,publishResultNext]
+example : loseResultReleaseGuard (beginResultReleaseNext (publishResultNext (landingFirstNext (dispatchChildNext (initial))))) := by simp [loseResultReleaseGuard,initial,dispatchChildNext,landingFirstNext,publishResultNext,beginResultReleaseNext]
+example : Safe witness := by simp [Safe,witness,initial,dispatchChildNext,landingFirstNext,publishResultNext,beginResultReleaseNext,loseResultReleaseNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]
+example : ¬ (settleResultReleaseGuard witness) := by simp [Safe,witness,initial,dispatchChildNext,landingFirstNext,publishResultNext,beginResultReleaseNext,loseResultReleaseNext,closeRootsGuard,dispatchChildGuard,landingFirstGuard,landingSecondGuard,beginCleanupGuard,loseCleanupGuard,cleanupReceiptFirstGuard,cleanupReceiptSecondGuard,settleFirstGuard,settleSecondGuard,sealProducerGuard,publishResultGuard,beginResultReleaseGuard,loseResultReleaseGuard,resultReleaseReceiptGuard,settleResultReleaseGuard,retireDomainGuard]

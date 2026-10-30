@@ -1,0 +1,194 @@
+#+TITLE: Gambit Modernization Target: Whole Runtime and Contract Compiler
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: RESEARCH DECIDED | ADOPTED RETIRED
+
+* DECIDED Architecture precedes primitive adoption
+:PROPERTIES:
+:CUSTOM_ID: modernization-target
+:AUTHORITY: GambitModernizationTarget; GambitRuntimeComposition
+:STATUS: target-design; complete-source-composition-open
+:MAINLINE: Scheme semantic owner and modern generated C
+:END:
+This is the governing target for [[file:runtime-blueprint.org][the existing multicore blueprint]], rather than a
+new runtime plan derived from the shape of the safety patch stack. Existing
+8/12 repairs provide behavioral constraints and retained acceptance evidence.
+They do not dictate the decomposition or implementation of the replacement.
+
+The concrete decisions are owned by [[file:models/sysml/modernization-target.sysml][SysML]], referencing the nine existing
+canonical module owners in [[file:../../architecture/runtime/models/sysml/composition.sysml][runtime composition]]. The [[file:modernization-target-matrix.org][target/cost/proof matrix]]
+and [[file:diagrams/modernization-target.d2][D2 source]] are native-model projections. No second component/layout inventory
+is introduced. Each decision carries distinct whole-composition QNT and Lean
+obligations; existing local models cannot qualify those larger scopes.
+
+:LOGBOOK:
+- [2026-10-23 Fri] Direction corrected: stop treating compatibility and isolated
+  control primitives as the modernization architecture. MC-SCOPE commit retained
+  as an inactive candidate; no further runtime activation is justified by its
+  existence or finite checks. No production patch is altered.
+:END:
+
+** What was wrong with the preceding direction
+The MC-SCOPE commit implements a real packed gate and initializes fixed records.
+It does not replace a generated entry, GC root consumer, collector work owner,
+VM membership protocol or native-effect lifetime. The patched runtime already
+has admission CAS and retained cleanup. Merely adding another gate alongside
+that code is not a fundamental solution and has no demonstrated net benefit.
+
+The candidate adds 512 record bytes per current 64-bit VM, zero retired paths,
+and finite role/actor/generation limits. Those limits must not become arbitrary
+restrictions on Scheme continuations or supported native entry. The target model
+therefore evaluates its architecture-adoption predicate to false. It is neither
+rolled into the qualified runtime nor counted as 9/12. A concrete source commit
+and a justified architectural selection are different claims.
+
+* Lessons, with the Gambit choice made explicit
+:PROPERTIES:
+:CUSTOM_ID: modernization-lessons
+:END:
+** Parallelism is a heap, participation and FFI design
+The [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][ICFP parallelism paper]], especially sections 1.3, 3.4 and 4.3-4.4, compares
+minor-collector choices by their consequences for C reads, safepoints and
+coordination. Its parallel STW minor design avoids the new read-barrier contract.
+This is evidence for evaluating the entire interface, not a mandate to copy its
+major collector. The paper explicitly cites Feeley's polling work for safepoints.
+Gambit's own compiler/runtime ideas are assets to amplify, not a historical shell
+to replace with another language's architecture.
+
+The checked OCaml source at =46e1c324fb9e9f21f52c9cc3399020f7ef8b9b91=
+separately shows participating-domain minor promotion and cleanup
+(=runtime/minor_gc.c:886-934=), domain/backup-thread participation
+(=runtime/domain.c=), and blocking leave/reenter hooks
+(=runtime/signals.c:147-205=). These are current-source observations, not claims
+that every detail is the 2020 paper's implementation.
+
+Our design position: separate execution, OS carrier, GC participation, collector
+work and native-resource ownership. Use context-local nursery allocation and a
+parallel stopped-mutator minor cut with precise roots and remembered writes.
+Keep mature-space policy behind an explicit heap/phase interface: moving versus
+nonmoving mature space and concurrent major marking remain decisions requiring
+Gambit-specific evidence. Copying GC alone is not generational GC.
+
+** Effects require a control architecture
+The [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][PLDI effects paper]], sections 4-5, specifies alternating language/C stacks,
+callbacks, exceptions and resumptions together. Its continuation implementation
+is intentionally one-shot. That constraint cannot be imposed on Gambit.
+
+Our design position: running, captured and resumed Scheme computation share one
+precise frame/root contract. Multi-shot continuations remain first class;
+persistent or copy-on-write captured frames are evaluated as representations.
+One-shot specialization requires compiler/use evidence. A future effect-handler
+service composes with these semantics instead of replacing call/cc or silently
+forbidding supported continuation behavior at native boundaries.
+
+** Recover semantic intent before native lowering
+[[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Feeley and Miller's PVM paper]], sections 1-2, treats the VM as cooperation
+between Scheme optimization and target information, including calls, registers,
+closures and primitives. Our design extends that principle to complete native
+contracts, rather than asking C macros or a Zig wrapper to rediscover meaning.
+
+Scheme completes FrameSpec, PointId, ModuleSpec, EffectSpec and AllocationSpec.
+Modern C realizes layouts, checkpoints and services mechanically. Target layout
+is parameterized without duplicating semantic decisions. LLVM/MLIR can be
+independent consumers/services at an appropriate semantic level. Zig is a
+separate optional realization decision and supplies no missing GC semantics.
+
+* The six coupled replacements
+:PROPERTIES:
+:CUSTOM_ID: modernization-replacements
+:END:
+#+BEGIN: sysml-view :kind modernization-target :source models/sysml/modernization-target.sysml
+See [[file:modernization-target-matrix.org][the generated six-decision matrix]] for exact source anchors, replacement,
+retirement, proof obligations, benefits and added costs. This view is not an
+implementation checklist for adding six wrappers.
+#+END:
+
+1. Contract compiler: move semantic/frame/effect decisions out of distributed C
+   emission macros into a Scheme-owned normalized contract. Generate C functions,
+   metadata and ABI manifests. Keep target-portability macros where they serve
+   real target variation; eliminate duplicate semantic logic, not every macro.
+2. Execution/participation: VM owns membership and heap epochs; execution context
+   owns Scheme state; a participant publishes a precise stopped/frozen root view;
+   collector work owns its queues/cursors independently of PSTATE/OS-thread death.
+3. Heap: nursery allocation, remembered mutation, parallel minor promotion,
+   survivor capacity and major collection are explicit services. Continuation,
+   denv, initialization and FFI writers participate in the same barrier contract.
+4. Control: one frame/root interpretation survives capture, promotion, repeated
+   resumption, dynamic-wind and exceptional exits. The scheduler operates on
+   explicit suspended computations rather than opaque C-stack ownership.
+5. Native effects/resources: generated root-safe entry precedes allocation;
+   blocking publishes a view and reacquires/reloads on return. VM-owned outcomes
+   and effect-classified release tasks survive carrier exits without requiring
+   an owner callback inside the collector's critical phase.
+6. Build: semantic module artifacts, runtime ABI and native objects form a
+   dependency/snapshot graph with phase readiness. Interface construction code
+   can be AOT-reused while context instances remain fresh. This must eliminate
+   actual repeated expansion and compilation, including the macOS C-parser
+   cost; changing the compiler command does not establish this result.
+
+All six use the canonical RootCut, ControlRoots, Participation, WorkClosure,
+ReleaseDrain, OutcomeLifetime, PlanAbi, GeneratedCheckpoint and ArtifactClosure
+interfaces. A module model alone is insufficient: the source transition must
+preserve the preconditions expected by its consumers.
+
+* System-level evidence before adoption
+:PROPERTIES:
+:CUSTOM_ID: modernization-proof-boundary
+:END:
+The [[file:map-multishot-composition.org][joint map/multi-shot study]] now gives a concrete source witness,
+seven boundaries, ten shared flows and native-SysML-driven ASCENT obligations.
+Its finite custody model and conditional laws are deliberately narrower than
+the twelve whole-source composition obligations here. Neither upgrades those
+larger scopes or admits the inactive scope-gate candidate.
+
+Use one Scheme =map= computation that captures a continuation and crosses an
+admitted native callback as a composed witness: allocate/capture, promote, mutate
+legal frame/denv state, block, collect with an independent worker, reenter, resume
+more than once, and close resources under exceptional exit. This is the target
+composition to prove and eventually execute, not a new test run this turn.
+
+QNT must model GC/control/native/scheduler interleavings over the shared contracts.
+Lean must prove frame/root coverage, remembered-edge completeness, publication
+and capacity conservation and semantic simulation. ASCENT must reject receipt
+scope widening from an isolated gate or model to this whole witness. The
+architecture model references existing formal fragments, marks all six composed
+scopes open and binds them through the actual DSL.
+
+The baseline 8/12 has four distinct remaining contracts. Lifecycle requires real
+failure recovery and old-handler quiescence; GC/FFI requires complete exact-source
+inventory; Gerbil requires a source-causal repair and complete downstream work;
+release performance requires unchanged matched whole-consumer campaigns. None
+is solved by declaring a new architecture, and the unknown Gerbil fault is not
+automatically diagnosed as a collector bug. See the
+[[file:../../architecture/runtime/gc/write-authority-gate-matrix.org][source/milestone matrix]]. Their original tests remain mandatory acceptance
+constraints after replacement, not the shape of its implementation.
+
+* Benefit and cost are architectural admission conditions
+The target model tracks eliminated responsibilities and work. Minor collection
+may reduce scanning to young reachable objects, remembered edges and roots, but
+adds write barriers, promotion/copying, synchronization and remembered storage.
+Skipping mature continuation graphs is conditional on complete mutation coverage.
+Incremental builds save only actions whose full dependency/input/consumer contract
+is stable; artifact checks and fresh context state still cost work.
+
+Net gain requires avoided scans, repeated frame/root choreography and duplicate
+expansion/compilation to exceed the added barriers, coordination, validation and
+retained-space cost. Peak memory includes simultaneously live old/new roots,
+copy/promotion reserve, context restoration space and pending native resources;
+transferable intervals are counted once. No paper's speedup, assumed allocation
+rate or artificial person-day estimate supplies that inequality for Gambit.
+
+Retirement is part of the result: old implicit PSTATE collector ownership,
+duplicated root/frame decisions, per-entry native cleanup protocols and repeated
+build work must actually disappear from the admitted profile. If every old owner
+remains and the new layer merely tracks it, the modernization case fails.
+
+* Model source and artifact boundaries
+#+NAME: modernization-target-source
+#+INCLUDE: "models/sysml/modernization-target.sysml" src sysml
+
+The local C commit remains [[file:../../architecture/runtime/gc/write-authority-gate-design.org][separate candidate evidence]]. The six target decisions
+are researched proposals; no whole-source proof, native deployment, performance
+claim or additional runtime implementation is made by this direction correction.

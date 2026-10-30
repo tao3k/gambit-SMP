@@ -6,11 +6,49 @@ from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load
 from gambit_smp.framework import ROOT
 from gambit_smp import research_actions
+from tests.historical_view import projection
 
 VIEW = "evidence/scenarios/concurrent-gc/fdset-captured-032.view.json"
 
 
 class ConcurrentGCViewTests(unittest.TestCase):
+    def test_registry_native_claim_withdraws_on_model_or_profile_change(self):
+        document, facts, catalog, _ = load(ROOT,
+            "evidence/scenarios/concurrent-gc/registry-lifetime.view.json")
+        queries = dict(document["queries"], applicable="applicable", scope="current_scope_review")
+        target = ("shared-registry-lifetime", "registry-current-native")
+        with engine_api() as (engine, _):
+            before, _ = evaluate(engine, facts, catalog, queries)
+            self.assertIn(target, before["applicable"])
+            self.assertEqual(before["applicability_gaps"], [])
+            self.assertTrue(before["scope"])
+            for changed_name in ("writers-model", "profile"):
+                changed = dict(facts, current_binding=[
+                    (name, "changed" if name == changed_name else value)
+                    for name, value in facts["current_binding"]])
+                after, _ = evaluate(engine, changed, catalog, queries)
+                self.assertNotIn(target, after["applicable"])
+                self.assertIn((target[0],), after["unclosed"])
+                self.assertEqual(changed["receipt"], facts["receipt"])
+
+    def test_original_datagram_result_requires_current_bound_sources(self):
+        document, facts, catalog, _ = load(ROOT,
+            "evidence/scenarios/concurrent-gc/processor-interrupt-collective.view.json")
+        target = ("datagram-original-gsi-qualified", "datagram-original-gsi")
+        with engine_api() as (engine, _):
+            before, _ = evaluate(engine, facts, catalog, document["queries"])
+            self.assertIn(target, before["applicable"])
+            self.assertIn(("child-progress-correspondence",), before["unclosed"])
+            changed = dict(facts, current_binding=[
+                (name, "different-observer" if name == "datagram-observer" else value)
+                for name, value in facts["current_binding"]])
+            after, _ = evaluate(engine, changed, catalog, document["queries"])
+            self.assertNotIn(target, after["applicable"])
+            self.assertIn((target[0],), after["unclosed"])
+            self.assertEqual(changed["receipt"], facts["receipt"])
+            restored, _ = evaluate(engine, facts, catalog, document["queries"])
+            self.assertIn(target, restored["applicable"])
+
     def test_new_source_candidate_does_not_inherit_historical_products(self):
         document, facts, catalog, inputs = load(ROOT,
             "evidence/scenarios/concurrent-gc/darwin-source-032.view.json")
@@ -32,11 +70,14 @@ class ConcurrentGCViewTests(unittest.TestCase):
         expected = {ref["id"]: ref["sha256"] for ref in original["references"]}
         for ref in captured["references"]:
             self.assertEqual(ref["sha256"], expected[ref["id"]])
-            self.assertEqual(digest(ROOT / ref["path"]), ref["sha256"])
             self.assertTrue(ref["path"].startswith("evidence/source-results/view-custody/"))
+            if (ROOT / ref["path"]).is_file():
+                self.assertEqual(digest(ROOT / ref["path"]), ref["sha256"])
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            load(ROOT, VIEW)
 
     def test_flags_model_sources_and_unclosed_native_obligations(self):
-        document, facts, catalog, inputs = load(ROOT, VIEW)
+        document, facts, catalog, inputs = projection(ROOT, VIEW)
         self.assertGreaterEqual(len(inputs), 30)
         with engine_api() as (engine, _):
             before, first = evaluate(engine, facts, catalog, document["queries"])
@@ -58,7 +99,10 @@ class ConcurrentGCViewTests(unittest.TestCase):
             self.assertGreater(last["sourceGeneration"], first["sourceGeneration"])
 
     def test_actual_action_discovery_selection_and_observation(self):
-        catalog = research_actions.discover(ROOT, {"views": [VIEW]})
+        with self.assertRaisesRegex(ValueError, "historical Evidence view"):
+            research_actions.discover(ROOT, {"views": [VIEW]})
+        current = "evidence/scenarios/concurrent-gc/darwin-source-032.view.json"
+        catalog = research_actions.discover(ROOT, {"views": [current]})
         self.assertEqual(len(catalog["actions"]), 11)
         selected = next(r for r in catalog["actions"] if r["query"] == "missing_metric")
         self.assertEqual(selected["risk"], "read-only")

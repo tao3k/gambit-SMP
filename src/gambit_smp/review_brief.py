@@ -25,8 +25,8 @@ def render(model, facts, rows, bindings, failures, observations, source_facts):
                  "inputPaths": sorted(spec.get("inputs", {})),
                  "receiptDependencies": spec.get("depends", []),
                  "supersededVerifierInputs": spec.get("supersededVerifierInputs", [])}
-        if spec.get("rawLogEvidencePending"):
-            entry["reasons"] = ["missing-raw-log-evidence"]
+        if spec.get("recordedOutputPending"):
+            entry["reasons"] = ["missing-recorded-output-evidence"]
             unverified.append(entry)
         elif receipt in invalid:
             entry["reasons"] = sorted(set(invalid[receipt]))

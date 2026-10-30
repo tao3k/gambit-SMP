@@ -1,0 +1,307 @@
+#+TITLE: Selected Component: Return-Frame Descriptor Planner
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: control
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Selected Component: Return-Frame Descriptor Planner :control:
+:PROPERTIES:
+:ID: b7774e01-783f-55a8-9950-0387f091c024
+:CUSTOM_ID: selected-component-return-frame-descriptor-planner
+:SOURCE_PATH: docs/experimental/zig/return-frame-planner-case.md
+:SOURCE_SHA256: a1aeba7e6f4c59d3fe6232c46d937097d10c2dd73f9aaad02bc04b8c8d9cebbd
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Design/source research only. No implementation, native
+test, performance measurement or research-engine execution. Companion:
+[[file:return-frame-benefit-matrix.org][benefit matrix]] and
+[[file:return-frame-planner-evidence.org][source/library evidence]].
+
+*** 1. Select a Real Necessary Component
+:PROPERTIES:
+:ID: 7371957e-5647-54a7-a28f-39162b89590f
+:CUSTOM_ID: 1-select-a-real-necessary-component
+:END:
+
+Select *RFD*, the return-frame descriptor planner. Its existing behavior is
+visible in ~_t-c-2.scm:825-905~, ~_t-c-3.scm:471-520~, the C descriptor emitters,
+and the runtime decoder/scanner. A backend that preserves this runtime cohort
+must supply compatible frame extent, return link and GC maps. This is not a
+synthetic three-case product introduced to give Zig a tagged-union advantage.
+
+The selected replacement consumes semantically completed FrameSpecs and a bound
+runtime profile, and produces DescriptorDecisions plus ordered map storage.
+It serves both the new C emitter and the native emitter. Code generation,
+LLVM contexts, object emission, module publication and collector implementation
+are outside this component. Their costs/gates remain in the parent architecture.
+
+*Design conclusion for this component:* use a homogeneous decision array and
+exact-sized map storage, with explicit-width arithmetic and one ownership path.
+Apply that same topology to C-G, C-ZT and Zig. It needs neither a private
+heterogeneous source-product sum nor a generic growing container. Therefore
+the earlier association/growth support candidates earn no retirement credit
+inside this selected design. Private propagation/expression work remains a
+possible difference; it is not a justified positive cost bound.
+
+*** 2. Existing Source Chain and the Required Extraction
+:PROPERTIES:
+:ID: 57086797-0b77-5c09-9369-48a97b8d4cc6
+:CUSTOM_ID: 2-existing-source-chain-and-the-required-extraction
+:END:
+
+| Stage | Existing behavior | New responsibility / limit |
+|-
+| Semantic frame/root formation | ~_t-c-2~ reverses/extends slots, finds ret-var, constructs normal or internal maps; internal saved registers and protocol result slot are mandatory roots | Scheme G3 exports logical live/root obligations, return-variable identity and the expansion recipe |
+| Actual extent and chunk formation | ~_t-c-3~ aligns internal frames and forms 32-bit bitmap chunks from a Scheme integer | RFD realizes physical coordinates and chunks from completed obligations under one profile |
+| Form/count/output | ~_t-c-1~ selects IFD/OFD in label output, OFD output and OFD counting | One RFD decision supplies all selected consumers; output adapters do not choose again |
+| Encoding | Header defines return kinds, bitfields, frame alignment/reserve and 32/64-bit map assembly | RFD applies the bound encoding; adapters render its words/symbolic references |
+| Decoding/scanning | Header RA decoding and ~mem.c~ select normal/internal extent, link and root words | Existing runtime remains the independent correspondence target; source/native gates stay open |
+
+The first row is substantial migration work: current Scheme root construction
+already uses physical alignment and saved-state expansion. Moving ~_t-c-3~
+alone would leave hidden layout authority in ~_t-c-2~. Extract logical roles and
+their physical expansion obligations before freeze; do not export mutable
+vectors, rerun liveness in native code, or count this extraction as Zig-only.
+
+The stored frame-size field also has a kind-dependent interpretation. In the
+reviewed source, for alignment ~a~, reserve ~r~, saved-register parameter ~g~,
+normal/task stored extent ~f~, and internal stored caller extent ~c~:
+
+#+BEGIN_SRC text :eval never
+Align(x,a) = a * ceil(x/a)
+Actual(normal/task,f) = f
+Actual(internal,c) = Align(c,a) + Align(g + 1 + r,a) - r
+MapChunks32(A) = ceil(A / 32)
+#+END_SRC
+
+These equations describe the inspected producer/decoder relationship, not
+newly executed examples. Link coordinates, padding and mandatory-root positions
+must be realized consistently with that actual extent. The generator's register
+parameter and the decoder's configured ~___NB_GVM_REGS~ must have an admitted
+correspondence; a default value or profile name does not prove it. Do not infer
+a current runtime defect from this design obligation.
+
+Inline capacity is also a runtime-format fact, not merely target word width.
+The inspected ~_t-c-3.scm:522-530~ derives its limit from the *minimum* word
+size; with the source's four-byte minimum the expression yields 20 slots.
+The header's IFD bitmap extraction likewise uses a 32-bit budget and the
+declared field widths. A 64-bit target does not authorize expanding that bitmap
+to 52 bits by host/target integer arithmetic alone. This is a static source
+derivation, not qualification of an installed runtime profile.
+
+The old Scheme ~gc-map~ is not restricted to one machine integer. The native
+design must support the required variable-length map via chunks/ordered root
+obligations, rather than silently limiting all frames to a 32/64-bit bitmap.
+Neither C nor Zig needs a native bignum implementation for this chosen
+chunk-based representation. Removing that optional native bignum need is a
+shared representation choice, not evidence that Scheme's numeric support retires.
+
+*** 3. Concrete Logical Input, Output and Common Algorithm
+:PROPERTIES:
+:ID: 38d2f479-7da3-52bc-a6d8-f14ad9b5bde7
+:CUSTOM_ID: 3-concrete-logical-input-output-and-common-algorithm
+:END:
+
+#+BEGIN_SRC text :eval never
+RfdRequest {
+  schema_and_graph_revision, frame_protocol_id, realization_profile_id,
+  frames: [CompletedFrameSpec],
+  logical_root_and_saved_role_obligations,
+  admitted_counts_and_resource_limits
+}
+FrameDecision {
+  frame_id, point_id, return_kind,
+  stored_extent, actual_scanned_extent, normalized_link,
+  form: inline | outline,
+  inline_word_if_present,
+  map_offset_and_count_if_present,
+  descriptor_storage_recipe, output_identity
+}
+RfdPlan {
+  decisions: [FrameDecision],
+  map_chunks32_and_profile_storage,
+  total_counts, provenance
+}
+#+END_SRC
+
+These are proposed meanings, not an implemented ABI/schema. Use one record
+shape with validated form-dependent fields; unused fields have a canonical
+representation. Public diagnostics/status IDs remain explicit. No public Zig
+slice, error ordinal, union memory layout or allocator vtable is exported.
+
+Common algorithm for the same admitted request domain:
+
+1. Validate identities, counts, return kinds, required logical return/root roles
+   and profile coherence. Reject unsupported capabilities before publication;
+   allocate exact decision storage from the admitted frame count.
+2. For each frame, compute actual extent, physical slot/link mapping and form
+   with checked arithmetic. Calculate required storage lengths and checked
+   prefix offsets; retain one scalar decision per frame.
+3. Allocate exact map storage from that sizing pass. Fill map chunks from
+   ordered physical obligations, including mandatory saved-state roots and
+   padding. Validate representation/range/tail-bit conditions.
+4. Seal one immutable plan. C/native adapters consume the same form, order and
+   reference decisions; they do not repeat policy selection.
+5. Transfer the successful plan to its owner. On failure release acquired native
+   storage and return the bounded diagnostic/fallback. No partial plan is usable.
+
+A sizing prepass or equivalent bounded offset plan is required; it is not free
+merely because the final arrays are exact-sized. Borrowed input is native-owned
+snapshot data under an admitted call lifetime, not retained Scheme heap pointers.
+The core has no Scheme/LLVM callbacks or VM access. Whole-boundary conversion,
+blocking/GC participation and failure delivery still require separate admission;
+“ordinary-return core” is not an F0 certificate.
+
+Keep the actual frame-kind/profile and resource domain explicit. Template 32/64
+branches are investigated capabilities, not both admitted installed profiles.
+The exact valid-domain closure, particularly internal frames, CFUN all-live
+frames and decoder register parameters, is unresolved. Experimental capability
+rejection is not proof of equivalence for every valid baseline program.
+
+*** 4. C-G, C-ZT and Zig Expanded on the Same Design
+:PROPERTIES:
+:ID: e7b7dc7c-61cf-593a-9582-40ff3ffc1df1
+:CUSTOM_ID: 4-c-g-c-zt-and-zig-expanded-on-the-same-design
+:END:
+
+| Work item | C-G | C-ZT | Zig |
+|-
+| Input decode and provenance | Explicit fixed-width fields, count/range checks, immutable spans | Same C source/contract as C-G | Same fields/checks; language types do not validate serialized input |
+| Extent/alignment arithmetic | One bounded unsigned intermediate policy, qualified GCC overflow builtins, checked shifts/narrowing | Same C implementation; no extra generic helper | Fixed-width operations and selected checked std.math helpers; same profile/shift policy |
+| Root-map packing | Indexed chunks, explicit bit/slot mapping, exact target storage recipe | Same | Same chunk algorithm; no arbitrary-precision integer or special generic container |
+| Decision representation | Homogeneous record array with form enum and invariants | Same | Same homogeneous topology; optional private error union is not a required result-family generator saving |
+| Allocation/cleanup | Two principal output arrays or equivalent exact owner; initialized acquisition fields, one cleanup path; diagnostic owner separately specified | Same | Exact allocator-backed storage with scope/error cleanup and explicit success transfer; diagnostic ownership remains |
+| Public result/errors | Stable status plus successful out-plan and diagnostic/fallback; no partial success | Same | Same C-facing catalog/records; map private errors explicitly |
+| C/native output adapters | Consume stored decisions; no hidden descriptor selector | Same | Same obligations; selecting Zig does not remove these adapters |
+| Component's LLVM/C-header dependency | No LLVM API or runtime-struct import required in pure RFD; profile facts are data | Same | No mandatory LLVM C import inside pure RFD; do not charge a fictitious import layer to it |
+| Core build and tooling | Selected C compiler and profile qualification | Same C core/compiler; selected Zig driver is downstream | Zig language/stdlib core build; selected downstream tool profile accounted separately |
+| Version changes | Own C compiler/helper and runtime-profile changes | Those plus common downstream Zig-driver review | Marginal language/stdlib build changes plus common downstream tool review; import cost only if actually introduced |
+
+C-ZT's selected Zig IR driver is outside RFD. RFD performs no IR-driver
+invocation by contract. It is useful as a cost control, not a way to manufacture
+a second algorithm. C-G's downstream driver/provider can differ; do not call
+that an isolated planner-language performance comparison. Any end-to-end
+comparison still needs a matched admitted provider/target domain.
+
+The common C source in C-G/C-ZT is a design constraint, not a source artifact
+produced by this study. Zig remains an equally explicit proposed realization;
+no interface, binary or schema implementation has been created.
+
+*** 5. Actual Old Paths Versus Prospective Support Retirement
+:PROPERTIES:
+:ID: e30b782c-c8a1-5039-997e-557709508093
+:CUSTOM_ID: 5-actual-old-paths-versus-prospective-support-retirement
+:END:
+
+| ID | Current source / proposed support | What can retire in the selected route | What remains / closure condition |
+|-
+| RF01 | ~_t-c-1~ IFD/OFD choices in label/OFD/count consumers | Their independent invocations of the old selector after all selected consumers read RfdPlan | Physical selection law remains once; three call sites are not three algorithms. Actual consumer closure and output evidence required |
+| RF02 | ~_t-c-1~ reconstruction of descriptor macro arguments | Selected reconstruction path replaced with stored decisions and mechanical rendering | Host/body C emission, runtime declarations and independently required macros remain; no whole-module C bypass credit |
+| RF03 | ~_t-c-3~ Scheme-integer-to-chunks packaging | The selected native path need not build a large Scheme integer merely to unpack it again | Logical root construction remains Scheme-owned; legacy/other users retain the helper until their callers migrate |
+| RF04 | ~_t-c-3~ actual/internal/alignment helpers | Selected physical realization calls migrate only after ~_t-c-2~ logical/physical extraction | CFUN stack adjustment and other old callers still use alignment; no global helper deletion yet |
+| RF05 | ~targ-build-gc-map~ and ~targ-build-gc-map-all-live~ | No semantic-root-law deletion proposed; selected representation may change | Normal/internal and CFUN all-live producers must preserve their exact obligations; baseline C path remains separately supported |
+| RF06 | Hypothetical C result visitor/growth/bignum support | None required by the selected homogeneous/exact/chunk C design | *Zero guaranteed Zig-only support-family retirements in this component*; optional complexity cannot be charged to C |
+| RF07 | Existing runtime decoder/scanner | No retirement | Independent correctness authority, GC/capture/runtime lifetime and configured fields remain |
+
+RF01-RF04 are shared reconstruction opportunities in all three implementations,
+not Zig-exclusive savings. The inspected helper caller map is bounded to the
+three C-backend files, not a repository-wide deletion census. No function,
+header macro, build caller or runtime path is actually retired by this study.
+
+[[file:../diagrams/return-frame-retirement.svg][Retirement depends on extraction, consumers and runtime correspondence]]
+
+*** 6. Work and Maintenance Bounds
+:PROPERTIES:
+:ID: ac615688-bb30-53ff-84fa-8631893eaac8
+:CUSTOM_ID: 6-work-and-maintenance-bounds
+:END:
+
+For a valid request, let ~R~ be return frames, ~A_i~ actual scanned slots,
+~S = sum A_i~, and ~T = sum ceil(A_i/32)~ over frames requiring outline maps.
+Both implementations can use ~O(R + S)~ planning/fill work and ~O(R + T)~
+retained decision/chunk storage, plus profile-specific encoded storage and
+diagnostics. These are design bounds, not baseline timings or a proof every
+implementation reaches them. Headers, alignment and representation padding
+must be added when counting bytes; ~4*T~ is not a whole metadata image size.
+
+Structural accounting for this selected topology:
+
+- One authoritative physical rule set and one decision per planned return
+  frame, usable by all selected consumers. Semantic and decoder duties remain.
+- No required generic growth implementation, native bignum or heterogeneous
+  result visitor in any of C-G/C-ZT/Zig.
+- Two principal output-storage roles are proposed, not two observed allocations
+  on every success or failure; allocator calls may combine them.
+- No compiler/IR-provider invocation inside RFD. Driver/distribution deltas live
+  in the downstream account, not multiplied per frame.
+
+| Change event | Work that must be reviewed under all three | Remaining differential |
+|-
+| FM01 alignment/reserve/register profile | Logical/physical extraction, mandatory roots, decoder correspondence and count/width effects | Data-driven parameter change need not create another helper implementation |
+| FM02 descriptor field/chunk format | Common packer, both adapters, round-trip/correspondence specification and invalidation | Same policy work; Zig integer types do not supply a new runtime format |
+| FM03 input size/quota/allocation failure | Count/offset arithmetic, native storage, status and diagnostic fallback | Local propagation/cleanup expression may differ; C shared cleanup stays credited |
+| FM04 new root/frame semantic role | Scheme completion, physical placement and runtime consumer proof | Not a native-language feature change alone |
+| FM05 compiler/library upgrade | Selected core toolchain review plus any changed helper contract | Marginal Zig stdlib/language versus admitted C builtin/compiler support |
+| FM06 downstream LLVM/Zig-driver upgrade | Affected adapter/profile/artifact validity per full bound identity | No direct LLVM API in RFD, but provider-bound graph/profile identity may still invalidate products; no automatic cache exemption |
+
+Define engineering work in reviewable task units before mapping to hours:
+one physical-rule change, one affected caller/adapter change, one compiler/library
+contract review, one public-status/ownership update, one correspondence case
+family, and the one-time migration of each issuer/consumer. Record overlap;
+do not count a single rule edit once per generated target or output frame.
+Work shared in meaning is not assumed equal in implementation effort.
+
+*** 7. Selected-Component Net-Benefit Result
+:PROPERTIES:
+:ID: 72dc2845-3f08-577d-84c6-35deac2c62b6
+:CUSTOM_ID: 7-selected-component-net-benefit-result
+:END:
+
+For this exact C control, prospective growth/visitor/bignum avoidance contributes
+*zero* structural support-retirement credit. The serious GCC control also
+supplies checked primitives. A positive case must therefore come from a
+justified difference in private implementation/review work or a genuinely
+remaining C helper; it cannot reuse the earlier broad candidate totals.
+
+Relative to the matched C-ZT control, write the component delta as:
+
+#+BEGIN_SRC text :eval never
+Net_RFD(H) = private_work_saved(H) + necessary_C_helper_work_avoided(H)
+           - residual_Zig_work(H) - incremental_migration(H)
+           - marginal_core_language_library_build_support(H)
+#+END_SRC
+
+The helper term is zero unless a necessary helper beyond the credited C support
+is named. Shared Zig-driver review is excluded from both sides; against C-G,
+add only a genuinely additional downstream-tool delta at its portfolio owner.
+All terms need compatible work/cost units and justified bounds before summation.
+
+*Sufficient positive conditions:* the selected source-level paired design
+demonstrates recurring private-work savings not removed by the small C design;
+those savings have a defensible lower bound under FM01-FM06 demand; residual
+Zig/migration/build support has an upper bound; the difference is positive;
+all common semantic/root/diagnostic duties remain. None of these cost bounds
+is invented or supplied by a small native timing test.
+
+*Concrete counterexample:* fixed profile data drives a small checked C core,
+exact arrays, stable status/cleanup and two mechanical consumers. No extra C
+generic support needs retirement. If private-work savings are zero and marginal
+Zig migration/support is positive, net value is negative; if both are zero it
+is zero. This is a valid conditional countermodel, not measured project cost.
+
+*Current recommendation:* retain RFD as a useful common-contract reconstruction
+component, but do not use it alone to justify Zig-language adoption. RFD neither
+disproves the larger Zig program nor licenses moving optional complexity into
+the C control to make Zig win. The [[file:return-frame-benefit-matrix.org][benefit matrix]]
+records broader outcomes, including explicit no-credit and unknown results.
+
+[[file:../diagrams/return-frame-planner-case.svg][Selected RFD source and three matched realizations]]

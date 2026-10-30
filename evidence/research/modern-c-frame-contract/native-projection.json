@@ -1,0 +1,159 @@
+{
+  "rows": [
+    {
+      "componentId": "producer",
+      "label": "Validated Scheme frame plan",
+      "sourceRoute": "gsc/_t-c-2.scm returns -> targ-make-frame-spec -> _t-c-1.scm emit/count/OFD consumers",
+      "retirement": "Retire unvalidated four-position return vectors and repeated layout decisions in three dumper loops",
+      "benefit": "One physical size/IFD decision per frame instead of two to four; emission wire format unchanged for the matched witness",
+      "addedCost": "Three extra Scheme vector slots per return label; range validation; bitmap chunks stay transient at emission",
+      "owner": {
+        "moduleId": "semantic",
+        "ownerPath": "dev/architecture/compiler"
+      }
+    },
+    {
+      "componentId": "consumer",
+      "label": "Shared typed C frame decoder",
+      "sourceRoute": "include/gambit.h.in: ___decode_frame_descriptor -> seven projections -> mem.c and kernel restore consumers",
+      "retirement": "Retire seven independently maintained IFD/OFD reader bodies; descriptor wire ABI retained",
+      "benefit": "One decoder interpretation shared by GC and continuation recovery; zero new VM storage or heap allocation in this cut",
+      "addedCost": "Inline/local result may affect generated machine code; no speedup or zero stack overhead asserted",
+      "owner": {
+        "moduleId": "collector",
+        "ownerPath": "dev/architecture/runtime/gc"
+      }
+    },
+    {
+      "componentId": "control",
+      "label": "Repeatable control witness",
+      "sourceRoute": "tests/frame-continuation.scm: map, call/cc, dynamic-wind, forced GC and C suffix",
+      "retirement": "Replace absence of a coupled regression by an executable value/effect/wind oracle",
+      "benefit": "Three preserved results, five callback invocations, three C calls and three wind pairs; prior delivered lists stay unchanged",
+      "addedCost": "Focused witness only; full generational GC, scheduling, mutable-frame alias and cohort acceptance remain open",
+      "owner": {
+        "moduleId": "control",
+        "ownerPath": "dev/architecture/runtime/control"
+      }
+    }
+  ],
+  "needs": [
+    {
+      "obligation": "FC-Q",
+      "method": "quint",
+      "artifact": "dev/refactoring/modern-c/models/quint/frame_contract.qnt",
+      "scope": "frame-contract:finite-descriptor-arithmetic",
+      "premise": "Kinds 1..3; sizes 1..40; finite arithmetic and omitted internal area counterexample"
+    },
+    {
+      "obligation": "FC-L",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/lean/FrameContract.lean",
+      "scope": "frame-contract:descriptor-natural-arithmetic",
+      "premise": "Seven universal packing field laws over bounded natural fields; no C pointer/shift/lifetime proof"
+    },
+    {
+      "obligation": "FC-PRODUCER",
+      "method": "native",
+      "artifact": "vendor/gambit/tests/frame-spec.scm",
+      "scope": "frame-contract:source-loaded-producer-and-matched-C",
+      "premise": "Current three backend sources loaded; 2387 checks, 306 fixtures, rejection controls and byte-identical witness against parent sources"
+    },
+    {
+      "obligation": "FC-DECODE",
+      "method": "native",
+      "artifact": "vendor/gambit/include/gambit.h.in",
+      "scope": "frame-contract:configured-64bit-decoder-and-GC-slice",
+      "premise": "306 native cases over registers 3/5/25; seven projections; sanitizer; source-identical decoder region rebuilt into retained GCC-profile mem object and linked witness"
+    },
+    {
+      "obligation": "FC-COHORT",
+      "method": "native",
+      "artifact": "vendor/gambit/gsc/_t-c-3.scm",
+      "scope": "frame-contract:complete-modern-c-bootstrap-open",
+      "premise": "Generated backend C checked separately; full compiled compiler/coherent current vendor runtime bootstrap and target profile matrix still required"
+    },
+    {
+      "obligation": "FC-FULL",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/sysml/map-multishot-composition.sysml",
+      "scope": "frame-contract:whole-runtime-semantic-refinement-open",
+      "premise": "Physical cut does not close root/writer inventories, GC generations, scheduler, FFI lifetime, progress or 12/12 native acceptance"
+    }
+  ],
+  "uses": [
+    {
+      "component": "producer",
+      "need": "FC-Q"
+    },
+    {
+      "component": "producer",
+      "need": "FC-L"
+    },
+    {
+      "component": "producer",
+      "need": "FC-PRODUCER"
+    },
+    {
+      "component": "producer",
+      "need": "FC-COHORT"
+    },
+    {
+      "component": "producer",
+      "need": "FC-FULL"
+    },
+    {
+      "component": "consumer",
+      "need": "FC-Q"
+    },
+    {
+      "component": "consumer",
+      "need": "FC-L"
+    },
+    {
+      "component": "consumer",
+      "need": "FC-DECODE"
+    },
+    {
+      "component": "consumer",
+      "need": "FC-COHORT"
+    },
+    {
+      "component": "consumer",
+      "need": "FC-FULL"
+    },
+    {
+      "component": "control",
+      "need": "FC-PRODUCER"
+    },
+    {
+      "component": "control",
+      "need": "FC-DECODE"
+    },
+    {
+      "component": "control",
+      "need": "FC-COHORT"
+    },
+    {
+      "component": "control",
+      "need": "FC-FULL"
+    }
+  ],
+  "edges": [
+    {
+      "from": "producer",
+      "to": "consumer",
+      "label": "validated kind / stored size / link / root bits"
+    },
+    {
+      "from": "consumer",
+      "to": "control",
+      "label": "GC / heap frame\nrestore coordinates"
+    },
+    {
+      "from": "control",
+      "to": "producer",
+      "label": "value / effect / wind oracle"
+    }
+  ]
+}

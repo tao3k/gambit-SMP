@@ -1,0 +1,86 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-gerbil-build-qualification",
+  "scope": "Existing Gerbil build and upstream tests consume the exact completed Modern C Gambit cohort; not whole REV admission",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/dsl/execution.ss",
+    "evidence/research/execution/entry.json",
+    "evidence/research/revision-admission/reconstruction-bootstrap-producer.json",
+    "evidence/research/revision-admission/reconstruction-source.lock.json",
+    "evidence/research/incremental-builds/qualified-gerbil.source.lock.json",
+    "evidence/research/revision-admission/gerbil-build-source.patch"
+  ],
+  "steps": [
+    {
+      "id": "producer",
+      "capability": "gambit.generation-artifact",
+      "dependsOn": [],
+      "budgetSeconds": 45,
+      "arguments": {
+        "producer": "evidence/research/revision-admission/reconstruction-bootstrap-producer.json",
+        "sourceLock": "evidence/research/revision-admission/reconstruction-source.lock.json"
+      }
+    },
+    {
+      "id": "gerbil",
+      "capability": "gerbil.build",
+      "dependsOn": [
+        "producer"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "sourceLock": "evidence/research/incremental-builds/qualified-gerbil.source.lock.json",
+        "runtime": {
+          "step": "producer",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "producer",
+          "output": "identity"
+        }
+      }
+    },
+    {
+      "id": "gerbil-tests",
+      "capability": "gerbil.test",
+      "dependsOn": [
+        "gerbil"
+      ],
+      "budgetSeconds": 300,
+      "arguments": {
+        "build": {
+          "step": "gerbil",
+          "output": "observations"
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "producer",
+        "gerbil",
+        "gerbil-tests"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -144,15 +144,22 @@
+ ___HIDDEN void vm_registry_deliver
+    ___P((___UWORD bits), (bits)
+ ___UWORD bits;)
+ {
++  /* Bit ___NB_INTRS is deferred root-only USER, not a broadcast code. */
++  ___UWORD broadcast = bits & (((___UWORD)1 << ___NB_INTRS) - 1);
+   ___virtual_machine_state vms = &___GSTATE->vmstate0;
+-  do
+-    {
+-      int code;
+-      vms = vms->prev;
+-      for (code=0; code<___NB_INTRS; code++)
+-        if (bits & (((___WORD)1) << code))
+-          ___raise_interrupt_vmstate(vms, code);
+-    }
+-  while (vms != &___GSTATE->vmstate0);
++
++  if (broadcast != 0)
++    do
++      {
++        int code;
++        vms = vms->prev;
++        for (code=0; code<___NB_INTRS; code++)
++          if (broadcast & (((___UWORD)1) << code))
++            ___raise_interrupt_vmstate(vms, code);
++      }
++    while (vms != &___GSTATE->vmstate0);
++  if (bits & ((___UWORD)1 << ___NB_INTRS))
++    ___raise_interrupt_pstate
++      (___PSTATE_FROM_PROCESSOR_ID(0,&___GSTATE->vmstate0), ___INTR_USER);
+ }
+@@ -244,9 +251,29 @@
+       /* A writer may have reopened and flushed before this publication. */
+       vm_registry_flush();
+     }
+ 
+ #endif
+ }
+ 
++void ___raise_root_user_interrupt ___PVOID
++{
++#ifndef ___SINGLE_VM
++  if (vm_registry_enter())
++    {
++      ___UWORD bits = ___FETCH_AND_CLEAR_WORD(&vm_registry_pending);
++      vm_registry_deliver(bits | ((___UWORD)1 << ___NB_INTRS));
++      vm_registry_leave();
++    }
++  else
++    {
++      __sync_fetch_and_or(&vm_registry_pending, ((___UWORD)1 << ___NB_INTRS));
++      /* A writer may have reopened and flushed before this publication. */
++      vm_registry_flush();
++    }
++#else
++  ___raise_interrupt_pstate
++    (___PSTATE_FROM_PROCESSOR_ID(0,&___GSTATE->vmstate0), ___INTR_USER);
++#endif
++}
+ 
+ ___EXP_FUNC(void,___init_procedural_interrupt)
+--- a/lib/os_setup.c
++++ b/lib/os_setup.c
+@@ -3034,11 +3034,12 @@
+ 
++extern void ___raise_root_user_interrupt ___PVOID;
++
+ ___HIDDEN void user_intr ___PVOID
+ {
+   /**** belongs elsewhere */
+-  /* send interrupt only to processor 0 of vm 0 */
+-  ___virtual_machine_state ___vms = &___GSTATE->vmstate0;
+-  ___raise_interrupt_pstate (___PSTATE_FROM_PROCESSOR_ID(0,___vms), ___INTR_USER);
++  /* Root P0 only. Closed or sealed admission defers; it does not broadcast. */
++  ___raise_root_user_interrupt ();
+ }
+ 
+ 
+ ___HIDDEN void terminate_intr ___PVOID

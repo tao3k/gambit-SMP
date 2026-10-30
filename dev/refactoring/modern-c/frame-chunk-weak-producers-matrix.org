@@ -1,0 +1,218 @@
+#+TITLE: Physical Frame Coverage and Weak Producer Admission — Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitFrameChunkWeakProducers
+:STATUS: conditional-model-induction; source-schedule-and-c11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| copy-header | vendor/gambit/lib/mem.c | copy_header = alloc;\n          *alloc++ = ___MAKE_HD_WORDS(words, ___sFRAME); | Actual frame start before header/RA/payload |
+| copy-size | vendor/gambit/lib/mem.c | words = fs + ___FRAME_EXTRA_SLOTS; | Frame payload words include extra RA |
+| copy-slot | vendor/gambit/lib/mem.c | ptr = &___FP_STK(alloc,link+1); | Copier slot is end minus link plus one |
+| scanner-fp | vendor/gambit/lib/mem.c | fp += descriptor.fs; | Scanner fp uses body plus extra plus fs |
+| scanner-link | vendor/gambit/lib/mem.c | frame = ___FP_STK(fp,descriptor.link+1); | Scanner reads same copied link slot |
+| scanner-hide | vendor/gambit/lib/mem.c | ___FP_SET_STK(fp,descriptor.link+1,___FAL) | Overlapping scanner write footprint |
+| local-authority | vendor/gambit/lib/mem.c | if (alloc_heap_chunk_start != work->local_scan_chunk_) | Current explicit chunk ownership |
+| terminator | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; | Closed chunk terminator position |
+| chunk-address | vendor/gambit/lib/mem.c | ___WORD *new_tail = alloc_heap_chunk_start-1; | Leading link is not object header |
+| section-state | vendor/gambit/lib/mem.c | ___PTRDIFF_T pos = header-the_msections->sections[i]->base-tospace_offset; | State identity includes section and tospace |
+| packed-state | vendor/gambit/lib/mem.c | int shift = 2*(pos % (___WORD_WIDTH/2)); | Two-bit state shares a machine word |
+| early-ready | vendor/gambit/lib/mem.c | publish_object_scan (work, copy_header);\n          work->copied_words += words+___SUBTYPED_BODY; | Candidate must move frame READY after link seal |
+| tail-owner | vendor/gambit/lib/mem.c | if (cell != 0) goto again; | Tail remains a producer after READY |
+| still-scan | vendor/gambit/lib/mem.c | scan (work, body, body[-1]); | Still path does not claim movable bitmap |
+| fresh-will | vendor/gambit/lib/mem.c | mark_array (work, body+1, 2); /* scan action and testator */ | Newly reached weak will creates work |
+| will-decide | vendor/gambit/lib/mem.c | determine_will_executability (nonexecutable_wills); | List classification still fused with retention |
+| repair-exec | vendor/gambit/lib/mem.c | mark_array (work, tail_exec+___WILL_TESTATOR, 1); | Two executable branch occurrences |
+| repair-nonexec | vendor/gambit/lib/mem.c | mark_array (work, tail_nonexec+___WILL_TESTATOR, 1); | Nonexecutable branch also repairs |
+| weak-mode | vendor/gambit/lib/mem.c | traverse_weak_refs = 1; | Worker-local mode must not precede global permission |
+| weak-closure | vendor/gambit/lib/mem.c | mark_reachable_from_marked (work);\n\n  move_continuation (work); | Weak scan drains before stack move |
+| hash-cleanup | vendor/gambit/lib/mem.c | process_gc_hash_tables (work); | Post-weak weak-edge rewrite not new marking |
+| foreign-cleanup | vendor/gambit/lib/mem.c | ___release_foreign\n              ( | External cleanup callback boundary |
+| strong-roots | vendor/gambit/lib/mem.c | mark_execution_roots (work, | Root/RC production is strong-phase scoped |
+| strong-marker | vendor/gambit/lib/mem.c | ___GC_STRONG_COMPLETE; | Local phase label not global closed-work proof |
+| slot-macro | vendor/gambit/include/gambit.h.in | #define ___FP_STK(fp,fpo)fp[-(fpo)] | Actual negative-offset indexing |
+| frame-space | vendor/gambit/include/gambit.h.in | #define ___FRAME_SPACE(n)___ROUND_TO_MULT((n)+___FRAME_RESERVE,___FRAME_ALIGN) | Stack storage includes reserve/alignment |
+| decoder | vendor/gambit/include/gambit.h.in | frame.fs = internal ? ___RETI_CFS_TO_FS(frame.stored_fs) : frame.stored_fs; | RETI stored size differs from physical fs |
+| cas | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | Legacy GCC implementation branch; not C11 profile qualification |
+| release-callback | vendor/gambit/lib/c_intf.c | if ((e = release_fn (ptr)) != ___FIX(___NO_ERR)) | Callback body cannot be bounded from collector source |
+| barrier-wrapper | vendor/gambit/lib/setup.h | #define BARRIER() barrier_sync_noop (___PSPNC) | Native collective selection |
+| barrier-service | vendor/gambit/lib/setup.c | barrier_sync_op (___PSP &sop); | Collective uses sync operation protocol |
+| fifo-gate | vendor/gambit/lib/mem.c | while (___COMPARE_AND_SWAP_WORD(&owner->chunk_gate_,0,1) != 0) | Current queue gate replaces historical volatile polling; no automatic C11 qualification |
+| fifo-take | vendor/gambit/lib/mem.c | ___WORD *ptr = take_heap_chunk(work,victim); | Stolen scans use current shared take path |
+
+** Mapping
+
+| key | formula | premise | gap |
+|---+---+---+---|
+| object interval | H header; body H+1; past H+fs+2 | Extra=1 body=1; positive fs; same allocation | Pointer provenance/overflow not proved |
+| copier link | past-(link+1) | 0<=link<fs; copied stack fs slots | Descriptor/module lifetime required |
+| scanner link | (H+1+1+fs)-(link+1) | Same physical descriptor; RETI normalized fs | Stored cfs cannot replace fs |
+| mixed chunk | Tile from first header to terminator | Every ordinary/padding/frame header advances by 1+words | No unregistered hole or hidden object |
+| leading marker | first header - 1 | Not an object header; separate two-bit identity | State-word CAS still shares neighbouring bits |
+| closed interval | [lo,term) objects; term marker; hi=term+1 | All fields within grant; chunk half-open unique | Marker may not be claimed as object |
+| local frontier | Per-object acquired READY before field access | Local ownership is not a seal receipt | Closed-chunk model alone does not prove local open frontier |
+| writer footprint | Copier link overlaps scanner hide/restore | All overlapping writes must precede READY | Tail first field is separately owned and skipped by generic scan |
+
+** Producer
+
+| key | caller | callee | family | phase | gate | custody |
+|---+---+---+---+---+---+---|
+| list-cell | process_wills | mark_array | 0 | weak | global decision cut | Accepted list work retains debt |
+| testator-repair | process_wills | mark_array | 1 | weak | global decision cut | Three source branches; executable needle appears twice |
+| new-will | scan | mark_array | 2 | weak | inherited weak-task permit | Action/testator for fresh weak will |
+| ordinary-and-table | scan | mark_array | 3 | strong-or-weak | phase-specific task permit | Strong-policy hash fields and ordinary fields; weak entries not traced |
+| continuation-root | scan | mark_captured_continuation | 4 | strong-or-weak | phase-specific task permit | Frame copy may close/publish chunk |
+| captured-existing | mark_captured_continuation | mark_array | 4 | strong-or-weak | inherit caller phase | Heap-backed or END path |
+| frame-fields | mark_frame | mark_array | 4 | strong-or-weak | inherit scan/capture phase | Root runs and live RA produce work |
+| tail | mark_array | goto again | 3 | strong-or-weak | same accepted copy owner | Owns first field; queue drain does not settle Tail |
+| still | scan_still_objs_to_scan | scan | 5 | strong-or-weak | phase scan permit | Still work not covered by movable READY |
+| local-chunk | scan_movable_objs_to_scan | scan_and_advance | 3 | strong-or-weak | phase permit plus per-object READY | Local owned frontier still needs seal |
+| queued-and-stolen | scan_complete_heap_chunk | scan_and_advance | 3 | strong-or-weak | phase permit plus physical coverage | Origins local FIFO or thief share gate |
+| roots-rc | mark_execution_roots | mark_rc | excluded | strong-only | strong phase must close | All nonzero contexts and native root writers remain admission premise |
+| stack-move | move_continuation | raw stack copy | excluded | after weak closure | no new mark calls | Not a weak marking producer in current function |
+| hash-resolution | process_gc_hash_tables | UNMARKED/forward/delete | excluded | cleanup | weak closure barrier | No mark_array/capture/scan calls in current body |
+| foreign-hook | free_unmarked_still_objs | ___release_foreign | unbounded | cleanup | separate external callback admission | Cannot certify arbitrary release_fn reentry or late work from this inventory |
+| mark_continuation-mark_frame | mark_continuation | mark_frame | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_continuation-mark_captured_continuation | mark_continuation | mark_captured_continuation | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_rc-mark_array | mark_rc | mark_array | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_processor_scmobj-mark_array | mark_processor_scmobj | mark_array | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_vm_scmobj-mark_array | mark_vm_scmobj | mark_array | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_global_variables-mark_array | mark_global_variables | mark_array | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_symkey_tables-mark_array | mark_symkey_tables | mark_array | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| mark_execution_roots-mark_array | mark_execution_roots | mark_array | excluded | strong-only | frozen root phase | Must settle before global strong closure; late entry refused |
+| frame-scan-dispatch | scan | mark_frame | 4 | strong-or-weak | inherited phase plus frame seal | Explicit caller edge required by actual direct-call inventory |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| stack-descriptor | copied-span | Normalize RETI; authenticate fs/link |
+| copied-span | physical-tile | No holes; exact header walk including padding |
+| physical-tile | chunk-seal | Every overlapping writer closed |
+| copier-fixup | chunk-seal | Seal pending predecessor and terminal |
+| chunk-seal | release-publish | Marker plus full coverage |
+| release-publish | acquire-claim | Object and chunk authorities distinct |
+| acquire-claim | scanner | Validate exact epoch and owned interval |
+| local-frontier | scanner | Per-object seal also required |
+| strong-producers | strong-closure | Private Tail copies roots queued still debt all settled |
+| strong-closure | classify-all | Frozen context lists and roster |
+| classify-all | decision-cut | All owners including empty acknowledge |
+| decision-cut | weak-producers | All six route classes inherit permission |
+| weak-producers | child-reservation | Reserve before parent final release |
+| child-reservation | weak-closure | Unknown delivery retains existing task |
+| weak-closure | cleanup | No new weak roots; external hooks separately admitted |
+| chunk-seal | producer-ledger | Retain delayed chunk as phase debt; source relation open |
+| weak-producers | producer-ledger | Same epoch task identity |
+| producer-ledger | weak-closure | Private queued Tail still child debt zero |
+| terminator | queue-link-alias | Next leading link equals prior term |
+| queue-link-alias | C11-obligation | Scanner reads need synchronized or immutable metadata |
+
+** Obligation
+
+| key | status | scope | gap |
+|---+---+---+---|
+| slot-coordinate | proved-arithmetic | Copier and scanner same integer slot | Provenance fs/link and live metadata premises remain |
+| mixed-interval | proved-conditional | Arbitrary list of frame ordinary padding spans | Real header-to-model Tile witness not extracted |
+| chunk-publication | proved-in-model | Two frames same physical interval gate | Real chunk membership all writers local frontier open |
+| producer-route | source-inventory | Direct calls reviewed under exact source hash | Not a C preprocessor/callback whole-program proof |
+| weak-gate | proved-in-model | Six route classes and inherited children | All native route-to-permit mappings unimplemented |
+| strong-close | open | No residual private chunk Tail copy root or still work | Existing idle count is conditional; no full C11 proof |
+| roster-cut | open | Same frozen contexts and classification lists | Physical worker/context cardinality and barrier protocol refinement |
+| C11 | open | Release/acquire plus metadata/storage lifetime | Packed bits fallback ordinary polling and epoch reset |
+| external-hooks | open | Foreign release callback reentry and FFI writes | Deny proof issuance unless closed contract supplied |
+| native | open | No runtime change or native tests | No speedup or capacity acceptance |
+| shared-terminator | open | Previous end marker is next leading queue-link storage | FIFO gate alone does not synchronize scanner raw marker read; input schedule and C11 proof open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| prefix overlap | Avoid whole-chain scanner serialization | Seal bookkeeping and delayed last chunk | Useful scan overlap H exceeds added publication A |
+| mixed coverage | One canonical identity for slots spans and chunk | Coverage metadata or generated owner proof | Do not add a second runtime graph without benefit |
+| will consistency | Keep O(W) decisions and repair without strong graph rescan | One decision rendezvous or immutable strong snapshot | All weak producers gated; not a measured speedup |
+| producer ledger | No separate publication counter when active owner spans reserve to settle | Register inherited children before release | All queued/private/Tail/still work represented |
+| retirement | Retire early frame READY; ungated weak entry; allocation-derived ownership | Seal-aware local frontier and split classify/retain APIs | All actual consumers migrated; legacy ownership already replaced is baseline |
+| retention | At most one delayed closed chunk per fit-admitted sequential copier | Plus open chunk side metadata and old-stack/epoch pin | No unconditional byte bound for captured stale-threshold path |
+| frontier accounting | Avoid an extra O(K) header walk at each publication | O(1) frontier update per committed allocation; generated slot map | Real allocation append proof and all rollback/pad cases closed |
+| sentinel separation | Remove shared marker read versus FIFO-link write overlap | Atomic compatible storage/access or separate queue-link word and lifetime | Address alias proved; scheduling and concrete C11 composition unresolved |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| frame_chunk_coverage.initializeA | ChunkCoverage.initializeAPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.initializeB | ChunkCoverage.initializeBPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.registerA | ChunkCoverage.registerAPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.registerB | ChunkCoverage.registerBPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.sealA | ChunkCoverage.sealAPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.sealB | ChunkCoverage.sealBPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.closeChunk | ChunkCoverage.closeChunkPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.deferClosed | ChunkCoverage.deferClosedPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.closeAliases | ChunkCoverage.closeAliasesPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.mutateA | ChunkCoverage.mutateAPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.publishChunk | ChunkCoverage.publishChunkPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.claim | ChunkCoverage.claimPreserves | Exact typed IR guard/update; native C mapping remains open |
+| frame_chunk_coverage.completeScan | ChunkCoverage.completeScanPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.drainStrong | WeakAdmission.drainStrongPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.freezeStrong | WeakAdmission.freezeStrongPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.classifyA | WeakAdmission.classifyAPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.classifyB | WeakAdmission.classifyBPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.openWeak | WeakAdmission.openWeakPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.listProducer | WeakAdmission.listProducerPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.repairProducer | WeakAdmission.repairProducerPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.freshWillProducer | WeakAdmission.freshWillProducerPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.graphProducer | WeakAdmission.graphProducerPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.continuationProducer | WeakAdmission.continuationProducerPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.stillProducer | WeakAdmission.stillProducerPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.deriveChild | WeakAdmission.deriveChildPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.settleTask | WeakAdmission.settleTaskPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.closeRoots | WeakAdmission.closeRootsPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.finishWeak | WeakAdmission.finishWeakPreserves | Exact typed IR guard/update; native C mapping remains open |
+| weak_producer_admission.cleanup | WeakAdmission.cleanupPreserves | Exact typed IR guard/update; native C mapping remains open |
+
+** Composition
+
+| key | lemma | scope |
+|---+---+---|
+| spatial-induction | ChunkCoverage.reachableSafe | All physical gate steps |
+| coordinates | ChunkCoverage.copierScannerCoordinate | Normalized descriptor integer indices |
+| root-map | ChunkCoverage.rootSlotCoordinate | One-based root slots to copy slots |
+| inside-frame | ChunkCoverage.linkInsideFrame | Valid link bounds |
+| mixed-tile | ChunkCoverage.mixedChunkLinkCovered | Arbitrary mixed object list |
+| unique-chunk | ChunkCoverage.uniqueChunk | Disjoint half-open intervals |
+| terminator | ChunkCoverage.slotBeforeTerminator | Link cannot alias marker |
+| padding | ChunkCoverage.paddingThenFrame | Zero-word padding participates in header walk |
+| weak-induction | WeakAdmission.reachableSafe | All producer and closure steps |
+| all-producers | WeakAdmission.producerNeedsCut | Any accepted active work requires completed cut |
+| no-debt | WeakAdmission.completedNoDebt | Completion needs closed roots and zero debt |
+| child-transfer | WeakAdmission.childReservationBeforeRelease | Reserve child before parent settle |
+| append | ChunkCoverage.spanAppend | Real allocation append induction premise |
+| sentinel-alias | ChunkCoverage.nextLeadingAliasesTerm | Previous terminator equals next leading queue-link address |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| roots | collector | Frame identity live descriptor and context roots | PW-source |
+| collector | collector | Physical span to sealed chunk to scanner | PW-frameInduction |
+| collector | control | Frozen roster all-list decision cut | PW-weakInduction |
+| collector | native | C11 slot READY queue and epoch lifetime | PW-platform |
+
+** Proof routing
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| PW-frameHistory | interleaving | dev/refactoring/modern-c/models/quint/frame_chunk_coverage.qnt | Two frames marker aliases and physical chunk handoff |
+| PW-weakHistory | interleaving | dev/refactoring/modern-c/models/quint/weak_producer_admission.qnt | Six routes inherited children closed roots unknown acknowledgment |
+| PW-frameInduction | induction | dev/refactoring/modern-c/models/lean/ChunkCoverage.lean | All projected steps and generic mixed-span arithmetic |
+| PW-weakInduction | induction | dev/refactoring/modern-c/models/lean/WeakAdmission.lean | All projected steps and gate/settlement properties |
+| PW-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ChunkCoverageAst.lean | Both typed IR guards updates exact rosters |
+| PW-source | source-refinement | dev/refactoring/modern-c/frame-chunk-weak-producers-design.org | Real allocation Tile and all native writer/producer closure open |
+| PW-platform | native-memory-order | dev/refactoring/modern-c/frame-chunk-weak-producers-design.org | Pointer provenance and concrete C11 publication/phase/epoch open |

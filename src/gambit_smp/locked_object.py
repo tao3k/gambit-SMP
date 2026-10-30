@@ -250,5 +250,9 @@ def main():
     return 0 if ok else 1
 
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('locked-object')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('locked-object',main))

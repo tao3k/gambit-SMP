@@ -1,0 +1,195 @@
+#+TITLE: Modern C Frame Consumers and Coherent Bootstrap
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+
+* Responsibility replacement :modern_c:gc:control:bootstrap:
+:PROPERTIES:
+:CUSTOM_ID: frame-consumers
+:AUTHORITY: GambitFrameConsumers
+:STATUS: SOURCE-IMPLEMENTED; BAZEL-BASELINE-BOUND; ARCHITECTURAL-REFINEMENT-OPEN
+:VENDOR_BRANCH: modern-c
+:END:
+This extends the [[file:frame-contract-realization.org][physical frame-plan cut]] into the real GC and continuation
+consumers. Scheme remains responsible for liveness and physical frame plans.
+The C header owns native-word root access; GC owns visiting and updating the
+pointed-to objects; control owns stack/heap interpretation and restoration.
+No second runtime language, activation gate or persistent per-object metadata
+is added. Existing copying, lazy captured-frame materialization and multi-shot
+semantics remain the baseline, not benefits invented by this change.
+
+[[file:models/sysml/frame-consumers.sysml][Native SysML]] references the existing frame producer/decoder and the canonical
+collector, control, execution and build owners. Its component obligations drive
+ASCENT via the existing shared DSL; [[file:frame-consumers-matrix.org][the benefit matrix]] and [[file:diagrams/frame-consumers.d2][D2]] are native-evaluated
+views, not independent component definitions. Models remain in DEV; vendor
+contains runtime/compiler sources and C/Scheme regression programs.
+
+* Root coordinates, visitation and restoration
+** One native-word view, two access patterns
+Slots are one-based. Bit =slot-1= belongs to word =(slot-1)/WORD_WIDTH=.
+The descriptor stores word zero separately; its tail pointer starts at word
+one, so a random access into the tail subtracts one from the word index.
+=___frame_slot_live= checks the extent and shifts an unsigned native word.
+The old kernel bodies indexed the tail without that subtraction and used an
+=int= literal as their mask, which did not express a native-word high bit.
+
+=___frame_root_cursor= borrows the same descriptor for a sequential scan. It
+loads a tail word only when another slot exists and emits maximal contiguous
+live runs. GC translates =[first,past)= to its existing reversed stack range:
+=&FP_STK(fp,past-1)= and length =past-first=. This retains =mark_array= batching;
+it does not replace a bulk GC scan with independent per-slot marking calls.
+Random lookup and sequential traversal have different implementations, so their
+agreement is an explicit finite/native obligation rather than an assumption.
+
+** Real consumers and retained responsibilities
+=mem.c:mark_continuation= decodes a live stack descriptor, computes the physical
+frame base/link and passes that same descriptor to =mark_frame=. The heap
+=___sFRAME= scanner does likewise. Its temporary suppression/restoration of an
+encoded captured-frame link remains in place; the descriptor alone does not
+prove that link's ownership or tagging protocol.
+
+=_kernel.scm:##frame-slot-live?= and =##continuation-slot-live?= delegate to the
+bounded native-word query. Existing frame-size/link/restore consumers retain
+the shared decoder introduced by the preceding cut. No caller is allowed to
+infer an internal physical extent from an unclassified normal descriptor.
+The cursor may not escape the scan or outlive module metadata. Visiting a root
+is still an existing collector operation, not permission for mutator allocation
+or an implicit safepoint in the bitmap helper.
+
+** Explicit loading VM
+The multiple-VM compilation exposed =make_global= using =GLOCELL= without a
+processor binding. Its sole caller already has =fem_context=. That context now
+flows to the helper, and the supplied-global marker uses =GLOCELL_IN_VM= with
+the loading VM. This removes the ambient processor dependency; it does not
+introduce a fallback TLS lookup or change the shared global-index allocator.
+
+* Architecture owns replacement; repairs constrain validation
+:PROPERTIES:
+:CUSTOM_ID: frame-consumers-evidence
+:BASELINE_AUTHORITY: tools/ci/build_source_toolchain.sh
+:TARGET_AUTHORITY: GambitModernizationTarget
+:END:
+The [[file:modernization-target.org][six coupled replacements]] remain the governing architecture. Bazel and SMP
+patches supply the validation baseline, legal behaviors and failure
+counterexamples. Their implementation layout is not the target. A new context,
+collector or native-entry service must discharge those constraints through its
+own ownership and progress rules and retire the superseded responsibility.
+Byte equality with a cumulative patch is neither necessary nor sufficient.
+
+The [[file:../../../evidence/research/modern-c-frame-consumers/verification.json][verification receipt]] and [[file:../../../evidence/research/modern-c-frame-consumers/bazel-baseline.json][source/profile correspondence]] distinguish actual
+source commits, local controls, inherited repairs and open architecture work.
+The source audit compares 26 locked file entries: 18 remain upstream and eight
+diverge. These are file identities, not 26 defects, accepted tests or instructions
+to copy 26 files. No live diagnostic producer is imported or edited.
+
+** What the implemented cut replaces
+Scheme now constructs one physical frame plan; one typed C decoder feeds both
+stack/heap GC traversal and continuation inspection. The collector retains
+bulk root marking. Two independent kernel tail-index/mask bodies and the
+independent GC bitmap traversal retire. This is a shared semantic-contract
+realization, not an additional monitor alongside all old interpretations.
+
+It is only the frame/root sub-contract of the new architecture. It does not
+create independent collector workers, a generational heap, movable execution
+contexts or root-safe native activation. Those replacements still need complete
+source realization and joint proofs. Calling the frame cut a completed modern
+runtime would erase the principal unresolved work.
+
+** Bound validation baseline
+The current main-repository script and the retained profile snapshot have the
+same SHA-256 =14f9adabe21a3eb490bdedb4418a68958df2960bf4e045f78a66babffc56a0cc=.
+The existing profile parser preserves Darwin GNU GCC, C O1, RTS =yes=,
+=single-host=0=, empty march, GCC options, inline jumps, dynamic clib, trusted
+C TCO, SMP, multiple VMs and =CFLAGS=-pipe=. The separately declared
+multiple-threaded-VM goal overlay adds that switch without replacing any profile
+flag. Actual generated flags, linked ABI and runtime population still require
+same-producer observation; parsing is not a configure receipt.
+
+Source commit =b61b98add125349992963dec710b240a46d11f95= imports four original
+Bazel Gambit repairs: address-stable global capacity, Darwin spawn, GNU macro
+provenance and literal command substitution. Their reverse-application checks
+pass. The fifth repair's ambient processor plumbing is superseded by the
+explicit loading =fem_context= in =dfec5508=; semantic multi-VM equivalence is a
+cohort obligation. None of these inherited repairs is counted as a new benefit
+of the frame refactor. No alternative runtime language is added.
+
+The original shell substitution controls pass five tests. The existing source
+CI contract runs ten tests with one AOT tool-list mismatch: its test expects
+=gxhttpd= while the current AOT patch lists three tools. That failure is retained;
+the source-CI suite is not reported green. No full Gerbil build is inferred.
+
+** Retained failures and acceptance boundaries
+Raw-vendor source/seed experiments predated this baseline correction. Their
+heap-overflow, primitive-table, interpreted-ADT and bootstrap failures remain
+in the task journal. They are unqualified host/source-cohort observations, not
+proof that the new architecture or its root cursor causes SMP failure. All
+owned bootstrap processes were interrupted and reaped; no raw serial or
+reconfigured single-VM route is continued as qualification.
+
+In particular there is no accepted complete-igsc seed route or passed source/self
+cohort for this cut. Two Make-linked control GSIs generated the wide witness C,
+but generation alone is not execution, final-cohort compatibility or semantic
+equivalence. The compiled wide map/multi-shot witness remains open.
+
+The [[file:../../../evidence/research/processor-interrupt-collective-wait/repair-9-12-native-observation.json][registered campaign observation]] retains =8/12=. It includes different source
+and producer histories; the score does not transfer automatically to this
+branch. Its numeric C-phase failure is also binding counterevidence: the
+original =03-number/_num.scm= generated C in 39.806 seconds, but the C phase
+exceeded its unchanged 90-second cap. Removing modulo scheduling and using
+plain O1 also timed out. A new semantic artifact graph and compilation-unit
+boundary must eliminate actual repeated/oversized work; another flag experiment
+cannot satisfy that architectural claim. No new full-suite/native run follows
+from this source audit.
+
+* Conditional proof and executable control
+[[file:models/quint/frame_roots.qnt][QNT]] models a width-four root stream: prefix coverage, unique root visitation,
+word transitions and no tail load after the terminal slot. Four histories include
+the original skipped-tail counterexample; a deliberately wrong transition must
+fail the invariant. Sampled exploration is not an exhaustive word-width proof.
+[[file:models/lean/FrameRoots.lean][Lean]] proves seven coordinate and prefix-induction laws. Native unsigned shifts,
+maximal-run batching, module lifetime and actual C/Scheme refinement remain
+separate obligations; those laws are not whole-runtime GC/FFI correctness.
+
+The refinement map is operational: C =cursor.slot= maps to QNT =s.slot=,
+=cursor.fs= to =s.fs=, unsigned =cursor.bits= to the remaining modeled word,
+and the OFD tail pointer's consumed-word distance to =s.next=. An inline null
+tail has distance zero by definition; no C null-pointer subtraction is allowed.
+One =root_advance= is a model step; =next_run= is a finite composition of those
+steps. Each returned interval becomes one existing =mark_array= visit. The
+prefix induction applies only if descriptors remain live/immutable, bitmap
+loads are valid, and the reversed stack/heap coordinate mapping is correct.
+Those premises are explicit source/native refinement obligations, not extra
+assumptions hidden in the Lean theorem. Root-value rewriting by marking does
+not mutate the descriptor or authorize a mutator to resume concurrently.
+
+The C regression compares random queries and sequential runs against independent
+fixture arithmetic for all 306 plans. The wide Scheme regression retains 80
+individually live vector payloads across a non-tail call under real =map=. It
+compares continuation root queries with materialized heap-frame queries, forces
+GC, resumes the same continuation twice, and checks all prior results, native
+suffix calls and =dynamic-wind= visits. Its raw capture/return use Gambit's own
+winding protocol; no OCaml one-shot restriction is imposed.
+
+* Benefits and counterarguments
+:PROPERTIES:
+:CUSTOM_ID: frame-consumers-cost
+:END:
+| Dimension | Eliminated work / risk | Added work / boundary |
+|-----------+------------------------+-----------------------|
+| Root interpretation | Two kernel tail-index/mask bodies retire; GC consumes the same typed physical view | Sequential and random APIs still require agreement proofs and native controls |
+| GC work | Maximal live runs and bulk marking preserved | Slot traversal remains linear; no fewer live roots or generational scanning gain claimed |
+| Persistent memory | No new VM field, heap-object field, remembered set or allocation | Descriptor/cursor are temporary values; optimized stack/register cost must be measured |
+| Multi-shot control | Coupled values, root visibility, effects and winding become checked together | Shared mutable frame aliases and concurrent restore remain open |
+| Module binding | Existing loading context supplies the correct VM | One existing-context argument; no new root domain or synchronization facility |
+| Build confidence | Existing Bazel profile and inherited source responsibilities are identified; ad hoc profile qualification is rejected | Coherent source/self bootstrap and wide-map native execution remain open; inherited patches are not new benefits |
+| Modernization scope | Shared consumers are a foundation for GC/control and backend changes | Generational GC, independent workers, FFI lifetime and SMP capacity are not implemented here |
+
+:LOGBOOK:
+- [2026-10-23 Fri] Root-view consumers and explicit loading-VM source changes
+  implemented. Failure evidence retained; source/self and map verification are
+  recorded separately from general SMP acceptance.
+- [2026-10-23 Fri] User correction: repair profiles constrain validation; DEV
+  owns fundamental architectural replacement. Source imports are inherited
+  baseline only. File equality is not the modernization admission predicate.
+:END:

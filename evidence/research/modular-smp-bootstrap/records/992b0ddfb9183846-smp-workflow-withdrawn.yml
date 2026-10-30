@@ -1,0 +1,146 @@
+---
+name: Modern C Modular SMP
+'on':
+  pull_request:
+    paths:
+    - vendor/gambit
+    - dev/refactoring/modern-c/**
+    - dev/modeling/tools/*modular*
+    - evidence/research/modular-smp-bootstrap/**
+    - src/gambit_smp/**
+    - tests/**
+    - ".github/workflows/modern-c-smp.yml"
+    - ".github/actions/framework/**"
+  workflow_dispatch: {}
+permissions:
+  contents: read
+env:
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+jobs:
+  contracts:
+    runs-on: macos-15
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+        - source-origin
+        - source-custody
+        - incremental
+        - root-protocol
+        - runtime-storage
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - run: git submodule update --init vendor/gambit
+    - uses: "./.github/actions/framework"
+      with:
+        task: modern-c-frame-contract
+        sdk-directory: "${{ github.workspace }}/.cache/tools/ci/gerbil-sdk"
+    - name: Install the declared GNU toolchain
+      run: |
+        brew install gcc autoconf automake texinfo
+        echo "$(brew --prefix gcc)/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix texinfo)/bin" >> "$GITHUB_PATH"
+        test "$(uname -m)" = arm64
+    - name: Run one source-bound contract module
+      env:
+        MODULE: "${{ matrix.module }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract tool process-observation
+        evidence/research/modular-smp-bootstrap/contracts/"$MODULE".json --out .cache/tasks/modern-c-frame-contract/runs/ci-contract-"$MODULE"
+    - uses: actions/upload-artifact@v4
+      if: "${{ always() }}"
+      with:
+        name: modern-c-smp-${{ github.job }}-${{ matrix.module || github.run_id }}-${{
+          github.run_attempt }}
+        path: |
+          .cache/tasks/modern-c-frame-contract/runs/**/*.json
+          .cache/tasks/modern-c-frame-contract/runs/**/*.log
+          .cache/tasks/modern-c-frame-contract/runs/**/*.stdout
+          .cache/tasks/modern-c-frame-contract/runs/**/*.stderr
+          !.cache/tasks/modern-c-frame-contract/runs/**/source/**
+          !.cache/tasks/modern-c-frame-contract/runs/**/generation/**
+        include-hidden-files: true
+        if-no-files-found: warn
+  native:
+    needs: contracts
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - run: git submodule update --init vendor/gambit
+    - uses: "./.github/actions/framework"
+      with:
+        task: modern-c-frame-contract
+        sdk-directory: "${{ github.workspace }}/.cache/tools/ci/gerbil-sdk"
+    - name: Install the declared GNU toolchain
+      run: |
+        brew install gcc autoconf automake texinfo
+        echo "$(brew --prefix gcc)/bin" >> "$GITHUB_PATH"
+        echo "$(brew --prefix texinfo)/bin" >> "$GITHUB_PATH"
+        test "$(uname -m)" = arm64
+    - name: Bind the actual SDK host for the current Scheme compiler sources
+      run: ruby dev/modeling/tools/prepare-ci-bootstrap-host.rb
+    - name: Seal the exact framework, compiler and ASCENT provider
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --seal
+        .cache/tasks/modern-c-frame-contract/cohort/ci-engine --gcc "$(command -v
+        gcc-16)" --ascent-api "$(uv run --no-sync python -c 'import ascent; from pathlib
+        import Path; print(Path(ascent.__file__).parent)')"
+    - id: bootstrap
+      name: Complete the unchanged-profile two-pass bootstrap
+      run: |-
+        uv run --no-sync gambit-smp --task modern-c-frame-contract research --run evidence/research/modular-smp-bootstrap/ci-bootstrap.recipe.json --engine .cache/tasks/modern-c-frame-contract/cohort/ci-engine --out .cache/tasks/modern-c-frame-contract/runs/ci-bootstrap
+        uv run --no-sync gambit-smp --task modern-c-frame-contract research --export-producer .cache/tasks/modern-c-frame-contract/runs/ci-bootstrap --step bootstrap --out evidence/research/modular-smp-bootstrap/ci-producer.json
+    - id: map
+      name: 'SMP module: map'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --run
+        evidence/research/modular-smp-bootstrap/ci-map.recipe.json --engine .cache/tasks/modern-c-frame-contract/cohort/ci-engine
+        --out .cache/tasks/modern-c-frame-contract/runs/ci-map
+    - id: wide_roots
+      name: 'SMP module: wide-roots'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --run
+        evidence/research/modular-smp-bootstrap/ci-wide-roots.recipe.json --engine
+        .cache/tasks/modern-c-frame-contract/cohort/ci-engine --out .cache/tasks/modern-c-frame-contract/runs/ci-wide-roots
+    - id: host_wide_roots
+      name: 'SMP module: host-wide-roots'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --run
+        evidence/research/modular-smp-bootstrap/ci-host-wide-roots.recipe.json --engine
+        .cache/tasks/modern-c-frame-contract/cohort/ci-engine --out .cache/tasks/modern-c-frame-contract/runs/ci-host-wide-roots
+    - id: shared_roots
+      name: 'SMP module: shared-roots'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --run
+        evidence/research/modular-smp-bootstrap/ci-shared-roots.recipe.json --engine
+        .cache/tasks/modern-c-frame-contract/cohort/ci-engine --out .cache/tasks/modern-c-frame-contract/runs/ci-shared-roots
+    - id: mailbox_roots
+      name: 'SMP module: mailbox-roots'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --run
+        evidence/research/modular-smp-bootstrap/ci-mailbox-roots.recipe.json --engine
+        .cache/tasks/modern-c-frame-contract/cohort/ci-engine --out .cache/tasks/modern-c-frame-contract/runs/ci-mailbox-roots
+    - id: wind_resume
+      name: 'SMP module: wind-resume'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      run: uv run --no-sync gambit-smp --task modern-c-frame-contract research --run
+        evidence/research/modular-smp-bootstrap/ci-wind-resume.recipe.json --engine
+        .cache/tasks/modern-c-frame-contract/cohort/ci-engine --out .cache/tasks/modern-c-frame-contract/runs/ci-wind-resume
+    - uses: actions/upload-artifact@v4
+      if: "${{ always() }}"
+      with:
+        name: modern-c-smp-${{ github.job }}-${{ matrix.module || github.run_id }}-${{
+          github.run_attempt }}
+        path: |
+          .cache/tasks/modern-c-frame-contract/runs/**/*.json
+          .cache/tasks/modern-c-frame-contract/runs/**/*.log
+          .cache/tasks/modern-c-frame-contract/runs/**/*.stdout
+          .cache/tasks/modern-c-frame-contract/runs/**/*.stderr
+          !.cache/tasks/modern-c-frame-contract/runs/**/source/**
+          !.cache/tasks/modern-c-frame-contract/runs/**/generation/**
+        include-hidden-files: true
+        if-no-files-found: warn

@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "gerbil-foundation-identity:1a65f1d1a4207f602dedb0ce1f7520eab308574294c4519f860fb74967a95d1a" "gerbil-foundation-identity:1a65f1d1a4207f602dedb0ce1f7520eab308574294c4519f860fb74967a95d1a" "support" "dev/architecture/toolchain/models/sysml/foundation-binding.sysml"))
+ (fact (factor "gerbil-foundation-identity:1a65f1d1a4207f602dedb0ce1f7520eab308574294c4519f860fb74967a95d1a" "target-model-bundle-sha256" "1a65f1d1a4207f602dedb0ce1f7520eab308574294c4519f860fb74967a95d1a"))
+ (fact (factor "gerbil-foundation-identity:1a65f1d1a4207f602dedb0ce1f7520eab308574294c4519f860fb74967a95d1a" "native-output-sha256" "07c25aa57ace37284095961cd70bb33402d19f0648a5e6a54e845fe37cf615d8"))
+ (fact (factor "gerbil-foundation-identity:1a65f1d1a4207f602dedb0ce1f7520eab308574294c4519f860fb74967a95d1a" "planner-dsl-sha256" "429af24e465c5d85006181fe37df366e173a7985da80088f72ea37efe86b7770"))
+)

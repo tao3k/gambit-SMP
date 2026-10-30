@@ -1,0 +1,172 @@
+#+TITLE: SharedRuntimeContract: Retirement, LLVM Leverage and Cost Conditions
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: runtime
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN SharedRuntimeContract: Retirement, LLVM Leverage and Cost Conditions :runtime:
+:PROPERTIES:
+:ID: b1434a21-7147-59dd-9b0f-9f72b08c47a1
+:CUSTOM_ID: sharedruntimecontract-retirement-llvm-leverage-and-cost-conditions
+:SOURCE_PATH: docs/experimental/zig/shared-runtime-value-matrix.md
+:SOURCE_SHA256: e5c8d4c16713cdb1069a337dcafd7fd7f31199c57c6b31586077ad8343a49d71
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Design/theory only. [[file:shared-runtime-contract-design.org][Protocol]],
+[[file:shared-runtime-contract-evidence.org][evidence]]. Modernization of the full Gambit native
+boundary remains primary. Bmin is a control; C-full/C-ZT/Z-full have matched
+capabilities. No measured saving, implemented retirement or positive net bound.
+
+*** 1. What Actually Changes
+:PROPERTIES:
+:ID: 6e2e4d10-31cc-5dfc-a53f-3a811fcf5483
+:CUSTOM_ID: 1-what-actually-changes
+:END:
+
+| ID / modernity objective | Current seam | Full reconstruction / benefit mechanism | Retained cost / refutation | Existing rows / evidence |
+|-
+| RV01 root lifetime independent of processor | Per-processor RC/saved roots and cleanup/transfer | VM-owned carriers with ticket-based enumeration survive execution retirement | Stable storage, registration/update/scan/drain, root-kind semantics; fails if retired roots leave ticket | MA02; LM06/07; FD05; S02-S04/S11 |
+| RV02 independent mutators and GC workers | processor_count tree collective and processor queues | Separate mutator acknowledgement, worker team and parked carriers | Complete collective redesign, priority/combining and worker drain; fails if a worker disappears mid-epoch | MA02; LM07; S01/S02/S11 |
+| RV03 explicit callback/control law | SFUN/marker/___call/TLS/matching return | Invocation/root/origin chain; semantic completion issues policy once | Conversion effects, nesting, async/nonlocal failures, C island; no status-only shortcut | MA01/02; LM06; FD04/06; S05/S06/S08 |
+| RV04 direct native production | C procedure/control/module packaging | High/GVM completion -> native products -> LLVM object/maps | Export, layout, root/control integration and validation; fails if all work still delegates to old C emitter | MA03/04; LM01/04; FD01-04/07; S07/S10 |
+| RV05 LLVM root lowering | Project physical root locations | FR publication or separately admitted SP spill/relocation machinery | Collector/continuation ABI and runtime transitions remain; statepoint flag alone fails | MA05; LM02/03/06; P03 |
+| RV06 real product lifetime | Code/frame/root/return ownership assumptions | Runtime ImageUseClosure before provider/OS removal | Continued map/code retention can cost memory; ORC remove alone fails | MA06/07; LM09/11/14; FD09; S05/S07/S08, P04 |
+| RV07 compiler failure/version isolation | Compiler/runtime/tool path coupling | Separate LLVM worker and runtime SDK; immutable requests/owned products | IPC, startup, RSS, profile invalidation, cancellation/reaping; in-process alternative priced | MA05/06; LM08/10/12/13; S10 |
+| RV08 coherent native support | Repeated profile/resource/session handling | Shared schema/product/resource owners across necessary services | Per-consumer semantics remain; C/Scheme/generation/library reuse credited first | MA08/09; LM13; FD08; prior NJS studies |
+
+S/P shorthand refers to RP-S/RP-P in the evidence ledger. RV01/02 change architectural
+ownership and progress capability; they are not merely nicer C wrappers. They also
+create substantial shared-runtime work that cannot be counted as Zig-only value.
+
+*** 2. Full C Path Retirement Dependencies
+:PROPERTIES:
+:ID: 4b42fdca-9fec-5b6b-91a9-91840fc7779b
+:CUSTOM_ID: 2-full-c-path-retirement-dependencies
+:END:
+
+| ID | Can leave a selected migrated cohort | Depends on | Must remain / real exit criterion |
+|-
+| RR01 / FD02 | Renderer-decided roots/frame/label policy | Complete Scheme RootPlan/FrameSpec/PointId and physical decoder products | Actual mapped locations, root kinds, tail/capture law; C renderer is no longer semantic decision owner |
+| RR02 / FD05 | Managed retained-value rooting tied only to processor RC/transfer | RD03/04 + RT05/06/18/19 + independent ticket enumeration/drain | Native-byte RC and bounded legacy adapters remain; every migrated host root uses new storage/update law |
+| RR03 / FD06 | Implicit managed entry/park/TLS ownership | RD01/02/05/06 + RT01-17 + matching exits | Raw C ABI/island remains when demanded; no selected caller gets authority from TLS alone |
+| RR04 / FD04 | Per-wrapper macro guesses of rooting/control/conversion | Scheme ForeignPlan + RR01-03 + source caller/effect census | ABI adapters and ordered conversions stay; selected wrappers consume issued policy, not rediscover it |
+| RR05 / FD01/07 | Whole C procedure/control and native-through-C packaging | RR01/04 + independently admitted D0/D1 edges + object/module setup | Native object route has no old procedure/packaging emitter invocation; portable C backend is bounded residual |
+| RR06 / FD03/09 | Handwritten role ordinals and fragmented image/map lifetime | Validated role manifest + RD07 + RT23/24 + continuation/code-use closure | OS/provider release remains mechanism; loader cannot decide Scheme quiescence |
+| RR07 / FD08 | Selected string/profile/command policy paths | One typed effective profile/request + M1-M12/E01-E32 caller closure + NJS executor | Raw native tool API remains; migrated callers no longer resolve flags through old strings/scripts |
+
+Dependencies form a partial order, not an instruction to implement root/FFI first
+and indefinitely postpone native C removal. Design the complete vertical cohort
+including RR01-07 now; later implementation can be staged only with a concrete
+end-state owner/caller exit. In particular RR05 does not by itself require optional
+new detached waiting or ORC/JIT. Its parent wait may use an independently admitted
+BW1 path. Conversely, claiming detached runtime capability requires RV01/02 fully.
+
+No file deletion or old support retirement is performed here. A preserved portable
+C target, arbitrary third-party callback mode or old binary cohort incurs its
+actual residual cost and cannot silently implement every supposedly new route.
+
+*** 3. C-full, C-ZT and Z-full: Same Obligations, Different Private Support
+:PROPERTIES:
+:ID: 0117d7a5-a0fc-5482-a21f-7701b2d272b8
+:CUSTOM_ID: 3-c-full-c-zt-and-z-full-same-obligations-different-private-support
+:END:
+
+| Work unit | C-full / C-ZT fair control | Z-full possible increment | Cost that does not disappear |
+|-
+| Schema/ABI/profile products | Generate C declarations/tables/codecs from Scheme/shared schema; opaque handles | Zig typed products/comptime can reuse selected private construction paths | Schema/version/ABI decisions, codecs, validation and target coverage |
+| Root/update/member protocol | Opaque C APIs, generated state tables and standard synchronization | Tagged outcomes/scoped helpers can expose some misuse earlier | No built-in affine ownership/GC authority in Zig; runtime issuer/drain checks still required |
+| Ordinary session cleanup | Mature C library + one destructor/cleanup discipline and generated helpers | error unions/defer may reduce necessary handwritten branches | Async last users, failed joins, native nonlocal control and cleanup failures |
+| Provider wrapper | Direct C API plus required C++ shim/dialect/pass support | C import and typed private wrappers | C API release drift, C++ facilities, callbacks and ownership qualification |
+| Executor/bytes/products | Existing Scheme executor or mature C library, generated C support; same Zig tool in C-ZT if independently chosen | One Zig resource/storage subsystem reused across necessary consumers | Child reaper, cancellation, stdout/stderr bytes, partial products, process boundaries |
+| Root/frame realization | Same FR/SP recipes, LLVM services and verified layouts | Unified private language may reduce duplicate adapter change sites | Correct live-set/capture/tail/collector algorithm; common LLVM value is not Zig increment |
+| Diagnostics/observability | Generated event IDs, C source maps and existing tracing support | Consistent private typed errors/event payloads | Evidence provenance, late failures, source/point/code identity, parser/ABI maintenance |
+| Maintenance/change review | One full C owner per decision, shared generators/libraries | Fewer remaining private support authorities if actual code can retire | Toolchain/library churn, training, bridge/debug/build/tool support and migration |
+
+The strongest prospective Z increment is the **disjoint union of necessary private
+native construction/support work** after existing reuse. Neither language can
+turn root handles into automatic GC, make a parked pointer valid, or make arbitrary
+longjmp obey its ordinary cleanup discipline. A good C-full architecture is the
+control, not unmanaged ad hoc C duplicated per component.
+
+*** 4. Quantification Ledger and Positive Conditions
+:PROPERTIES:
+:ID: c7ef72c1-dbf2-5f7f-9604-96d0daef2a9e
+:CUSTOM_ID: 4-quantification-ledger-and-positive-conditions
+:END:
+
+| ID | Denominator / event | Benefit or obligation to bound | What falsifies the claimed gain |
+|-
+| QE01 | One matched module/change/cohort | C emission/CPP/C-front work removed, minus semantic export/lowering/provider/transport work | No stage disappears, or replacement dominates total work |
+| QE02 | One epoch with R distinct root locations, A active contexts, W workers | Root traversal/update is at least proportional to actual required R; metadata/ack/worker costs accounted separately | Treats parked roots as free or deduplicates distinct slots by value |
+| QE03 | One FFI call/callback/wait and actual nesting depth | Stores/reloads/copies/gate/marker/origin operations and retained native bytes | New per-slot/per-call cost outweighs saved work, or wrong noalloc/noescape premise |
+| QE04 | One necessary park interval / worker change | Removed dependency on execution processor membership; GC progress under published no-mutator condition | Any unknown mutator/worker queue user still blocks safe GC; optional demand absent |
+| QE05 | One retired context/image/VM | Real retained bytes*time, map/code users, drain/wait/failed-retirement handling | Quarantine/lease overhead unbounded in demanded workloads |
+| QE06 | One semantic/runtime/provider/target upgrade | Unique changed authorities, rebuilt artifacts, consumer review and requalification | Shared gate/schema change fans out to every adapter; no independent service upgrade boundary |
+| QE07 | One independently demanded native consumer portfolio | Union of support bodies/change events avoided after Scheme/C/library/generator reuse | Counts same executor/cleanup savings per consumer, or invents consumer demand |
+| QE08 | One migration horizon and supported profile set | Added compiler service, bridges, residual C, model/tool, training and release costs | Unpriced legacy islands, tooling or indefinite dual maintenance |
+
+Proposed root-registry snapshot traversal adds O(carriers + extents) metadata work
+plus actual root-location processing; there is no claimed exact constant or native
+complexity proof. Explicit publication can avoid moving an RC list merely because
+a processor retires in the *new root domain*. It does not eliminate existing
+heap/still/queue ownership transfer where those remain processor-associated.
+
+For support effort within one unit/horizon, partition the required private support
+set K *after reuse*, and define conservative bounds for the work actually avoided:
+
+#+BEGIN_SRC text :eval never
+ZigIncrementLower = avoidedSupportLower(union K)
+                    - (zigToolingUpper + bridgeUpper + migrationUpper
+                       + maintenanceUpper + qualificationUpper + residualUpper)
+#+END_SRC
+
+Only disjoint avoided work enters the numerator. Common runtime/GC/LLVM benefits
+belong to the separate total modernization account versus B0/Bmin. Runtime speed,
+pause tails, build latency, code/RSS and effort stay separate dimensions unless an
+explicit decision policy prices them. No values or positive bound are supplied.
+
+Positive conditions are: demanded capability and equal scope; complete semantic/
+runtime/refinement conditions; real old-owner retirement; justified benefit/cost
+intervals; positive total account; and positive independent Zig increment.
+A satisfiable cheap SysML/SMT assignment is not evidence of feasible maintenance
+cost. Costs unknown, inputs missing, model incomplete or demand absent leaves
+the corresponding gate unresolved. Modeling/tool maintenance itself is charged.
+
+The [[file:shared-runtime-proof-argument.org][conditional proof argument]] adds two
+important cost/refinement obligations. Final root indexing is constructed only
+after safe-point/domain descriptors stabilize; its allocation/canonicalization
+work and failure custody are charged to QE02/QE05, outside the short metadata
+gate. Global-root dispatch currently depends on processor id/count and needs an
+admitted GC-worker assignment when those sets separate. A flat interval proof
+does not implement mapped-frame accessors or object-graph work sharing.
+
+PT07 gives a positive-bound condition and explicit nonpositive countermodels.
+No amount of abstract runtime safety supplies the missing support-effort ranges
+for C-full/Z-full. No net-benefit requirement is marked satisfied.
+
+The [[file:shared-runtime-root-custody-matrix.org][root/custody matrix]] refines this
+account into RNC01--RNC06 support components and RNR01--RNR06 retirement conditions.
+In particular worker/shard scratch, protected directory readers and foreign
+cleanup affinity/effects are retained costs, not hidden in Zig cleanup savings.
+
+*** 5. Theory Progress and Remaining Questions
+:PROPERTIES:
+:ID: b15ff575-09dc-52f4-9491-3b7d07b2f35e
+:CUSTOM_ID: 5-theory-progress-and-remaining-questions
+:END:
+
+MQ01/02 advance from abstract state names to operation/record/epoch/race design;
+MQ03/04 acquire concrete product/retirement dependencies; MQ05/06 acquire QE01-08
+and matched controls. None is marked resolved. Physical location-set coverage,
+weak-memory refinement, all-FFI/control/caller closure, actual source replacement
+and defensible cost bounds remain the next research obligations. No empirical
+phase, implementation or runtime acceptance follows from this matrix.

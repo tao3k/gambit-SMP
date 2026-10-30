@@ -1,0 +1,305 @@
+#+TITLE: Binding Emission — Output Callbacks, Exception Channels and Writer Closure
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:t
+
+* RESEARCH Decision and correction to the preceding sufficient condition
+:PROPERTIES:
+:CUSTOM_ID: binding-observer-reentry
+:AUTHORITY: GambitBindingObserverReentry
+:BASELINE: C23
+:STATUS: conditional-source-and-formal-study; native-admission-open
+:END:
+
+Keep [[file:language-baseline-design.org][C23 as the modern C baseline]]. Refine
+[[file:native-binding-plan-retirement-design.org][the previous replacement design]]:
+ordinary file output does not itself close callback capability; and removing the
+second value normalization does not require banning all intermediate writers.
+It requires stability of the same resource identity and preservation of its
+canonical demand value, together with unchanged observable setter/fault behavior.
+
+SysML is the authority for source anchors, route classifications, action/proof
+bindings and migration obligations. Python uses the native tool to project
+[[file:binding-observer-reentry-matrix.org][the matrix]] and
+[[file:diagrams/binding-observer-reentry.d2][D2]], then checks the actual
+[[file:../../modeling/ascent/binding-observer-reentry.rules.scm][ASCENT DSL]],
+[[file:models/quint/binding_observer_reentry.qnt][Quint]] and
+[[file:models/lean/BindingObserver.lean][Lean step model]]. No compiler or runtime
+implementation is supplied. The case remains the two native binding passes for
+=##get-monotonic-time!=; prior selected C bytes remain independently source-bound.
+
+* RESEARCH File port does not mean a closed formatter
+** Actual ordinary-output chain
+In [[file:../../../vendor/gambit/gsc/_t-c-1.scm][_t-c-1.scm]], start-dump assigns
+=targ-port= from =open-output-file-preserving-case=. The Gambit branch in
+[[file:../../../vendor/gambit/gsc/_host.scm][_host.scm]] parameterizes a standard
+readtable around opening the file. It does not install a custom compiler output
+port argument. The selected opener in [[file:../../../vendor/gambit/lib/_io.scm][_io.scm]]
+uses a device port; the constructor initializes I/O-handler and timeout-thunk
+fields to false. Which host branch/profile produced a particular compiler is
+still a separate qualification obligation.
+
+The real display chain is:
+=targ-display-no-line-info → display → ##display →
+##write-generic-to-character-port → device write-datum → ##wr=.
+The generic writer can perform a mark pass and an output pass. Therefore callback
+count is not necessarily one per display, macro, or primitive binding.
+
+=##wr= is initialized to =##default-wr=, but the same source defines =##wr-set!=
+and assigns =##wr= in its body. A formatter hook can therefore run even when
+the port itself remains an ordinary file port. Default string output continues
+through =##wr-substr → ##write-substring → char/byte buffer drain=. A hook call
+is a real dispatch edge, not proof that the hook possesses compiler metadata.
+No current ordinary gsc caller installing a metadata-reading formatter was
+established. Registration, effect capability and artifact/profile selection must
+be proved independently before claiming a native interference history.
+
+The host's standard readtable does not freeze =##wr=, dynamic exception handlers,
+GC jobs, or subsequently exposed port fields. Conversely, the existence of these
+APIs does not show that the ordinary compiler uses all of them.
+
+** Actual registered compiler formatter: igsc
+The source registration is not hypothetical. =gsc/igsc.scm= includes
+=_gscdebug= in =gsc-modules= and loads that roster before =##main-gsi/gsc=.
+[[file:../../../vendor/gambit/gsc/_gscdebug.scm][_gscdebug.scm]] installs a =##wr-set!=
+closure. Its special branch recognizes =c#var?= or =c#ptree?= while the
+=write-abstractly= parameter is enabled. Both predicates in
+[[file:../../../vendor/gambit/gsc/_envadt.scm][_envadt.scm]] and
+[[file:../../../vendor/gambit/gsc/_ptreeadt.scm][_ptreeadt.scm]] first require a
+vector. The string/integer values in the selected primitive binding's textual
+emission therefore take the default-writer branch, assuming those bindings and
+the hook remain unchanged. This closes the direct special-branch metadata effect
+for that payload class; it does not close default-writer I/O, allocation or
+asynchronous callback effects, or qualify every object emitted elsewhere.
+
+For var/ptree vectors the hook saves =##wr=, installs =##default-wr=, converts the
+object, writes it, then restores the saved writer by ordinary sequencing. There
+is no local dynamic-wind/completion guard around that restoration in this file.
+An escape in that branch may bypass restoration; a later continuation resume
+can revisit its control flow. Reachability inside the selected scalar binding
+must not be inferred from this separate branch. Loading a debug source in igsc
+also does not prove that the current compiled gsc artifact loads it.
+
+* RESEARCH Two independent exception channels
+** Runtime I/O exception
+A failed write can return an error code from the buffer drain. In the substring
+path the port is unlocked before =##raise-os-io-exception= dispatches through
+=##raise-io-exception=. A procedure installed in the port handler field is called;
+otherwise =macro-raise= calls the current thread's dynamic exception handler.
+The relevant macro explicitly permits interrupts. A surrounding
+=with-exception-handler= can establish that handler without owning =targ-port=.
+A =with-exception-catcher= instead captures a continuation and grafts the catcher
+onto it. Returning from a handler and escaping through a catcher are different
+outcomes. Record both; do not classify every error as terminal compilation abort.
+
+=port-io-exception-handler-set!= needs an actual port reference and registration.
+=output-port-timeout-set!= similarly changes timeout/thunk state; the byte-drain
+and force-output paths call the thunk only after an EAGAIN wait fails. Device
+constructor defaults do not establish a user timeout callback. The source also
+retries EINTR; an interrupted syscall is not by itself evidence of a Scheme
+handler invocation or demand mutation.
+
+A returning I/O handler can return to a path which no longer has an exception
+pending even though output was unsuccessful or partial. A later successful close
+cannot prove that no byte was lost earlier. A new completion guard must retain
+sticky error status or rely on a qualified independent byte verifier. This is
+not already supplied by the legacy compiler wrapper. Exact error/code/buffer
+branches and output-prefix equality remain native/source refinement duties.
+
+** Compiler diagnostic escape
+In [[file:../../../vendor/gambit/gsc/_utils.scm][_utils.scm]],
+=with-exception-handling= saves =throw-to-exception-handler= and installs a
+call/cc continuation in that variable. =compiler-abort= invokes it with false.
+This is separate from the thread dynamic exception-handler parameter. The
+compiler escape returns to its wrapper; it is not itself a capture inside the
+binding helper, nor does it prove rollback, port closure or resumability at the
+failed output operation. Plain handler restoration after the wrapper return is
+not a universal dynamic-wind cleanup proof.
+
+Thus a runtime I/O callback may run before a compiler-abort path is reached.
+Do not use the compiler's outer catch as evidence that the runtime channel is
+closed. Exceptions during precomputed allocation/encoding can also move before
+the legacy output cut, as retained in the parent error-prefix obligation.
+
+* RESEARCH Other actual callback producers and capability boundaries
+[[file:../../../vendor/gambit/lib/_kernel.scm][_kernel.scm]] registers GC jobs with
+=##add-gc-interrupt-job!= and dispatches them from =##handle-gc-interrupt!= after
+finalization. Will execution invokes its Scheme action with interrupts enabled.
+These are actual callback producers. The display and buffer code contain both
+interrupt-disabled regions and explicit enabled points; one must not infer that
+every allocation, every drain or every chosen program point runs a GC callback.
+Exact poll placement and the host binary's behavior remain OPEN.
+
+| Route | Necessary capability / condition | What source establishes | Still missing |
+|-------+----------------------------------+-------------------------+---------------|
+| formatter | installed ##wr closure | callable hook even with file device writer | actual gsc registration and metadata effects |
+| dynamic I/O handler | dynamically installed handler and I/O failure | no port alias needed to enter handler | its resource capability and actual failure history |
+| port I/O handler | target port reference and installation | handler API and dispatch | target-port acquisition/installation caller |
+| timeout | target port, timeout/thunk and wait failure | conditional callback path | settings and OS outcome for selected file/profile |
+| GC/will | registered closure and eligible interrupt/action | callback execution code | exact interpass delivery and capability |
+| compiler abort | compiler diagnostic continuation | exit through wrapper | not a general local resume or rollback witness |
+
+The compiler namespace maps =targ-use-glo= in fixnum.scm. A callback with access
+to that helper can perform its named effects; a callback with a raw resource
+alias can call the vector setter. Namespace mapping is not a complete public
+embedding/export or authority analysis. The study does not claim every callback
+can acquire a raw vector, that a current gsc handler does so, or that a native
+counterexample was reproduced. These are explicitly conditional, source-composable
+histories. No Scheme snippet or native test is executed.
+
+* RESEARCH First demand and the stronger second-demand theorem
+** First effect
+For an initially supplied-only resource, the first helper changes demanders from
+empty to =[""]=. A capable formatter invoked while writing its PRM bytes can
+observe that canonical value. A completely readonly replacement leaving the old
+resource empty is distinguishable in this domain. The first effect may be elided
+only when all reachable observations of the resource and setter event are
+excluded or proved equivalent, preserving header roles and exceptional prefixes.
+A callback which has no such capability is not automatically an observer.
+
+** Named writes preserve canonical demand
+On the same existing resource, =targ-use-glo #f= replaces demanders with =[""]=;
+=#t= changes suppliers while preserving demanders. Therefore every finite history
+of these two operations preserves canonical demand once the first normalization
+has occurred. This improves the preceding design's sufficient condition from
+"no intermediate writer" to "all intermediate effects preserve canonicality and
+entry identity". A reader-only callback can coexist with second-write elision if
+its observation is unchanged and physical setter events/identity are unobserved.
+
+[[file:models/lean/BindingWriterClosure.lean][Lean]] proves preservation for each
+named operation, its reflexive/transitive history, and =demand r = r= at the
+second cut. This uses the exact list-value algebra of the earlier source-bound
+proof. It permits supplier writes; it does not normalize supplier effects away,
+prove deep object identity, or cover absent-entry insertion.
+
+A raw =vector-set! r 1= can break canonicality. A raw writer followed by a named
+false use can restore it, so a qualified check at the same owned cut can again
+establish the value law. Without such ownership, check-then-publish races remain.
+The helper re-reads the compiler-global table in the same binding environment each time: nested heap-begin or
+heap-end can change/clear that table. An identical symbol name then does not
+identify the same resource or index cell. The same-entry premise is essential.
+
+* RESEARCH Registration closure is part of the observer profile
+The proposed =EmissionObserverProfile= identifies the compiler session/binding
+environment, output port and generation, formatter identity/effects, port handler
+identity/effects, effective dynamic handler/denv, timeout policy, GC/will producer
+scope, permitted writer class and fault policy. This is a design record, not a
+runtime structure implemented here. Another VM is not assumed to share the same
+Scheme global storage; any isolation claim needs the actual host/VM profile.
+
+Sealing NativeBindingPlan freezes data, not the registration routes. =##wr-set!=,
+port handler/timeout setters, dynamic handler rebinding and GC job producers can
+change reachable behavior. Each route must be closed during the interval or
+participate in generation invalidation and owner admission. A captured continuation
+may restore a different dynamic environment, so checking a handler identity only
+once at initial seal is insufficient. Future callback effects must remain in the
+admitted class; do not trust a caller-supplied "readonly" label.
+
+The default design uses independent compilation-session ownership, not another
+shared mutable wrapper. The model's profile steps are conditional premises for
+this protocol, not proofs that the current runtime mediates every registration.
+Invalidation must serialize with the second-cut check/publication; a C23 atomic
+load followed by an unprotected output call cannot establish that handoff. A
+live callback/capture remains a borrower until detached under a source-qualified
+protocol. These registration and lifetime duties stay OPEN under BO-source and
+BO-platform. Their cost belongs in the net-benefit matrix.
+
+* RESEARCH Continuation capture retains obligations
+A real capture inside an installed callback can retain the formatter/handler
+frame and the caller's emission continuation. Nested compilation may replace
+global target/output state while old local procedure and index references remain.
+A returning callback is not proof that no saved continuation can run later.
+
+Nested formatter-to-I/O-handler and recursive formatter histories are retained.
+Callback depth is an unbounded natural-valued integer abstraction: entry adds
+one, return removes one, and the second cut requires depth zero. It is not a
+proof of concrete stack/register/root pairing. The aggregate capture flag covers
+all outstanding captures in this abstract operation; certifyNoResume must justify
+all of them, not just one callback frame.
+
+The model allows multiple resumes without consuming the capture flag. Completion
+is blocked while capture debt remains. The =certifyNoResume= action is an explicit
+external obligation: signed detachment/no-future-resume evidence with roots and
+borrowers drained. It is not earned merely because a callback returned. Current
+source does not provide that managed receipt. Ordinary compiler-abort capture
+alone does not establish this local multi-shot history.
+
+A managed C23 owner needs independent session/output state, immutable binding
+values, generation-qualified operation identity and lifetime pins. Stale old
+resume can be rejected for managed reuse, but that is an admission boundary, not
+proof of unrestricted legacy continuation equivalence. Replay of a real second
+execution must not be silently changed into a delivery retry. The interpass model
+does not prove output-cursor restoration or the entire before/after-pass closure.
+
+* RESEARCH Model chain and qualification limits
+The actual Quint slice models unbounded abstract callback nesting, profile admission, first/second effects, formatter,
+I/O handler, timeout and GC entry, named/raw writes, capture/multiple resumes,
+nested compilation, sticky error and custody. A profile/action with a source
+premise is not evidence that a particular native callback is installed. Lean
+proves all projected steps and finite reachability conditional on those modeled
+atomic boundaries; bounded runs do not prove native event visibility or liveness.
+
+The extractor checks actual Quint JSON binding IDs, field kinds, supported
+expressions and the complete action roster. Its parser and generator remain
+trusted. ASCENT checks action/lemma/source/migration links and lexical inventories.
+Its separate firstRetirable/secondValueRetirable rules require explicit observer,
+writer-class, identity, fault and lifetime assumptions. Demonstration profiles
+are labeled assumptions-only; no source or native qualification is inferred.
+=secondValueRetirable= is specifically the retained-first/value-equality route.
+A fully unobserved profile may instead omit both effects by observational
+equivalence; it does not thereby earn the stronger metadata-value receipt.
+The current real candidate stays blocked by BO-source, BO-exceptions,
+BO-platform and BO-emission. C23 is the target, with owner/publication/lifetime
+and toolchain capabilities still needing physical refinement.
+
+* RESEARCH Composition and output-event obligations
+This slice is not a total refinement of the preceding emission model. Its
+between-cuts stage covers formatter/handler work both during PRM text and before
+the GLO helper. A total relation still needs the real output cursor to distinguish
+those parent stages. Same-entry canonical named writes can project to a stutter
+only for observations that do not distinguish the setter event; their callbacks,
+supplier effects and exception effects must still execute in the concrete trace.
+Raw writes and table replacement cannot use that stutter argument. The full
+Quint-to-Lean-to-source composition obligation remains under BO-emission/source.
+
+A readonly plan does not authorize bypassing =##wr=, coalescing display calls,
+merging mark/output passes or replacing their callback schedule with one byte
+write. Even identical C bytes can have different callback observations and fault
+cuts. A qualified source mapping must retain display occurrence/callback-pass
+ordinals and line/source-state transitions, or explicitly admit a new managed
+output contract. The present model abstracts those events; it does not prove
+that transformation. The earlier normal-output algebra and this writer theorem
+are conditional components, not a complete compiler equivalence theorem.
+
+* RESEARCH Net benefit and retirement matrix
+
+| Domain | First normalization | Second normalization | Additional cost / limit |
+|--------+---------------------+----------------------+-------------------------|
+| certified no-observer | potentially removable | potentially removable | complete callback capability and fault closure |
+| first retained; same-entry named writers | retain | value-redundant | writer-class closure and unobservable setter events |
+| reader-only observer | retain visible first effect | potentially removable | preserve callback invocation/order and read value |
+| raw writer | retain | retain unless canonicality re-established at owned cut | raw alias custody and invalidation |
+| replaced table / live captured continuation | no unconditional elision | no unconditional retirement | session identity, roots and operation semantics |
+| returning I/O error | no error-prefix equivalence established | value law alone insufficient | sticky failure and full byte verification |
+
+The prior artifact's P=455 is an operation-count reference: up to P first and P
+second late helper effects can be candidates in the appropriate domains. The
+two native binding stores remain necessary. The second-write theorem admits a
+larger domain than a blanket writer ban; it is not a timing improvement claim.
+Charge all moved lookup, conversion and validation work to planning. Positive
+net gain requires removed duplicate/redundant work to exceed plan, ownership,
+callback audit and verification cost. The same C bytes retain downstream C
+preprocessing cost; this seam alone does not establish macOS compile speedup.
+
+* RESEARCH Receipts and reproduction
+See [[file:../../../evidence/research/binding-observer-reentry/checks.json][checks]],
+[[file:../../../evidence/research/binding-observer-reentry/input.json][source lock]],
+[[file:../../../evidence/research/binding-observer-reentry/ascent-results.json][ASCENT controls]],
+[[file:../../../evidence/research/binding-observer-reentry/contract-profiles.json][assumption-only retirement profiles]].
+
+#+begin_example
+.venv/bin/python dev/modeling/tools/binding-observer-reentry-study.py
+#+end_example
+No runtime/compiler implementation, gsc execution, C compilation, native test
+or performance benchmark is part of this study.

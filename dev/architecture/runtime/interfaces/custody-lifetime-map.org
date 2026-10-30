@@ -1,0 +1,54 @@
+#+TITLE: Private Cursor and Tail Custody Lifecycle
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned lifecycle and receipt map
+:PROPERTIES:
+:CUSTOM_ID: custody-lifetime-map
+:AUTHORITY: GambitCopyHandoff
+:EVIDENCE_CLASS: derived-lifecycle-design
+:END:
+
+Status belongs only to the shared obligation ledger. Histories are proposed controls, not newly executed model traces or established native reachability.
+
+** Lifecycle transitions
+#+BEGIN: sysml-view :kind lifetime-steps :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: custody-lifetime-steps
+| Step | From | To | Guard | Custodian | Frame | Obligation |
+|---+---+---+---+---+---+---|
+| Enter | Public cursor | Private activation | Snapshot alloc/limit; select cell; retain region and activation identity | Counted phase participant owns unfinished copy/Tail and private suffix | No task settles; C automatic locals are the inspected representation | WC-PRIVATE-LIFETIME |
+| TailLoop | Private activation | Private activation | goto again follows Tail synchronously; each new copy may derive further tasks | Current cell plus remaining start/n and alloc/limit must survive; completed Tail edge can derive copy debt | Tail progress is not whole-object or descendant completion | WC-TAIL-LIFETIME |
+| Flush | Private activation | Public local cursor | Write alloc_heap_ptr at threshold/space cut or normal mark_array return | Cursor becomes visible to local scan; Tail may remain on stack at threshold | Same Body identities; no settlement from cursor assignment | WC-PRIVATE-LIFETIME |
+| Publish | Public local cursor | Queue or local scanner | Exact end marker/prefix and profile lock/barriers; current-scan branch stays local | Body queue/local custodian accepts; source retains Tail; queue container stays pinned | Move Body custody without changing task set | WC-TAIL-LIFETIME |
+| PrepareTransfer | Private activation | Frozen transfer | Proposed migration only: freeze old execution right; preserve full continuation/cursor/role frame | Source stays counted until destination or counted transfer service accepts; no idle gap | No task reissue; old and new may be counted simultaneously | WC-OWNER-TRANSFER |
+| AcceptTransfer | Frozen transfer | Successor custodian | Accept exact collection/phase/region/activation generation and unfinished task set | One execution right; durable acceptance before source release; unknown outcome retains transfer | Task ownership changes; issued/settled sets unchanged | WC-OWNER-TRANSFER |
+| DrainIdle | Local scanner or successor | Phase idle | No private activation/Tail/initializer/transfer debt; complete local scan/steal path before count decrement | Queued tasks can reside in pinned queue while owner idle; phase closure needs complete producer inventory | Idle differs from PSTATE destruction and does not settle queued tasks | WC-OWNER-RETIRE |
+| Retire | Phase idle | Retired storage | No remaining raw-pointer/container/scanner users; all unfinished rights accepted elsewhere or settled | Keep queues/locks/msections alive until users drain or container migration is accepted | Thread exit alone is not a reclamation permit | WC-OWNER-RETIRE |
+#+END:
+
+** Receipt currency
+#+BEGIN: sysml-view :kind lifetime-receipts :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: custody-lifetime-receipts
+| Rule | Cut | Validity | Boundary | Obligation |
+|---+---+---+---+---|
+| IssuePrivate | At candidate finishCopy cut | Exact initialized copy, generation, local alloc range/role frame, counted activation and future scan path; required Tail retained | No native receipt API exists; ghost cut requires source simulation | WC-RECEIPT-CURRENCY |
+| ConsumeOnce | Actual finishCopy settlement | Revalidate current custody or accepted successor/settled receipts and one settlement right; no unknown effects | An old Boolean accepted flag or worker ID alone is insufficient | WC-RECEIPT-CURRENCY |
+| Advance | After publication or migration | Replace authority by exact same-task successor chain; historical settlement remains true | Do not revive Copy debt or use stale private lease as current execution authority | WC-OWNER-TRANSFER |
+| PublishBody | At threshold closure before goto again | Only Body custody advances to queue/scanner; Tail remains source-owned until explicit transfer or discharge | Signal is not receipt; queue ownership is not whole-object ownership | WC-TAIL-LIFETIME |
+| IdleAndExit | Before counted retirement or storage destruction | Idle forbids owner-private/Tail/transfer work; destruction additionally forbids queue/lock/storage users | Native root scanning starts counted before mark_reachable; arbitrary forced OS exit unqualified | WC-OWNER-RETIRE |
+| Reuse | After phase/region/worker slot reuse | Historical receipts remain records; new authority requires matching fresh generation; old settled receipt authorizes no storage access | Same address or processor index does not authenticate new custody | WC-RECEIPT-CURRENCY |
+#+END:
+
+** Unexecuted counterexample histories
+#+BEGIN: sysml-view :kind lifetime-counterexamples :source architecture/runtime/interfaces/models/sysml/copy-handoff.sysml
+#+NAME: custody-lifetime-counterexamples
+| History ID | Class | History | Failure | Required guard | Obligation |
+|---+---+---+---+---+---|
+| UnflushedExit | design-negative | reserve -> initialize -> private accept -> finishCopy -> discard activation -> all counts zero | Body lies beyond alloc_heap_ptr; queue empty hides unfinished task | Reject idle/exit or accept complete replacement before release | WC-PRIVATE-LIFETIME |
+| PublishedTailLost | design-negative | select cell -> copy -> publish Body -> drop source Tail -> remote Body finishes | PAIR/default skips delegated first field; Tail target never traced | Retain source cell/continuation until Tail settles/transfers | WC-TAIL-LIFETIME |
+| AnnounceThenExit | design-negative | freeze -> announce destination -> source decrements/exits -> destination rejects | Announcement leaves no accepted counted custodian | Acceptance-before-release; failure keeps old/frozen counted owner | WC-OWNER-TRANSFER |
+| TwinExecutors | design-negative | destination accepts -> old resumes goto again while new resumes same cell | Double traversal/settlement despite balanced scalar count | Exclusive execution right with exact transfer generation | WC-OWNER-TRANSFER |
+| StaleReceipt | design-negative | issue private receipt -> migrate/reuse same worker index -> consume old receipt | Old address/index passes while task/region generation changed | Current successor/settled evidence plus one-shot Copy settlement | WC-RECEIPT-CURRENCY |
+| IdleQueueFreed | design-negative | publish -> worker goes idle -> destroy origin PSTATE/FIFO lock -> thief reads queue | Idle can retain queued chunks; reader uses freed container/storage | Retire only after container users and queue references drain/transfer | WC-OWNER-RETIRE |
+| ResizeInsideCopy | reachability-unresolved | hypothetical forced resize/exit between cell selection and goto again | Inspected synchronized resize path is outside active GC calls; no legal mid-copy caller demonstrated | Retain as future executor fault history, not current native reachable trace | WC-LIFETIME-SOURCE |
+| WholeObjectPublished | design-negative | publication receipt for Body -> settle Copy and Tail as one task | One receipt deletes independent Tail/parent debt | finishCopy removes exactly CopyTask; keep descendant task identity | WC-TAIL-LIFETIME |
+#+END:

@@ -1,0 +1,122 @@
+#+TITLE: Construction Debt Closure and Peak-Memory Matrix
+#+PROPERTY: header-args :eval never
+
+* Source caller matrix
+#+NAME: root-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| still-allocation-gc-cut | lib/mem.c:1487-1500,1593-1667,1677-1728 | alloc_scmobj_still can release allocation lock then call GC before allocating/linking still wrapper | Constructor return can depend on the GC it invoked; object body initialization belongs to caller before next allocation | Frozen escrow root view and ticket before entry; no collector wait for business completion |
+| foreign-wrapper-publish | lib/c_intf.c:5156-5223;lib/mem.c:1677-1709 | Allocate FOREIGN then write tags/release_fn/ptr and result slot; allocation may have collected before fields exist | Native resource exists while Scheme wrapper does not; partially initialized body may not be exposed to scanner | Preinstalled ResultSlot/RootView; bounded initialized-body publication with no implicit safepoint; source proof open |
+| accept-native-producer | lib/os_io.c:5591-5676,6067-6125 | accept socket; setup client; close socket on setup failure; TLS SSL_new/SSL_accept; transfer close responsibility | Server borrower, accepted socket, client storage and TLS state are distinct; callbacks/configuration unqualified | Client escrow identity plus server lease and staged socket/TLS custody; do not re-accept on lost result |
+| accept-failure-consumer | lib/os_io.c:10930-10970;lib/_kernel.scm:4370-4374;lib/_io.scm:8395-8446 | C wrapper conversion fails then cleanup(d server); Scheme read holds port mutex, retries EINTR, releases lock for EAGAIN, raises other errors | Wrong rollback target and owner-held port mutex; generic replay can consume a different connection | Rollback only captured client; scanner never takes port mutex; preserve Scheme error/return boundary |
+| process-native-producer | lib/os_io.c:9101-9185,9250-9345,9472-9508 | Mask interrupts; create pipes/fork; read exec status; setup device and transfer close responsibility; unmask; Windows has distinct handles | Live child may exist before setup/result publication; native pipe/dev failure not inverse of fork/exec | Separate child identity/status duty, device/fd stages, string temporaries and source-visible result; no generic kill or refork |
+| process-failure-consumer | lib/os_io.c:10553-10648;lib/_kernel.scm:4309-4316;lib/_io.scm:7166-7203 | String-list conversions; native process setup; wrapper failure lacks local device cleanup, then string temporaries released; Scheme expects fixnum or device | Failure path can return result #f from converter while dev duty persists; generated function counts do not close ownership | Typed return slot commits original error e and retains dev/child escrow; audit semantics/correction before admission |
+| process-status-and-disposal | lib/os_io.c:3520-3593,3598-3617,3804-3864 | Device records pid/status/cleanuped; POSIX status updated asynchronously; close polls status; Win32 closes process/thread handles | Closing pipes/handles/device storage does not prove child exit or termination; signal/group reader may still use it | Separate native process/status borrower pins and acknowledged close disposition; teardown waits exact readers, not inferred process death |
+| message-native-producer | lib/os_io.c:7109-7154;lib/mem.c:684-780;Microsoft PeekMessageA Remarks | Allocate/register RC MSG; PeekMessage(PM_REMOVE) may dispatch sent messages and then consume queued message; direct conversion return | Thread-affine reentry, consumed message, arbitrary pointer payload and RC owner lifetime | Reserve before read; known MSG escrow before wrapper allocation; suspended-callback view only with complete parent/callback roots |
+| message-failure-consumer | lib/os_io.c:11471-11490;lib/_kernel.scm:4442-4446;lib/_io.scm:9685-9730 | Outer C propagates error; Scheme event read holds mutex and retries EINTR/EAGAIN or raises; wrapper success drops still hold | Conversion failure after PM_REMOVE cannot be rolled back by re-reading; RC data field starts FAL but does not root arbitrary MSG pointers | Keep original consumed message/RC duty; no requeue/replay equivalence claim; preserve thread dispatch and exception boundary |
+| shared-device-native-lease | lib/os_io.c:196-244,1579-1685;lib/os_io.h:74-91 | Group links, refcount, close responsibility; cleanup unlinks, may wait and device_release can free despite error | Group membership/refcount is not independent collector lifetime/atomic ownership; owner callback can need resume permit | Dedicated native lease/custody and WaitContext; typed physical disposition; drain before group/RC/OS withdrawal |
+| existing-root-and-cleanup-path | lib/mem.c:684-703,4023-4038,4390-4451,4932-4935;lib/setup.c:4572-4590 | FOREIGN payload opaque; sweep releases before free; cleanup_rc unconditionally frees chain before OS cleanup | Escrow raw native pointers are not managed root handles; addref does not survive processor teardown | Canonical root-domain registration/scan and physical RC transfer/drain; imported proof obligations stay open |
+| scheme-native-boundary | gsc/_ptree2.scm:2586-2678;include/gambit.h.in:10247-10250,10592-10595;lib/_kernel.scm:4309-4316,4370-4374,4442-4446 | Generated conversion templates and scheme-object C stubs expose result/error boundaries | Moving native work to generic worker may change c-lambda, callback, exception and held-lock semantics | Scheme keeps semantic/FrameSpec contract; modern C consumes typed constructor/root/result specs with origin-specific adapters |
+
+* Benefit and peak-memory matrix
+#+NAME: root-costs-native
+| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |
+|---+---+---+---+---|
+| Business versus GC debt | Remove dependency GC -> constructor return when the return itself needs GC | For F frozen pending invocations, GC does not wait for F business completions; GC-critical uncovered debt must be zero | F stable escrow records, no-GC publication and root scanning | No claim all native producers can freeze; absent profile/stop/root evidence still refuses |
+| Non-cyclic root scanning | Scan roots independently of owner port mutex/callback permit | Declared wait rank owner=2 > GC=1 > bounded scan service=0 | Pre-backed scan metadata, pinned handles and transitive lock audit | No deadlock proof beyond declared wait graph; all hidden callbacks/locks need source refinement |
+| Native-call count | Query canonical result instead of re-accept/re-fork/re-read | At most 1 native producer invocation and 1 wrapper/result delivery per modeled attempt | Attempt identity, result/root slot and outcome-retention metadata | This saves duplicate work only relative to an incorrect replay strategy, not a claimed speedup over current C |
+| Conditional GC critical path | Keep admitted constructor completion/rollback wait off root closure | Delta critical work = eliminated reverse-wait dependency minus freeze/scan/ledger costs; no finite wait-time bound on external calls | Capture/freeze/scan/reentry actions and result root publication | Positive only when service never waits on owner and added work is cheaper; not a wall-time measurement |
+| Ticket reuse | Transfer existing persistent credit from source -> escrow -> wrapper or terminal | Live duties <= pre-reserved slots; one duty remains charged while business result or disposal unknown | Canonical record/receipt generation and reader/child drain | No additional ticket for ordinary continuation of same duty; fanout needs separate reservation |
+| Control-memory bound | Share immutable profile; keep per-attempt escrow and frozen view | Control capacity = M*(escrowBytes+resultSlotBytes+receiptBytes)+rootCells*cellBytes+scan/wait pools+allocator overhead | Physical resident backing exists before native effect | Logical quota alone cannot guarantee no allocation failure; layouts/sizes remain unmeasured |
+| Whole-round peak | Avoid requiring both old and copied payloads when exact ownership transfers | Peak=max_t(heap+actual pools+unique native backing+root backing+quarantine) | Captured client/process/MSG may outlive the GC; unknown outcome retains it | Count shared native backing once; no whole-round peak reduction proved |
+| Native budget boundaries | Bound process-local memory/handles without claiming external process/network memory | Native bytes/handles charged by exact staged recipe; child process heap and OS/global resources have separate bounds | Per-provider bound, temporary strings/pipes/TLS/RC overhead and side-effect state | Unknown bounds refuse bounded admission; kernel/external resources are not covered by Scheme heap quota |
+| Failure-path modernization | Unify custody support while preserving three different source semantics | 3 failure cuts: accepted client vs server; process result/error+dev duty; consumed MSG/RC duty | Source correction, per-stage disposal and exception/error mapping | No existing path retired; fixnum/device/#f behavior needs independent semantic acceptance |
+| Unknown outcome isolation | Allow GC closure when only bounded native outcome is unknown | 0 extra invocation and 0 physical refund from timeout/notification loss; query then known-result reentry | Potentially indefinite quarantine and retained roots/code/resource budget | Unknown managed writer, dependency shape, callback frame or owner transfer is not isolatable |
+| Modern C and Zig | Scheme-generated contracts and shared modern C service support | No incremental Zig runtime-work saving established | Both need escrow/root/lock/ABI/effect and memory-order proofs | Modern C mandatory; a language switch supplies neither GC coverage nor deadlock freedom |
+
+* Obligations and imported open premises
+#+NAME: root-needs-native
+| Need | Kind | Exact scope | Premise |
+|---+---+---+---|
+| CD-H | interleaving | constructor_debt_closure:33-named-histories;safe;seed=17;100x100 | One invocation/escrow/ticket and one abstract callback frame; captured-result, native-only isolation or suspended-callback cuts are assumed qualification; other whole-round gates, exact root descriptors and native effects remain premises |
+| CD-I | induction | GambitSMP.ConstructorDebtClosure:businessCompletionIndependent;isolatedOutcomeIndependent;unknownCustodyRejects;liveManagedWriterRejects;missingTraceRejects;gateHeldRejects;reverseWaitRejects;noCoverageRejects;freezeConserves;wrapConserves;disposeConserves;stepConserves;traceConserves;waitRankDecreases;noReverseOwnerWait;noServiceWaitsOwner;noTwoCycle;parentNotCleanupTarget;unknownDispositionKeepsTicket;readersKeepTicket;replayNotRecovery;rootComposition | 22 conditional declarations: credit Step/Trace, coverage/custody rejection, business-completion independence and decreasing declared wait rank; no all-action QNT/C simulation or native fairness |
+| CD-CUT | source-refinement | CD-CUT:actual-source-refinement | Separate business completion debt from uncovered GC debt: wrapper allocation can itself call GC; captured native result plus frozen complete roots may close GC without returning the constructor. No direct refinement claim to prior total-constructor-zero law; mapping and source pause cuts must be proved |
+| CD-ESCROW | source-refinement | CD-ESCROW:actual-source-refinement | Before native production reserve backed no-GC ticket/root/result slots, exact native leases and code; publish frozen construction view before conversion allocation may GC; retain physical owner across failure, payload capture and wrapper/result root publication |
+| CD-FAILURES | source-refinement | CD-FAILURES:actual-source-refinement | Accept rollback targets created client not borrowed server; process return-slot failure retains dev/pid/pipe/status and temporary-string duties with original error mapping; Win32 removed message retains MSG/RC and external message ownership; no false replay/rollback of external effects |
+| CD-UNKNOWN | source-refinement | CD-UNKNOWN:actual-source-refinement | Only known root/custody/authority metadata with native-only bounded effects permits outcome-isolated resume; unknown root writers/profile/slot owner refuses seal. Accepted query is not reexecution, native disposition proof or ticket refund; process side effects and MSG pointer payloads need exact independent profiles |
+| CD-REENTRY | source-refinement | CD-REENTRY:actual-source-refinement | Seal captures current epoch/generation, blocks managed writers, scans all ancestor/callback/root views; active-permit reentry consumes the frozen view and restores managed writer authority before allocation/callback/result delivery; late native-only result stores cannot add managed roots |
+| CD-PROGRESS | source-refinement | CD-PROGRESS:actual-source-refinement | Owner may wait GC; GC may wait bounded root-view scanning; scanning/cleanup may not acquire owner port mutex, callback permit, PSTATE wait scratch or new collector allocation capacity. Declared rank is valid only if all transitive service/lock edges are covered; no arbitrary native-call timeout guarantee |
+| CD-ORDER | native-memory-order | CD-ORDER:actual-C-memory-refinement | Release/acquire escrow view and result publication; gate close/reservation capture; borrowed native device/RC chain lifetime; generation-safe result/reader/ticket retirement and no-escape initialization require actual C/platform proof |
+| RP-BUDGET | source-refinement | RP-BUDGET:actual-source-refinement | Atomically reserve slot/root/code/wait/handle/native-byte capacity before native production; every wrapped, in-flight, queued and terminal-retained right occupies one disjoint ticket; finite descendant bounds or same-ticket resumable continuation required; no refund from ACK/unknown result |
+| RP-ROOTS | source-refinement | RP-ROOTS:actual-source-refinement | Declare dependency shape at profile registration; root and pin concrete dependencies before first GC/native escape; trace/relocate current-round roots before cleanup settlement, or counted pre-seal rescan under admitted credit; FOREIGN opacity, RC teardown and profile/code readers require real closure |
+| RP-EFFECTS | source-refinement | RP-EFFECTS:actual-source-refinement | Bind exact release code/library/config generation, transitive callbacks/locks/allocator/free effects, owner/VM/processor/thread affinity and typed disposal to each producing right; unknown effects/affinity or invalid rollback target refuses deferred admission |
+| RP-ORIGINS | source-refinement | RP-ORIGINS:actual-source-refinement | Explicit foreign-release!, value-conversion rollback and library/device constructor rollback retain synchronous outcome/visibility unless separately proven equivalent; GC deferral needs legal delay, teardown needs service drain; no-op/permanent wrappers create zero release jobs |
+| RP-ORDER | native-memory-order | RP-ORDER:actual-C-memory-refinement | C release/acquire publish immutable profile and accepted ticket before source detach; close producer gate then acquire all reservations; generation-safe root/slot/code retirement after readers/children; stop/unknown foreign effects remain platform obligations |
+| RS-SEAL | source-refinement | RS-SEAL:actual-source-refinement | Every admitted strong/weak/private/cleanup duty closes or has qualified deferred handoff; capacity success or safe-error outcome, context preparation, result delivery, binding, writer closure and current generation precede active permit; domain-wide finalizer inventory required |
+| RS-DISPATCH | source-refinement | RS-DISPATCH:actual-source-refinement | Only qualified native-only execution may overlap GC; owner/managed callback waits until active permit and rooted activation, while cleanup never waits for that callback; explicit WaitContext replaces PSTATE scratch |
+| RS-HANDOFF | source-refinement | RS-HANDOFF:actual-source-refinement | Reserve before destructive wrapper retirement; canonical task owns payload/dependencies/credits and accepted decision before source drops custody; queue notification or transport loss is not acceptance/completion |
+| RS-RECOVERY | source-refinement | RS-RECOVERY:actual-source-refinement | Unknown handoff/root/writer/capacity/binding/gate states refuse resume; isolated native result unknown may retain resources while GC resumes; typed effect/disposition forbids replay or refund inferred from scalar error |
+
+#+NAME: root-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| CD-CUT | CD-H |
+| CD-CUT | CD-I |
+| CD-CUT | CD-ORDER |
+| CD-ESCROW | CD-H |
+| CD-ESCROW | CD-I |
+| CD-ESCROW | CD-ORDER |
+| CD-FAILURES | CD-H |
+| CD-FAILURES | CD-I |
+| CD-FAILURES | CD-ORDER |
+| CD-UNKNOWN | CD-H |
+| CD-UNKNOWN | CD-I |
+| CD-UNKNOWN | CD-ORDER |
+| CD-REENTRY | CD-H |
+| CD-REENTRY | CD-I |
+| CD-REENTRY | CD-ORDER |
+| CD-PROGRESS | CD-H |
+| CD-PROGRESS | CD-I |
+| CD-PROGRESS | CD-ORDER |
+| CD-ORDER | CD-H |
+| CD-ORDER | CD-I |
+| CD-ORDER | RP-ORDER |
+| CD-CUT | CD-ESCROW |
+| CD-CUT | CD-PROGRESS |
+| CD-CUT | RS-SEAL |
+| CD-ESCROW | RP-BUDGET |
+| CD-ESCROW | RP-ROOTS |
+| CD-ESCROW | RS-HANDOFF |
+| CD-FAILURES | CD-ESCROW |
+| CD-FAILURES | RP-ORIGINS |
+| CD-UNKNOWN | RP-EFFECTS |
+| CD-UNKNOWN | CD-ESCROW |
+| CD-UNKNOWN | RS-RECOVERY |
+| CD-REENTRY | RP-ROOTS |
+| CD-REENTRY | RS-RECOVERY |
+| CD-REENTRY | CD-CUT |
+| CD-PROGRESS | RS-DISPATCH |
+| CD-PROGRESS | RP-EFFECTS |
+
+* Scoped closure observations
+#+NAME: root-closure-observed
+| Need | Current evidence | Source/runtime boundary |
+|---+---+---|
+| CD-H | Exact local formal root | Conditional model only; no C simulation |
+| CD-I | Exact local formal root | Conditional model only; no C simulation |
+| CD-CUT | Unresolved source or native-order obligation | No source-simulation root |
+| CD-ESCROW | Unresolved source or native-order obligation | No source-simulation root |
+| CD-FAILURES | Unresolved source or native-order obligation | No source-simulation root |
+| CD-UNKNOWN | Unresolved source or native-order obligation | No source-simulation root |
+| CD-REENTRY | Unresolved source or native-order obligation | No source-simulation root |
+| CD-PROGRESS | Unresolved source or native-order obligation | No source-simulation root |
+| CD-ORDER | Unresolved source or native-order obligation | No C-memory/platform refinement root |
+| RP-BUDGET | Unresolved source or native-order obligation | No source-simulation root |
+| RP-ROOTS | Unresolved source or native-order obligation | No source-simulation root |
+| RP-EFFECTS | Unresolved source or native-order obligation | No source-simulation root |
+| RP-ORIGINS | Unresolved source or native-order obligation | No source-simulation root |
+| RP-ORDER | Unresolved source or native-order obligation | No source-simulation root |
+| RS-SEAL | Unresolved source or native-order obligation | No source-simulation root |
+| RS-DISPATCH | Unresolved source or native-order obligation | No source-simulation root |
+| RS-HANDOFF | Unresolved source or native-order obligation | No source-simulation root |
+| RS-RECOVERY | Unresolved source or native-order obligation | No source-simulation root |

@@ -1,0 +1,226 @@
+#+TITLE: WorkerArena refill and copy/resume handoff
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+PROPERTY: header-args :eval never
+
+* Scope and architectural cut :gc:smp:c23:
+:PROPERTIES:
+:CUSTOM_ID: worker-arena-source-cut
+:AUTHORITY: GambitRootWorkerExit::workerArena
+:STATUS: SOURCE-REPLACED; UNEQUAL-WORKER-ADMISSION-OPEN
+:END:
+
+This is a real C runtime responsibility replacement in =vendor/gambit= on
+=modern-c=. Scheme semantics, the shared object graph, multi-shot continuation
+and the C ABI remain Gambit's. Worker allocation no longer borrows a context
+heap cursor. Physical carrier synchronization and owner-affine foreign cleanup
+remain explicit limitations of this adapter. Changing a worker count alone is
+not admitted.
+
+The [[file:models/sysml/root-worker-exit.sysml][canonical SysML]] owns the two realizations and seven worker admission
+conditions. [[file:root-worker-exit.org::#root-phase-realization][Native projections]] and [[file:diagrams/root-worker-exit.svg][D2]] show both the implemented cut and
+remaining obligations. [[file:models/sysml/root-task-c-refinement.sysml][The C refinement contract]] adds refill and handoff to the
+existing seven operations. No new QNT/Lean model or theorem duplicates an old
+obligation. Existing formal results are not readmitted as a C memory-model proof.
+
+** Actual producer/consumer replacement
+
+| Responsibility | Old collector path | Current C owner/consumer | Retirement boundary |
+|----------------+--------------------+--------------------------+---------------------|
+| Destination refill | reserve_copy exports arena tip into context, calls next_heap_msection, reimports context limits | heap-sections.inc::refill_worker_arena takes a physical section under the VM allocator lock | Old path removed from reserve_copy; next_heap_msection remains necessary for mutators |
+| Initial space | One carrier loop sets its stack and heap | Separate R restoration-stack and W copy-section loops | Synchronous adapter still rejects W != R before flipping spaces |
+| Destination parity | Carrier context tospace macro | gc_round.destination_offset in copy validation and scan identity | Context parity is still validated/updated for later mutator execution |
+| Exhausted section pool | Implicit sharing with carrier stack | Explicit epoch-bound, one-use restoration-space loan | Original three-quarter ceiling capped by actual live stack footprint plus fudge; no new heap allowance |
+| Occupied copied prefixes | Context words_prev updated during each worker refill | Arena retired_words ledger until weak descendant drain | Final transfer credits context once; no duplicated copied-prefix charge |
+| Final copy interval | Weak worker writes context heap pointer | ___gc_arena_handoff consumes exclusive resume plan | Same epoch, no pending grant, one acceptance; caller proves physical drain |
+| Active stack restoration | move_continuation(work) derives carrier context | move_continuation(ps) restores the participant context | Restoration is a context obligation, not root-task or worker identity |
+| Carrier setup | Collector stores a general context pointer | Only the explicit restoration loan is issued after freeze | collector.context removed; roots/RC/still state are never copied into an arena |
+
+** Physical partition and accounting
+
+Let =H=MSECTION_SIZE/2=, =F=MSECTION_FUDGE=, and =L= the actual active-stack
+restore length, including the first break frame. Every =L <= H-F= and destination
+parity is checked before the first space flip. Initial disjoint sections require
+=R+W= entries in the existing physical pool. This checks initial grants, not all
+future copying demand or fragmentation.
+
+The optional bottom loan has length
+
+#+BEGIN_EXAMPLE
+loan = min(3 * floor((H - 2F) / 4) + F, H - L - F)
+copy span = [stack_base, stack_base + loan - 2)
+restore stack remains above stack_base + loan
+#+END_EXAMPLE
+
+Two terminal chunk-link words stay outside the copy limit. No other worker gets
+this loan; the assigned free-section suffix excludes all initial grants. The loan
+is used once. It does not increase usable heap or add an extra physical section.
+A request larger than the remaining contiguous span can still fail. This is not
+a complete pre-flip packing algorithm.
+
+For closed worker intervals =I= and final interval =J=:
+
+#+BEGIN_EXAMPLE
+arena.retired_words = sum(consumed_prefix(I))
+context.words_prev_after = context.words_prev_before + arena.retired_words
+context.heap_span_after = J
+movable_occupancy = 2 * (retired_prefixes + used(J) + restored_stack_words)
+#+END_EXAMPLE
+
+Chunk links remain part of physical occupancy. A known forwarding-CAS loss
+refunds only its private unpublished reservation; it does not refund retired
+prefixes or section waste. At handoff the final interval and retired words change
+custody, rather than becoming a second allocation. RC sentinels, still lists and
+Scheme root-domain identity stay in their original context storage.
+
+** Conditional safety argument and counterexamples
+
+1. If all admitted root writers are stopped, the coordinator can reserve distinct
+   stack/copy sections and publish round parity. No epoch check alone freezes a
+   writer; a native borrower without that guarantee remains excluded.
+2. If the arena has one physical writer, VM section acquisition is exclusive and
+   the loan is private, refill cannot acquire another context's active heap tip.
+   Reusing a loan after its first consumption would overlap live copies.
+3. If forwarding wins, payload initialization and Tail remain with that worker.
+   Neither queue publication nor a lost acknowledgement transfers that debt.
+4. Only after weak descendants and old writers drain can final heap span and
+   retired-prefix accounting transfer. Duplicate handoff is refused. A pending
+   grant, active scanner or unknown worker write prevents recovery/resume.
+5. Every context is restored and cleanup completes before root thaw. Currently
+   this relies on a bijective synchronous adapter. With W < R, merely skipping
+   carriers loses cleanup or strands barriers; with W > R, assigning the same
+   resume recipient twice loses copied-prefix accounting.
+
+A worker dying midway through plain handoff stores is not recoverable merely
+because its epoch matches. Physical exclusion and the final collective remain
+required; an unknown shared-heap writer can still block the affected VM. The
+empty, unpublished aborted-thread isolation test proves a narrower progress case.
+
+* Benefits, costs and peak-memory boundary :matrix:
+:PROPERTIES:
+:CUSTOM_ID: worker-arena-benefit-matrix
+:END:
+
+| Dimension | Concrete removed work/constraint | Added or retained cost | Current quantitative boundary |
+|-----------+---------------------------------+------------------------+-------------------------------|
+| Refill coupling | Remove context-tip export, mutator refill and limit reimport on every copy refill | One existing VM allocator lock per physical section; private arena bookkeeping | No extra refill lock; no throughput speedup measured |
+| Root/worker identity | Copy arena and round parity no longer come from a collector context field | Explicit restoration grant and four-phase root tasks | W=R still required; one of seven unequal-count source conditions covered |
+| Peak physical reservation | Separate R stack grants from W copy grants | Simultaneous restoration/copy demand remains real | R+W equals old 2R in admitted runs; actual section reduction is zero |
+| Potential unequal-count saving | W<R can reduce initially assigned copy sections | Root count and minimum heap policy can still prevent RSS reduction | R-W fewer initial copy sections is conditional, not a current peak-memory result |
+| Private state | Remove general collector context pointer; reserve pointer replaces it | Per-slot resume record and extra arena ledger | On conventional 64-bit layout: 56-byte resume + 40-byte arena delta per fixed slot, plus 8-byte round parity; 96N+8 bytes, not measured RSS |
+| Scan cost | No root or continuation scan is skipped by this change | Exact root repair and scanning remain necessary | All supplied live roots and multi-shot captures retain current semantics |
+| GC synchronization | No new barrier is added by the arena handoff | Previous root-phase cut's four extra barriers remain | No claim of reduced pause or multicore scaling yet |
+| Failure custody | Unknown/duplicate transfer cannot authorize a second refund or resume | Retained roots, handles and copied payloads may be large | Fixed metadata bounds do not bound retained graph/native resources |
+| Build reuse | Preserve exact completed Scheme-generated C and compiler | Layout change invalidates native consumers once | 51 generated C files reused; zero new source copies |
+| Acceptance reuse | Preserve seven source/runtime-bound successful Scheme executions | Authenticate prior outer/child/checkpoint row and raw observations | Replayed execution evidence is never counted as a new process |
+
+Net benefit currently established: a real ownership boundary and retired collector
+adapter, not a native runtime speed claim. Full multicore benefit requires the six
+remaining SysML conditions and their actual source/native adapters. It cannot be
+inferred from the sum of source words, an actor API resemblance, or AI coding
+capacity.
+
+* Evidence and commit boundary
+
+The final native and ASCENT receipts below distinguish new execution, exact
+checkpoint reuse and still-open architecture obligations. Historical failed runs
+remain failed. A current C-only native rebuild is not a fresh full two-pass Scheme
+bootstrap. The latter's completed generation identity is reused explicitly.
+
+** Native observation history :evidence:
+
+| Attempt | Outcome | Actual expenditure / reuse | Scope |
+|---------+---------+----------------------------+-------|
+| worker-arena-native | DENY before execution | Existing durable build checkpoint required | No new source workspace or runtime result |
+| worker-arena-owned | DENY | 104.056 s; native rebuild 65.133 s | All seven topology Scheme executions passed, but three C projections named stale header/fixture hashes; whole attempt remains denied |
+| worker-arena-calibrated | PASS | 20.352 s; nine exact step observations reused | Current C kernel, independent interposition calibration and unknown-join test newly executed; seven original Scheme process births authenticated |
+| worker-arena-loan | DENY before execution | A stale checkpoint cannot supersede the latest durable build owner | No source copy or native execution |
+| worker-arena-loan-qualified | PASS | 15.489 s; 21 step observations reused | One new loan fixture compiled in 3.948 s and executed in 0.675 s; preceding ten native executions are retained observations |
+
+Early closure-adapter failures are also retained. A checkpoint row hash that
+incorrectly included its later journal annotation was rejected. The first ASCENT
+projection then rejected inconsistent =fresh-processes= versus
+=authenticated-executions= guards. The saved query/result in
+=worker-arena-native-evidence= has no admission receipt. Correcting those
+associations did not rerun or relabel the native processes.
+
+The one physical rebuild ran =configure= for 26.870 s and Make phases for
+31.290 + 0.933 s. Header layout changed, so 71 native products were invalidated,
+68 native recipe lines ran and 66 object byte identities changed. All 51 locked
+Scheme-generated C artifacts stayed byte-identical. No Scheme generation entry
+was invoked; no fresh full two-pass bootstrap is claimed.
+
+The final completion attempt does not claim a 15-second rebuild or a runtime
+speedup. It reused completed native work and checked exact checkpoint lineage.
+Seven Scheme executions originated in the denied attempt; the current completed
+recipe authenticates those selected successful steps and completes the missing
+controls without relabeling the old aggregate failure.
+
+| Actual acceptance case | Evidence/result | Remaining boundary |
+|------------------------+-----------------+--------------------|
+| Real map continuation | PASS, original current-runtime process | Does not prove all FFI/continuation writers |
+| Wide roots and repeated GC | PASS at 1 and 11 execution processors; shared compile product, distinct executions | No arbitrary W/R admission |
+| Root/worker phase handoff | PASS at 1 and 11 processors | Affine cleanup still on the originating carrier |
+| Actual worker physical refill | PASS at 1 and 11 processors, three forced GC rounds per fixture | Not a complete physical capacity bound |
+| Bounded restoration-space loan | PASS, allocator hook denies new sections for one GC; one loan refill, disjoint stack/heap, then another normal GC | Selected ABI/workload, not an arbitrary large-object guarantee |
+| Actual C kernel | PASS, real pthread claim race, epoch/phase/owner rejection, pending/duplicate handoff and private refund controls | Caller still supplies actual physical writer exclusion |
+| Fault-injection calibration | PASS, independently exercises create/join/held-entry adapter | Fault adapter does not model every host failure |
+| Unknown join with healthy members | PASS, three healthy members perform three GCs while aborted native entry is held | Empty never-published abort only; safety _Exit, not natural reaper or handle reclamation |
+| Framework controls | 189 previously passing controls bound to unchanged framework sources, interpreter and log | Reused, not rerun; no new Python executor or task script |
+
+There are 11 distinct authenticated native execution PIDs across the retained
+history, of which only the loan fixture is new in the final completion attempt.
+Five topology/loan compilation pipelines support eight Scheme executions;
+unknown-join compilation and the C control builds are counted separately. No
+second Gambit source tree was created. Small declared control-source projections
+are test artifacts, not full source workspaces.
+
+** Conditions for unequal workers and roots
+
+The [[file:root-worker-exit.org::#root-phase-realization][SysML-generated table]] is the admission inventory. ASCENT joins its exact seven
+condition identities with the source/profile/native guards. With all nine selected
+slice guards, =independent-refill= is supplied and these six remain missing:
+=resume-coverage=, =affine-cleanup=, =collective-split=,
+=descendant-termination=, =physical-packing= and =native-writer-closure=.
+Removing any one slice guard must remove the slice result and restore the first
+condition to missing. =rweUnequalReady= and =rweRetirementReady= stay empty in
+all controls. One of seven conditions is not a percentage of modernization work.
+
+The existing =copy_custody.qnt=, =round_capacity.qnt= and
+=root_producer_closure.qnt= own bounded scheduling/authorization histories and
+counterexamples. Existing =CopyCustody.lean=, =RoundCapacity.lean= and
+=RootProducerClosure.lean= own coverage/accounting/refinement claims with explicit
+premises. This turn changes their C adapter and evidence association; it neither
+duplicates their transition systems nor claims new theorem or memory-model proof
+results.
+
+** Five commit gates :gate:
+
+| Gate | Current disposition | Why the complete refactor is not yet admitted |
+|------+---------------------+-----------------------------------------------|
+| Required tests | Selected slice passed | Native unequal W/R and general unknown published/native-writer exits are absent |
+| Architectural learning and advantage | Concrete retired allocator adapter and explicit custody documented | Throughput, pause reduction and peak-memory benefit are not established |
+| Current process | VM-owned copy refill and handoff landed in uncommitted C | Collective scheduling and cleanup still couple admitted W to R |
+| Models and source correspondence | Native SysML, actual ASCENT DSL, source locks and original process receipts connected | Six source/native admission conditions stay open; no duplicate QNT/Lean |
+| Gambit/paper amplification questions | Shared Scheme graph, multi-shot roots and continuation restoration tested | Worker-count independence, full physical plan and unmanaged writer closure remain questions to discharge |
+
+No commit, staging, push, heap increase or wait increase is authorized by this
+selected result. Existing unrelated staged/working-tree changes are retained.
+
+The next complete responsibility replacement must service all R cleanup/root
+origins with W scan executors, distribute W copied-prefix ledgers and R resume
+intervals without paired recipients, and keep all physical barrier participants
+accounted. Any proposed W/R switch must fail closed until those consumers and
+termination/capacity obligations move together.
+
+** Source-bound closure receipts
+
+[[file:../../../evidence/research/worker-role-handoff/worker-arena-source-closure/receipt.json][Final source/SysML/ASCENT/native closure]] authenticates the current C lock and the
+original process observations through both checkpoint hops. Its matrix records
+=workerRefillSliceQualified=true=, =unequalWorkerCountsAdmitted=false=,
+=independentWorkerAllocatorAdmitted=false=, =retirementAdmitted=false= and
+=commitAdmitted=false=. The final guards pass one positive and nine missing-guard
+controls. Both whole-retirement and unequal-worker query results stay empty.
+
+[[file:../../../evidence/research/worker-role-handoff/worker-arena-source-closure/view-bindings.json][Derived-view bindings]] tie this Org report, index, generated Org and D2/SVG views
+to that receipt without making the views a second architecture source.

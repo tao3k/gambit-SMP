@@ -1,0 +1,533 @@
+{
+  "schema": "ascent.evidence-view.v1",
+  "id": "smp-tool-reasoning-ticket-codegen",
+  "manifest": "evidence/dsl/tool-reasoning.components.json",
+  "entry": "tool-reasoning",
+  "constructor": "make-tool-reasoning",
+  "facts": {
+    "focus": [
+      [
+        "ticket-codegen-audit",
+        "codegen",
+        {
+          "reference": "codegen"
+        }
+      ]
+    ],
+    "source": [
+      ["opam-route", "evidence/tool-environments/herdtools7-opam.json", {"reference": "opam-route"}],
+      [
+        "codegen",
+        "evidence/codegen/ticket-acquire/receipt.json",
+        {
+          "reference": "codegen"
+        }
+      ],
+      [
+        "policy",
+        "docs/tool-reasoning.md",
+        {
+          "reference": "policy"
+        }
+      ],
+      [
+        "assembly",
+        "evidence/codegen/ticket-acquire/ticket_acquire_codegen.s",
+        {
+          "reference": "assembly"
+        }
+      ],
+      [
+        "stress",
+        "evidence/fixtures/darwin-ticket-ownership-acquire/full-compiled-stress-observation.json",
+        {
+          "reference": "stress"
+        }
+      ]
+    ],
+    "build": [
+      [
+        "ticket-codegen-audit",
+        {"reference": "compiler-name"},
+        {
+          "reference": "compiler-version"
+        },
+        "macho",
+        "aarch64",
+        "codegen"
+      ]
+    ],
+    "compiler_kind": [[{"reference": "compiler-name"}, "gcc", "policy"]],
+    "rationale": [
+      ["ticket-codegen-audit", "compiler-transformation", "The recorded diagnostic uses GCC -O2 -S; inspecting transformations requires the same source/options, not Clang IR substituted for GCC.", "codegen"],
+      ["ticket-codegen-audit", "instruction-order", "The original assembly records a volatile poll without a post-wait acquire; inspect the exact successor image rather than assuming reservation ordering covers ownership.", "codegen"],
+      ["ticket-codegen-audit", "object-layout", "Exact object format, symbols and relocations must be checked before mapping diagnostic instructions onto a runtime image.", "codegen"],
+      ["ticket-codegen-audit", "address-origin", "The complete stress report retains a failure and explicitly lacks a proven per-test incident association; obtain a matching address/image mapping without inventing common causality.", "stress"],
+      ["ticket-codegen-audit", "debug-integrity", "Source mapping depends on matching debug information; a compiler-generated assembly listing alone does not supply runtime DWARF.", "codegen"],
+      ["ticket-codegen-audit", "runtime-ownership", "Shared ticket acquire did not close compiled stress; ownership, lifetime and failure context remain competing investigations.", "stress"],
+      ["ticket-codegen-audit", "weak-memory", "Instruction ordering observations and abstract QNT handoff do not establish full C/AArch64 memory semantics; a mapped litmus can discriminate the ordering hypothesis only.", "codegen"]
+    ],
+    "question": [
+      [
+        "ticket-codegen-audit",
+        "compiler-transformation",
+        "codegen"
+      ],
+      [
+        "ticket-codegen-audit",
+        "instruction-order",
+        "codegen"
+      ],
+      [
+        "ticket-codegen-audit",
+        "object-layout",
+        "codegen"
+      ],
+      [
+        "ticket-codegen-audit",
+        "address-origin",
+        "stress"
+      ],
+      [
+        "ticket-codegen-audit",
+        "debug-integrity",
+        "codegen"
+      ],
+      [
+        "ticket-codegen-audit",
+        "runtime-ownership",
+        "stress"
+      ],
+      [
+        "ticket-codegen-audit",
+        "weak-memory",
+        "codegen"
+      ]
+    ],
+    "tool": [
+      [
+        "gcc-dumps",
+        "Reproduce exact GCC options and inspect GIMPLE/RTL for moved or eliminated accesses",
+        "Diagnostic compilation is not the original runtime and does not prove race freedom",
+        "policy"
+      ],
+      [
+        "clang-ir",
+        "Inspect Clang-generated IR and optimization remarks for this Clang build",
+        "Do not substitute LLVM IR from a different compiler for GCC evidence",
+        "policy"
+      ],
+      [
+        "gnu-objdump",
+        "Inspect the exact symbol range for ownership poll, protected accesses and fences",
+        "Installed BFD target support must be checked; an instruction is not synchronization proof",
+        "policy"
+      ],
+      [
+        "gnu-readelf",
+        "Inspect ELF sections, symbols and relocations",
+        "ELF only; not a Mach-O inspection route",
+        "policy"
+      ],
+      [
+        "llvm-objdump",
+        "Inspect exact-image AArch64 instructions, including GCC-produced objects",
+        "No full protocol, lifetime or performance proof",
+        "policy"
+      ],
+      [
+        "llvm-readobj",
+        "Inspect Mach-O headers, symbols and relocations",
+        "Object structure does not establish runtime selection or ownership",
+        "policy"
+      ],
+      [
+        "llvm-symbolizer",
+        "Resolve exact-image addresses and inline source frames",
+        "Requires address normalization/load slide; mapping is not cause",
+        "policy"
+      ],
+      [
+        "gnu-addr2line",
+        "Resolve addresses using matching GNU-supported ELF debug information",
+        "Not a generic Mach-O path; mapping is not cause",
+        "policy"
+      ],
+      [
+        "llvm-dwarfdump",
+        "Verify the matching DWARF information before relying on mappings",
+        "Valid DWARF does not prove runtime correctness",
+        "policy"
+      ],
+      [
+        "gdb",
+        "Inspect actual threads, registers, watched writes or a recorded core",
+        "Target support/permission required; stopped snapshots perturb scheduling and do not prove liveness",
+        "policy"
+      ],
+      [
+        "lldb",
+        "Inspect exact Mach-O image threads, registers, watched writes and object memory",
+        "Permission/target support required; observation is not a fairness or cause proof",
+        "policy"
+      ],
+      [
+        "herd7-aarch64",
+        "Check whether the bad handoff/publication outcome is allowed by the bound AArch64 litmus/model",
+        "Not repair, whole-source refinement, lifetime, hardware execution or performance evidence",
+        "policy"
+      ],
+      [
+        "herd7-c",
+        "Check a separate C-level litmus with explicit atomic/data-race assumptions",
+        "Cannot silently replace legacy volatile accesses with race-free atomic semantics",
+        "policy"
+      ]
+    ],
+    "offers": [
+      [
+        "gcc-dumps",
+        "compiler-transformation"
+      ],
+      [
+        "clang-ir",
+        "compiler-transformation"
+      ],
+      [
+        "gnu-objdump",
+        "instruction-order"
+      ],
+      [
+        "gnu-readelf",
+        "object-layout"
+      ],
+      [
+        "llvm-objdump",
+        "instruction-order"
+      ],
+      [
+        "llvm-readobj",
+        "object-layout"
+      ],
+      [
+        "llvm-symbolizer",
+        "address-origin"
+      ],
+      [
+        "gnu-addr2line",
+        "address-origin"
+      ],
+      [
+        "llvm-dwarfdump",
+        "debug-integrity"
+      ],
+      [
+        "gdb",
+        "runtime-ownership"
+      ],
+      [
+        "lldb",
+        "runtime-ownership"
+      ],
+      [
+        "herd7-aarch64",
+        "weak-memory"
+      ],
+      [
+        "herd7-c",
+        "weak-memory"
+      ]
+    ],
+    "support": [
+      [
+        "gcc-dumps",
+        "gcc",
+        "any",
+        "any"
+      ],
+      [
+        "clang-ir",
+        "clang",
+        "any",
+        "any"
+      ],
+      [
+        "gnu-objdump",
+        "any",
+        "macho",
+        "aarch64"
+      ],
+      [
+        "gnu-readelf",
+        "any",
+        "elf",
+        "any"
+      ],
+      [
+        "llvm-objdump",
+        "any",
+        "macho",
+        "aarch64"
+      ],
+      [
+        "llvm-readobj",
+        "any",
+        "macho",
+        "aarch64"
+      ],
+      [
+        "llvm-symbolizer",
+        "any",
+        "macho",
+        "aarch64"
+      ],
+      [
+        "gnu-addr2line",
+        "any",
+        "elf",
+        "any"
+      ],
+      [
+        "llvm-dwarfdump",
+        "any",
+        "macho",
+        "aarch64"
+      ],
+      [
+        "gdb",
+        "any",
+        "any",
+        "any"
+      ],
+      [
+        "lldb",
+        "any",
+        "macho",
+        "aarch64"
+      ],
+      [
+        "herd7-aarch64",
+        "any",
+        "any",
+        "aarch64"
+      ],
+      [
+        "herd7-c",
+        "any",
+        "any",
+        "any"
+      ]
+    ],
+    "requirement": [
+      [
+        "gcc-dumps",
+        "exact-source-options"
+      ],
+      [
+        "gcc-dumps",
+        "compiler-tool-identity"
+      ],
+      [
+        "clang-ir",
+        "exact-source-options"
+      ],
+      [
+        "clang-ir",
+        "compiler-tool-identity"
+      ],
+      [
+        "gnu-objdump",
+        "exact-binary"
+      ],
+      [
+        "gnu-objdump",
+        "tool-target-support"
+      ],
+      [
+        "gnu-readelf",
+        "exact-binary"
+      ],
+      [
+        "gnu-readelf",
+        "tool-target-support"
+      ],
+      [
+        "llvm-objdump",
+        "exact-binary"
+      ],
+      [
+        "llvm-objdump",
+        "tool-target-support"
+      ],
+      [
+        "llvm-readobj",
+        "exact-binary"
+      ],
+      [
+        "llvm-readobj",
+        "tool-target-support"
+      ],
+      [
+        "llvm-symbolizer",
+        "exact-binary"
+      ],
+      [
+        "llvm-symbolizer",
+        "matching-debug-info"
+      ],
+      [
+        "llvm-symbolizer",
+        "normalized-addresses"
+      ],
+      [
+        "gnu-addr2line",
+        "exact-binary"
+      ],
+      [
+        "gnu-addr2line",
+        "matching-debug-info"
+      ],
+      [
+        "gnu-addr2line",
+        "normalized-addresses"
+      ],
+      [
+        "llvm-dwarfdump",
+        "exact-binary"
+      ],
+      [
+        "llvm-dwarfdump",
+        "matching-debug-info"
+      ],
+      [
+        "gdb",
+        "exact-binary"
+      ],
+      [
+        "gdb",
+        "debugger-target-support"
+      ],
+      [
+        "gdb",
+        "debug-permission"
+      ],
+      [
+        "gdb",
+        "runtime-or-core"
+      ],
+      [
+        "lldb",
+        "exact-binary"
+      ],
+      [
+        "lldb",
+        "debugger-target-support"
+      ],
+      [
+        "lldb",
+        "debug-permission"
+      ],
+      [
+        "lldb",
+        "runtime-or-core"
+      ],
+      [
+        "herd7-aarch64",
+        "herd-tool-identity"
+      ],
+      [
+        "herd7-aarch64",
+        "litmus-source-mapping"
+      ],
+      [
+        "herd7-aarch64",
+        "cat-dependency-closure"
+      ],
+      [
+        "herd7-c",
+        "herd-tool-identity"
+      ],
+      [
+        "herd7-c",
+        "litmus-source-mapping"
+      ],
+      [
+        "herd7-c",
+        "cat-dependency-closure"
+      ],
+      [
+        "herd7-c",
+        "c-data-race-contract"
+      ]
+    ],
+    "environment_hint": [["herd7-aarch64", "opam-route"], ["herd7-c", "opam-route"]],
+    "available": [],
+    "observation": [
+      [
+        "ticket-codegen-audit",
+        "instruction-order",
+        "gcc-assembly",
+        "assembly"
+      ]
+    ]
+  },
+  "queries": {
+    "compiler_context": "compiler_context",
+    "options": "options",
+    "why": "why",
+    "missing": "missing",
+    "ready": "ready",
+    "reuse": "reuse",
+    "unbound": "unbound",
+    "conflicts": "conflicts",
+    "context_gaps": "context_gaps",
+    "choice_scope": "choice_scope",
+    "exploration_window": "exploration_window",
+    "environment_options": "environment_options",
+    "actions": "actions"
+  },
+  "references": [
+    {
+      "id": "opam-route",
+      "path": "evidence/tool-environments/herdtools7-opam.json",
+      "sha256": "1e19b9b035c6488b250a41e9d895e90258b84e542ccfe6e66b67522461fcbc18",
+      "pointer": null
+    },
+    {
+      "id": "compiler-name",
+      "path": "evidence/codegen/ticket-acquire/receipt.json",
+      "sha256": "18f28e499dfd9f2eaa213c2e42aa0f172b91f21cdfe3f28954e5ed5109608e2c",
+      "pointer": "/compiler/name"
+    },
+    {
+      "id": "codegen",
+      "path": "evidence/codegen/ticket-acquire/receipt.json",
+      "sha256": "18f28e499dfd9f2eaa213c2e42aa0f172b91f21cdfe3f28954e5ed5109608e2c",
+      "pointer": null
+    },
+    {
+      "id": "compiler-version",
+      "path": "evidence/codegen/ticket-acquire/receipt.json",
+      "sha256": "18f28e499dfd9f2eaa213c2e42aa0f172b91f21cdfe3f28954e5ed5109608e2c",
+      "pointer": "/compiler/version"
+    },
+    {
+      "id": "policy",
+      "path": "docs/tool-reasoning.md",
+      "sha256": "76ffebcd7f9f1fa988901170e767f9673634d2494269b42fa2178debba34ef1f",
+      "pointer": null
+    },
+    {
+      "id": "assembly",
+      "path": "evidence/codegen/ticket-acquire/ticket_acquire_codegen.s",
+      "sha256": "a1de49ce1755e946ecb1d650b10b354980ee20678305279036a0912c4f1c8613",
+      "pointer": null
+    },
+    {
+      "id": "stress",
+      "path": "evidence/fixtures/darwin-ticket-ownership-acquire/full-compiled-stress-observation.json",
+      "sha256": "60e9e6fb80e22f3cf3e0bbc3dd12d56f0079ce0964443ab4d3cc4e65c36df907",
+      "pointer": null
+    }
+  ]
+}

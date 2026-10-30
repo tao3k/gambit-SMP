@@ -1,0 +1,4 @@
+((bindings ())
+ (checkpoint "clue-read:1a836414ddcf9a8537fe45b569d907b46eebe78f4af7e9d884dac9a96afc19e9")
+ (displayBytes 22000)
+ (selector "(define-evidence (query) (sources clue factor attested) (outputs question bound_factor bound_receipt) (include clue-selection-schema) (relation selected (id digest)) (relation question (claim)) (relation bound_factor (claim name value)) (relation bound_receipt (claim receipt)) ((selected I D) <-- (factor I D _ (lit \"c38e034363550cdeeea0e04bb70c0799f97eaf84340bc70626501eee0f2c1f45\"))) ((selected I D) <-- (factor I D (lit \"evidence-state\") (lit \"provenance-unavailable\"))) ((selected I D) <-- (factor I D _ (lit \"models/gambit/delivery_service_roots.qnt\"))) ((question C) <-- (selected I D) (clue I D C _ _ _)) ((bound_factor C N V) <-- (selected I D) (clue I D C _ _ _) (factor I D N V)) ((bound_receipt C R) <-- (selected I D) (clue I D C _ _ _) (attested I D R)))"))

@@ -6,6 +6,7 @@ import re
 
 from gambit_smp.check_gambit import admitted_model, model_checks, reuse_model_receipt
 from gambit_smp.framework import ROOT, digest
+from gambit_smp.output_observations import recorded, check_model, binding, observe, TRANSCRIPT_SUFFIXES
 
 MANIFEST = "evidence/protocol-extensions.json"
 RECEIPT = "evidence/model-results/protocol-extensions/receipt.json"
@@ -91,16 +92,10 @@ def checked_rows(root, manifest, receipt_path):
             if row.get("sourceStable") is not True:
                 raise ValueError("model changed during checking")
             log = relative(receipt_path.parent, row["log"])
-            if row.get("logSha256") != digest(log):
-                raise ValueError("protocol log digest mismatch")
-            text = log.read_text()
             old = row["variant"] == "old"
-            if not admitted_model(row["exit"], text, row["timeout"], old):
-                raise ValueError("protocol log does not support verdict")
-            if not old and (row.get("temporal") != case["temporal"] or
-                    "Finished checking temporal properties" not in text or
-                    row.get("states", {}).get("queued") != 0):
-                raise ValueError("complete temporal evidence required")
+            output = recorded(root, log, row.get('logSha256'), outputs=saved.get('outputs') or
+                ({row['log']: row['outputObservation']} if 'outputObservation' in row else None))
+            check_model(output, row, temporal=None if old else case['temporal'])
             checked_artifacts(receipt_path.parent, row)
             if old:
                 trace = relative(receipt_path.parent, row["trace"])
@@ -164,7 +159,13 @@ def bundle_facts(root, manifest_name, receipt_name):
                 for key in ("log", "trace"):
                     if key in row:
                         evidence = relative(path.parent, row[key])
-                        inputs[str(evidence.relative_to(root))] = digest(evidence)
+                        if key == 'log':
+                            if saved_outputs := json.loads(path.read_text()).get('outputs'):
+                                recorded(root, evidence, row.get('logSha256'), outputs=saved_outputs)
+                            else:
+                                inputs.update(binding(root, evidence, row['logSha256']))
+                        else:
+                            inputs[str(evidence.relative_to(root))] = digest(evidence)
                 for artifact in checked_artifacts(path.parent, row).values():
                     inputs[str(artifact.relative_to(root))] = digest(artifact)
         inputs.update(manifest["contextInputs"])
@@ -240,6 +241,7 @@ def publish(source, destination, manifest_path=ROOT / MANIFEST):
     snapshots = model_snapshot_files(source, saved["inputs"])
     destination.mkdir(parents=True, exist_ok=False)
     saved["modelSources"] = {}
+    saved['outputs'] = {}
     for name, snapshot in snapshots.items():
         target = destination / name
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -254,17 +256,17 @@ def publish(source, destination, manifest_path=ROOT / MANIFEST):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(artifact.read_bytes())
         log = relative(source, row["log"])
-        target = destination / log.name
-        target.write_text(portable(log.read_text()))
-        row["rawLogSha256"] = digest(log)
-        row["logSha256"] = digest(target)
+        output = row.get('outputObservation') or observe(log.read_bytes())
+        row["rawLogSha256"] = output['sha256']
+        row["logSha256"] = output['sha256']
+        saved['outputs'][row['log']] = output
         if row["variant"] == "old":
             name = log.stem + ".trace.json"
             trace = relative(source, name)
             target = destination / name
             target.write_bytes(trace.read_bytes())
             row.update(trace=name, traceSha256=digest(target))
-    saved["redaction"] = "repository/home/temp paths replaced in logs; raw log hashes retained"
+    saved["redaction"] = "raw logs remain in Cache; only typed output observations are published"
     saved["publisherSha256"] = digest(Path(__file__))
     receipt = destination / "receipt.json"
     receipt.write_text(json.dumps(saved, indent=2) + "\n")
@@ -290,6 +292,7 @@ def archive_attempt(source, destination):
         raise ValueError("archive requires non-admitted model-only attempt")
     relative(ROOT, str(destination.resolve().relative_to(ROOT)))
     files = {receipt.name: receipt}
+    outputs = {}
     files.update(model_snapshot_files(source, saved.get("inputs", {})))
     if saved.get("schema") in ("gambit-induction-matrix-result.v1", "gc-necessary-guard-audit.v1",
                                "gc-definedness-controls-audit.v1"):
@@ -344,14 +347,14 @@ def archive_attempt(source, destination):
         log = relative(source, row["log"])
         if row.get("logSha256") and digest(log) != row["logSha256"]:
             raise ValueError("archived diagnostic log differs from receipt")
-        files[log.name] = log
+        outputs[log.name] = observe(log.read_bytes())
         trace = log.with_suffix(".trace.json")
         if trace.exists():
             files[trace.name] = trace
     destination.mkdir(parents=True, exist_ok=False)
     record = {"schema": "gambit-model-attempt-archive.v1", "archiveOnly": True,
               "accepted": False, "runtimeAdmitted": False, "releaseAdmitted": False,
-              "originalReceiptSha256": digest(receipt), "files": {}}
+              "originalReceiptSha256": digest(receipt), "files": {}, 'outputs': outputs}
     for name, path in files.items():
         content = path.read_text()
         (destination / name).parent.mkdir(parents=True, exist_ok=True)
@@ -375,6 +378,9 @@ def main():
     else:
         publish(args.from_dir.resolve(), args.out.resolve(), args.manifest.resolve())
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('publish-protocol')(main)
 
 if __name__ == "__main__":
     main()

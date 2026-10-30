@@ -1,0 +1,182 @@
+#+TITLE: Modern C Bootstrap Registration Recovery Closure and Benefit Matrix
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:2 num:nil
+
+* Retry value-slot arithmetic
+Illustrative correct candidate layouts, not observed retries, ABI size or measured performance.
+| Deliveries | Word bytes | Duplicate slot bytes | Canonical slot bytes | Slot difference |
+|---+---+---+---+---|
+| 1 | 8 | 8 | 8 | 0 |
+| 8 | 8 | 64 | 8 | 56 |
+
+* Native-evaluated ACK cuts
+Conditional predicates over explicit input records; not source-event or whole requirement proofs.
+| Cut | Can ACK | Can release old pin | Can purge | Natural Scheme slots cleared | Restored pins dropped by old ACK |
+|---+---+---+---+---+---|
+| accepted | true | false | false | 0 | 0 |
+| wrongKey | false | false | false | 0 | 0 |
+| staleQuery | false | false | false | 0 | 0 |
+| scanAfterAck | false | false | false | 0 | 0 |
+| restoredOldPin | false | true | false | 0 | 0 |
+| sourceAckOnly | false | false | false | 0 | 0 |
+| fullyDelivered | false | false | true | 0 | 0 |
+
+* Identity and custody
+| Need | Field | Source | Contract | Invalid shortcut | Custodian |
+|---+---+---+---+---+---|
+| BR-ID | REQUEST-KEY | _kernel.scm:2353-2361;_ptree2.scm:3238-3251 | VM identity + logical native invocation + operation sequence + non-reused request generation | Not physical fp, callsite alone, Scheme value address, thread ID or delivery counter | Parent scope/VM record keeps key stable before any effect |
+| BR-ID | IMMUTABLE-INTENT | _kernel.c:6260-6271;gambit.h.in:10402 | Operation kind, target count and exact logical origin/lease identity; moving payload accessed through current mapped cell | No hash of raw SCMOBJ bits or mutable payload to infer identity | Mismatch rejects without modifying accepted request/root |
+| BR-QUERY | QUERY-RECEIPT | setup.c:1050-1112 | Key, canonical descriptor identity, revision/status and record-lifetime binding | No raw payload/root-read capability; absence is not no-effect | Query reader then ACK relookup/control-domain revalidation |
+| BR-ACK | SOURCE-LEASE | mem.c:3898-3965;_kernel.c:26358-26368 | Exact additional operation root-view lease and old pin identity | Not natural Scheme slot, gcmap, whole denv or still refcount ownership | Logical ACK idempotent; pin physically retained for current readers |
+| BR-RESTORE | RESTORED-BINDING | mem.c:4529-4561;_thread.scm:5047-5077 | Independent frame/view generation, PointId, owner binding and current loaded epoch | Restoring Scheme does not revive an unwound C frame or authorize reuse of old fp | New binding pin survives old source ACK |
+| BR-EXIT | EXIT-DISPOSITION | gambit.h.in:9979-9988;setup.c:3350-3423 | Canonical VM accepted custody and future-entry-close progress plus original status | No sole changed nonvolatile setjmp local or dynamic-wind-only release | Pending cancel or accepted-root/consumer drain under VM ownership |
+| BR-RETIRE | RESULT-AND-FRONTIER | setup.c:763-803,1155-1178 | Terminal outcome handed to actual acceptor; retired-key gate survives metadata deletion | Source ACK is not result ACK; max-seen ID is not hole-free retirement | Retain tombstone/result until acceptance and reader/delivery fences close |
+
+* Modeled transitions
+| Need | From | To | QNT actions | Guard | Conditional Lean law | Actual source duty |
+|---+---+---+---+---+---+---|
+| BR-ID | UncertainCall | CanonicalPending | submit / arrive | Same key/immutable intent; source map pinned before effects | reserveDuplicateIdempotent | _kernel.c:6260-6271;setup.c:1155-1178 |
+| BR-QUERY | UnknownOutcome | PinnedQuery | pinQuery / readQuery / unpinQuery | Lookup pin protects record; receipt is control metadata only | wrongKeyRejected | setup.c:1050-1112;proposed canonical service |
+| BR-QUERY | AbsentWithDelayedCall | TerminalNoFutureEffect | queryAbsent / cancelUnseen | Absence keeps source; cancel publishes a canonical tombstone before delayed arrival can accept | noRecordBeforeArrivalIsNotTerminal | setup.c:1050-1112;proposed admission cut |
+| BR-ACK | AcceptedOrTerminal | SourceLeaseAcked | ackAccepted / ackTerminal | Current identity/revision/root or terminal fence; no old/nested borrow | ackPreservesCoverage | mem.c:3898-3965;gambit.h.in:10402 |
+| BR-ACK | SourceLeaseAcked | SourcePinReleased | releaseSourcePin | No scanner/borrower holds old view; natural frame map remains | readerPreventsPhysicalRelease | mem.c:3898-3965,6854-6865 |
+| BR-ACK | AckReplyLost | SameAckRecorded | loseReply / replayAck | Canonical same lease is already acknowledged; no second decrement | oneGuardedAck | setup.c:1155-1178;proposed canonical lease progress |
+| BR-RESTORE | LivePausedParent | NewBinding | restoreParent / reloadParent | New map/generation/epoch before use; old source token targets old pin only | ackDoesNotDropRestoredPin | mem.c:4529-4561;_thread.scm:5047-5077 |
+| BR-RESTORE | NewBinding | RawUse | borrowParent / freezeParent | Only live same-native-invocation binding; no stale loaded epoch/generation | restoreStopsOldBorrow | _kernel.scm:1026-1066;gambit.h.in:10402 |
+| BR-EXIT | PendingOrAccepted | VmOwnedClosing | takeVmCustody / exitParent | Stable VM view/key accepted and future publication closed before nonlocal exit | exitRequiresEscrow | _ptree2.scm:3238-3251;setup.c:1109-1111,3350-3423 |
+| BR-EXIT | VmOwnedClosing | TerminalOrRootHeld | cancelPending / observeConsumerDrain / retireAccepted | No root retirement over consumer or collector read; preserve original status | releasedPinNeedsRootOrNoValue | setup.c:763-835;c_intf.c:6511-6564 |
+| BR-RETIRE | TerminalOutcome | OutcomeAccepted | ackTerminalResult | Actual result acceptor owns copied status or rooted payload; distinct from source ACK | ackKeepsPhysicalPinUntilDrain | setup.c:1155-1178;proposed completion guard |
+| BR-RETIRE | TerminalDrained | RetiredKey | sealKey / purge | Result/source ACK plus lookup/scanner/delivery drain; persistent old-key rejection | retiredKeyNeverAllocates | setup.c:763-803;proposed registry retirement |
+| BR-RETIRE | RetiredKey | ExpiredQuery | queryRetiredFence / replayAckFromFence | Return retired/settled disposition without recreation; full old outcome need not remain after proven delivery | retiredKeyNeverAllocates | proposed generation/frontier gate |
+
+* Source routes
+| Need | Source | Projection | Failure custodian | Status |
+|---+---+---+---+---|
+| BR-ID | _kernel.c:6258-6288;setup.c:1155-1178 | Allocate key before publication; insert-or-find one canonical immutable-intent record; duplicate submits reuse it | Live NativeActivation/source lease until VM record custody is known | source-and-C-order-refinement-open |
+| BR-QUERY | setup.c:1050-1112;gambit.h.in:11599-11603 | Pin canonical record, read key/descriptor/revision/status only; ACK later revalidates under same control domain | VM owns canonical entry/root and lookup lifetime; caller retains exact old source lease | source-and-C-order-refinement-open |
+| BR-ACK | mem.c:3898-3965;_kernel.c:26358-26368;gambit.h.in:10402 | Logical ACK closes exact extra origin lease once; physical old-view pin waits for its scanner/borrowers | VM descriptor or terminal no-future-effect record owns operation; natural GVM frame retains language roots | source-and-C-order-refinement-open |
+| BR-RESTORE | mem.c:4529-4561;_thread.scm:4990-5021,5047-5077 | Keep old operation/source token separate from restored binding token; reload current generation/epoch before use | Original source backing/VM escrow plus independent restored-parent pin | source-and-C-order-refinement-open |
+| BR-EXIT | _ptree2.scm:3238-3251;setup.c:1109-1111,3350-3423 | Before exit, transfer stable view/key, close future publication; pending request cancels, accepted root stays VM owned until drain | VM canonical escrow, not stack local progress or unwound owner | source-and-C-order-refinement-open |
+| BR-RETIRE | setup.c:763-803,1155-1178;_kernel.scm:1026-1066 | Keep terminal outcome until delivered/acknowledged; then drain query/scanner/delivery readers and retain anti-replay frontier | VM record/result acceptor; per-child native custody remains imported RB-MEMBERS duty | source-and-C-order-refinement-open |
+| BR-ORDER | setup.c:763-803,1155-1178;_kernel.scm:1026-1066 | Insert/close/query/ACK/restore/purge actual C order and lifetime | VM record/result acceptor; per-child native custody remains imported RB-MEMBERS duty | source-and-C-order-refinement-open |
+
+* Real generator and callers
+| Family | Source | Actual chain | Required change | Admission boundary |
+|---+---+---+---+---|
+| GENERATOR-ENTRY | vendor/gambit/lib/_kernel.scm:2353-2361;gsc/_ptree2.scm:2850-2874,2902-2925,3238-3251 | c-lambda source argument aliases mapped CFUN slot; cleanup-body selection depends on parameter conversion needs | Issue logical native-invocation key and origin token after conversion, before first possible effect | No key computed from physical stack/value address; arbitrary c-code/direct C callers require explicit origin. |
+| TRACKED-CFUN | vendor/gambit/lib/_kernel.c:6258-6288,26338-26368,30819-30821;include/gambit.h.in:10325-10404 | No-cleanup CFUN body calls current_vm_resize; OOL returns through resource-specific R_ALL | Scope/key/source lease progress must survive a bypassed normal C return | Tracked source shape fs3/link2/map7, not installed binary/profile equivalence. |
+| SYNC-RETURN-AND-THROW | vendor/gambit/lib/setup.c:1050-1112,1155-1178 | sop result copied back/operation NOOP marked, then processor0 may throw collected error | Publish canonical registration/lease disposition before caller sees status; original status and logical pending state live outside local sop | OP_NOOP or absence of normal return is not proof that an effect never happened. |
+| OUTER-CATCHER | vendor/gambit/lib/setup.c:3276-3423;include/gambit.h.in:9979-9988 | call restores local catcher and may rethrow to run; normal inline marker cleanup can be bypassed | VM escrow accepts frozen source view/key, closes admission, then stable scope exit guard handles every catcher path | Modified nonvolatile setjmp locals are not sole cleanup/result state; no resurrected dead C activation. |
+| REAL-FRAME-RESTORE | vendor/gambit/lib/mem.c:3898-3965,4529-4561;include/gambit.h.in:10402;lib/_kernel.scm:1026-1066 | GC prepares current PSTATE fp; CFUN_ARG recomputes address; return-to-C validates processor and live marker | Re-resolve logical FrameSpec/PointId and bind generation before reload; old source-ACK cannot target new frame pin | Stable Scheme continuation does not guarantee old physical fp or live C stack. |
+| CONTINUATION-WRITERS | vendor/gambit/lib/_kernel.scm:3154-3163,3512-3550;lib/_thread.scm:4794-4813,4990-5021,5047-5077 | Frame/denv writes and continuation-return/graft; same dynamic-wind context goes directly to continue | Track source lease identity and restore binding; guard every actual resume/use, not only wind hooks | All writers/serialization/native borrowers remain source obligations; no immutable captured-frame assumption. |
+| TWO-RUN-FAMILIES | vendor/gambit/lib/setup.c:763-835,6395-6440;lib/c_intf.c:6511-6564 | Main module thunk and worker bootstrap thunk converge on run and marker handling | Shared activation/root/query/exit protocol, then independent per-child source handoff and consumer drain | Registration acceptance/ACK is not thread creation, GC member commit or child-stop evidence. |
+
+* Root and control paths
+| Path | Source | Current | Contract | Failure boundary | Custodian |
+|---+---+---+---+---+---|
+| CANONICAL-KEY | _kernel.c:6258-6288;setup.c:1155-1178 | Existing C parameter and local sop do not encode recoverable invocation identity | Allocate key before publication; insert-or-find one canonical immutable-intent record; duplicate submits reuse it | Conflicting intent rejects; failed/unknown insertion keeps source view; query absence alone cannot release it | Live NativeActivation/source lease until VM record custody is known |
+| QUERY | setup.c:1050-1112;gambit.h.in:11599-11603 | Operation may execute before original sop caller gets a normal result | Pin canonical record, read key/descriptor/revision/status only; ACK later revalidates under same control domain | No SCMOBJ payload returned as a raw query capability; stale/wrong-key receipt rejects | VM owns canonical entry/root and lookup lifetime; caller retains exact old source lease |
+| SOURCE-ACK | mem.c:3898-3965;_kernel.c:26358-26368;gambit.h.in:10402 | Natural Scheme frame remains a precise root independent of helper lease | Logical ACK closes exact extra origin lease once; physical old-view pin waits for its scanner/borrowers | Never erase arg slot, frame map, still refcount or newer binding pin as a broad ACK cleanup | VM descriptor or terminal no-future-effect record owns operation; natural GVM frame retains language roots |
+| RESTORE | mem.c:4529-4561;_thread.scm:4990-5021,5047-5077 | Physical fp and dynamic/control extent can change across resume | Keep old operation/source token separate from restored binding token; reload current generation/epoch before use | Old receipt settles old lease only; dead native marker cannot be revived | Original source backing/VM escrow plus independent restored-parent pin |
+| EXCEPTION | _ptree2.scm:3238-3251;setup.c:1109-1111,3350-3423 | No-cleanup CFUN can be bypassed by a nonlocal exit to outer catcher | Before exit, transfer stable view/key, close future publication; pending request cancels, accepted root stays VM owned until drain | No hidden continuation retry or callback under control lock; unknown root/view write refuses handoff | VM canonical escrow, not stack local progress or unwound owner |
+| RETIRE | setup.c:763-803,1155-1178;_kernel.scm:1026-1066 | Runtime statuses, native return and resource stop have separate endpoints | Keep terminal outcome until delivered/acknowledged; then drain query/scanner/delivery readers and retain anti-replay frontier | No tombstone free from source ACK alone; delayed attempts cannot recreate a retired key | VM record/result acceptor; per-child native custody remains imported RB-MEMBERS duty |
+
+* C memory ordering
+| Edge | Required order | Rejected shortcut |
+|---+---+---|
+| INSERT | Key/origin intent and safe empty slots precede insert-or-find; accept-vs-GC-close arbitration is the predecessor shared cut. | No helper effect before key/source view is recoverable; no pointer-address dedup after moving GC. |
+| QUERY-PIN | Lookup and lifetime pin precede reading record; copied receipt names key/generation/revision only; unpin may follow. | Receipt is not a raw pointer lease or a load of current Scheme value. ACK must resolve and recheck again. |
+| ACK | Revalidate canonical identity/root-or-terminal custody and old borrower stop, then one logical lease ACK. | Physical pin release is deferred while source scan readers exist, even if the descriptor is already accepted. |
+| RESTORE | Frame restore closes old raw borrow; fresh binding/map/epoch is acquired before new use; old ACK touches only old lease. | No old C stack frame pointer/loaded value/catcher/token reused as new-generation authority. |
+| UNWIND | Stable VM ownership and publication-close record precede physical source exit; cleanup state is outside indeterminate locals. | No callback/wind hook or normal-only CFUN AT_END assumed to run on every exception/continuation edge. |
+| PURGE | Terminal status handoff, source lease settlement, old scanner/query/delivery drain and persistent retired-key gate precede metadata free. | Max observed request sequence is not a contiguous retired prefix; no fence reset or ID wrap while stale producers remain. |
+
+* Benefit and peak matrix
+| Capability | Avoided support/work | Quantified boundary | New support | Positive condition or falsifier |
+|---+---+---+---+---|
+| Dedup root storage | Prevent duplicate descriptor/root creation from retrying one uncertain operation | Per logical key: at most1 canonical allocation and at most1 accepted root across modeled deliveries | Key/intent comparison, status/revision and O(R) work for R deliveries | No claim R native retries already occur; this eliminates support needed by a correct recoverable path. |
+| Source ACK scope | Release only extra operation/source lease | 0 natural Scheme slots or GC-map entries removed; one old lease ACK at most once | Old view pin may outlive ACK until scanner/raw borrowers drain | No GC scan saving claimed for natural Scheme frame; separate pin retention may shrink only after its own gate. |
+| Parent restoration | Keep same live request through pause rather than repeat native effect | Old source lease0 and restored-parent pin1 are independent; query reload does not re-evaluate Scheme arguments | Frame-generation/epoch validation and map reacquisition | Legitimate fresh Scheme invocation needs a fresh key; old unwound C activation remains invalid. |
+| Query path | Recover status without materializing a Scheme thunk copy | 0 Scheme payload loads/evaluations by the control-only query design | Lookup lifetime pin and current-revision recheck; may retry under mutation | Not a latency bound; lock contention and allocator/table behavior remain unmeasured. |
+| Closed GC | Reuse frozen mapped source while insertion waits | Pending record contains safe empty slots plus identity, not an extra unscanned thunk copy | Source-view/native metadata retained across close; descriptor accepted only after current reload | Inherited full-view/close C implementation and complete writer census must be admitted. |
+| Outcome retention | Do not confuse root ACK with status/result acceptance | Source ACK plus result ACK plus producer/read drain required before purge | Result/tombstone metadata retained after value lease closes | Unknown status delivery or producer history has no bounded total retention theorem. |
+| Late producer rejection | Prevent old key recreation after record deletion | One-key fence remains after tombstone free; duplicate effect count stays1 | Persistent within-VM retired prefix/sparse holes or equivalent generation table | Full multi-key frontier/holes/wrap proof remains open; not disk crash durability or timeout-based deletion. |
+| Peak accounting | Count unique backing across source, descriptor, result and restored parent | P=max_t(B_unique + H_active + H_tombstones + V_old + V_new + Q_pins + Fence + Native_unique) | Unknown ownership/delivery can extend overlap; value-cell bytes alone do not determine peak | Disjoint classes only; budget L caps L*H metadata only if admission gates preserve waiting source roots; no whole-runtime bound. |
+| Modern C leverage | One generated origin/guard/key protocol shared by Scheme and native runtime consumers | Retire raw sop thunk ownership and normal-only cleanup assumptions only after all consuming paths migrate | Typed metadata, canonical service and generated FrameSpec/PointId/effect contracts | Zig would still require the same root/query/ACK/restore semantics; no extra Zig net benefit proved here. |
+
+* Closure
+| Component | Need | Kind | Exact scope | Premise | Status |
+|---+---+---+---+---+---|
+| host-roots | BR-H | interleaving | bootstrap_root_recovery:one-key-three-deliveries-GC-and-restored-binding;seed17 | One logical key, bounded retries, one GC and one live-parent restoration; atomic ledger/view/scanner and consumer-drain premises. Includes lost registration and ACK histories; no C/multi-key table/liveness proof. | Conditional local model checked |
+| host-roots | BR-I | induction | GambitSMP.BootstrapRootRecovery:conditional-ACK-view-key-and-lifetime-laws | Selective operation laws, guarded root coverage, retained physical scan pin, restored-pin separation, key fence and arithmetic; no complete QNT Step induction/source simulation. | Conditional local model checked |
+| host-roots | BR-ID | source-refinement | BR-ID:logical-request-origin-and-binding-identities | Generated semantic invocation/key sequence, immutable origin specification and request generation; exclude physical FP/SCMOBJ address as identity; legitimate Scheme reinvocation differs from delivery retry. | OPEN: source or C memory refinement |
+| host-roots | BR-QUERY | source-refinement | BR-QUERY:canonical-insert-query-cancel-and-retry | Per-VM canonical record reserved before effects; matching-key dedup, immutable intent, current revision and lifetime pin; absence with delayed request does not prove no effect. | OPEN: source or C memory refinement |
+| host-roots | BR-ACK | source-refinement | BR-ACK:source-lease-ACK-not-Scheme-frame-removal | ACK closes one exact extra origin lease only after canonical root/effect custody; retain physical view pin through readers/borrowers. Never clear natural Scheme slot/map or restored-parent pin. | OPEN: source or C memory refinement |
+| host-roots | BR-RESTORE | source-refinement | BR-RESTORE:parent-frame-generation-restore-and-reload | Reacquire logical frame and current slot after relocation/restoration; distinguish same-live-native invocation from fresh Scheme reinvocation and unwound C activation; continuation/denv writers remain a premise. | OPEN: source or C memory refinement |
+| host-roots | BR-EXIT | source-refinement | BR-EXIT:CFUN-nonlocal-exit-VM-escrow-and-entry-close | Actual selected CFUN lacks cleanup body; outer run/call catcher and native guard must transfer source view/key and close future publication before unwind; dynamic-wind alone is insufficient. | OPEN: source or C memory refinement |
+| host-roots | BR-RETIRE | source-refinement | BR-RETIRE:result-ACK-frontier-and-record-reader-drain | Source ACK, terminal result handoff, incoming delivery/query/scanner drain and persistent retired-key admission fence are distinct; no max-seen shortcut, wrap or recreation after tombstone deletion. | OPEN: source or C memory refinement |
+| gc-work | BR-ORDER | native-memory-order | BR-ORDER:insert-close-query-ACK-and-purge-C-order | Concrete control-lock/atomic and storage lifetime proof for lookup pin, revision recheck, collector relocation and deferred physical release; no weak-memory/source receipt. | OPEN: source or C memory refinement |
+| host-roots | RB-VIEW | source-refinement | RB-VIEW:CFUN-stack-alias-full-resize-view | Generator _ptree2/_t-c-1/_t-c-2/_t-c-3 and tracked _kernel.c establish exact selected CFUN shape. Preserve frame/context roots and origin across C value/sop copies; selected generated profile freshness and all raw writers remain open. | OPEN: source or C memory refinement |
+| host-roots | RB-GATE | source-refinement | RB-GATE:closed-round-bootstrap-registration | Registry close and root acceptance linearize in one domain; frozen complete caller view covers closed-round deferral. Snapshot membership and relocation exclusion cannot be inferred from release/acquire alone. | OPEN: source or C memory refinement |
+| gc-work | RB-MEMBERS | source-refinement | RB-MEMBERS:prepared-routing-bound-collector-membership | Separate prepared capacity, stable routing descriptors, bound native children and committed collector members. Current processor_count drives barrier and GC partitioning; changing it needs a real generation transition, not a renamed scalar. | OPEN: source or C memory refinement |
+| host-roots | TA-SCOPE | source-refinement | TA-SCOPE:both-run-callers-and-marker-exit | Activation slots fully initialized before registration; source overlap until accepted; marker failure/rethrow funnel after END_TRY; unique marker clear/drop before status. | OPEN: source or C memory refinement |
+
+* Dependencies
+| Dependent | Prerequisite |
+|---+---|
+| BR-ID | BR-H |
+| BR-ID | BR-I |
+| BR-QUERY | BR-H |
+| BR-QUERY | BR-I |
+| BR-ACK | BR-H |
+| BR-ACK | BR-I |
+| BR-RESTORE | BR-H |
+| BR-RESTORE | BR-I |
+| BR-EXIT | BR-H |
+| BR-EXIT | BR-I |
+| BR-RETIRE | BR-H |
+| BR-RETIRE | BR-I |
+| BR-ORDER | BR-H |
+| BR-ORDER | BR-I |
+| BR-ID | RB-VIEW |
+| BR-QUERY | BR-ID |
+| BR-QUERY | RB-GATE |
+| BR-ACK | BR-QUERY |
+| BR-ACK | BR-ORDER |
+| BR-ACK | RB-VIEW |
+| BR-RESTORE | BR-ACK |
+| BR-RESTORE | TA-SCOPE |
+| BR-EXIT | BR-QUERY |
+| BR-EXIT | BR-ACK |
+| BR-EXIT | TA-SCOPE |
+| BR-RETIRE | BR-ID |
+| BR-RETIRE | BR-QUERY |
+| BR-RETIRE | BR-EXIT |
+| BR-RETIRE | RB-MEMBERS |
+| BR-ORDER | RB-GATE |
+
+* Research gates
+| Gate | Required need |
+|---+---|
+| registration-recovery | BR-ID |
+| registration-recovery | BR-QUERY |
+| registration-recovery | BR-ACK |
+| registration-recovery | BR-ORDER |
+| registration-recovery | RB-GATE |
+| registration-recovery | RB-VIEW |
+| parent-exit-restore | BR-RESTORE |
+| parent-exit-restore | BR-EXIT |
+| parent-exit-restore | BR-ACK |
+| parent-exit-restore | TA-SCOPE |
+| first-cut | BR-ID |
+| first-cut | BR-QUERY |
+| first-cut | BR-ACK |
+| first-cut | BR-RESTORE |
+| first-cut | BR-EXIT |
+| first-cut | BR-RETIRE |
+| first-cut | BR-ORDER |
+| first-cut | RB-MEMBERS |
+
+* Boundary
+Only BR-H and BR-I qualify locally; current source/restore/retirement/C-order research gates stay closed. Synthetic all-scoped evidence is a policy control. No runtime changes, native tests, measured benefit or retired runtime path.

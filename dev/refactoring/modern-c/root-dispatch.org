@@ -1,0 +1,148 @@
+#+TITLE: Root-origin dispatch — next complete runtime REV
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never-export
+#+TODO: OPEN | CLOSED
+
+* OPEN Complete responsibility boundary :architecture:delivery:
+:PROPERTIES:
+:AUTHORITY: GambitRootDispatch
+:SOURCE: models/sysml/root-dispatch.sysml
+:BASE_REVISION: b77ad85cd338adad6ea571395975bdb2166dd147
+:STATUS: READY-FOR-SOURCE-REFINEMENT; IMPLEMENTATION-NOT-ADMITTED
+:END:
+
+[[file:models/sysml/root-dispatch.sysml][SysML]] owns this detailed refinement of the roadmap's =root-origin-dispatch=
+node. This is the next complete chain: root census -> writer stop/frozen view ->
+publication -> task claim -> scan using the source origin -> completion ->
+source-borrow release and bounded record reuse. A counter or wrapper around
+the old scanner is insufficient. No runtime implementation is added here.
+
+The predecessor separates root storage from the carrier. This successor must
+separate root scan identity and permission from the collector's identity. It
+does not simultaneously replace worker copy arenas, capacity/restoration,
+thread-affine cleanup, VM retirement or the whole CFFI service. Those are
+separately gated dependencies, not deficiencies to hide in this REV.
+
+The [[file:execution-storage-publication.org][first predecessor CI failure]] remains retained. The separately scoped
+=b77ad85c= fixture follow-up preserves all290 declarations and has an
+[[file:layout-fixture-result.org][all-green exact-head run]], including actual MSVC frame-contract and
+continuation/root execution. This closes the predecessor CI gate and permits
+ROOT-SOURCE refinement. The seven implementation duties below remain OPEN;
+green predecessor CI is not a root-dispatch runtime observation.
+
+* Source boundary at the committed base :source:retirement:
+
+The runtime source observations below refer to =bf08f39f=; those bytes remain
+unchanged in the new =b77ad85c= base, whose only delta is the fixture generator.
+Neither source identity admits the dirty prototype.
+The roadmap's earlier prototype path inventory is not a whitelist. This cut
+uses the committed flat =include/gambit.h.in= and existing private fragments;
+it does not require the pending public-header module split.
+
+| Source / actual consumer | Current binding | Complete replacement required |
+|--------------------------+-----------------+-------------------------------|
+| collection-round.inc: garbage_collect_mark_strong_phase | Processor zero calls VM/symbol-key/RC scans; each processor calls its local continuation/register/saved/cache/processor scans | Explicit once-per-VM/global tasks and one admitted origin task per actual root owner; retire index-derived source selection |
+| capacity-resize.inc: mark_registers / mark_saved / mark_type_cache | Reads executor ps->context | Read the task's immutable origin bank; executor is only the collector/allocation/diagnostic role |
+| continuation-roots.inc: mark_continuation / mark_frame / mark_captured_continuation | Active fp/stack_break are selected through executor context; indirect helpers carry allocation state | Carry source stack coordinates through the full call chain; retain actual frame descriptors/cursors and existing forwarding/multi-shot semantics |
+| root-origins.inc: mark_processor_scmobj / mark_vm_scmobj / mark_global_variables / mark_symkey_tables | Root bank, VM and global slices derive from ps/id/processor_count | Explicit source kind, VM ownership and frozen global partition bounds; no worker-count-derived root meaning |
+| configuration.inc rc_head + rc-allocation.inc ___alloc_rc + rc-roots.inc mark_rc | RC head is PSTATE_MEM; strong phase selects leader RC scan | Trace real nonzero producers, payload writes and cleanup; enumerate every admitted head exactly once and retain its source lifetime |
+| setup.c + collection-round.inc + memory-lifecycle.inc | Membership, barriers and source lifetime are implicit preconditions | Stable closed roster, actual writer-stop and task/reader borrows; root-count completion cannot authorize premature PSTATE/VM cleanup |
+
+The RC source pattern is a concrete coverage question, not yet a native proof
+that every nonzero producer is reachable or broken. The next code REV must
+demonstrate the real producer/scan path and moving payload update. A descriptor
+cannot compensate for an uncovered writer or destroyed RC list owner.
+
+* Frozen source, task identity and memory order :contract:
+
+- The descriptor borrows the real context, RC head and root address view. Root
+  writers must be stopped/cooperatively parked before publication; a logical
+  phase flag alone proves neither physical stop nor lifetime.
+- Publish the fully formed immutable census with release semantics; claimers
+  acquire that publication and a generation/lifetime pin. =VM, epoch, kind,
+  slot, partition= identify a bounded task. A separately checked epoch followed
+  by a state-only CAS permits ABA and is rejected. Reuse requires old readers
+  and requests to drain; epoch exhaustion rejects rather than wraps.
+- A claim has one winner. =Ready -> Claimed -> Scanning -> Done= represents
+  permission and progress, not a new ownership claim over every reachable
+  object. Different root tasks may reach the same captured continuation.
+  Preserve existing frame/forwarding rules; do not infer unique copying from
+  unique root-job claim.
+- Finish release-publishes rewritten roots. The observer acquires completion,
+  but source borrows/writer reentry still obey the existing whole-round strong,
+  weak, queue and cleanup barriers. Root tasks alone cannot seal the round.
+- Actual C23 atomics and existing lock/barrier implementations must refine
+  these edges. No assumption of universal lock-free multiword atomics is made.
+
+The source-explicit scanner accepts origin and executor separately. Executor
+eligibility includes capacity and thread-affinity capabilities. Until the
+worker-arena REV qualifies arbitrary assignment, existing affinity/capacity
+constraints remain explicit. The code must not advertise unrestricted stealing
+or whole-collector =W<R= merely because a dispatcher can accept two counts.
+
+* Failure and unknown-result custody :failure:
+
+| Cut / result | Custodian and permitted action | Forbidden inference |
+|--------------+-------------------------------+---------------------|
+| Census/metadata reservation fails before publication | Original source roots and lifetime owners remain responsible; reject without partial roster permission | Source-root ACK or GC completion from allocation failure |
+| Claim rejected or stale key | Existing owner retains the root; no scan occurs | Reusing an old slot/key or dropping its root |
+| Completion ACK lost after Done | Query the same generation/identity and return the recorded completion | Restarting the destructive scanner |
+| Worker stopped before scanner entry, with actual exclusion proof | Transfer the unstarted task while preserving the source pin | Treating a status read or join error as a stop proof |
+| Scanner may have entered; stop/result unknown | Keep task and source roots pinned; completion/reuse remains blocked for that owning round | Requeueing partially changed stack/frame work or reporting missing roots as done |
+| All root tasks done | Continue the existing GC phases and final lifetime drain | Whole-round/VM/global reclaim permission solely from root count |
+
+Unknown join isolation and healthy-VM progress still need the separate VM
+membership/retirement contract. This cut must preserve/refuse safely; it cannot
+claim that a task descriptor solves arbitrary owner death or native side effects.
+
+* Proof and native admission matrix :models:ascent:
+
+| Duty | Existing authority / required extension | Unique responsibility | Current result |
+|------+-----------------------------------------+-----------------------+----------------|
+| ROOT-SOURCE | Actual generators/readers/writers/RC/GC callers listed above | C adapter and memory-order refinement, full origin/executor separation and frozen-view validity | OPEN |
+| ROOT-PROTOCOL | [[file:models/quint/runtime_roles.qnt][Existing runtime_roles QNT]] | Add claim/owner/progress, stale generation, lost ACK, reentry and known-vs-unknown stop schedules | OPEN; existing model has no claim owner |
+| ROOT-COVERAGE | [[file:models/lean/RuntimeRoles.lean][Existing RuntimeRoles Lean]] | Universal actual-root/family/partition coverage for arbitrary R; existing Covered only says scanned is a subset of frozen | OPEN; not a duplicate interleaving model |
+| ROOT-NATIVE | Existing official targets and necessary C/frame controls | Nonzero origins/RC payload moving roots, actual map multi-shot+GC, duplicate/stale claim, unknown-stop refusal, exact bootstrap/check and baseline disposition | OPEN |
+| ROOT-AUDIT / PROCESS / QUESTIONS | This Org and native SysML | Exact retirement, benefit/cost evidence, stage/dependencies and mandatory source questions | Design recorded; implementation answers remain OPEN |
+
+SysML supplies these seven needs to the existing ASCENT policy. With no future
+C/protocol/native observations, =commitReady= must be empty and all seven needs
+missing. A strict SysML parse is model well-formedness, not runtime admission.
+No new QNT or Lean module is copied, and no old result is promoted to this cut.
+
+Required native validation uses the same persistent Modern C workspace and
+Bazel profile, original bootstrap bound600 seconds, heaps and waits. Reuse
+existing unit/check/frame/map/thread cases; add only the necessary new C
+interface assertions to existing controls. Test explicit zero/one/multiple
+origins, nonzero RC registrations, moving-root reload and stale/duplicate
+claims. Dispatcher-only =W<R= controls must remain labeled as such; independent
+arena/refill/restoration is the later prerequisite for whole-GC =W<R=.
+
+* Benefit and additional-cost matrix :benefits:
+
+| Mechanism | Verifiable benefit target | Added cost and falsifier |
+|-----------+---------------------------+--------------------------|
+| Explicit closed root census | Every admitted context and actual RC head is represented, with no leader-only implicit coverage | O(R+K) metadata/work; a reachable producer outside the census blocks the REV |
+| Origin/executor separation | A worker-policy change cannot silently change which stack/register/RC bank is scanned | Task arguments and root-view pins; any indirect helper still deriving source from executor fails refinement |
+| Unique generation-checked claim | Duplicate/stale jobs cannot authorize a second root-task scan | Bounded claim/completion synchronization per task; aliasing objects still use existing forwarding rules |
+| Lifetime/unknown custody | Lost ACK or unknown stop cannot silently discard a root or recycle its descriptor | Pinned metadata/roots may retain memory and block their round; physical-stop/recovery remains necessary |
+| Existing FrameSpec and multi-shot semantics | The same precise frame roots support repeated continuation recovery while later worker policies can vary | No one-shot restriction, extra GC scan elimination or speedup is claimed |
+
+Let R be origin count and K task count including VM/global partitions. Storage
+is R*sizeof(RootOrigin)+K*sizeof(RootTask)+bounded borrow/status records, not an
+invented byte estimate. Runtime work adds census/claim/completion operations;
+it does not remove necessary reachable-object scans. Exact bytes, atomics,
+root visits and peak retained memory must be reported from the implemented
+source before the next code REV is admitted.
+
+* CLOSED Design-routing check :validation:
+
+Native =sysml -strict -validate= accepts this component and projects its seven
+needs through all five existing gates. Running the maintained ASCENT policy
+with this design-only scenario and no implementation observations returns
+=commitReady=[]=, all seven needs missing, and no failed refusal control.
+This checks that the plan cannot accidentally admit its future code. It does
+not close any QNT extension, Lean adapter law or native implementation test.
+[[file:root-dispatch.d2][D2]] shows the same publication/claim/scan/drain/reuse and unknown-custody
+boundary; its rendered SVG is a view, not another state-machine authority.

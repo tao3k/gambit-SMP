@@ -1,0 +1,218 @@
+#+TITLE: Exact Ticket Settlement and Capability Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitTicketCapabilityRetirement
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| will-load | vendor/gambit/lib/_kernel.scm | (let ((testator (##will-testator will)) | Loaded operands survive field clearing; no keyed completion ledger here |
+| will-clear | vendor/gambit/lib/_kernel.scm | (##will-action-set! will #f) | Severs one field; not a duplicate settlement or last-capture receipt |
+| will-invoke | vendor/gambit/lib/_kernel.scm | (action testator) | Actual invocation; stable outer exit signer and exact TicketId absent in this slice |
+| will-loop | vendor/gambit/lib/_kernel.scm | (macro-fifo-remove-all! registry) | Removed list remains in continuation/local loop state |
+| reify | vendor/gambit/lib/_thread.scm | (define (reify-continuation cont) | Reified procedure captures raw cont |
+| resume | vendor/gambit/lib/_thread.scm | (##continuation-return-aux cont val1 val2 val3 others) | Reified closure repeatedly restores same continuation |
+| unwrapped | vendor/gambit/lib/_thread.scm | (##closure-ref proc 1) | procedure->continuation exposes raw cont; wrapping alone does not close aliases |
+| wind-normal | vendor/gambit/lib/_thread.scm | (define-prim (##dynamic-wind before thunk after) | Normal before/after is a dynamic crossing, not unique invocation ID |
+| wind-after | vendor/gambit/lib/_thread.scm | ((macro-dynwind-after src)) | Unwind executes user after thunk; may escape or be repeated |
+| wind-before | vendor/gambit/lib/_thread.scm | ((macro-dynwind-before dst)) | Re-entry executes user before thunk |
+| restore-fast | vendor/gambit/lib/_thread.scm | (if (or (##eq? src dst) ;; check common case (same dynamic-wind context) | Same-dynwind restore bypasses before hook; native resume admission needed |
+| copy | vendor/gambit/lib/_kernel.scm | (define-prim (##continuation-copy cont) | New continuation shell shares frame and denv |
+| frame-ref | vendor/gambit/lib/_kernel.scm | ___SCMOBJ frame = ___CONTINUATION_FRAME_FIELD(cont); | Continuation physical graph may be aliased |
+| slot-write | vendor/gambit/lib/_kernel.scm | (define-prim (##continuation-set! cont i val) | Frame mutation requires authority and generation qualification |
+| frame-write | vendor/gambit/lib/_kernel.scm | (macro-continuation-frame-set! cont frame) | Raw representation writer |
+| denv-write | vendor/gambit/lib/_kernel.scm | (macro-continuation-denv-set! cont denv) | Restored dynamic environment can change |
+| serial-explode | vendor/gambit/lib/_io.scm | (define-prim (##explode-continuation cont) | Serial representation includes frame and denv |
+| serial-implode | vendor/gambit/lib/_io.scm | (define-prim (##implode-continuation re fields) | Importer constructs continuation; derived capability registration required |
+| closure-explode | vendor/gambit/lib/_io.scm | (define-prim (##explode-closure closure) | Closure captures can be externally represented |
+| rc-release | vendor/gambit/lib/memory/rc-allocation.inc | if (--h->refcount == 0) | RC header count is explicit native object ownership, not Scheme alias census |
+| rc-addref | vendor/gambit/lib/memory/rc-allocation.inc | h->refcount++; | Raw native alias operation needs participant identity; not globally atomic root retirement |
+| rc-scan | vendor/gambit/lib/memory/rc-roots.inc | mark_array (work, &h->data, 1); | Actual moving-GC slot consumer; scan lease/close protocol not supplied here |
+| frame-scan | vendor/gambit/lib/memory/continuation-roots.inc | while (___frame_root_next_run (&cursor, &first, &past)) | Actual captured-frame consumer; complete generation match remains open |
+| poll | vendor/gambit/lib/_kernel.c | ___JUMPGENNOTSAFE(___SET_NARGS(1),___R3) | Checked-in will call artifact; no matching current Darwin receipt inferred |
+| will-resurrect | vendor/gambit/doc/gambit.txi | A remarkable feature of wills is that an action procedure can | GC notification can execute arbitrary action and resurrect its testator |
+| dead-roots | vendor/gambit/doc/gambit.txi | continuations will contain the dead variables. | Source deadness/return cannot sign physical retirement |
+| raw-write | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Source permission that a frozen-plan admission must close |
+| second | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Actual second normalization site; full equivalence remains required |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| ticket | SessionNonce + DomainId + Generation + AttemptId | One terminal outcome per complete key; immutable payload binding | A slot, object address or payload hash is not the key |
+| capture | CaptureDomainId + CaptureId + Generation | All derived raw copies or managed exports belong to a tracked lineage | Object inequality does not imply independent frame/denv authority |
+| transport | OperationId + TicketId + immutable argument digest | Lost reply queries the same record; pending is not absent | Same payload does not identify semantic re-execution |
+| resume | CaptureId + fresh AttemptId minted by external restore gateway | Each true multi-shot invocation gets a distinct ticket | Do not mint from a counter/token stored inside restored Scheme frames |
+| handle | CaptureId + HandleId + Generation | Drop same handle is idempotent and does not release another handle | Managed handles do not count arbitrary Scheme/raw aliases |
+| borrow | CaptureId + BorrowId + participant generation | Return one borrower; duplicate return cannot decrement another | Native participant roster and out-of-band aliases still require closure |
+| scanner | RootDomain + ScanBorrowId + generation | Maintenance admission closes; admitted scans release by exact ID | Authority closure alone does not authorize root unlinking |
+| terminal | Immutable outcome or non-reused tombstone | Late query returns prior outcome or a defined non-replay status | Physical tombstone reclamation and crash persistence are not proved |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| exit | Stable runtime completion guard outside restored frames | will-execute! and continuation unwind/return are located; no such keyed guard identified | Required refactoring; cannot fabricate receipt from return/after | Retains scanned activation roots until exit outcome and handoff are classified |
+| settlement | Ledger linearization owner | No existing TicketId ledger identified in inspected executor paths | Model assumes trusted executor witness bound to this key and payload | Atomically retain terminal outcome and ownership result before reply |
+| query | Same ledger owner with record/read lease | No existing keyed query service in inspected paths | Required service boundary; timeout caller is not an absence issuer | Answer pending/completed/conflict without replaying execution |
+| fresh-attempt | Runtime restore gateway before no-winding/graft/thread restoration | Same-dynwind fast path directly restores; Scheme before hook not complete | GVM/native contract insertion points still require a complete inventory | Mint ID outside capture; duplicate delivery keeps the existing ID |
+| alias-census | Capture-domain exporter/importer owner | callcc/copy/unwrap/serialization and representation writers create open alias paths | No generic last-Scheme-reference signer found | Close producers, account derived lineages or deny optimization receipt |
+| authority-close | Stable capture-domain owner | Current callcc closure has no unified managed admission gate | Only for a fully admitted managed scope | Drain handles, native borrowers and accepted activation tickets; preserve unrestricted Scheme fallback |
+| root-detach | GC RootRegistry/scan-gate owner | mark_rc and captured frame scanners consume slots; no new gate implemented | Root mapping, producer/consumer generation and real scan leases unresolved | Keep root storage pinned after authority closes until maintenance scans drain |
+| absence | Creation/commit owner after reservation outcome is resolved | No absence oracle supplied by clearing will fields or empty registry | Unknown outcome stays owned; process death is not an absence receipt | Retain record/root or reconcile against the exact commit identity |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| per-id | Two explicit ticket slots with distinct keys and immutable outcomes | Trusted keyed exit witness; no identity reuse | Repeated completion/query cannot retire another active ticket | Finite product alone is not an unbounded scheduler/alias graph proof |
+| generic | Functional keyed ledger and handle map in Lean | Lookup/update are faithful and equality is full-key equality | Other-key noninterference, idempotence and terminal outcome retention hold for arbitrary keys | Hash collision, parser/payload coding and current C source refinement unproved |
+| projection | Concrete commit/query AST to generic per-key record | Typed AST binds same ticket fields and fixed abstract payload | Commit/query correspondence and other-slot noninterference proved where stated | Does not establish arbitrary real Scheme value encoding or all-model simulation |
+| multi-shot | True continuation invocation reserves a fresh ticket | Stable external gateway covers no-winding and all restore paths | Retaining CaptureId supports multiple invocations without ticket reuse | Current source has no complete gateway insertion/caller census |
+| cap-retirement | Close managed admission before census; keep root until scan cut | No raw escape and all exact handles/borrows/accepted attempts accounted | Authority closure and physical root retirement are distinct states | Generic Scheme last-reference retirement remains unresolved |
+| ack-loss | Outcome commits before reply; record survives observation loss | Single surviving owner/ledger instance; no blind retry | Same TicketId query returns original outcome | Crash recovery/durable exactly-once external effects not proved |
+| semantics | Raw/unknown escape keeps optimization unavailable | No forced single-shot conversion or global ban on Scheme restoration | Safe fallback can preserve original continuation behavior | Actual fallback and full second-normalization equivalence still open |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| commit | C23 owner critical section publishes key, state, outcome and root custody together | Reply or query reads same pinned immutable record | No decrement-then-record gap; no lock held across Scheme/GC/FFI | Per-key record plus synchronization |
+| resume | Register fresh activation and root carrier before restoring execution | Restored code uses current stable guard, not captured old ticket token | All no-winding, scheduler and native callback entries must refine this ordering | One admission/settlement per real activation |
+| close | One domain gate closes exports and managed resumes | All prior reservations remain visible until settled | Close is not arbitrary raw alias revocation; generation cannot wrap silently | Handle/borrow identities and overflow checks |
+| scan | Close maintenance admission after authority receipt | Drain preexisting exact scan borrowers before unlink | Moving slot updates and C23 release/acquire publication need source proof | Scan records/root pin outlive user callback return |
+| tombstone | Retain terminal record before acknowledging settlement | Old keys cannot be reused while delayed requests exist | C23 visibility does not supply durable persistence or transport failure detection | Storage may grow with outstanding retry windows/capabilities |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| dedup | Repeated settlement/query causes zero extra execution and zero additional settlement in model | Retained per-key outcome/tombstone; O(1) logical keyed operation with an appropriate index | Lookup implementation and native cost not measured; general map lookup complexity not assumed |
+| captures | Avoid waiting for all Scheme continuations in the VM | Exact managed handle/native/scan records; unknown raw escape remains blocked | Only fully scoped authority qualifies; no guaranteed generic last-reference census |
+| reuse | 0..N second helper calls removable; first N retained | P plan work + V validation + incremental ledger/root/capture cost | Positive iff saved helper work exceeds marginal added work; current admitted N=0 |
+| amortization | Share necessary runtime guard/root/identity support across services | Charge common support once and each extra per-operation path explicitly | Shared support is neither free nor charged repeatedly to every helper removal |
+| memory | No admitted early reclamation from return or GC callback alone | Terminal payload roots and live capture storage retained | No guaranteed memory saving; unbounded retention/crash recovery need separate policies |
+| language | Same semantic obligations in modern C23 and Zig | Both require keyed custody, generated root coverage and capability closure | No additional Zig-specific benefit established here |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| SysML | ASCENT | Component owner / source / action / theorem / receipt scope |
+| ASCENT | QNT | Missing or forged coverage keeps actual retirement denied |
+| QNT | Lean | Typed IR safety plus explicitly checked generic projection |
+| executor | keyed ledger | Exit witness belongs to the exact TicketId and payload |
+| keyed ledger | reply | Terminal record commits before reply; lost reply does not undo commit |
+| retry query | keyed ledger | Same ID reads pending or cached outcome; does not execute again |
+| restore gateway | keyed ledger | Fresh AttemptId before every semantic restore; outside captured frames |
+| capture exports | authority gate | Track exact handle and native borrower identities; raw escape blocks census |
+| authority gate | root registry | Authority closes only after accepted activations and managed holders drain |
+| root registry | scan borrowers | Maintenance admission closes; existing readers retain storage |
+| scan borrowers | root detach receipt | Exact scan returns before root storage unlink |
+| root detach receipt | second normalization | Full emission/metadata equivalence still required; no native admission |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| ticket_capability_retirement.reserve0 | TicketCapability.reserve0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.enter0 | TicketCapability.enter0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.observeSuccess0 | TicketCapability.observeSuccess0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.observeFailure0 | TicketCapability.observeFailure0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.commit0 | TicketCapability.commit0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.query0 | TicketCapability.query0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.queryPending0 | TicketCapability.queryPending0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.conflictingSettle0 | TicketCapability.conflictingSettle0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.loseReply0 | TicketCapability.loseReply0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.retainTombstone0 | TicketCapability.retainTombstone0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.reserve1 | TicketCapability.reserve1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.enter1 | TicketCapability.enter1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.observeSuccess1 | TicketCapability.observeSuccess1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.observeFailure1 | TicketCapability.observeFailure1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.commit1 | TicketCapability.commit1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.query1 | TicketCapability.query1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.queryPending1 | TicketCapability.queryPending1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.conflictingSettle1 | TicketCapability.conflictingSettle1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.loseReply1 | TicketCapability.loseReply1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.retainTombstone1 | TicketCapability.retainTombstone1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.cloneHandle1 | TicketCapability.cloneHandle1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.dropHandle0 | TicketCapability.dropHandle0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.dropHandle1 | TicketCapability.dropHandle1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.duplicateDrop0 | TicketCapability.duplicateDrop0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.borrowNative0 | TicketCapability.borrowNative0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.returnNative0 | TicketCapability.returnNative0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.borrowNative1 | TicketCapability.borrowNative1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.returnNative1 | TicketCapability.returnNative1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.duplicateNativeReturn0 | TicketCapability.duplicateNativeReturn0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.closeCapability | TicketCapability.closeCapabilityPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.discoverRawEscape | TicketCapability.discoverRawEscapePreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.attestAliasCensus | TicketCapability.attestAliasCensusPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.attestRootMaps | TicketCapability.attestRootMapsPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.closeAuthority | TicketCapability.closeAuthorityPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.pinScanner0 | TicketCapability.pinScanner0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.unpinScanner0 | TicketCapability.unpinScanner0Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.pinScanner1 | TicketCapability.pinScanner1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.unpinScanner1 | TicketCapability.unpinScanner1Preserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.closeMaintenance | TicketCapability.closeMaintenancePreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.retireRoot | TicketCapability.retireRootPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.selectStaleGeneration | TicketCapability.selectStaleGenerationPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.selectCurrentGeneration | TicketCapability.selectCurrentGenerationPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+| ticket_capability_retirement.rejectStaleRequest | TicketCapability.rejectStaleRequestPreserves | Two-ticket one-capture tracked-holder product; external source receipts unproved |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| step | TicketCapability.stepPreserves |
+| reachable | TicketCapability.reachableSafe |
+| once0 | TicketCapability.atMostOnce0 |
+| once1 | TicketCapability.atMostOnce1 |
+| terminal0 | TicketCapability.terminal0Stable |
+| terminal1 | TicketCapability.terminal1Stable |
+| scan | TicketCapability.rootNeedsScannerDrain |
+| stale | TicketCapability.staleCannotReserve |
+| generic-other | TicketIdentityAlgebra.settleOther |
+| generic-idempotent | TicketIdentityAlgebra.settleIdempotent |
+| generic-terminal | TicketIdentityAlgebra.existingOutcomeRetained |
+| handle-other | TicketIdentityAlgebra.dropOther |
+| handle-idempotent | TicketIdentityAlgebra.dropIdempotent |
+| generation | TicketIdentityAlgebra.differentGeneration |
+| commit-projection | TicketIdentityAlgebra.commitProjection0 |
+| query-projection | TicketIdentityAlgebra.queryProjection0 |
+| other-slot | TicketIdentityAlgebra.commit0PreservesOtherIdentity |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| settlement | ticket_capability_retirement.commit0 | TicketCapability.commit0Preserves | will-invoke | TC-execution |
+| settlement | ticket_capability_retirement.query0 | TicketCapability.query0Preserves | will-clear | TC-execution |
+| settlement | ticket_capability_retirement.conflictingSettle0 | TicketCapability.conflictingSettle0Preserves | will-loop | TC-execution |
+| capture | ticket_capability_retirement.reserve0 | TicketCapability.reserve0Preserves | restore-fast | TC-capture |
+| capture | ticket_capability_retirement.reserve1 | TicketCapability.reserve1Preserves | resume | TC-capture |
+| capture | ticket_capability_retirement.cloneHandle1 | TicketCapability.cloneHandle1Preserves | copy | TC-capture |
+| capture | ticket_capability_retirement.dropHandle0 | TicketCapability.dropHandle0Preserves | unwrapped | TC-capture |
+| capture | ticket_capability_retirement.discoverRawEscape | TicketCapability.discoverRawEscapePreserves | serial-implode | TC-capture |
+| capture | ticket_capability_retirement.closeAuthority | TicketCapability.closeAuthorityPreserves | reify | TC-capture |
+| roots | ticket_capability_retirement.returnNative0 | TicketCapability.returnNative0Preserves | rc-release | TC-roots |
+| roots | ticket_capability_retirement.unpinScanner0 | TicketCapability.unpinScanner0Preserves | rc-scan | TC-roots |
+| roots | ticket_capability_retirement.retireRoot | TicketCapability.retireRootPreserves | frame-scan | TC-roots |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| TC-formal | induction | dev/refactoring/modern-c/models/lean/TicketCapability.lean | finite identity-aware product safety and step terminal immutability |
+| TC-algebra | algebra | dev/refactoring/modern-c/models/lean/TicketIdentityAlgebra.lean | arbitrary-key mathematical operations and stated concrete commit/query projection |
+| TC-execution | source | vendor/gambit/lib/_kernel.scm | real trusted executor ExitWitness and stable TicketId settlement/query source refinement |
+| TC-capture | source | vendor/gambit/lib/_thread.scm | all restore/copy/import/raw aliases and real managed-authority retirement signer |
+| TC-roots | source | vendor/gambit/lib/memory/rc-roots.inc | moving-GC root transfer and exact scanner/native-borrow retirement source refinement |
+| TC-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 atomic publication, finite keys/overflow/ABA and matching Darwin generated profile |
+| TC-emission | equivalence | dev/refactoring/modern-c/will-action-drain-design.org | complete effect/creator/carry/exception and legacy observer equivalence before retiring helper |

@@ -1,0 +1,22 @@
+direction: down
+classes: {
+  scheme: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  transition: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  runtime: {style.fill: "#E7F4E8"; style.stroke: "#397344"}
+}
+entry: "R08 get-rest / R10 get-key-rest\nCALL: original arguments + R0 + target procedure" {class: scheme}
+partial: "OP16: ARGPART\nSave args; process keys / construct rest list\nLocal key array and partial argument region\nNo GC, poll, capture or reentrant instrumentation" {class: transition}
+entry -> partial
+section: "heap_limit section helper\nPublish / reload cursor state\nInspected helper returns GC request\nIt does not perform collection itself" {class: runtime}
+partial -> section: "section exhausted"
+section -> partial: "another section available"
+package: "OP17: finish and package\nFinish rest, consume partial argument area\nPut processed parameters into vector\nReserve bound must be independently qualified" {class: transition}
+section -> package: "collection requested"
+call: "PACKAGED: normal Scheme call\n(procedure, vector) as rooted arguments\nComplete continuation frames underneath" {class: scheme}
+package -> call
+gc: "rest-param-check-heap\nGC without exceptions -> overflow raise / retry\nMoving values reloaded through Scheme roots" {class: runtime}
+call -> gc
+restore: "rest-param-resume-procedure\nRebuild args from vector, reload argument registers\nna = -1 -> processed-parameter entry" {class: runtime}
+gc -> restore: "normal result"
+direct: "Direct success\nProcessed parameters + rest last\nna = -1 -> original procedure entry" {class: scheme}
+partial -> direct: "no collection needed"

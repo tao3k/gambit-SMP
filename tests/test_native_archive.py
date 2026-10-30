@@ -6,12 +6,21 @@ import unittest
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.native_archive import archive, archive_bootstrap, source_unit_checked, validate
+from gambit_smp.output_observations import REGISTRY, TRANSCRIPT_SUFFIXES
+from tests.support import copy_output_observations
 
 
 NAME = "evidence/source-results/gc-notification-source-schedules-031/archive.json"
 
 
 class NativeArchiveTests(unittest.TestCase):
+    def assert_durable_inputs(self, name, bound):
+        saved = json.loads((ROOT/name).read_text())
+        expected = {name, REGISTRY}
+        expected.update(str(Path(name).parent/file) for file in saved['files']
+                        if Path(file).suffix not in TRANSCRIPT_SUFFIXES)
+        self.assertEqual(expected, set(bound))
+
     def test_atomic_history_preserves_unexecuted_scope_and_original_batch_cap(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -97,7 +106,7 @@ class NativeArchiveTests(unittest.TestCase):
 
     def test_failed_bootstrap_histories_preserve_unknown_parent_and_original_seed(self):
         for fixture in ("bootstrap-second-core-history", "bootstrap-gc-iteration-history", "bootstrap-serialization-history"):
-            name = f"evidence/source-results/fixtures/thread-completion-contract/{fixture}/archive.json"
+            name = f"tests/fixtures/historical-bootstrap/{fixture}/archive.json"
             bound = validate(ROOT, name)
             self.assertEqual(4, len(bound))
             saved = json.loads((ROOT / name).read_text())
@@ -132,7 +141,7 @@ class NativeArchiveTests(unittest.TestCase):
     def test_actlog_source_unit_archive_binds_all_branches_without_admission(self):
         name = "evidence/source-results/vm-actlog-abort-source031/archive.json"
         bound = validate(ROOT, name)
-        self.assertEqual(16, len(bound))
+        self.assert_durable_inputs(name, bound)
         saved = json.loads((ROOT / name).read_text())
         self.assertFalse(saved["nativeGcPassed"])
         self.assertFalse(saved["runtimeAdmitted"])
@@ -154,14 +163,20 @@ class NativeArchiveTests(unittest.TestCase):
             root = Path(directory)
             target = root / Path(name).parent
             shutil.copytree((ROOT / name).parent, target)
-            (target / "posix-observe.log").write_text("{}\n")
+            copy_output_observations(ROOT, root, Path(name).parent)
+            registry=root/REGISTRY
+            observations=json.loads(registry.read_text())
+            identity = next(key for key, item in observations['observations'].items()
+                            if str(Path(name).parent/'posix-observe.log') in item['origins'])
+            observations['observations'][identity]['structured'] = {}
+            registry.write_text(json.dumps(observations))
             with self.assertRaises(ValueError):
                 validate(root, name)
 
     def test_source031_scoped_native_logs_and_identity_remain_non_admitted(self):
         name = "evidence/source-results/source031-native-gc-fixtures/archive.json"
         bound = validate(ROOT, name)
-        self.assertEqual(12, len(bound))
+        self.assert_durable_inputs(name, bound)
         saved = json.loads((ROOT / name).read_text())
         self.assertFalse(saved["nativeGcPassed"])
         receipt = json.loads((ROOT / Path(name).parent / "receipt.json").read_text())
@@ -182,23 +197,28 @@ class NativeArchiveTests(unittest.TestCase):
 
     def test_all_actual_component_artifacts_are_bound_without_cache(self):
         inputs = validate(ROOT, NAME)
-        self.assertEqual(len(inputs), 28)
+        self.assert_durable_inputs(NAME, inputs)
         self.assertTrue(all(".data" not in Path(name).parts for name in inputs))
         saved = json.loads((ROOT / NAME).read_text())
         self.assertFalse(saved["nativeGcPassed"])
         self.assertEqual(saved["observedParentExit"], 0)
 
-    def test_changed_or_missing_component_log_is_rejected(self):
+    def test_changed_or_missing_recorded_output_is_rejected(self):
         for fault in ("change", "missing"):
             with tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 target = root / Path(NAME).parent
                 shutil.copytree((ROOT / NAME).parent, target)
-                log = target / "candidate/point-1.log"
+                copy_output_observations(ROOT, root, Path(NAME).parent)
+                registry=root/REGISTRY
+                observations=json.loads(registry.read_text())
+                key=next(identity for identity, item in observations['observations'].items()
+                         if str(Path(NAME).parent/'candidate/point-1.log') in item['origins'])
                 if fault == "change":
-                    log.write_text("not the observed output\n")
+                    observations['observations'][key]['sha256'] = '0'*64
                 else:
-                    log.unlink()
+                    del observations['observations'][key]
+                registry.write_text(json.dumps(observations))
                 with self.subTest(fault=fault), self.assertRaises((ValueError, FileNotFoundError)):
                     validate(root, NAME)
 

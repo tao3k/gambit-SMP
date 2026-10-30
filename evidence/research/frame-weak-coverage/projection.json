@@ -1,0 +1,616 @@
+{
+  "source": [
+    {
+      "key": "private-exclusion",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "!(scan_ptr >= alloc_heap_chunk_start && scan_ptr < work->context->mem.alloc_heap_ptr_))",
+      "obligation": "Initial chunk exclusion is interval-local, not whole-chain protection"
+    },
+    {
+      "key": "rollover",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc_heap_chunk_start = work->context->mem.alloc_heap_ptr_;",
+      "obligation": "New section/chunk start can differ while scan_ptr stays in prior chunk"
+    },
+    {
+      "key": "capacity-before-fixup",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "while (alloc + words + ___SUBTYPED_BODY > limit)",
+      "obligation": "Next fresh frame can publish previous chunk before writing previous ptr"
+    },
+    {
+      "key": "frame-ready",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "publish_object_scan (work, copy_header);",
+      "obligation": "All publisher call sites inventoried; frame publisher follows initial copied payload"
+    },
+    {
+      "key": "pending-link",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "ptr = &___FP_STK(alloc,link+1);",
+      "obligation": "Cursor retains preceding copied-frame link address"
+    },
+    {
+      "key": "new-frame-fixup",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*ptr = forw;",
+      "obligation": "Next iteration mutates preceding frame link after its READY"
+    },
+    {
+      "key": "already-forwarded-fixup",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*ptr = ra2; /* already copied, replace by forwarding pointer */",
+      "obligation": "Separate fixup branch exists; capacity witness uses the fresh-frame branch"
+    },
+    {
+      "key": "copy-lock",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "MISC_MEM_LOCK();\n\n      next_frame:",
+      "obligation": "Copier holds global memory lock; this alone does not exclude frame scanner"
+    },
+    {
+      "key": "scanner-read",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "frame = ___FP_STK(fp,descriptor.link+1);",
+      "obligation": "Frame scanner snapshots link before its temporary write"
+    },
+    {
+      "key": "scanner-hide",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___FP_SET_STK(fp,descriptor.link+1,___FAL)",
+      "obligation": "Scanner temporary store can overlap copier fixup"
+    },
+    {
+      "key": "scanner-restore",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___FP_SET_STK(fp,descriptor.link+1,___TAG(___UNTAG_AS(frame, ___tFIXNUM), ___tSUBTYPED))",
+      "obligation": "Restore uses earlier snapshot; SC schedule can lose newer fixup"
+    },
+    {
+      "key": "steal",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "scan_complete_heap_chunk (work, ptr+1);",
+      "obligation": "Other carrier executes scanner after FIFO dequeue without taking copy lock at frame entry"
+    },
+    {
+      "key": "root-scan-then-steal",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "mark_execution_roots (work,",
+      "obligation": "Workers enter their own reachable-work loop after their roots; no intervening root-only collective barrier"
+    },
+    {
+      "key": "strong-weak-barrier",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "garbage_collect_mark_strong_phase (work);\n\n  BARRIER();",
+      "obligation": "Strong closure precedes weak phase but does not serialize weak classification against weak marking"
+    },
+    {
+      "key": "will-flag",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "body[0] = body[0] | ___UNMARKED_TESTATOR_WILL;",
+      "obligation": "Strong will scan records omitted testator field"
+    },
+    {
+      "key": "will-repair",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, tail_exec+___WILL_TESTATOR, 1);",
+      "obligation": "Executable and moved-to-executable paths directly repair testator"
+    },
+    {
+      "key": "nonexec-repair",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, tail_nonexec+___WILL_TESTATOR, 1);",
+      "obligation": "Nonexecutable branch directly repairs testator"
+    },
+    {
+      "key": "fresh-weak-will",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, body+1, 2); /* scan action and testator */",
+      "obligation": "Fresh weak-phase will scanner covers both fields"
+    },
+    {
+      "key": "hash-register",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "reached_gc_hash_tables = ___CAST(___WORD,body);",
+      "obligation": "Scanner registers table once; list retained until cleanup"
+    },
+    {
+      "key": "hash-cleanup",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "body[i] = ___DELETED;",
+      "obligation": "Weak cleanup forwards surviving references or deletes dead entries without tracing weak edges"
+    },
+    {
+      "key": "will-layout",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___WILL_TESTATOR 1",
+      "obligation": "NEXT flag and testator offsets match tail pointer arithmetic"
+    },
+    {
+      "key": "hash-layout",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___GCHASHTABLE_KEY0      5",
+      "obligation": "Key/value parity and MEM_ALLOC_KEYS determine collector footprint"
+    },
+    {
+      "key": "frame-slot-coordinates",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___FP_STK(fp,fpo)fp[-(fpo)]",
+      "obligation": "Copier end pointer and scanner body plus extra plus fs address the same link under matching descriptors"
+    },
+    {
+      "key": "frame-extra",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___FRAME_EXTRA_SLOTS 1",
+      "obligation": "Heap frame extra slot is used consistently by copy size and scanner base"
+    }
+  ],
+  "footprint": [
+    {
+      "key": "ordinary closure symbol",
+      "required": "Same named/freevar/ordinary fields in strong and weak",
+      "reuse": "DONE may be reused after original scanner completes",
+      "premise": "Tail and frame fixup obligations remain separate"
+    },
+    {
+      "key": "strong-scanned will",
+      "required": "Strong action only; NEXT flag records deferred testator",
+      "reuse": "process_wills repairs testator through destination body; DONE unchanged",
+      "premise": "Unique list ownership and flag preservation through list rewrites"
+    },
+    {
+      "key": "fresh weak will",
+      "required": "Weak scanner traces action and testator together",
+      "reuse": "READY to OWNED to DONE normally",
+      "premise": "List/root update and queue publication must retain storage"
+    },
+    {
+      "key": "strong hash fields",
+      "required": "Keys iff !WEAK_KEYS and MEM_ALLOC_KEYS; values iff !WEAK_VALS",
+      "reuse": "Same generic footprint in either phase; register reached list once",
+      "premise": "Flags stable and scan owner unique"
+    },
+    {
+      "key": "weak hash fields",
+      "required": "Not tracing roots; cleanup rewrites live references or deletes entries",
+      "reuse": "Cleanup consumes retained reached list after weak closure",
+      "premise": "All four weak-flag cases plus non-heap key mode; no ephemeron claim"
+    },
+    {
+      "key": "new weak hash table",
+      "required": "Generic scanner sees it first in weak phase",
+      "reuse": "Strong-field policy plus reached-list registration unchanged",
+      "premise": "Existing reached list must not be reset at weak entry"
+    },
+    {
+      "key": "captured frame",
+      "required": "Descriptor root runs plus RA; link temporarily hidden/restored",
+      "reuse": "READY requires overlapping copier fixups settled or synchronized",
+      "premise": "Current post-READY write is not excluded by scan bitmap"
+    },
+    {
+      "key": "still objects",
+      "required": "No movable scan-state bitmap in scan entry",
+      "reuse": "Still-mark/list ownership remains separate",
+      "premise": "Not covered by movable DONE uniqueness proof"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "private-chunk",
+      "toNode": "capacity-cut",
+      "custody": "exclude current cursor"
+    },
+    {
+      "fromNode": "capacity-cut",
+      "toNode": "published-frame",
+      "custody": "legacy later chunk visible"
+    },
+    {
+      "fromNode": "published-frame",
+      "toNode": "scanner-snapshot",
+      "custody": "READY allows scan"
+    },
+    {
+      "fromNode": "scanner-snapshot",
+      "toNode": "copier-fixup",
+      "custody": "overlap is enabled"
+    },
+    {
+      "fromNode": "copier-fixup",
+      "toNode": "stale-restore",
+      "custody": "lost link witness"
+    },
+    {
+      "fromNode": "capacity-cut",
+      "toNode": "deferred-chunk",
+      "custody": "candidate retains custody"
+    },
+    {
+      "fromNode": "deferred-chunk",
+      "toNode": "seal-frame",
+      "custody": "fill link before READY"
+    },
+    {
+      "fromNode": "seal-frame",
+      "toNode": "published-sealed",
+      "custody": "release readiness and queue"
+    },
+    {
+      "fromNode": "strong-DONE",
+      "toNode": "weak-repair",
+      "custody": "will testator flag"
+    },
+    {
+      "fromNode": "strong-DONE",
+      "toNode": "cleanup-list",
+      "custody": "hash registration retained"
+    },
+    {
+      "fromNode": "weak-repair",
+      "toNode": "weak-closure",
+      "custody": "settle derived work"
+    },
+    {
+      "fromNode": "cleanup-list",
+      "toNode": "field-resolution",
+      "custody": "forward or delete"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "legacy-source-path",
+      "status": "source-enabled-under-premises",
+      "scope": "Two capacity cuts with stale private cursor; fresh next frame; second worker may steal",
+      "gap": "No native input/configuration witness; no defined C11 outcome once racing stores occur"
+    },
+    {
+      "key": "managed-frame",
+      "status": "proved-in-model",
+      "scope": "Delay READY and chunk visibility until pending link is fixed; all modeled steps preserve invariant",
+      "gap": "Whole chain staging capacity and descriptor/native mapping remain open"
+    },
+    {
+      "key": "weak-field-coverage",
+      "status": "proved-in-model",
+      "scope": "Strong DONE retained; explicit will repair and table cleanup cover omitted fields",
+      "gap": "List aliasing flag lifetime and full C source refinement remain open"
+    },
+    {
+      "key": "global-will-decision",
+      "status": "open",
+      "scope": "Shared testator strong reachability decision must precede weak marking across lists",
+      "gap": "Field coverage does not prove executability semantics"
+    },
+    {
+      "key": "descriptor-validity",
+      "status": "open",
+      "scope": "RETI/RETN coordinates frame-size bounds and enough destination space",
+      "gap": "Source schedule assumes valid nonterminal frame chain spanning capacity cuts"
+    },
+    {
+      "key": "c11-publication",
+      "status": "open",
+      "scope": "Post-fixup release READY and FIFO publication; acquire object claim",
+      "gap": "Existing atomics cannot publish later ordinary writes backwards"
+    },
+    {
+      "key": "epoch-and-termination",
+      "status": "open",
+      "scope": "Scanner frame copier deferred batch derived work and two phase closures retain custody",
+      "gap": "No native completion or old storage retirement receipt issued"
+    },
+    {
+      "key": "restricted-projection",
+      "status": "conditional-checked",
+      "scope": "Actual scalar typed IR invariant initial expressions and all-step roster emitted to Lean",
+      "gap": "Parser/emitter trusted; no verified full QNT or C semantics"
+    }
+  ],
+  "gain": [
+    {
+      "key": "frame seal",
+      "avoided": "Prevent stale restoration of a newer chain fixup",
+      "added": "Pending-link record plus deferred chunk custody and seal checks",
+      "condition": "Correctness admission; no performance gain claimed"
+    },
+    {
+      "key": "deferred allocation",
+      "avoided": "Keep allocating next frame without exposing mutable predecessor",
+      "added": "Candidate local closed-chunk list; requires no-allocation failure-safe storage",
+      "condition": "At most one pending predecessor per sequential chain; physical staging bound still conditional on frame fit"
+    },
+    {
+      "key": "preserve DONE reuse",
+      "avoided": "Avoid an unnecessary whole-graph weak-phase reset/rescan",
+      "added": "Keep existing will repair and reached-table list adapters",
+      "condition": "Existing source benefit is baseline reuse, not new speedup"
+    },
+    {
+      "key": "authorization cost",
+      "avoided": "Same object-state transitions can be retained with later READY",
+      "added": "Queue seals may add work; no extra state CAS is inherently required by model",
+      "condition": "C11 operation/footprint refinement before selecting representation"
+    },
+    {
+      "key": "modern C retirement",
+      "avoided": "Retire early frame READY and unconditional publish for overlapping mutable frames",
+      "added": "New producer-owned readiness seal; keep forwarding frame decode weak cleanup and barriers",
+      "condition": "Only after both frame publishers/fixup branches and all consumers migrate"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "frame_publish_seal.rollInitial",
+      "lemma": "FrameSeal.rollInitialPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.copyA",
+      "lemma": "FrameSeal.copyAPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.readyEarly",
+      "lemma": "FrameSeal.readyEarlyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.publishEarly",
+      "lemma": "FrameSeal.publishEarlyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.deferChunk",
+      "lemma": "FrameSeal.deferChunkPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.fillLink",
+      "lemma": "FrameSeal.fillLinkPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.sealReady",
+      "lemma": "FrameSeal.sealReadyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.publishDeferred",
+      "lemma": "FrameSeal.publishDeferredPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.claim",
+      "lemma": "FrameSeal.claimPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.readLink",
+      "lemma": "FrameSeal.readLinkPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.hideLink",
+      "lemma": "FrameSeal.hideLinkPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.restoreOld",
+      "lemma": "FrameSeal.restoreOldPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.restoreFixed",
+      "lemma": "FrameSeal.restoreFixedPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.releaseCopier",
+      "lemma": "FrameSeal.releaseCopierPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "frame_publish_seal.close",
+      "lemma": "FrameSeal.closePreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.configStrong",
+      "lemma": "WeakCoverage.configStrongPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.configWeakKey",
+      "lemma": "WeakCoverage.configWeakKeyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.configWeakVal",
+      "lemma": "WeakCoverage.configWeakValPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.configWeakBoth",
+      "lemma": "WeakCoverage.configWeakBothPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.configRawKey",
+      "lemma": "WeakCoverage.configRawKeyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.deadKey",
+      "lemma": "WeakCoverage.deadKeyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.deadVal",
+      "lemma": "WeakCoverage.deadValPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.traceKey",
+      "lemma": "WeakCoverage.traceKeyPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.traceVal",
+      "lemma": "WeakCoverage.traceValPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.tableScanDone",
+      "lemma": "WeakCoverage.tableScanDonePreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.strongWill",
+      "lemma": "WeakCoverage.strongWillPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.enterWeak",
+      "lemma": "WeakCoverage.enterWeakPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.repairWill",
+      "lemma": "WeakCoverage.repairWillPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.freshWeakWill",
+      "lemma": "WeakCoverage.freshWeakWillPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.skipDone",
+      "lemma": "WeakCoverage.skipDonePreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.finishWeak",
+      "lemma": "WeakCoverage.finishWeakPreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.cleanupTable",
+      "lemma": "WeakCoverage.cleanupTablePreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    },
+    {
+      "actionName": "weak_done_coverage.close",
+      "lemma": "WeakCoverage.closePreserves",
+      "scope": "Actual projected guard and update; native source refinement open"
+    }
+  ],
+  "composition": [
+    {
+      "key": "frame-induction",
+      "lemma": "FrameSeal.reachableSafe",
+      "scope": "All managed frame actions"
+    },
+    {
+      "key": "frame-mode",
+      "lemma": "FrameSeal.reachableManaged",
+      "scope": "Managed mode remains enabled along modeled reachability"
+    },
+    {
+      "key": "legacy-witness",
+      "lemma": "FrameSeal.legacyLostFixup",
+      "scope": "Exact projected SC update trace; source admissibility premises separate"
+    },
+    {
+      "key": "weak-induction",
+      "lemma": "WeakCoverage.reachableSafe",
+      "scope": "All weak coverage actions"
+    },
+    {
+      "key": "repair-reuse",
+      "lemma": "WeakCoverage.repairKeepsObjectDone",
+      "scope": "Testator repair does not reset object DONE"
+    },
+    {
+      "key": "table-phase",
+      "lemma": "WeakCoverage.hashFootprintPhaseIndependent",
+      "scope": "Generic table footprint independent of phase"
+    },
+    {
+      "key": "frame-coordinate",
+      "lemma": "FrameSeal.frameLinkCoordinate",
+      "scope": "Heap pointer arithmetic alias conditional on matched RETI RETN descriptors and in-bounds storage"
+    }
+  ],
+  "seam": [
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "collector",
+      "contract": "copier seal to scanner admission",
+      "modelNeed": "FW-frameHistory"
+    },
+    {
+      "producer.moduleId": "roots",
+      "consumer.moduleId": "collector",
+      "contract": "frozen valid frame coordinates",
+      "modelNeed": "FW-source"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "control",
+      "contract": "weak field closure and collective phase transition",
+      "modelNeed": "FW-weakInduction"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "native",
+      "contract": "payload link and queue C11 publication",
+      "modelNeed": "FW-platform"
+    }
+  ],
+  "need": {
+    "frameHistory": {
+      "obligationId": "FW-frameHistory",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/frame_publish_seal.qnt",
+      "subjectScope": "Managed frame protocol and legacy two-cut source schedule"
+    },
+    "weakHistory": {
+      "obligationId": "FW-weakHistory",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/weak_done_coverage.qnt",
+      "subjectScope": "One will one table flags and field obligations"
+    },
+    "frameInduction": {
+      "obligationId": "FW-frameInduction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/FrameSeal.lean",
+      "subjectScope": "All projected managed steps and reachability"
+    },
+    "weakInduction": {
+      "obligationId": "FW-weakInduction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/WeakCoverage.lean",
+      "subjectScope": "All projected weak coverage steps and reachability"
+    },
+    "projection": {
+      "obligationId": "FW-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/FrameSealAst.lean",
+      "subjectScope": "Both scalar typed IR models with trusted emitter and exact rosters"
+    },
+    "source": {
+      "obligationId": "FW-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/frame-weak-coverage-design.org",
+      "subjectScope": "Source control-flow premises descriptor and producer closure open"
+    },
+    "platform": {
+      "obligationId": "FW-platform",
+      "kind": "c11-refinement",
+      "subjectPath": "dev/refactoring/modern-c/frame-weak-coverage-design.org",
+      "subjectScope": "Effective config release/acquire reset and lifecycle open"
+    }
+  }
+}

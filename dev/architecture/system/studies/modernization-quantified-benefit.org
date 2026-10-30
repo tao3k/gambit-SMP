@@ -1,0 +1,288 @@
+#+TITLE: Quantified Modernization Benefit and the Zig Decision
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: architecture
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Quantified Modernization Benefit and the Zig Decision :architecture:
+:PROPERTIES:
+:ID: c8a5e9cb-951b-5a76-96ca-a84e4c84a888
+:CUSTOM_ID: quantified-modernization-benefit-and-the-zig-decision
+:SOURCE_PATH: docs/experimental/zig/modernization-quantified-benefit.md
+:SOURCE_SHA256: 740514c6c739eebf0204ff7b9fdb3a559216db4e8770cc5e058f7690dfb1bc12
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Theory and architecture research only. No compiler, native experiment, timing
+workload or model checker is run. Arithmetic tables are parameter substitutions,
+not fitted estimates of Gambit. Read the [[file:../../runtime/gc/studies/gc-current-mechanism-audit.org][current GC audit]]
+and [[file:../../runtime/gc/studies/gc-native-runtime-design.org][full candidate]].
+
+**Decision: investigate the modernization of Gambit's compiler/runtime contract
+and collector as the primary technical hypothesis. Keep direct Zig realization
+as a competing full implementation. Do not make the modernization depend on
+proving that Zig must win. The present evidence does not justify committing to
+a full Zig rewrite on economic grounds. It does justify a precise conditional
+work-reduction theorem and concrete language-selection thresholds.**
+
+*** A Source-Grounded Work-Reduction Theorem
+:PROPERTIES:
+:ID: 4115da6b-11bc-53b4-9b19-15e8d6aa2b3b
+:CUSTOM_ID: a-source-grounded-work-reduction-theorem
+:END:
+
+QB01. Fix a finite sequence of K successful collection cuts, and the same
+logical allocation/mutation/root history at those cuts in both designs.
+This is a counterfactual accounting alignment, not a claim that differently
+sized heaps naturally collect equally often. Consider ordinary, initially young,
+movable heap objects handled by the current mark_array copy loop [Q-S01].
+Exclude still/permanent objects, specialized continuation-frame copying,
+headers/padding, failed attempts and objects already mature before the horizon.
+For object o, let s(o) be its fixed payload bytes and k(o) the number of these
+cuts at which it remains live, with k(o)>=1. Variable-sized/shrunk payloads need
+a per-cut size sum rather than the constant-size formula below.
+
+The target has direct survivor promotion, no mature movement/compaction in this
+scope, unique complete forwarding and complete roots/barriers. Failure of these
+semantic premises invalidates the target; it cannot be priced as an optimization.
+The small movable allocation route is real [Q-S02]; large native still allocations
+are outside this theorem. No application lifetime distribution is assumed known.
+
+QB02. In the current source, each successful full collection copies the live
+object's payload through mark_array. The header is preserved, so that object's
+survival does not exempt it from copying at the next cut [Q-S01]. By induction
+over its live cuts, its payload-copy work is s(o)*k(o). The target copies it once
+on its first minor survival and leaves the mature body nonmoving thereafter.
+Summing object contributions gives:
+
+#+BEGIN_SRC text :eval never
+current_payload_copy = sum_o s(o) * k(o)
+target_payload_copy  = sum_o s(o)
+avoided_payload_copy = sum_o s(o) * (k(o) - 1)
+weighted_survival    = sum_o s(o) * k(o) / sum_o s(o)
+fraction_avoided     = 1 - 1 / weighted_survival
+#+END_SRC
+
+This is an exact conditional result for the specified logical payload-copy
+component. It is not a proof about total collector work, machine memory traffic,
+pause time, application speed or engineering ROI. Dead-before-first-cut objects
+contribute zero to both sums. New major tracing and barriers still cost work.
+
+QB03. The following rows are exact arithmetic, not workload predictions:
+
+| Payload-weighted live cuts | Current copies per payload byte | Target copies | This component avoided |
+|-
+| 1 | 1 | 1 | 0% |
+| 2 | 2 | 1 | 50% |
+| 5 | 5 | 1 | 80% |
+| 10 | 10 | 1 | 90% |
+| 100 | 100 | 1 | 99% |
+
+For a hypothetical fixed 64 MiB cohort live at all 100 cuts, current payload
+copying is 6400 MiB = 6.25 GiB; the target copies 64 MiB once. The difference is
+6336 MiB = 6.1875 GiB. Logical payload loads plus stores avoid twice that operand
+volume, *not necessarily twice that DRAM traffic*: caches, code generation,
+headers, metadata and other collector traffic are separate. No 64 MiB cohort or
+100-cut behavior has been observed in this project.
+
+*** From Work Reduction to Program Benefit
+:PROPERTIES:
+:ID: a109d9e1-e740-5e74-8e51-441718573c75
+:CUSTOM_ID: from-work-reduction-to-program-benefit
+:END:
+
+QB04. Fix a valid additive, nonoverlapping baseline time/cost partition T.
+Let f be the fraction attributable to the cohort's old copying, q its target
+copying cost divided by its old copying cost, and a all additional net costs
+outside that component divided by T. Changes in major tracing, stores, roots,
+coordination, fragmentation-induced collection and allocation belong in a;
+include any independent savings there with their sign. Then:
+
+#+BEGIN_SRC text :eval never
+target / baseline = 1 - f + q*f + a
+time_saved_ratio  = f*(1-q) - a
+speed_ratio      = 1 / (1 - f + q*f + a)
+positive_time_condition: a < f*(1-q)
+#+END_SRC
+
+A byte reduction supplies q only under an additional cost-per-byte assumption.
+For equal effective copy cost per payload byte and weighted_survival=100,
+q=0.01. The following sensitivity table assumes that equality and a=0.05.
+It is *not* a forecast of Gambit, Zig or any actual workload:
+
+| Hypothetical baseline cohort-copy fraction f | Additional cost a | Total time saved | Baseline time / target time |
+|-
+| 5% | 5% | -0.05% (regression) | 0.9995x |
+| 20% | 5% | 14.8% | 1.1737x |
+| 50% | 5% | 44.5% | 1.8018x |
+
+Even eliminating this component completely cannot save more than f of baseline
+time when all other costs stay equal. Parallel overlap makes a naive CPU-time
+sum unsuitable for wall-time prediction; a valid elapsed-time partition or an
+explicit critical-path argument is required. Do not multiply this ratio by a
+worker-count speedup or an LLVM optimization percentage without a joint model.
+
+QB05. The architecture has a positive runtime-work region, rather than a
+universal positive claim. Long-lived movable cohorts with repeated full copying
+increase the avoidable term. High survival from young allocation increases
+promotion/mature pressure; frequent mature mutation and root replacement
+increase barrier/log work. Captured-control roots may dominate every minor.
+If weighted_survival=1, this theorem saves zero copying and positive new overhead
+can make the candidate worse. Different collection counts, remaining heap
+classes and allocation footprints must be charged in the full comparison.
+
+QB06. Do not claim a 50% heap reduction from replacing semispaces. Current
+sections also accommodate stack/frame organization, and target young reserves,+mature mark/page metadata, pinned/large objects, fragmentation and worker scratch
+remain [Q-S03]. No memory-usage ratio follows from the payload-copy theorem.
+Similarly, a concurrent major does not prove a pause bound; the closing cut and
+foreign response can dominate. These are separate dimensions in the report.
+
+*** External Quantitative Evidence, Kept in Its Own Domain
+:PROPERTIES:
+:ID: 960ffe6c-d026-5720-92b9-13e7fd737038
+:CUSTOM_ID: external-quantitative-evidence-kept-in-its-own-domain
+:END:
+
+QB07. The [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][OCaml parallelization paper]],
+section 6.1, reports that its ConcMinor and ParMinor variants had geometric-mean
+sequential running times 4.9% and 3.5% above Stock in that experiment. Its baseline
+was OCaml 4.06.1, on a two-socket x86-64 Xeon machine with an isolated-core setup;
+these are not present-day OCaml, Darwin or Gambit estimates. The paper's
+game_of_life case was about 20% slower, while a large apparent pidigits gain was
+sensitive to the baseline compaction policy. This is evidence that policy and
+single-thread regressions matter, not a number to transfer to Gambit [Q-P01].
+The current [[https://ocaml.org/manual/5.3/parallelism.html][OCaml manual]], section 3,
+documents local minor arenas, parallel STW evacuation and concurrent major
+collection [Q-P02]. A modern design must expose its actual tradeoffs; generation
+count or concurrency alone cannot be its success metric.
+
+*** What Part Is Specifically a Zig Benefit?
+:PROPERTIES:
+:ID: e5b16ad1-2ae7-507c-a4cf-3c29798796af
+:CUSTOM_ID: what-part-is-specifically-a-zig-benefit
+:END:
+
+QB08. At the same admitted collector semantics and aligned operation history,
+modern C and Zig both obtain the payload-copy reduction in QB02. The
+**Zig-exclusive increment in that algorithmic byte-count saving is exactly zero
+by the comparison's construction**. Their generated machine cost may differ;
+that difference is not established by the byte theorem. This does not make C
+modernization free: both full realizations must be funded.
+
+LLVM integration also does not require Zig as a logical intermediary.
+[[https://www.llvm.org/docs/GarbageCollection.html][LLVM's GC interface]] supplies
+compiler integration hooks while leaving the collector, allocation and root/type
+registration to the runtime [Q-P03]. Gambit already has a target-machine
+interface [Q-S04]. Completing that interface's shared semantic contract enables
+C, Zig and direct LLVM/MLIR providers to compete. Their adapter costs differ;
+the same compiler/runtime benefits must not be credited exclusively to Zig.
+
+QB09. At equivalent admitted capability and outcomes, measure implementation and
+maintenance in one consistent unit, such as person-months under the same staffing
+assumptions. Let:
+
+#+BEGIN_SRC text :eval never
+I = Zig upfront realization + migration + verification + transition cost
+    minus the corresponding fully funded modern-C costs
+S = annual support work avoided by Zig after fair C generator/library reuse,
+    excluding the tool/ABI/target/island category charged separately as U
+U = annual additional Zig tool/ABI/target/native-island maintenance
+T = decision horizon in years
+Zig_increment = T*(S-U) - I
+positive_Zig_condition: S > U + I/T
+#+END_SRC
+
+I may be negative if complete Zig realization costs less initially. Common work
+cancels only if truly equal; compare full alternatives from today's checkout.
+Use discounting or priced delivery delays when decision-relevant. For interval
+estimates, a sufficient conservative condition is
+T*(lower(S)-upper(U))-upper(I)>0, with an independently positive total project net.
+No project-specific I, S or U interval has yet been established by source reading.
+
+QB10. A useful result is a budget threshold even before an estimate is known:
+
+| Assumed extra Zig upfront I | Assumed annual extra support U | Horizon T | Required annual avoided support S |
+|-
+| 0 person-months | 1 person-month/year | 3 years | greater than 1 person-month/year |
+| 6 person-months | 1 person-month/year | 3 years | greater than 3 person-months/year |
+| 6 person-months | 1 person-month/year | 5 years | greater than 2.2 person-months/year |
+| 12 person-months | 2 person-months/year | 3 years | greater than 6 person-months/year |
+| 12 person-months | 2 person-months/year | 5 years | greater than 4.4 person-months/year |
+
+All I/U/T values here are **decision scenarios, not staffing estimates or a
+claim that a GC/runtime rewrite takes six months**. They quantify what Zig must
+save under each budget, rather than inventing a saving from language features.
+For example, the six/one/three scenario needs more than nine avoided person-months
+over the horizon. Equality is break-even, not a positive net.
+
+QB11. Three necessary users do not mean three implementations disappear:
+
+| Necessary service | Support potentially shared in C or Zig | Domain work that remains |
+|-
+| RootRegistry | Native allocation, typed products, local cleanup | Stable cells, owner/epoch scans, unlink-reader lifetime, transfer receipts |
+| BarrierLog | Native buffers, checked sizing, ordinary error paths | Bounded pre-store reservation, no-safepoint commit, ordering and phase drain |
+| ReleaseCoordinator | Native task storage and local cleanup | Owner affinity, cancellation, accepted/derived-task accounting and shutdown |
+
+The old services have actual root/store/release users [Q-S01/S03 and the prior
+GC ledger]. But a stable root table, a reserved log and a release queue have
+different lifetime/backpressure rules. One generic container cannot retire their
+algorithms. C-G can share a Scheme generator and C libraries; Zig can share types,
+allocator interfaces and error cleanup. Neither the number of clients, source
+lines, nor language constructs supplies S. Use scoped maintenance changes and
+the actual residual support design to bound it. Exactly zero old paths have
+been retired by this research-only study; this is not an estimate of future ROI.
+
+QB12. The present decision is therefore specific: source supports conditional
+large reductions in repeated copying, but no unconditional application speedup,
+memory ratio, finite pause or full Zig economic lower bound. Advance the
+[[file:gambit-modernization-direction.org][language-independent modernization direction]]
+and compare full C-G, C-ZT and direct Zig costs. A nonpositive Zig increment
+rejects Zig for that scope; it does not reject Gambit's modernization. If the
+collector's full workload net is nonpositive, retain/repair the current collector
+for that domain while pursuing the compiler/root/FFI separation on its own merits.
+
+*** Evidence and Reproducibility Boundary
+:PROPERTIES:
+:ID: 407f141b-6eaf-5d43-b1cb-ae032c5aaac4
+:CUSTOM_ID: evidence-and-reproducibility-boundary
+:END:
+
+| ID | Evidence | Scope |
+|-
+| Q-S01 | [[file:../../../../vendor/gambit/lib/mem.c::3490][mem.c]], 3490–3628; [[file:../../../../vendor/gambit/include/gambit.h.in::2951][generation headers]], 2951–2971, 3256–3257 | Real movable payload-copy loop and unchanged header; byte theorem excludes specialized frame and still paths. |
+| Q-S02 | [[file:../../../../vendor/gambit/lib/_kernel.scm::43][_kernel.scm]], 43–115 | Actual small movable versus native still allocation route; no lifetime-distribution evidence. |
+| Q-S03 | [[file:../../../../vendor/gambit/lib/mem.c::395][mem.c]], 395–430; [[file:../../../../vendor/gambit/include/gambit.h.in::11340][state]], 11340–11449; [[file:../../runtime/gc/studies/gc-native-runtime-evidence.org][prior audit]] | Sections/context coupling and the real root/FFI/release obligations; no universal space ratio. |
+| Q-S04 | [[file:../../../../vendor/gambit/gsc/_back.scm::14][_back.scm]], 14–35; [[file:../../../../vendor/gambit/gsc/_gvm.scm::78][_gvm.scm]], 78–105; [[file:../../../../vendor/gambit/gsc/_t-c-2.scm::344][_t-c-2.scm]], 344–448 | Existing target abstraction and semantic/frame versus C-rendering separation work. |
+| Q-P01 | OCaml paper above, sections 1.1–1.3 and 6.1 | External experiment and compatibility tradeoffs only. |
+| Q-P02 | Official OCaml manual above, section 3 | Documented runtime arrangement; no Gambit quantitative transfer. |
+| Q-P03 | LLVM GC document above, Abstract/Quick Start/Goals | Compiler services versus project-owned runtime; no Zig prerequisite or delivered optimization. |
+
+The [[file:../../../../docs/experimental/zig/modernization-benefit-arithmetic.json][arithmetic ledger]] preserves inputs,
+exact fractions and derived table values. The
+[[file:../../../../docs/experimental/zig/modernization-benefit-traceability.json][local trace]] binds source and document
+identities. Arithmetic and handwritten induction do not qualify the new
+collector, populate registered native evidence or establish actual labor bounds.
+
+*** Source-Informed Service Estimate Refinement
+:PROPERTIES:
+:ID: b18fd3ad-1764-5b49-8727-a14994ff44f9
+:CUSTOM_ID: source-informed-service-estimate-refinement
+:END:
+
+The [[file:../../../refactoring/zig/studies/native-service-support-costs.org][three-service WBS]] now supplies scoped
+source-informed engineering estimates for RootRegistry, BarrierLog and
+ReleaseCoordinator, rather than only QB10's arbitrary budget scenarios. Its
+paired extra Zig estimate is 4–56 workdays over known scoped work, with explicit
+unknown wider-program tails. This is an author planning interval, not a measured
+or mathematically certified cost bound. It favors modern generated C as the
+current scoped reference; maintenance frequencies and full-runtime net remain
+unestablished. The [[file:../../../refactoring/zig/studies/native-service-support-design.org][design]] specifies actual
+retirement dependencies in both languages.

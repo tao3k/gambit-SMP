@@ -19,6 +19,22 @@ not grant retry, source refinement or authorization.
 
 ## Python Entry
 
+The public Python Evidence API exports `engine_api` and `repository_clues`
+from `gambit_smp`. Normal Python introspection exposes their signatures,
+Scheme relation schema, slice response and checkpoint contract. The installed
+CLI for the same implementation is `gambit-smp trajectory clues`.
+Its `--help` exposes the Scheme declaration contract and source relation
+signatures. It evaluates caller-authored queries against registered Evidence
+and returns source-bound incremental slices; it requires no Context selection.
+The interface is documented in
+[the framework API](../../../docs/smp-trajectory-application.md#direct-logical-evidence-reads).
+
+## Low-Level Scenario Evaluation
+
+The following is the scenario's whole-view evaluation API, not the scoped
+incremental Evidence slice interface. It does not perform anchor selection,
+presentation folding or checkpoint comparison.
+
 `entry.json` names the component manifest, entry, constructor and source bindings.
 Python hashes and transports separate exact bytes; it does not concatenate this
 scenario, parse rules or implement inference. The Library links the dependency

@@ -1,0 +1,43 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "processor-interrupt-collective-wait-original-stress",
+  "scope": "The existing original interpreted stress campaign, preceded by a separate observer allocation/framing control. Direct calls in the control simulate callbacks and are not actual GC or mutator progress. Only the following original four-file stage can qualify stress. Reuse four successful build checkpoints without bootstrap. A source-bound extension is separately compiled with current GSC/GNU GCC and loaded normally. Actual post-GC callback delivery is subsystem progress, not a mutator result or a termination promise. No GC reporter formatting or port I/O is enabled.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch",
+    "evidence/research/processor-interrupt-collective-wait/material-reference.json",
+    "evidence/research/processor-interrupt-collective-wait/material-state.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "models/gambit/native/gc_datagram_observer.scm",
+    "models/gambit/native/gc_datagram_control.scm",
+    "models/gambit/native/child_gc_datagram_driver.scm",
+    "models/gambit/gc_datagram_witness.qnt",
+    "evidence/research/processor-interrupt-collective-wait/gc-datagram.manifest.json",
+    "evidence/dsl/components.json", "evidence/dsl/checkpoint.ss", "evidence/dsl/storage.ss",
+    "vendor/gambit/tests/run-unit-tests.scm", "vendor/gambit/lib/_nonstd.scm",
+    "evidence/native-failures.json", "evidence/research/suite-review-rules.ss", "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/research/processor-interrupt-collective-wait/source.lock.json","workspace":".cache/fixtures/abandonment-gc-publication-reader-repaired/run/source/source","workspaceState":"evidence/research/processor-interrupt-collective-wait/material-reference.json"}},
+    {"id":"configure","capability":"gambit.configure","dependsOn":["source"],"budgetSeconds":60,"arguments":{"source":{"step":"source","output":"source"},"buildProfile":"evidence/fixtures/gerbil-bazel-build-profile/profile.json"}},
+    {"id":"seed","capability":"gambit.seed-core","dependsOn":["configure"],"budgetSeconds":180,"arguments":{"source":{"step":"configure","output":"source"}}},
+    {"id":"core","capability":"gambit.source-core","dependsOn":["seed"],"budgetSeconds":180,"arguments":{"runtime":{"step":"seed","output":"runtime"}}},
+    {"id":"observer-control","capability":"gambit.suite","dependsOn":["core"],"budgetSeconds":300,"arguments":{
+      "runtime":{"step":"core","output":"runtime"},"identity":{"step":"core","output":"identity"},
+      "mode":"gsi","regime":"whole-sequential","inventory":"unit","selection":["diagnostic/gc_datagram_control.scm"],"expectedFiles":["diagnostic/gc_datagram_control.scm"],
+      "additionalFixtures":{"diagnostic/gc_datagram_control.scm":{"source":"models/gambit/native/gc_datagram_control.scm","sha256":"12356ef09c1849d76592ee7433227b3bf227b51ff58ad08c6bc563fa6415fb66"}},
+      "childProgress":{"kind":"completed-child-gc","transport":"native-datagram","observer":"models/gambit/native/gc_datagram_observer.scm","files":["diagnostic/gc_datagram_control.scm"],"forwarder":"models/gambit/native/child_gc_datagram_driver.scm","runnerSha256":"4418e155febd6e346f814a71d6262e6f55e068cb26446c10adce8e7803137496","reporterSha256":"9619de313be57ea77534a16d362ac8cf570751ea09ff88bf058b95dbdb16602b","manifest":"evidence/dsl/components.json","entry":"checkpoint-state","constructor":"make-checkpoint-state"},
+      "failures":"evidence/native-failures.json","reviewRules":"evidence/research/suite-review-rules.ss"
+    }},
+    {"id":"stress-gsi","capability":"gambit.suite","dependsOn":["core","observer-control"],"budgetSeconds":300,"arguments":{
+      "runtime":{"step":"core","output":"runtime"},"identity":{"step":"core","output":"identity"},
+      "mode":"gsi","regime":"whole-sequential","inventory":"stress","selection":["."],
+      "expectedFiles":["06-thread/tfib_stress.scm","06-thread/thread_interrupt2_stress.scm","06-thread/thread_interrupt_stress.scm","06-thread/thread_terminate_stress.scm"],
+      "childProgress":{"kind":"completed-child-gc","transport":"native-datagram","observer":"models/gambit/native/gc_datagram_observer.scm","files":["06-thread/tfib_stress.scm","06-thread/thread_interrupt2_stress.scm","06-thread/thread_interrupt_stress.scm","06-thread/thread_terminate_stress.scm"],"forwarder":"models/gambit/native/child_gc_datagram_driver.scm","runnerSha256":"4418e155febd6e346f814a71d6262e6f55e068cb26446c10adce8e7803137496","reporterSha256":"9619de313be57ea77534a16d362ac8cf570751ea09ff88bf058b95dbdb16602b","manifest":"evidence/dsl/components.json","entry":"checkpoint-state","constructor":"make-checkpoint-state"},
+      "failures":"evidence/native-failures.json","reviewRules":"evidence/research/suite-review-rules.ss"
+    }},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","configure","seed","core","observer-control","stress-gsi"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step","bindings":"bound_source","controls":"bound_control"},"expected":{"missing":[],"bindings":[],"controls":[]}}}
+  ]
+}

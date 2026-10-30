@@ -1,0 +1,90 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-preserved-runtime-consumption",
+  "scope": "Consume exact preserved target; retain original producer expenditure; no bootstrap or native admission inferred",
+  "budgetSeconds": 90,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/ordered-sync/initialization/source.lock.json",
+    "evidence/research/ordered-sync/initialization/source-overlay.patch",
+    "evidence/research/bootstrap-artifact-custody/completed-producer.json",
+    "vendor/gambit/tests/smp/gc/mailbox-epoch-handoff.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [
+
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/research/ordered-sync/initialization/source.lock.json"
+      }
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "candidate"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "producer": "evidence/research/bootstrap-artifact-custody/completed-producer.json"
+      }
+    },
+    {
+      "id": "shared-roots",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "runtime"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "program": "vendor/gambit/tests/smp/gc/mailbox-epoch-handoff.scm",
+        "stdout": "MAILBOX-EPOCH-HANDOFF-PASS workers=4 messages=128\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "shared-roots"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": [
+
+          ]
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

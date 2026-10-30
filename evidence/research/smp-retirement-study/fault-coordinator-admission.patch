@@ -1,0 +1,39 @@
+--- a/lib/_kernel.scm
++++ b/lib/_kernel.scm
+@@ -4726,8 +4726,12 @@
+ ;;; (##add-exit-job! thunk) can be called to add a job to
+ ;;; do when the program exits.  (##clear-exit-jobs!) clears the jobs.
+ 
++(define ##exit-admission-hook #f)
++(define-prim (##exit-admission-hook-set! hook) (set! ##exit-admission-hook hook))
+ (define-prim (##add-exit-job! thunk)
+-  (##add-job! ##exit-jobs thunk))
++  (if (and ##exit-admission-hook (##exit-admission-hook))
++      (##error "exit callback admission closed after wake fault")
++      (##add-job! ##exit-jobs thunk)))
+ 
+ (define-prim (##clear-exit-jobs!)
+   (##clear-jobs! ##exit-jobs))
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -1296,6 +1296,11 @@
+ 
+   (##declare (not interrupts-enabled))
+ 
++  ;; Reject new public requests before transferring mutex/node ownership.
++  ;; Private GC/collective delivery continues through ##thread-intr!.
++  (if (##fx> (##fault-control-native-phase) 0)
++      (##error "thread interrupt admission closed after wake fault"))
++
+   (let ((action
+          (if (##eq? act (macro-absent-obj))
+              ##user-interrupt!
+@@ -3190,6 +3195,8 @@
+     (macro-thread-pinned-set! thread (##processor 0))
+     (##vector-set! record 0 thread)
+     (macro-vm-unused-field2-set! (macro-current-vm) record)
++    (##exit-admission-hook-set!
++     (lambda () (##fx> (##fault-control-native-phase) 0)))
+     (##exit-coordinator-hook-set! ##fault-control-route-exit!)))
+ 
+ (define-prim (##thread-report-scheduler-error! code)

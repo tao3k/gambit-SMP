@@ -1,0 +1,798 @@
+{
+  "allocate": {
+    "parent": "allocate",
+    "guard": "(s.n_decision==1 and s.n_destRoot==0 and s.n_gate==0 and s.n_admitted==1) and (s.p_phase==1 and s.p_copyRoot==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_destRoot": "1",
+      "p_copyRoot": "1",
+      "p_placeholder": "1",
+      "p_materialized": "1"
+    }
+  },
+  "enter": {
+    "parent": "enter",
+    "guard": "(s.n_gate==0 and s.n_admitted==1 and s.n_decision>=1)",
+    "updates": {
+      "n_gate": "1",
+      "n_lease": "s.n_lease+1",
+      "n_grantGen": "s.n_generation"
+    }
+  },
+  "resolve": {
+    "parent": "resolve",
+    "guard": "(s.n_gate==1 and s.n_grantGen==s.n_generation)",
+    "updates": {
+      "n_viewRev": "s.n_revision",
+      "n_viewGen": "s.n_generation",
+      "n_viewLease": "s.n_lease"
+    }
+  },
+  "initialize": {
+    "parent": "initialize",
+    "guard": "(s.n_decision==1 and s.n_destRoot==1 and s.n_copyReady==0 and s.n_sourceRoot==1 and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==1 and s.p_copyRoot==1 and s.p_sourceRoot==1 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_copyReady": "1",
+      "n_copyRev": "s.n_revision",
+      "n_copyOps": "s.n_copyOps+1",
+      "n_patchReady": "0",
+      "p_phase": "2",
+      "p_ready": "1"
+    }
+  },
+  "validate": {
+    "parent": "validate",
+    "guard": "(s.n_decision==1 and s.n_destRoot==1 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision)",
+    "updates": {
+      "n_validations": "s.n_validations+1",
+      "n_patchReady": "0"
+    }
+  },
+  "prepare": {
+    "parent": "prepare",
+    "guard": "(s.n_decision==1 and s.n_destRoot==1 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision)",
+    "updates": {
+      "n_patchReady": "1",
+      "n_patchRev": "s.n_revision",
+      "n_patchGen": "s.n_generation",
+      "n_patchLease": "s.n_lease"
+    }
+  },
+  "sendPublication": {
+    "parent": "sendPublication",
+    "guard": "(s.n_decision==1 and s.p_phase==2 and (s.publication==0 or s.publication==3))",
+    "updates": {
+      "publication": 1
+    }
+  },
+  "publicationUnknown": {
+    "parent": "publicationUnknown",
+    "guard": "(s.publication==1)",
+    "updates": {
+      "attempts": "s.attempts+1"
+    }
+  },
+  "acceptPublication": {
+    "parent": "acceptPublication",
+    "guard": "(s.p_phase==2 and s.p_ready==1 and s.p_copyRoot==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.publication==1)",
+    "updates": {
+      "p_phase": "3",
+      "p_queueRoot": "1",
+      "publication": 2
+    }
+  },
+  "rejectPublication": {
+    "parent": "rejectPublication",
+    "guard": "(s.publication==1 and s.p_phase==2)",
+    "updates": {
+      "publication": 3
+    }
+  },
+  "activationFailed": {
+    "parent": "activationFailed",
+    "guard": "(s.n_decision==2 and s.p_phase==4 and s.active==0)",
+    "updates": {
+      "attempts": "s.attempts+1"
+    }
+  },
+  "wakeFailed": {
+    "parent": "wakeFailed",
+    "guard": "(s.active==1)",
+    "updates": {
+      "attempts": "s.attempts+1"
+    }
+  },
+  "restore": {
+    "parent": "restore",
+    "guard": "(s.p_phase==5 and s.p_copyRoot==1 and s.p_restoreRoot==1 and s.p_ready==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.n_gate==0)",
+    "updates": {
+      "p_phase": "7",
+      "p_contextRoot": "1",
+      "p_copyRoot": "0",
+      "p_restoreRoot": "0",
+      "p_parentOwner": "3"
+    }
+  },
+  "finishAborted": {
+    "parent": "finishAborted",
+    "guard": "(s.p_phase==0 and s.p_childDone==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.n_decision==3)",
+    "updates": {
+      "p_phase": "6"
+    }
+  },
+  "publishResult": {
+    "parent": "publishResult",
+    "guard": "(s.p_split==1 and s.p_childDone==1 and s.p_resultRoot==1 and s.p_resultPublished==0 and s.p_phase<8 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "p_resultPublished": "1"
+    }
+  },
+  "runPrefix": {
+    "parent": "runPrefix",
+    "guard": "(s.p_phase==7 and s.p_parentOwner==3 and s.p_prefixRuns==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1)",
+    "updates": {
+      "p_prefixRuns": "1"
+    }
+  },
+  "grantLocal": {
+    "parent": "grantLocal",
+    "guard": "(s.n_decision==3 and s.n_done==1 and s.n_localGrants==0 and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==6 and s.p_childDone==1 and s.p_parentRuns==0 and s.p_gcOpen==1 and s.p_frozen==0)",
+    "updates": {
+      "n_localGrants": "s.n_localGrants+1",
+      "p_prefixRuns": "1",
+      "p_parentRuns": "1"
+    }
+  },
+  "leave": {
+    "parent": "leave",
+    "guard": "(s.n_gate==1)",
+    "updates": {
+      "n_gate": "0"
+    }
+  },
+  "gcEnter": {
+    "parent": "gcEnter",
+    "guard": "(s.n_gate==0 and s.n_admitted==1) and (s.p_gcOpen==1)",
+    "updates": {
+      "n_gate": "2",
+      "n_grantGen": "s.n_generation",
+      "p_gcOpen": "0"
+    }
+  },
+  "gcFreeze": {
+    "parent": "gcFreeze",
+    "guard": "(s.p_gcOpen==0 and s.p_frozen==0)",
+    "updates": {
+      "p_frozen": "1",
+      "p_vSource": "s.p_sourceRoot",
+      "p_vCopy": "s.p_copyRoot",
+      "p_vQueue": "s.p_queueRoot",
+      "p_vRestore": "s.p_restoreRoot",
+      "p_vContext": "s.p_contextRoot",
+      "p_vResult": "s.p_resultRoot",
+      "p_vCapture": "s.p_captureRoot"
+    }
+  },
+  "gcBegin": {
+    "parent": "gcBegin",
+    "guard": "(s.p_frozen==1 and s.p_scanning==0 and s.p_scanned==0)",
+    "updates": {
+      "p_scanning": "1"
+    }
+  },
+  "forwardNoCopy": {
+    "parent": "forwardNoCopy",
+    "guard": "(s.n_gate==2 and s.n_copyReady==0) and (s.p_scanning==1)",
+    "updates": {
+      "n_revision": "s.n_revision+1",
+      "n_sourceHeap": "1"
+    }
+  },
+  "forwardWithCopy": {
+    "parent": "forwardWithCopy",
+    "guard": "(s.n_gate==2 and s.n_copyReady==1 and s.n_destRoot==1) and (s.p_scanning==1)",
+    "updates": {
+      "n_revision": "s.n_revision+1",
+      "n_copyRev": "s.n_revision+1",
+      "n_sourceHeap": "1"
+    }
+  },
+  "gcEnd": {
+    "parent": "gcEnd",
+    "guard": "(s.p_scanning==1)",
+    "updates": {
+      "p_scanning": "0",
+      "p_scanned": "1"
+    }
+  },
+  "gcLeave": {
+    "parent": "gcLeave",
+    "guard": "(s.n_gate==2) and (s.p_frozen==1 and s.p_scanning==0 and s.p_scanned==1)",
+    "updates": {
+      "n_gate": "0",
+      "p_frozen": "0",
+      "p_gcOpen": "1",
+      "p_scanned": "0",
+      "p_epoch": "s.p_epoch+1"
+    }
+  },
+  "closeDomain": {
+    "parent": "closeDomain",
+    "guard": "(s.n_admitted==1)",
+    "updates": {
+      "n_admitted": "0"
+    }
+  },
+  "resetDomain": {
+    "parent": "resetDomain",
+    "guard": "(s.n_admitted==0 and s.n_gate==0)",
+    "updates": {
+      "n_generation": "s.n_generation+1",
+      "n_admitted": "1"
+    }
+  },
+  "prepareResult": {
+    "parent": "prepareResult",
+    "guard": "(true) and (s.preparedResult==0 and s.n_done==0 and s.n_gate!=2 and s.p_gcOpen==1)",
+    "updates": {
+      "preparedResult": 1
+    }
+  },
+  "loadReserve": {
+    "parent": "loadReserve",
+    "guard": "((true) and (s.sMode==0 and s.n_decision==0 and s.n_done==0)) and (s.sPending==0)",
+    "updates": {
+      "sExpected": "s.word",
+      "sMode": 1
+    }
+  },
+  "loadCommit": {
+    "parent": "loadCommit",
+    "guard": "((true) and (s.sMode==0 and s.n_decision==1 and s.publication==2)) and (s.sPending==0)",
+    "updates": {
+      "sExpected": "s.word",
+      "sMode": 2
+    }
+  },
+  "loadAbort": {
+    "parent": "loadAbort",
+    "guard": "((true) and (s.sMode==0 and s.n_decision==1 and (s.publication==0 or s.publication==3))) and (s.sPending==0)",
+    "updates": {
+      "sExpected": "s.word",
+      "sMode": 3
+    }
+  },
+  "casReserve": {
+    "parent": "casReserve",
+    "guard": "(((s.n_decision==0 and s.n_done==0 and s.n_admitted==1) and (s.p_phase==0 and s.p_eligible==1 and s.p_claims==0 and s.p_childDone==0 and s.p_gcOpen==1 and s.p_frozen==0)) and (s.sMode==1 and s.sExpected==0 and s.sExpected==s.word)) and (s.sPending==0)",
+    "updates": {
+      "n_decision": "1",
+      "n_claims": "s.n_claims+1",
+      "p_phase": "1",
+      "p_claims": "s.p_claims+1",
+      "word": "s.sExpected+1",
+      "sMode": 0,
+      "wordWins": "s.wordWins+1",
+      "sPending": 1,
+      "sOutExpected": "s.sExpected",
+      "sOutObserved": "s.word",
+      "sSnapshot": "s.word",
+      "sOutSuccess": 1,
+      "sNativeExpected": "s.sExpected",
+      "sLegacyExpected": "s.sExpected",
+      "sDeliveredValid": 0,
+      "sCall": "s.sCall+1"
+    }
+  },
+  "casCommit": {
+    "parent": "casCommit",
+    "guard": "(((s.n_decision==1 and s.n_copyReady==1 and s.n_destRoot==1 and s.n_copyRev==s.n_revision and s.n_patchReady==1 and s.n_patchRev==s.n_revision and s.n_patchGen==s.n_generation and s.n_patchLease==s.n_lease and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==3 and s.p_ready==1 and s.p_copyRoot==1 and s.p_queueRoot==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.publication==2 and s.active==0)) and (s.sMode==2 and s.sExpected==s.word)) and (s.sPending==0)",
+    "updates": {
+      "n_decision": "2",
+      "n_sourceRoot": "0",
+      "p_phase": "4",
+      "p_sourceRoot": "0",
+      "p_split": "1",
+      "p_parentOwner": "1",
+      "word": "s.sExpected+1",
+      "sMode": 0,
+      "commitRelease": 1,
+      "wordWins": "s.wordWins+1",
+      "sPending": 1,
+      "sOutExpected": "s.sExpected",
+      "sOutObserved": "s.word",
+      "sSnapshot": "s.word",
+      "sOutSuccess": 1,
+      "sNativeExpected": "s.sExpected",
+      "sLegacyExpected": "s.sExpected",
+      "sDeliveredValid": 0,
+      "sCall": "s.sCall+1",
+      "commitValue": "s.sExpected+1"
+    }
+  },
+  "casAbort": {
+    "parent": "casAbort",
+    "guard": "(((s.n_decision==1 and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and ((s.p_phase==1 or s.p_phase==2) and s.p_queueRoot==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.publication==0 or s.publication==3)) and (s.sMode==3 and s.sExpected==s.word)) and (s.sPending==0)",
+    "updates": {
+      "n_decision": "3",
+      "n_destRoot": "0",
+      "n_copyReady": "0",
+      "n_copyRev": "0",
+      "n_patchReady": "0",
+      "p_phase": "0",
+      "p_copyRoot": "0",
+      "p_placeholder": "0",
+      "p_ready": "0",
+      "word": "s.sExpected+2",
+      "sMode": 0,
+      "wordWins": "s.wordWins+1",
+      "sPending": 1,
+      "sOutExpected": "s.sExpected",
+      "sOutObserved": "s.word",
+      "sSnapshot": "s.word",
+      "sOutSuccess": 1,
+      "sNativeExpected": "s.sExpected",
+      "sLegacyExpected": "s.sExpected",
+      "sDeliveredValid": 0,
+      "sCall": "s.sCall+1"
+    }
+  },
+  "loadChild": {
+    "parent": "loadChild",
+    "guard": "((true) and (s.cMode==0 and s.n_done==0 and s.preparedResult==1)) and (s.cPending==0)",
+    "updates": {
+      "cExpected": "s.word",
+      "cMode": 1
+    }
+  },
+  "loadLocal": {
+    "parent": "loadLocal",
+    "guard": "((true) and (s.cMode==0 and s.n_decision==0 and s.n_done==1)) and (s.cPending==0)",
+    "updates": {
+      "cExpected": "s.word",
+      "cMode": 2
+    }
+  },
+  "casChildLocal": {
+    "parent": "casChildLocal",
+    "guard": "(((s.n_done==0 and s.n_gate!=2) and (s.p_phase==0 and s.p_childDone==0 and s.p_gcOpen==1 and s.p_frozen==0)) and (s.cMode==1 and s.cExpected==s.word and s.preparedResult==1)) and (s.cPending==0)",
+    "updates": {
+      "n_done": "1",
+      "n_resultRoot": "1",
+      "p_phase": "6",
+      "p_childDone": "1",
+      "p_resultRoot": "1",
+      "word": "s.cExpected+4",
+      "cMode": 0,
+      "resultRelease": 1,
+      "wordWins": "s.wordWins+1",
+      "cPending": 1,
+      "cOutExpected": "s.cExpected",
+      "cOutObserved": "s.word",
+      "cSnapshot": "s.word",
+      "cOutSuccess": 1,
+      "cNativeExpected": "s.cExpected",
+      "cLegacyExpected": "s.cExpected",
+      "cDeliveredValid": 0,
+      "cCall": "s.cCall+1",
+      "childValue": "s.cExpected+4",
+      "childCover": "s.commitRelease"
+    }
+  },
+  "casChildSplit": {
+    "parent": "casChildSplit",
+    "guard": "(((s.n_done==0 and s.n_gate!=2) and (((s.p_phase>=1 and s.p_phase<=5) or s.p_phase==7) and s.p_childDone==0 and s.p_gcOpen==1 and s.p_frozen==0)) and (s.cMode==1 and s.cExpected==s.word and s.preparedResult==1)) and (s.cPending==0)",
+    "updates": {
+      "n_done": "1",
+      "n_resultRoot": "1",
+      "p_childDone": "1",
+      "p_resultRoot": "1",
+      "word": "s.cExpected+4",
+      "cMode": 0,
+      "resultRelease": 1,
+      "wordWins": "s.wordWins+1",
+      "cPending": 1,
+      "cOutExpected": "s.cExpected",
+      "cOutObserved": "s.word",
+      "cSnapshot": "s.word",
+      "cOutSuccess": 1,
+      "cNativeExpected": "s.cExpected",
+      "cLegacyExpected": "s.cExpected",
+      "cDeliveredValid": 0,
+      "cCall": "s.cCall+1",
+      "childValue": "s.cExpected+4",
+      "childCover": "s.commitRelease"
+    }
+  },
+  "casCloseLocal": {
+    "parent": "casCloseLocal",
+    "guard": "(((s.n_decision==0 and s.n_done==1 and s.n_gate==0)) and (s.cMode==2 and s.cExpected==s.word)) and (s.cPending==0)",
+    "updates": {
+      "n_decision": "3",
+      "word": "s.cExpected+3",
+      "cMode": 0,
+      "wordWins": "s.wordWins+1",
+      "cPending": 1,
+      "cOutExpected": "s.cExpected",
+      "cOutObserved": "s.word",
+      "cSnapshot": "s.word",
+      "cOutSuccess": 1,
+      "cNativeExpected": "s.cExpected",
+      "cLegacyExpected": "s.cExpected",
+      "cDeliveredValid": 0,
+      "cCall": "s.cCall+1"
+    }
+  },
+  "retirePreparedResult": {
+    "parent": "retirePreparedResult",
+    "guard": "(true) and (s.n_done==1 and s.n_resultRoot==1 and s.n_gate!=2 and s.p_gcOpen==1)",
+    "updates": {
+      "preparedResult": 0
+    }
+  },
+  "splitNativeFailure": {
+    "parent": "splitFailure",
+    "guard": "((true) and (s.sMode>=1)) and (s.sPending==0)",
+    "updates": {
+      "sExpected": "s.word",
+      "sMode": 0,
+      "casFailures": "s.casFailures+1",
+      "sPending": 1,
+      "sOutExpected": "s.sExpected",
+      "sOutObserved": "s.word",
+      "sSnapshot": "s.word",
+      "sOutSuccess": 0,
+      "sNativeExpected": "s.word",
+      "sLegacyExpected": "s.sExpected",
+      "sDeliveredValid": 0,
+      "sCall": "s.sCall+1"
+    }
+  },
+  "splitLegacyFailure": {
+    "parent": "splitFailure",
+    "guard": "((true) and (s.sMode>=1)) and (s.sPending==0 and s.sExpected!=s.word)",
+    "updates": {
+      "sExpected": "s.word",
+      "sMode": 0,
+      "casFailures": "s.casFailures+1",
+      "sPending": 1,
+      "sOutExpected": "s.sExpected",
+      "sOutObserved": "s.word",
+      "sSnapshot": "s.word",
+      "sOutSuccess": 0,
+      "sNativeExpected": "s.word",
+      "sLegacyExpected": "s.sExpected",
+      "sDeliveredValid": 0,
+      "sCall": "s.sCall+1"
+    }
+  },
+  "deliverSplitter": {
+    "parent": null,
+    "guard": "(true) and (s.sPending==1)",
+    "updates": {
+      "sPending": 0,
+      "sDeliveredObserved": "s.sOutObserved",
+      "sDeliveredValid": 1,
+      "sDeliveredCall": "s.sCall"
+    }
+  },
+  "childNativeFailure": {
+    "parent": "childFailure",
+    "guard": "((true) and (s.cMode>=1)) and (s.cPending==0)",
+    "updates": {
+      "cExpected": "s.word",
+      "cMode": 0,
+      "casFailures": "s.casFailures+1",
+      "cPending": 1,
+      "cOutExpected": "s.cExpected",
+      "cOutObserved": "s.word",
+      "cSnapshot": "s.word",
+      "cOutSuccess": 0,
+      "cNativeExpected": "s.word",
+      "cLegacyExpected": "s.cExpected",
+      "cDeliveredValid": 0,
+      "cCall": "s.cCall+1"
+    }
+  },
+  "childLegacyFailure": {
+    "parent": "childFailure",
+    "guard": "((true) and (s.cMode>=1)) and (s.cPending==0 and s.cExpected!=s.word)",
+    "updates": {
+      "cExpected": "s.word",
+      "cMode": 0,
+      "casFailures": "s.casFailures+1",
+      "cPending": 1,
+      "cOutExpected": "s.cExpected",
+      "cOutObserved": "s.word",
+      "cSnapshot": "s.word",
+      "cOutSuccess": 0,
+      "cNativeExpected": "s.word",
+      "cLegacyExpected": "s.cExpected",
+      "cDeliveredValid": 0,
+      "cCall": "s.cCall+1"
+    }
+  },
+  "deliverChild": {
+    "parent": null,
+    "guard": "(true) and (s.cPending==1)",
+    "updates": {
+      "cPending": 0,
+      "cDeliveredObserved": "s.cOutObserved",
+      "cDeliveredValid": 1,
+      "cDeliveredCall": "s.cCall"
+    }
+  },
+  "acquireCommitA0": {
+    "parent": "acquireCommit",
+    "guard": "((true) and (s.n_decision==2 and s.commitRelease==1)) and (s.commitValue>=2 and s.commitValue>=s.a0Floor)",
+    "updates": {
+      "aSeen": 1,
+      "aWord": "s.word",
+      "a0View": 1,
+      "a0Rf": 1,
+      "a0Value": "s.commitValue",
+      "a0CapGen": "s.a0Gen",
+      "a0Floor": "s.commitValue"
+    }
+  },
+  "acquireChildA0": {
+    "parent": "acquireCommit",
+    "guard": "((true) and (s.n_decision==2 and s.commitRelease==1)) and (s.childValue==6 and s.childCover==1 and s.childValue>=s.a0Floor)",
+    "updates": {
+      "aSeen": 1,
+      "aWord": "s.word",
+      "a0View": 1,
+      "a0Rf": 2,
+      "a0Value": "s.childValue",
+      "a0CapGen": "s.a0Gen",
+      "a0Floor": "s.childValue"
+    }
+  },
+  "activateA0": {
+    "parent": "casActivate",
+    "guard": "(((s.n_decision==2 and s.p_phase==4 and s.active==0 and s.n_gate==0)) and (s.aSeen==1 and s.activationWord==0)) and (s.a0View==1 and s.a0CapGen==s.a0Gen)",
+    "updates": {
+      "active": 1,
+      "activationWord": 1,
+      "activeRelease": 1,
+      "carriedCommit": 1,
+      "activeEvidence": "s.a0View",
+      "activeIssuer": 2,
+      "activeProofGen": "s.a0CapGen",
+      "activeFloor": "s.a0Value"
+    }
+  },
+  "acquireActiveW0": {
+    "parent": "acquireActive",
+    "guard": "((true) and (s.activationWord>=1 and s.activeRelease==1 and s.carriedCommit==1)) and (s.activeEvidence==1 and s.activeFloor>=s.w0Floor and s.w0ActiveFloor<=1)",
+    "updates": {
+      "workerSeen": 1,
+      "w0View": 1,
+      "w0Rf": 3,
+      "w0Value": 1,
+      "w0CapGen": "s.w0Gen",
+      "w0Floor": "s.activeFloor",
+      "w0ActiveFloor": 1
+    }
+  },
+  "failedClaimAcquireW0": {
+    "parent": "acquireActive",
+    "guard": "((true) and (s.activationWord>=1 and s.activeRelease==1 and s.carriedCommit==1)) and (s.activationWord==2 and s.claimedEvidence==1 and s.activeEvidence==1 and s.claimFloor>=s.w0Floor)",
+    "updates": {
+      "workerSeen": 1,
+      "w0View": 1,
+      "w0Rf": 4,
+      "w0Value": 2,
+      "w0CapGen": "s.w0Gen",
+      "w0Floor": "s.claimFloor",
+      "w0ActiveFloor": 2
+    }
+  },
+  "claimW0": {
+    "parent": "casDequeue",
+    "guard": "(((s.p_phase==4 and s.p_queueRoot==1 and s.p_split==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1 and s.n_gate==0)) and (s.workerSeen==1 and s.activationWord==1)) and (s.w0View==1 and s.w0CapGen==s.w0Gen)",
+    "updates": {
+      "p_phase": "5",
+      "p_queueRoot": "0",
+      "p_restoreRoot": "1",
+      "p_parentOwner": "2",
+      "activationWord": 2,
+      "claimedEvidence": "s.w0View",
+      "claimedOwner": 4,
+      "claimProofGen": "s.w0CapGen",
+      "claimFloor": "s.w0Floor",
+      "w0ActiveFloor": 2
+    }
+  },
+  "resultChildW0": {
+    "parent": "acquireResult",
+    "guard": "((true) and (s.n_done==1 and s.resultRelease==1)) and (s.claimedOwner==4 and s.childValue==6 and s.childValue>=s.w0Floor)",
+    "updates": {
+      "resultSeen": 1,
+      "r0View": 1,
+      "r0Rf": 2,
+      "r0Value": "s.childValue",
+      "w0Floor": "s.childValue"
+    }
+  },
+  "resultCommitW0": {
+    "parent": "acquireResult",
+    "guard": "((true) and (s.n_done==1 and s.resultRelease==1)) and (s.claimedOwner==4 and s.commitValue==6 and s.commitValue>=s.w0Floor)",
+    "updates": {
+      "resultSeen": 1,
+      "r0View": 1,
+      "r0Rf": 1,
+      "r0Value": "s.commitValue",
+      "w0Floor": "s.commitValue"
+    }
+  },
+  "grantW0": {
+    "parent": "grantRemote",
+    "guard": "(((s.n_decision==2 and s.n_done==1 and s.n_remoteGrants==0 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==7 and s.p_prefixRuns==1 and s.p_resultPublished==1 and s.p_parentRuns==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1)) and (s.resultSeen==1 and s.workerSeen==1)) and (s.claimedOwner==4 and s.r0View==1 and s.w0View==1 and s.w0CapGen==s.w0Gen)",
+    "updates": {
+      "n_remoteGrants": "s.n_remoteGrants+1",
+      "p_parentRuns": "1"
+    }
+  },
+  "renewA0": {
+    "parent": null,
+    "guard": "true",
+    "updates": {
+      "a0View": 0,
+      "a0Rf": 0,
+      "a0Value": 0,
+      "a0CapGen": 0,
+      "a0Gen": "s.a0Gen+1"
+    }
+  },
+  "renewW0": {
+    "parent": null,
+    "guard": "(true) and (s.claimedOwner!=4)",
+    "updates": {
+      "w0View": 0,
+      "w0Rf": 0,
+      "w0Value": 0,
+      "w0CapGen": 0,
+      "w0Gen": "s.w0Gen+1",
+      "r0View": 0,
+      "r0Rf": 0,
+      "r0Value": 0
+    }
+  },
+  "acquireCommitA1": {
+    "parent": "acquireCommit",
+    "guard": "((true) and (s.n_decision==2 and s.commitRelease==1)) and (s.commitValue>=2 and s.commitValue>=s.a1Floor)",
+    "updates": {
+      "aSeen": 1,
+      "aWord": "s.word",
+      "a1View": 1,
+      "a1Rf": 1,
+      "a1Value": "s.commitValue",
+      "a1CapGen": "s.a1Gen",
+      "a1Floor": "s.commitValue"
+    }
+  },
+  "acquireChildA1": {
+    "parent": "acquireCommit",
+    "guard": "((true) and (s.n_decision==2 and s.commitRelease==1)) and (s.childValue==6 and s.childCover==1 and s.childValue>=s.a1Floor)",
+    "updates": {
+      "aSeen": 1,
+      "aWord": "s.word",
+      "a1View": 1,
+      "a1Rf": 2,
+      "a1Value": "s.childValue",
+      "a1CapGen": "s.a1Gen",
+      "a1Floor": "s.childValue"
+    }
+  },
+  "activateA1": {
+    "parent": "casActivate",
+    "guard": "(((s.n_decision==2 and s.p_phase==4 and s.active==0 and s.n_gate==0)) and (s.aSeen==1 and s.activationWord==0)) and (s.a1View==1 and s.a1CapGen==s.a1Gen)",
+    "updates": {
+      "active": 1,
+      "activationWord": 1,
+      "activeRelease": 1,
+      "carriedCommit": 1,
+      "activeEvidence": "s.a1View",
+      "activeIssuer": 3,
+      "activeProofGen": "s.a1CapGen",
+      "activeFloor": "s.a1Value"
+    }
+  },
+  "acquireActiveW1": {
+    "parent": "acquireActive",
+    "guard": "((true) and (s.activationWord>=1 and s.activeRelease==1 and s.carriedCommit==1)) and (s.activeEvidence==1 and s.activeFloor>=s.w1Floor and s.w1ActiveFloor<=1)",
+    "updates": {
+      "workerSeen": 1,
+      "w1View": 1,
+      "w1Rf": 3,
+      "w1Value": 1,
+      "w1CapGen": "s.w1Gen",
+      "w1Floor": "s.activeFloor",
+      "w1ActiveFloor": 1
+    }
+  },
+  "failedClaimAcquireW1": {
+    "parent": "acquireActive",
+    "guard": "((true) and (s.activationWord>=1 and s.activeRelease==1 and s.carriedCommit==1)) and (s.activationWord==2 and s.claimedEvidence==1 and s.activeEvidence==1 and s.claimFloor>=s.w1Floor)",
+    "updates": {
+      "workerSeen": 1,
+      "w1View": 1,
+      "w1Rf": 4,
+      "w1Value": 2,
+      "w1CapGen": "s.w1Gen",
+      "w1Floor": "s.claimFloor",
+      "w1ActiveFloor": 2
+    }
+  },
+  "claimW1": {
+    "parent": "casDequeue",
+    "guard": "(((s.p_phase==4 and s.p_queueRoot==1 and s.p_split==1 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1 and s.n_gate==0)) and (s.workerSeen==1 and s.activationWord==1)) and (s.w1View==1 and s.w1CapGen==s.w1Gen)",
+    "updates": {
+      "p_phase": "5",
+      "p_queueRoot": "0",
+      "p_restoreRoot": "1",
+      "p_parentOwner": "2",
+      "activationWord": 2,
+      "claimedEvidence": "s.w1View",
+      "claimedOwner": 5,
+      "claimProofGen": "s.w1CapGen",
+      "claimFloor": "s.w1Floor",
+      "w1ActiveFloor": 2
+    }
+  },
+  "resultChildW1": {
+    "parent": "acquireResult",
+    "guard": "((true) and (s.n_done==1 and s.resultRelease==1)) and (s.claimedOwner==5 and s.childValue==6 and s.childValue>=s.w1Floor)",
+    "updates": {
+      "resultSeen": 1,
+      "r1View": 1,
+      "r1Rf": 2,
+      "r1Value": "s.childValue",
+      "w1Floor": "s.childValue"
+    }
+  },
+  "resultCommitW1": {
+    "parent": "acquireResult",
+    "guard": "((true) and (s.n_done==1 and s.resultRelease==1)) and (s.claimedOwner==5 and s.commitValue==6 and s.commitValue>=s.w1Floor)",
+    "updates": {
+      "resultSeen": 1,
+      "r1View": 1,
+      "r1Rf": 1,
+      "r1Value": "s.commitValue",
+      "w1Floor": "s.commitValue"
+    }
+  },
+  "grantW1": {
+    "parent": "grantRemote",
+    "guard": "(((s.n_decision==2 and s.n_done==1 and s.n_remoteGrants==0 and s.n_copyReady==1 and s.n_copyRev==s.n_revision and s.n_gate==1 and s.n_grantGen==s.n_generation and s.n_viewGen==s.n_generation and s.n_viewLease==s.n_lease and s.n_viewRev==s.n_revision) and (s.p_phase==7 and s.p_prefixRuns==1 and s.p_resultPublished==1 and s.p_parentRuns==0 and s.p_gcOpen==1 and s.p_frozen==0) and (s.active==1)) and (s.resultSeen==1 and s.workerSeen==1)) and (s.claimedOwner==5 and s.r1View==1 and s.w1View==1 and s.w1CapGen==s.w1Gen)",
+    "updates": {
+      "n_remoteGrants": "s.n_remoteGrants+1",
+      "p_parentRuns": "1"
+    }
+  },
+  "renewA1": {
+    "parent": null,
+    "guard": "true",
+    "updates": {
+      "a1View": 0,
+      "a1Rf": 0,
+      "a1Value": 0,
+      "a1CapGen": 0,
+      "a1Gen": "s.a1Gen+1"
+    }
+  },
+  "renewW1": {
+    "parent": null,
+    "guard": "(true) and (s.claimedOwner!=5)",
+    "updates": {
+      "w1View": 0,
+      "w1Rf": 0,
+      "w1Value": 0,
+      "w1CapGen": 0,
+      "w1Gen": "s.w1Gen+1",
+      "r1View": 0,
+      "r1Rf": 0,
+      "r1Value": 0
+    }
+  }
+}

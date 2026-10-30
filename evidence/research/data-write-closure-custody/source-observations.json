@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "generator-all-three-sfun",
+    "sourceAnchors": "gsc/_ptree2.scm:2590-2670,2840-3030,3145-3235;include/gambit.h.in:10010-10026,10043-10059",
+    "finding": "c-define and function converters emit void, SCMOBJ and typed SFUN variants; argument/result conversions and generated release wrappers surround calls; errors may retry",
+    "hazard": "End of successful Scheme call is before result conversion, error retry, marker clear and propagation",
+    "proposedReplacement": "Generate effect/exit descriptors and explicit off-stack close guard for every variant; close after last managed effect, not after SFUN_CALL",
+    "nativeWitness": false
+  },
+  {
+    "caller": "generator-cfun-and-raw",
+    "sourceAnchors": "gsc/_ptree2.scm:3239-3329;include/gambit.h.in:10325-10392",
+    "finding": "c-lambda emits inline/out-of-line context, optional cleanup TRY, user text or function, AT_END and result publication",
+    "hazard": "Arbitrary C text can return/longjmp/spawn or retain aliases; AT_END does not wrap every escape",
+    "proposedReplacement": "Managed raw C effect declaration plus admitted endpoint protocol, otherwise reject controlled cohort; preserve user Scheme semantics separately",
+    "nativeWitness": false
+  },
+  {
+    "caller": "marker-construction",
+    "sourceAnchors": "lib/c_intf.c:6509-6545;lib/mem.c:1778-1821",
+    "finding": "make_vector allocates/fills before marker procedure/processor body writes; proc root TODO",
+    "hazard": "Publishing seal at allocation return omits later body writes; local proc may lack root across allocation",
+    "proposedReplacement": "Root proc before allocating; typed safe marker shell/initialization transaction and issuer after body/result publication",
+    "nativeWitness": false
+  },
+  {
+    "caller": "marker-retirement",
+    "sourceAnchors": "lib/c_intf.c:6551-6564;lib/mem.c:1441-1484",
+    "finding": "kill clears vector0 then decrements raw still refcount",
+    "hazard": "Seal before kill misses both writes; repeated cleanup may decrement twice",
+    "proposedReplacement": "Move physical marker retirement into canonical guarded effect; exactly-once decision not a second scalar authority",
+    "nativeWitness": false
+  },
+  {
+    "caller": "scheme-and-generated-readers",
+    "sourceAnchors": "lib/_kernel.scm:149-178,1020-1072;lib/_kernel.c:10845,11745-11759",
+    "finding": "Conversion handler and return-to-C inspect marker procedure/processor; generated C retains raw access",
+    "hazard": "Scheme-only generator change leaves old generated readers and raw vector alias interpretation",
+    "proposedReplacement": "Regenerate admitted modules; typed marker operations and fixed subtype/profile manifest; legacy module gated out of controlled cohort",
+    "nativeWitness": false
+  },
+  {
+    "caller": "call-and-run-exits",
+    "sourceAnchors": "lib/setup.c:839-865,3276-3420;include/gambit.h.in:9981-10007",
+    "finding": "___call matching return restores frame; nonmatching throws; ___run TRY can escape before normal kill",
+    "hazard": "Normal END and C local guard do not cover every nonlocal exit or nested activation",
+    "proposedReplacement": "Off-stack guard owns original identity/root/initialization duty; nested guard closes itself; preserve Scheme continuation return rights",
+    "nativeWitness": false
+  },
+  {
+    "caller": "still-link-and-body",
+    "sourceAnchors": "lib/mem.c:1487-1500,1677-1693,1715-1739",
+    "finding": "Allocator links next/head before count/length/header and caller-filled body; release decrements",
+    "hazard": "Generic allocation end cannot certify caller initialization or helper/link stores",
+    "proposedReplacement": "VM controlled domain preserves intent, shape and writer lineage; per-operation construction close distinct from whole domain scan close",
+    "nativeWitness": false
+  },
+  {
+    "caller": "rc-register-and-payload",
+    "sourceAnchors": "lib/mem.c:684-825,3969-3987,6844-6851;lib/os_dyn.c:744-790",
+    "finding": "RC sentinel per PSTATE, register links four fields, set_data writes payload, release unlinks/frees; closure producer fills root",
+    "hazard": "Copying sentinel pointer to VM leaves PSTATE dependency; P0-only mark_rc branch does not scan transferred nonzero roots",
+    "proposedReplacement": "Canonical VM root domain with physical relink and all-domain scan admission; RC and still accounting remain distinct",
+    "nativeWitness": false
+  },
+  {
+    "caller": "setup-sweep-and-finalizers",
+    "sourceAnchors": "lib/mem.c:4210-4251,4387-4451;lib/c_intf.c:1683-1715",
+    "finding": "Setup marks; sweep rewrites links/counters, free_still clears head and invokes foreign release functions",
+    "hazard": "Cleanup itself writes and may call foreign producer after an earlier data seal",
+    "proposedReplacement": "Phase-authorized cleanup cohort and finalizer effect profile; transfer task/root/native resource before original domain seal",
+    "nativeWitness": false
+  },
+  {
+    "caller": "interrupt-cleanup-producer",
+    "sourceAnchors": "lib/setup.c:143-166,365-419,4665-4672;include/gambit.h.in:13469-13477,14946-14954",
+    "finding": "Procedural interrupt enqueue takes target mutex; cleanup invokes execute_fn(intr,false) under that mutex, then clears head/tail before mem cleanup",
+    "hazard": "An unclosed enqueue producer can race cleanup; cleanup interrupt release is outside SFUN generator coverage",
+    "proposedReplacement": "Close external interrupt admission; transfer callback debt under queue lock then invoke admitted callback outside locks or reject reentrant handler; pin target incarnation",
+    "nativeWitness": false
+  },
+  {
+    "caller": "resize-shrink-and-rollback",
+    "sourceAnchors": "lib/setup.c:924-980",
+    "finding": "Shrink child cleanup then thread_exit; P0 join ignores return; grow setup failure cleans attempted states",
+    "hazard": "Join happens after destructive cleanup; rollback is a separate cleanup caller, not evidence of initialized cohort",
+    "proposedReplacement": "VM acceptance + detach/closure preflight common to shrink and partially initialized rollback; source bug speculation is outside this study",
+    "nativeWitness": false
+  },
+  {
+    "caller": "shutdown-and-exported-cleanup",
+    "sourceAnchors": "lib/setup.c:4569-4599,4665-4672,4834-4875,5975-5979;include/gambit.h.in:13328,14804",
+    "finding": "cleanup disables global interrupts, shrinks and calls cleanup_pstate; cleanup exported through GSTATE",
+    "hazard": "Patching resize alone leaves direct shutdown/exported cleanup capable of destroying backing",
+    "proposedReplacement": "Single cleanup admission service for every call route; distinguish no-publication rollback from live-cohort handoff",
+    "nativeWitness": false
+  },
+  {
+    "caller": "thread-identity-and-join",
+    "sourceAnchors": "lib/os_thread.c:427-439,546-592,697-710;lib/os_base.c:1052-1077",
+    "finding": "Starter invokes start_fn; join converts nonzero pthread return via errno; thread_set_pstate sets TLS/affinity",
+    "hazard": "Failed/unknown join is no stop proof; data closure alone does not authorize reclaim of TLS/native envelope",
+    "proposedReplacement": "Preserve raw return/incarnation/single join owner; retain envelope until known termination and native readers drain",
+    "nativeWitness": false
+  },
+  {
+    "caller": "os-and-vm-teardown",
+    "sourceAnchors": "lib/os_setup.c:3146-3152;lib/os_io.c:11808-11833;lib/mem.c:4928-4964",
+    "finding": "PSTATE OS cleanup closes select-abort handle; VM cleanup destroys memory/scan locks then P0 memory cleanup",
+    "hazard": "VM-owned pointer can still depend on OS handle, scan lock or root storage being destroyed",
+    "proposedReplacement": "Audit physical dependency graph and GC view before receipt; VM shutdown must drain service before its shared infrastructure",
+    "nativeWitness": false
+  },
+  {
+    "caller": "dynamic-closure-and-native-callback",
+    "sourceAnchors": "lib/os_dyn.c:744-790,1045-1058;examples/tcltk/tcltk.scm:124-194,221-228,269-276;tests/server.scm:15-35",
+    "finding": "Function-valued callbacks use RC payload and current closure self; native libraries own callback/delete timing",
+    "hazard": "Helper/callback capability can outlive parent; global closure self/TLS TODO and raw aliases defeat local closure proof",
+    "proposedReplacement": "Register before native publication; foreign unregister/drain receipt, explicit closure identity/root/code lease; reject unbounded raw origins",
+    "nativeWitness": false
+  },
+  {
+    "caller": "helper-and-public-api-frontier",
+    "sourceAnchors": "include/gambit.h.in:13224-13230,14564-14575;lib/setup.c:5894-5898,6204-6211;lib/os_thread.c:712-750",
+    "finding": "GSTATE exposes marker/thread functions; emulated CAS takes hashed mutex; selected recovery helper is proposed, absent current source",
+    "hazard": "Unregistered helper or abandoned backend lock invalidates closure; symbol search cannot prove all loaded C aliases",
+    "proposedReplacement": "Typed helper admission before enqueue/effect; complete module/effect manifest; unknown holder keeps duty and blocks dependent GC domain",
+    "nativeWitness": false
+  }
+]

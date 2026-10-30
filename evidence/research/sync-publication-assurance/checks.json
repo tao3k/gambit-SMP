@@ -1,0 +1,1187 @@
+{
+  "kind": "modern-c-component-assurance",
+  "recordedAt": "2026-10-22T05:20:19Z",
+  "repositoryHead": "1a2d8612f2065387c62858e10baf63ce369cc48c",
+  "status": "target-model-slices-and-reasoning-checked-source-refinement-open",
+  "authority": {
+    "component": "dev/architecture/runtime/interfaces/models/sysml/synchronous-publication.sysml",
+    "policy": "dev/modeling/models/sysml/assurance-routing.sysml",
+    "inference": "dev/modeling/ascent/assurance-planner.ss",
+    "organization": "dev/organization.sysml"
+  },
+  "component": {
+    "component": {
+      "id": "gc-synchronous-publication",
+      "owner": "dev/architecture/runtime/gc",
+      "binding": "synchronous-publication",
+      "quint": "models/gambit/synchronous_publication.qnt",
+      "quintSymbols": "init; initReference; initFusedExplicit; step; safe; allFourFusedTest; escapedErasureCounterexampleTest",
+      "lean": "models/gambit/lean/SynchronousPublication.lean",
+      "leanSymbols": "zeroOwnersDischargesAllDebt; receiptCoverageAloneInsufficient; reservePreserves; settlementPreserves; knownReturnPreserves",
+      "report": "evidence/research/sync-publication-assurance/checks.json",
+      "scope": "Four symbolic sites, two workers, three protocols, explicit notify/residual/unknown ownership; parametric debt and accounting lemmas; no source or weak-memory simulation"
+    },
+    "routes": [
+      {
+        "id": "MOVABLE-ROLLOVER",
+        "source": "vendor/gambit/lib/mem.c",
+        "lines": "3543-3555;3375-3406",
+        "after": "next_heap_msection -> prepare_heap_msection -> reload alloc/limit; copy and local scan still owed",
+        "idle": "only later at mark_reachable_from_marked:6740 after private/local/steal work",
+        "premise": "custom_msection_alloc, fatal heap path, allocator locks and all native exits must be admitted"
+      },
+      {
+        "id": "MOVABLE-THRESHOLD",
+        "source": "vendor/gambit/lib/mem.c",
+        "lines": "3598-3625",
+        "after": "start_heap_chunk; reload alloc; possible goto again for Tail marking",
+        "idle": "mark_array returns through local/root scan before idle decrement",
+        "premise": "publisher return does not discharge Tail or scan-frontier debt"
+      },
+      {
+        "id": "CAPTURED-ROLLOVER",
+        "source": "vendor/gambit/lib/mem.c",
+        "lines": "3696;3742-3752;3804-3810",
+        "after": "msection helpers while MISC held; remaining frame copy/links; MISC unlock at outer endpoint",
+        "idle": "outer captured/root or object scan returns before mark_reachable idle",
+        "premise": "include existing MISC -> ALLOC order; no G/Q-held allocation and no unmanaged hook escape"
+      },
+      {
+        "id": "CAPTURED-THRESHOLD",
+        "source": "vendor/gambit/lib/mem.c",
+        "lines": "3794-3813",
+        "after": "start_heap_chunk; pending ptr/cf and next_frame traversal; final pointer normalization and MISC unlock",
+        "idle": "publication itself has no worker-count decrement",
+        "premise": "guard uses alloc_heap_ptr rather than local alloc; QNT site enablement does not prove actual threshold reachability"
+      }
+    ],
+    "methods": [
+      {
+        "kind": "interleaving",
+        "method": "QNT",
+        "check": "bounded-histories"
+      },
+      {
+        "kind": "induction",
+        "method": "Lean",
+        "check": "inductive-preservation"
+      },
+      {
+        "kind": "source-refinement",
+        "method": "Lean",
+        "check": "source-simulation"
+      },
+      {
+        "kind": "native-memory-order",
+        "method": "C-memory",
+        "check": "native-memory-refinement"
+      }
+    ],
+    "needs": [
+      {
+        "id": "SP-HISTORY",
+        "kind": "interleaving",
+        "premise": "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim",
+        "artifact": "models/gambit/synchronous_publication.qnt"
+      },
+      {
+        "id": "SP-INDUCTION",
+        "kind": "induction",
+        "premise": "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation",
+        "artifact": "models/gambit/lean/SynchronousPublication.lean"
+      },
+      {
+        "id": "SP-SOURCE",
+        "kind": "source-refinement",
+        "premise": "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain",
+        "artifact": "models/gambit/lean/SynchronousPublication.lean"
+      },
+      {
+        "id": "SP-MEMORY",
+        "kind": "native-memory-order",
+        "premise": "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime",
+        "artifact": "vendor/gambit/lib/mem.c"
+      }
+    ],
+    "dependencies": [
+      {
+        "dependent": "SP-SOURCE",
+        "prerequisite": "SP-HISTORY"
+      },
+      {
+        "dependent": "SP-SOURCE",
+        "prerequisite": "SP-INDUCTION"
+      },
+      {
+        "dependent": "SP-SOURCE",
+        "prerequisite": "SP-MEMORY"
+      }
+    ]
+  },
+  "sourceBindings": {
+    "dev/architecture/compiler/models/sysml/architecture.sysml": "adc5905b8c076d533d1ea2813decdf7846e9452ba461fb6b949707907b2d3544",
+    "dev/architecture/models/sysml/organization.sysml": "64d5cfc9fc999500dae258557df7b3a249838b8cce71bda0a6840b042b59c528",
+    "dev/architecture/runtime/control/models/sysml/architecture.sysml": "39a865736ab39aa2f27b7bb1a466931bc8944a027003ce964f2ba467dadb6d7a",
+    "dev/architecture/runtime/execution/models/sysml/architecture.sysml": "ba4aa29cb05751608f27e5e3785ca199ef8d2f54a45939d3dbc603507b1436e3",
+    "dev/architecture/runtime/ffi/models/sysml/architecture.sysml": "2ab682003be0b16b9cfa133530974f57c0d309243870016505a85a6bbbcde6a4",
+    "dev/architecture/runtime/gc/models/sysml/architecture.sysml": "1cc02924c8744ed6e536809dc81811d0ccea8fd5893acad6debdf7dbf41fe3e6",
+    "dev/architecture/runtime/interfaces/models/sysml/atomic-refinement.sysml": "0cfa589854bcc747367a3c1bd3897e52fdfc387473a5292c2533566ad46a67cd",
+    "dev/architecture/runtime/interfaces/models/sysml/child-discovery.sysml": "419f270f5263a83464492dfa43a28a47965939f1e06b11af942aac1f2cdd4369",
+    "dev/architecture/runtime/interfaces/models/sysml/collection-completion.sysml": "b49701251dbe39933dbdbf6d43471a88b1e3a657ebd1dfd67fe42fa343b7ff10",
+    "dev/architecture/runtime/interfaces/models/sysml/copy-handoff.sysml": "56f1a42fa5ab6514aae5f8e29aa7d72c80491ec57d91121c85e6aecf90ebb1f8",
+    "dev/architecture/runtime/interfaces/models/sysml/frame-contract.sysml": "1067c5e01188e15a1eb69bf511d221191713402a74708a8d9e592be704e90a4c",
+    "dev/architecture/runtime/interfaces/models/sysml/interfaces.sysml": "8a71797343d1e39216fa0ed3a3d05ee3c1a9c910a373d3c3ffc519ddab194c3f",
+    "dev/architecture/runtime/interfaces/models/sysml/membership-revocation.sysml": "75366880c2dca28bd2519b801470a37b032eae2b4984ca5b9bf01196aad7f00d",
+    "dev/architecture/runtime/interfaces/models/sysml/model-relations.sysml": "6041d5de1dde65e5388f1b7f824bbcb75e2b3d76fc4b018c25e08021f37882ee",
+    "dev/architecture/runtime/interfaces/models/sysml/producer-custody.sysml": "d45ba9e07ef3d420a7412a8f933ab4a0bd1f3a0eb052f11067585744c2fd366b",
+    "dev/architecture/runtime/interfaces/models/sysml/publication-close.sysml": "3fd2685726aac3faebf435df0f9cae56668010928fbf25b543aae6115bca17b6",
+    "dev/architecture/runtime/interfaces/models/sysml/role-contracts.sysml": "c3e56f83f810335ac9cf6b4455d67815c8d53bd4eae242e115ef034fcd89447d",
+    "dev/architecture/runtime/interfaces/models/sysml/shared-runtime-contract.sysml": "03b0475242ece2a32c4abaf7104d1ec1567e67758de1ebf6a583321578146cc4",
+    "dev/architecture/runtime/interfaces/models/sysml/synchronous-publication.sysml": "2903dc8ea52bcf0c0e042be4f4f6518e3760a0d1037e0489c26bf98c28995f75",
+    "dev/architecture/runtime/models/sysml/composition.sysml": "f9928b801d43ca50bb4a05f2bce4ace64b40370c3b2fb617d23135f173d01cd6",
+    "dev/architecture/system/models/sysml/architecture.sysml": "a348a7a57e47358a79884998df4f8c38cc56805195e96a057fc07a3d50103e1b",
+    "dev/architecture/system/models/sysml/modernization-architecture.sysml": "d603f4dc09c1e00b668b45e90ecf00a218d63600949b38ebcab7b572a9e1129c",
+    "dev/architecture/toolchain/models/sysml/architecture.sysml": "30fb89c5e15e619fabcd9a54767d79d8e9978a5841cb43681142c439f7ad77f7",
+    "dev/architecture/toolchain/models/sysml/macos-development.sysml": "6e73714016d252284f8be40457b89c971b507f13f3d539cab9098694eedf1717",
+    "dev/architecture/toolchain/models/sysml/native-descriptor.sysml": "5ed47b2ddde21ea445a2c7de6d8b856e54e18d630a61cfe5b34509c353a81de6",
+    "dev/architecture/toolchain/models/sysml/stable-view.sysml": "bba63b79a650387faa4e177f22eb6a8bc7fb247efcf509ec3c83780f313041f2",
+    "dev/knowledge/models/sysml/learning.sysml": "74be124743bf96b791b94c30011c75c5004064b582b05ef60520d27b43e2889d",
+    "dev/modeling/ascent/assurance-planner.ss": "a64fcba66ecb1974d13ecf0b30b1ad0647f252bcd6645c2c9413db88f41154c9",
+    "dev/modeling/libraries/sysml/runtime-contracts.sysml": "24d1723f5be2b59336240e515f401a985051a359d6dbd2618d0bbcb5c57d3eab",
+    "dev/modeling/models/sysml/assurance-routing.sysml": "c9933dd4c77dcb35bb24ac98cda0725012bb29711474a9360e3d5c35a0601f9d",
+    "dev/modeling/models/sysml/assurance.sysml": "2accb8a40e1c494684820e376212e49aede9e694054db384852822411feda46b",
+    "dev/organization.sysml": "7bfe55985b0bf563cfb030d5af7081e82a89919968e6eb058838517dee1b745e",
+    "dev/refactoring/models/sysml/adoption.sysml": "88d7ae0ca8f21b9305febac0411c01497ec0795969004c0861ab4043b60e07b8",
+    "dev/refactoring/modern-c/models/sysml/architecture.sysml": "39e8cc88195e3a00d19b687862852e4483fd420f205f6c01369d5e3e5e01ccd3",
+    "dev/refactoring/zig/models/sysml/architecture.sysml": "21233a6d21989497ba57cb8c97d6905b879e5ad83b4c8edced544aff6bd634c0",
+    "dev/research/models/sysml/architecture.sysml": "33a68c856bc25ffb5d26914ea5e017925dc09188649e1db07b02755facc1e109",
+    "models/gambit/lean/SynchronousPublication.lean": "894dd407f0b31671f93d69fb669bca2976e18b153553e31b3fc9c6cf5dee1412",
+    "models/gambit/synchronous_publication.qnt": "37e325fa644471f1b7e8df1fda61c64b1d6a9c3a735038c2029cb393f7ced54d",
+    "vendor/gambit/include/gambit.h.in": "2bd9579c7124e0e18eec14180735621351d379a17410047b31b4b74fe2af9ac2",
+    "vendor/gambit/lib/mem.c": "317b5262efd7f3a9418328250c163a9cf3fb9a44fbd573b08fde6f4a3cce2882",
+    "vendor/gambit/lib/os_base.c": "10fb1465cbdc7fdf00ebb9d528e80bb978b4044c39f4f139fe7fbd6ebea2c2a1",
+    "vendor/gambit/lib/os_thread.c": "a93a42aca64c5822206c1367aa1bca4b7faabad6d7582606c64f9204b609e94b",
+    "vendor/gambit/lib/setup.c": "047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46"
+  },
+  "modelBundleSha256": "7d7648c0b35c20aea7416f57f65f2333be16cb3648fd709f6b0bd4a404422033",
+  "nativeOutputSha256": "874961cd8b176c80f7bb1c60f91387ce949ab9b0c29bbde7c58d7591c24ada91",
+  "dslSha256": "a64fcba66ecb1974d13ecf0b30b1ad0647f252bcd6645c2c9413db88f41154c9",
+  "execution": {
+    "nativeSysmlValidation": true,
+    "nativeMetadataLookup": true,
+    "nativeD2Export": true,
+    "quintTypecheck": true,
+    "quintTests": true,
+    "quintSimulation": true,
+    "quintExhaustiveVerification": false,
+    "leanCheck": true,
+    "ascentHypothesisQuery": true,
+    "orgParseAndLinkCheck": true,
+    "newPythonMaintained": false,
+    "legacyPythonDeriverRun": false,
+    "runtimeImplementation": false,
+    "nativeRuntimeTesting": false,
+    "performanceValidation": false
+  },
+  "formal": {
+    "quint": {
+      "path": "models/gambit/synchronous_publication.qnt",
+      "workers": 2,
+      "sites": 4,
+      "fixedCollectionAndPhase": true,
+      "modes": 3,
+      "deterministicTests": 15,
+      "positiveTests": 11,
+      "deliberateDesignFaultControls": 4,
+      "simulation": {
+        "seed": 20261022,
+        "maxSamplesBudget": 500,
+        "maxStepsBudget": 100,
+        "status": "ok",
+        "retainedStates": 101
+      },
+      "exhaustive": false,
+      "livenessProved": false,
+      "sourceSimulation": false,
+      "weakMemoryRefinement": false
+    },
+    "lean": {
+      "path": "models/gambit/lean/SynchronousPublication.lean",
+      "theorems": 9,
+      "toolchain": "Lean 4.34.0 pinned repository toolchain",
+      "scope": "Parametric debt cover, conservation, counterexamples and cost algebra; not full-transition induction or source simulation",
+      "sourceSimulation": false
+    }
+  },
+  "ascent": {
+    "source": "dev/modeling/ascent/assurance-planner.ss",
+    "association": {
+      "retainedTaskHypotheses": 2,
+      "presentationComplete": true,
+      "runtimeAdmitted": false,
+      "counts": {
+        "counter": 0,
+        "hypotheses": 1,
+        "support": 0
+      },
+      "unroutedNeed": [],
+      "dependencyCycle": [],
+      "unmetDependency": [
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-MEMORY"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-HISTORY"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-MEMORY"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-HISTORY"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-INDUCTION"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-MEMORY"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-HISTORY"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-MEMORY"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-HISTORY"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-MEMORY"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-HISTORY"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "SP-MEMORY"
+        ]
+      ],
+      "openPremise": [
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ]
+      ],
+      "nextAction": [
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "perform-scoped-check",
+          "C-memory",
+          "native-memory-refinement"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-MEMORY"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "construct-model",
+          "QNT",
+          "model-source"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "perform-scoped-check",
+          "C-memory",
+          "native-memory-refinement"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-HISTORY"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-MEMORY"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "perform-scoped-check",
+          "QNT",
+          "bounded-histories"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "perform-scoped-check",
+          "Lean",
+          "inductive-preservation"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "perform-scoped-check",
+          "C-memory",
+          "native-memory-refinement"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-HISTORY"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-INDUCTION"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-MEMORY"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "perform-scoped-check",
+          "QNT",
+          "bounded-histories"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "perform-scoped-check",
+          "C-memory",
+          "native-memory-refinement"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-HISTORY"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-MEMORY"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "perform-scoped-check",
+          "QNT",
+          "bounded-histories"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "perform-scoped-check",
+          "C-memory",
+          "native-memory-refinement"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-HISTORY"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-MEMORY"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "perform-scoped-check",
+          "QNT",
+          "bounded-histories"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "perform-scoped-check",
+          "C-memory",
+          "native-memory-refinement"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-HISTORY"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "resolve-prerequisite",
+          "Lean",
+          "SP-MEMORY"
+        ]
+      ],
+      "pendingCheck": [
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "vendor/gambit/lib/mem.c",
+          "native-memory-refinement"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "source-simulation"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "vendor/gambit/lib/mem.c",
+          "native-memory-refinement"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "source-simulation"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "models/gambit/synchronous_publication.qnt",
+          "bounded-histories"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "inductive-preservation"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "vendor/gambit/lib/mem.c",
+          "native-memory-refinement"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "source-simulation"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "models/gambit/synchronous_publication.qnt",
+          "bounded-histories"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "vendor/gambit/lib/mem.c",
+          "native-memory-refinement"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "source-simulation"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "models/gambit/synchronous_publication.qnt",
+          "bounded-histories"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "vendor/gambit/lib/mem.c",
+          "native-memory-refinement"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "source-simulation"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "models/gambit/synchronous_publication.qnt",
+          "bounded-histories"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "vendor/gambit/lib/mem.c",
+          "native-memory-refinement"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "source-simulation"
+        ]
+      ],
+      "missingModel": [
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT"
+        ]
+      ],
+      "qualifiedSlice": [
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "models/gambit/synchronous_publication.qnt",
+          "bounded-histories"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "inductive-preservation"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "inductive-preservation"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "inductive-preservation"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "inductive-preservation"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "models/gambit/lean/SynchronousPublication.lean",
+          "inductive-preservation"
+        ]
+      ],
+      "modelRequired": [
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "bounded-histories",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "inductive-preservation",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "native-memory-refinement",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "current",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "source-simulation",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "bounded-histories",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "inductive-preservation",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "native-memory-refinement",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "missing-qnt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "source-simulation",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "bounded-histories",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "inductive-preservation",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "native-memory-refinement",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "no-receipts",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "source-simulation",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "bounded-histories",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "inductive-preservation",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "native-memory-refinement",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "stale-receipt",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "source-simulation",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "bounded-histories",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "inductive-preservation",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "native-memory-refinement",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "typecheck-only",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "source-simulation",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-HISTORY",
+          "QNT",
+          "bounded-histories",
+          "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-INDUCTION",
+          "Lean",
+          "inductive-preservation",
+          "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-MEMORY",
+          "C-memory",
+          "native-memory-refinement",
+          "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+        ],
+        [
+          "wrong-scope",
+          "gc-synchronous-publication",
+          "SP-SOURCE",
+          "Lean",
+          "source-simulation",
+          "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+        ]
+      ]
+    },
+    "scenarioCases": 10,
+    "baseScenarios": 6,
+    "additionalControlRequests": 4,
+    "expectedRowAssertionsPassed": true,
+    "qualifiedMeaning": "Exact presented artifact/check-class receipt match only",
+    "selectedHypotheses": 1,
+    "retainedTaskHypotheses": 2,
+    "supportObservations": 0,
+    "nativeRuntimeAdmitted": false,
+    "nativeExecutionAuthorized": false,
+    "policyProfile": "unique component-local obligations; one subject per need; exactly one method/check rule per kind",
+    "unqualified": [
+      "Cross-component prerequisite transport",
+      "Multi-source proof bundle validity",
+      "Receipt producer authentication",
+      "Automatic tool execution",
+      "Other DEV component adapters"
+    ]
+  },
+  "structure": {
+    "nativeSysmlFiles": 35,
+    "nativeScalarFields": 67,
+    "requirements": 4,
+    "sourceRefinementClosedRequirements": 0,
+    "componentView": {
+      "nodes": 10,
+      "typedConnections": 9
+    },
+    "plannerView": {
+      "nodes": 7,
+      "typedConnections": 9
+    },
+    "visuallyReviewed": true,
+    "structureOnly": true
+  },
+  "org": {
+    "fileLinks": 6927,
+    "missingFiles": [],
+    "missingCustomIds": [],
+    "duplicateIds": [],
+    "babelExecuted": false,
+    "nativeRuntimeTest": false
+  },
+  "preservation": {
+    "legacyFormalSources": 17,
+    "legacySourceHashesUnchanged": true,
+    "legacyRegistryNonHashFieldsUnchanged": true,
+    "newTargetFormalSources": 2,
+    "oldScopedReceiptUnchanged": true,
+    "legacyPythonDeriverUnchanged": true,
+    "initialPilotRetained": true,
+    "initialDiagnosticsRetained": true,
+    "initialFailedSourceHashesNotReconstructed": true,
+    "formalBeforeSnapshot": "QNT matches final; Lean snapshot precedes proof repair and must not be labeled the successful Lean identity"
+  },
+  "quantitativeBoundary": {
+    "unit": "Modeled successful FIFO batch; not native elapsed time",
+    "splitExplicit": {
+      "gates": 5,
+      "queueSections": 2
+    },
+    "fusedExplicit": {
+      "gates": 4,
+      "queueSections": 2
+    },
+    "fusedContained": {
+      "gates": 3,
+      "queueSections": 2
+    },
+    "conditionalElimination": "Two modeled G transactions relative to split explicit reference; no assertion that adding G beats the current collector",
+    "nativeSpeedup": null,
+    "zigSpecificGainEstablished": false
+  },
+  "remaining": [
+    "Actual C action/stutter simulation and source-enabled guards",
+    "Complete hook, cancellation, exit and platform profiles",
+    "C memory order and MISC/ALLOC/G/Q lock graph",
+    "Cross-phase and generation-reuse validity",
+    "Full transition induction, QNT/Lean correspondence and progress",
+    "Other DEV component-specific assurance needs and adapters"
+  ],
+  "runtimePathsRetired": 0,
+  "buildPathsRetired": 0,
+  "nativeProfilesAccepted": 0,
+  "registeredClaimsPromoted": 0,
+  "artifactBindings": {
+    "dev/modeling/assurance-planner.org": "40874cb607c0840568054eb8b7269d6b13edf8dc1d3251d22cb612cca92ac7ea",
+    "dev/modeling/ascent/assurance-planner.ss": "a64fcba66ecb1974d13ecf0b30b1ad0647f252bcd6645c2c9413db88f41154c9",
+    "dev/modeling/ascent/synchronous-publication.request.scm": "69fb55efbf3a485dd31a65b5b80ad3b24d7082c56df634917dfda07264256337",
+    "dev/modeling/models/sysml/assurance-routing.sysml": "c9933dd4c77dcb35bb24ac98cda0725012bb29711474a9360e3d5c35a0601f9d",
+    "dev/modeling/diagrams/assurance-routing.d2": "358c6e62c937ca445b4a1e0ca1dcc29d92b7520eba5cecaf191390bf431de910",
+    "dev/modeling/diagrams/assurance-routing.svg": "cc642a203308675583b3d4f056c4d79be7b8f219b1a3fe3e6ed7f83ed7cb3143",
+    "dev/modeling/index.org": "98004b9667e43cb5bf87f88ee8d2a4f65d34e352548b931454fb02df56f6e9cd",
+    "dev/modeling/component-model-design.org": "c9c968e909cb0e319a67a3c50b038e1d87fe2fbf6d8715708f47af1ad866ddce",
+    "dev/modeling/formal-bindings.json": "ebb54f574ed8c544245c2d73cc55621b6f8b09a3a4493de9ddb0d90f5a20b4ff",
+    "dev/architecture/runtime/interfaces/synchronous-publication-design.org": "455f50edebd6278cb26b782c5f16823d66f3119d24bd0c026a48b70b91fc03c2",
+    "dev/architecture/runtime/interfaces/models/sysml/synchronous-publication.sysml": "2903dc8ea52bcf0c0e042be4f4f6518e3760a0d1037e0489c26bf98c28995f75",
+    "dev/architecture/runtime/interfaces/diagrams/synchronous-publication.d2": "d8f0c5caf68b1295f7bcd2fe9ea9fd130f9495e017c0a5ad2d9cc2a3b063d9a0",
+    "dev/architecture/runtime/interfaces/diagrams/synchronous-publication.svg": "4e300f640af60cbd6ee3829dd3c0f66c2fd4198e7bfbbda3243ac4f32d51b0a5",
+    "dev/architecture/runtime/interfaces/index.org": "5dbd5b3e1a4e815b7c23f41c305aa7090677f0e60483df9e96c81cc57cbbdd0e",
+    "dev/architecture/runtime/models/sysml/composition.sysml": "f9928b801d43ca50bb4a05f2bce4ace64b40370c3b2fb617d23135f173d01cd6",
+    "dev/architecture/runtime/gc/models/quint/index.org": "c259dad314fd7605be5b915b584633be3bfe2c856f530f46d886acc02d45cee3",
+    "dev/architecture/runtime/gc/models/lean/index.org": "d962e9071a03628289376c23d0645f484eeca5b0d4f536722a39b30fdb70e4c9",
+    "dev/index.org": "0a6f1315d2b9c61a23d2c0bba59d608aa28ac2f8fe4ec9f616ca3fdbae0265a0",
+    "dev/research/validation.org": "15684330e10515d17399b6416219a81a3064b39ec6cb02abb9680d7dc1334916",
+    "models/gambit/synchronous_publication.qnt": "37e325fa644471f1b7e8df1fda61c64b1d6a9c3a735038c2029cb393f7ced54d",
+    "models/gambit/lean/SynchronousPublication.lean": "894dd407f0b31671f93d69fb669bca2976e18b153553e31b3fc9c6cf5dee1412"
+  },
+  "evidenceArtifactBindings": {
+    "evidence/research/sync-publication-assurance/artifact-bindings.json": "20e5a3b063bcccd50a940f43908c1bd49641f78696c43b5460ba21ca1ad52dea",
+    "evidence/research/sync-publication-assurance/ascent-initial-registration.ss": "ad781c53ead20476873a2bf62ad2964192aae38123ecae99c7d6bdb9a7a0cb5f",
+    "evidence/research/sync-publication-assurance/ascent-initial-unbound-read.scm": "6da063c633b6ecab77bb87f3ad87c3435dda3addd5937262d29c00037d7413ef",
+    "evidence/research/sync-publication-assurance/ascent-read.scm": "fc6ec3759f92f1e3533c511ed6692be6c27b93f92111076e7943749585506da0",
+    "evidence/research/sync-publication-assurance/ascent-submit.scm": "4928df35ca8aad4bc8be4d7dd997d38607aa883e2ea873d71e8912124587cff9",
+    "evidence/research/sync-publication-assurance/assert-planner.jq": "a87b002092a7a9120aec432f5018a97a54c4f083ce227e7c15ba66f2aa8195b6",
+    "evidence/research/sync-publication-assurance/assurance-bindings.json": "7d7648c0b35c20aea7416f57f65f2333be16cb3648fd709f6b0bd4a404422033",
+    "evidence/research/sync-publication-assurance/control-cycle.json": "741245ba81ab0569b6e39b887d4a9796357e6a078ae7cdebf9d4db1542ff4db1",
+    "evidence/research/sync-publication-assurance/control-cycle.read.scm": "5aff27d941f868c2d164bad7573fafd29141e960d8c732d945a8bca25175c940",
+    "evidence/research/sync-publication-assurance/control-cycle.request.scm": "b2fac84b605ea0591a079b97746c3436c14f873e648b1b5dd3c5326f399e7a94",
+    "evidence/research/sync-publication-assurance/control-cycle.ss": "9b016f7368ecfa0e0864d55e09cbb8872732669144d4a5f25498b605cf5a4dbc",
+    "evidence/research/sync-publication-assurance/control-transitive.json": "04f10402777b6d600f769cdee15e6f523f044d488c7f3a40c0dad7bfb3a12d43",
+    "evidence/research/sync-publication-assurance/control-transitive.read.scm": "3ea9dd29094a59e1d4893c7f88a3be995abb4a1d57d86a343871aa1e50cb3cbf",
+    "evidence/research/sync-publication-assurance/control-transitive.request.scm": "369b10ba43e0a07c38a5065883ffb323fd8d471dd89f5030396824f8d5f6476b",
+    "evidence/research/sync-publication-assurance/control-transitive.ss": "a8648c5b8ee265aef5891b602d49d98a7757618ab26544a743732b16c3180701",
+    "evidence/research/sync-publication-assurance/control-unrouted.json": "0ce66cfe9dd0f23872e97ed5788943e772e2a5fdb1f9deef65a370cfb5f37a33",
+    "evidence/research/sync-publication-assurance/control-unrouted.read.scm": "a26b8b9ff614c986ece7d799683afc60c1d2e6aaa81f756b6d36e695b8e77233",
+    "evidence/research/sync-publication-assurance/control-unrouted.request.scm": "492b54e6d9592f27126a876636904843e23841dbf1f7a6b7c6a1db24497f3b3d",
+    "evidence/research/sync-publication-assurance/control-unrouted.ss": "4d1874f908b00eea7167c726f065c7973446906b17994178db2b2a108e6c8dda",
+    "evidence/research/sync-publication-assurance/control-wrong-artifact.json": "429fbe3f7131067eab6a2164a6c00766613f6d0ca2d601a6ea20843b427c49c7",
+    "evidence/research/sync-publication-assurance/control-wrong-artifact.read.scm": "3f61c315cdf186c71290e7eb7b0e1d05a175e57deb9577ced488af71998ca9e0",
+    "evidence/research/sync-publication-assurance/control-wrong-artifact.request.scm": "b9e178eb91189b8daf4859869ab4109af8f2b5e598968788cb4d08496a656940",
+    "evidence/research/sync-publication-assurance/control-wrong-artifact.ss": "e30d1a2e65fe13e62a5e66e4cbcba4dad7a5bd0975d0556930900fe05a02b3fd",
+    "evidence/research/sync-publication-assurance/entry-bindings.json": "8b3152ad7a00903a6c1675f3d0537d8ea9816d1e18a497b6aecabab54d207758",
+    "evidence/research/sync-publication-assurance/entry-traceability.json": "e1d27681e2fe0c5c75ca95af25826ac9942e38fed7199aeab8ed3829e9e1ad8e",
+    "evidence/research/sync-publication-assurance/formal-before.sha256": "ff4eeb4d147908cfc81a0eee22c72f72e2b79cf9825cbc1c2a588b92b195c1a9",
+    "evidence/research/sync-publication-assurance/initial-pilot/ascent-read.scm": "b7ed73450b84396625c6a7d09e685dd5a9cb74795d725f181929cf9577c9a1b2",
+    "evidence/research/sync-publication-assurance/initial-pilot/ascent-submit.scm": "af8e7a8ae447e8a4fb7b78f30c888b74b1c01a74e47c725742e9c004b0275e27",
+    "evidence/research/sync-publication-assurance/initial-pilot/assurance-bindings.json": "19fc186cd6204a8204fc23572d63dd15be9c9357356516b009af872416d500a0",
+    "evidence/research/sync-publication-assurance/initial-pilot/assurance-planner.ss": "180d0c743a29e406a39cee1afc103e09ddd7df3a1fcecbf6d4acf1e6c522360c",
+    "evidence/research/sync-publication-assurance/initial-pilot/native-component.json": "ee4e277c14295703b9138dbb6f6df4644298de6dd820688c71d21b0fd26c696f",
+    "evidence/research/sync-publication-assurance/initial-pilot/native-metadata.json": "d731f6e4cab7bd2b63eb0b06511a273f4a26373c7bfbe6a0d4a2344c5d668860",
+    "evidence/research/sync-publication-assurance/initial-pilot/planner-input.json": "e9a749b3b8f2d78121ea0d2841d25902068378b82decd69d51657f526798f515",
+    "evidence/research/sync-publication-assurance/initial-pilot/planner-results.json": "9f8ceb3c0396669b42cb71ffb191f6eb15a74e456927a38ef048486fca9b2ca2",
+    "evidence/research/sync-publication-assurance/initial-pilot/selected-source-bindings.json": "29ed26a8097aa2b2a1d6f95aed065638a4c3d2a2146b4eb9d94bb7b8447c215a",
+    "evidence/research/sync-publication-assurance/initial-pilot/synchronous-publication.request.scm": "7d5a9eafdd39f5876aa7d509d9af093f15964b6ca5194897f7d90b0bcd95687f",
+    "evidence/research/sync-publication-assurance/model-bindings.json": "a89b74ba2bcb8cbf6680c83fad693967cf6f29bad130158e28c610e4d65a05cb",
+    "evidence/research/sync-publication-assurance/models-after.sha256": "603c49a9b49b78eb9be1969561164f0fc2a2855c06e818d3e8a565c7baa54f00",
+    "evidence/research/sync-publication-assurance/models-before.sha256": "603c49a9b49b78eb9be1969561164f0fc2a2855c06e818d3e8a565c7baa54f00",
+    "evidence/research/sync-publication-assurance/native-component.json": "3fe792c3e55b69cd456b07032fa90168ab160c57dd09768b3b4915a8e6ef70cd",
+    "evidence/research/sync-publication-assurance/native-metadata.json": "874961cd8b176c80f7bb1c60f91387ce949ab9b0c29bbde7c58d7591c24ada91",
+    "evidence/research/sync-publication-assurance/org-links.json": "9d9c2e54cc8cd1b49ed6ae6dd74d5ff91b0bbd8b9b30350cbfdcf6042ca7791d",
+    "evidence/research/sync-publication-assurance/planner-composed.ss": "f5456ea96b8fed06ea9ed3c3b50bded7f38247e512dbcd8dd93a8017232cc68d",
+    "evidence/research/sync-publication-assurance/planner-input.json": "e5510a1732577018d6325ea20a6f332c7b6146d5d6af5fe7ebdc755d6edf28f4",
+    "evidence/research/sync-publication-assurance/planner-results.json": "7208600a40ea92924ca6e354e81038ae57315bd19211f7132d556e0c638493dc",
+    "evidence/research/sync-publication-assurance/preserved-after.sha256": "53dfa5a5870ef19e70083533232042d0c763d53b62d2538dbc85b3b368dab853",
+    "evidence/research/sync-publication-assurance/preserved-before.sha256": "53dfa5a5870ef19e70083533232042d0c763d53b62d2538dbc85b3b368dab853",
+    "evidence/research/sync-publication-assurance/quint-simulation.json": "d704f8993fd59fd5160967ba55bab639091eaee38876c82b14303e4d005118bd",
+    "evidence/research/sync-publication-assurance/read-association.el": "9cd59611c2bcb63074af7ef0d4a25841a2786b193efa87807060daf392ba8a6a",
+    "evidence/research/sync-publication-assurance/register.ss": "0c6c0cdce7fe94c76535d7e584e7e6f723c21a31ee446477c282311e20eff6fc",
+    "evidence/research/sync-publication-assurance/scenarios.json": "feb590a6488cf79cb46d151275ef71aefbe9f305f3446425bb2a2b1fcb0794ad",
+    "evidence/research/sync-publication-assurance/selected-source-bindings.json": "a21543805433760c68bcbafcc9b2ba977e28a1e42187644f9e31eef55a4b3474",
+    "evidence/research/sync-publication-assurance/submit.request.scm": "1eb43bae96419ac2ac97b490381b2e5a64b41c159220e191fc61395fa901866d",
+    "evidence/research/sync-publication-assurance/test_allFourFusedTest_0.itf.json": "58c697c63be4bb7da266c3f6ff311f6b33165a2eb2a4a34078049f129806375e",
+    "evidence/research/sync-publication-assurance/test_callerResidualTest_4.itf.json": "a23390ecd09734aa1e89297247ab323b6ddf9d32377c96bd77b2a337b05115a3",
+    "evidence/research/sync-publication-assurance/test_earlyReturnCounterexampleTest_13.itf.json": "8a5b72f9c8e3104ecdc7173174cc1b9094a296231ada42dcc7bddfee6ee340ce",
+    "evidence/research/sync-publication-assurance/test_erasedUnknownKeepsIssuerTest_7.itf.json": "19babee4761fe5da111a4f386428632bbcee958971d738027a5e0a17ea190c1b",
+    "evidence/research/sync-publication-assurance/test_escapedErasureCounterexampleTest_11.itf.json": "e5d249fe7ddd4e54666d9c1bb3ed07bd4051328bbe7a5d900475806b180b5b4c",
+    "evidence/research/sync-publication-assurance/test_fusedExplicitCostTest_2.itf.json": "277ab8df1b7240732c2c946e87dfdc06b5785f99ce28ed21d2a68d79ffc93ad3",
+    "evidence/research/sync-publication-assurance/test_localBypassTest_9.itf.json": "3dfdafff0918ab8c59482e516f93b0c607a7dd5d6b46710425aa0fedf2a92186",
+    "evidence/research/sync-publication-assurance/test_notifyLastUseTest_3.itf.json": "5a3ece39d0b34c0ac488bc3d637de06d6d4e6a0c6e0ef2f30a58afd13c085498",
+    "evidence/research/sync-publication-assurance/test_referenceCostTest_1.itf.json": "a2e4f294e9c93f2877a031d5c2628b57afb718ba0971773b5f5d3beb0beea622",
+    "evidence/research/sync-publication-assurance/test_rejectRestoresPrivateTest_8.itf.json": "932bb0e72d270b5deff36c2a92634e3a8358d401a30455a832a01aa82adbdc26",
+    "evidence/research/sync-publication-assurance/test_residualCounterexampleTest_12.itf.json": "a4eb0366ae3f4cb98ac4fd329858f897f7acb00019f9d0fece93b977b8aefc77",
+    "evidence/research/sync-publication-assurance/test_resumeBeforeWorkTest_10.itf.json": "a59517f22abd23d507aefe58ac3bcbfd0a7d0a341e9b4bc7bcbb0f2010ca480d",
+    "evidence/research/sync-publication-assurance/test_unknownReconciledTest_6.itf.json": "a63680e10940ed2fea1799f8f1348aeda4948481bd444f4095d996abd93b381b",
+    "evidence/research/sync-publication-assurance/test_unknownRetainedTest_5.itf.json": "187b0ea2fd59153fc571b003c733f618d2ebd4fd54ed506417181d7f0d4bb125",
+    "evidence/research/sync-publication-assurance/test_unreadyFusionCounterexampleTest_14.itf.json": "8095b0b7fb6bb4fdb0ca038782afc5cba6635ca9983ae87f9ee744fd0be9d959"
+  },
+  "storageRevision": {
+    "kind": "remove-mixed-run-assets",
+    "executionRequalified": false,
+    "previousReceiptSha256": "bda0ca716b6c9e4fd967094c101002b2fc766c855c7f63ed83c0a59a0246209b",
+    "previousReceipt": {
+      "kind": "git",
+      "revision": "3fffdcad639661750a2840953b198587c7f2a4a0",
+      "path": "evidence/research/sync-publication-assurance/checks.json",
+      "sha256": "bda0ca716b6c9e4fd967094c101002b2fc766c855c7f63ed83c0a59a0246209b"
+    }
+  }
+}

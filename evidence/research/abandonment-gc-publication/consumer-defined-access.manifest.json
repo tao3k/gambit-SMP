@@ -1,0 +1,64 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "evidence/research/abandonment-gc-publication/consumer-defined-access-contract.md": "632a0e411c4f40b283598339652aa93eb5af3f3c0e1c2cd0d5c716e0142f89d1",
+    "evidence/research/abandonment-gc-publication/consumer-implementation-memory-review.md": "f7ff1756f5253a8475f0d991cc9d6f6e124ea8f4e248194f3ad450617d94db13",
+    "evidence/research/abandonment-gc-publication/owner_seqlock_publication.failed-current-assertion.qnt": "a00de3f00eb28eada0fc6d91da0cf8fe578c5d61c45e072b9751b3a765a5a7aa",
+    "evidence/research/abandonment-gc-publication/consumer-publication-source-review.md": "abf8685601b1753e5853b62700fe9d9c31f24e8fdfa6a7a92e1d8ae9cd4aba19",
+    "evidence/research/abandonment-gc-publication/consumer-implementation-contract.md": "5855673c5066c5d73c2eee81bc52d65eba981f99d29a98e9e51178b60b96e040",
+    "models/gambit/consumer_publication.qnt": "e53be0b9b02cbed707c644370614a3c45b5d4c5e5881fae7e53fef75abdde6bd",
+    "models/gambit/owner_seqlock_publication.qnt": "57dac1d45d13478aa7d41ec5fe32d298c42454d4be8a9a79581638d3ed480471",
+    "models/gambit/barrier_phase_record.qnt": "095dca8521b774b269d197984f87d2288b0465fa2e7c09d96b1bd443955476ba",
+    "patches/fixtures/abandonment-gc-publication-reader-cumulative.patch": "e0f2b46d591ecbab9156d3d0adf9c83531e9d0c64f4c617b6ceb9b286c63ba12"
+  },
+  "cases": [
+    {
+      "id": "owner_defined_certificate",
+      "mode": "characterization",
+      "invariants": ["ownerImpl"],
+      "temporal": "completion",
+      "protocolInitializers": {"ownerImpl": "initProtocol"},
+      "oldInvariants": ["naiveSound", "stickyLive", "missMeansFree", "promotedIsCurrent"],
+      "oldInitializers": {
+        "naiveSound": "initProtocol",
+        "stickyLive": "initProtocol",
+        "missMeansFree": "initProtocol",
+        "promotedIsCurrent": "initPromote"
+      },
+      "source": [
+        "include/gambit.h.in:___TICKETLOCK_LOCK2",
+        "include/gambit.h.in:___ticketlock_struct",
+        "lib/setup.c:___raise_high_level_interrupt_pstate",
+        "lib/setup.c:___get_next_high_level_interrupt_pstate"
+      ],
+      "papers": [],
+      "scope": "Defined-access owner certificate. Payload words are relaxed atomics between release fences; the reader installs them only after acquire fences and a matching even seq. CURRENT_HOLDER is the snapshot rT == rSeen and obsP == 2. A saved CURRENT is not required to stay live. The returned record carries the interrupt-site coverage bound. An uninstrumented acquire does not write the certificate. Negative controls: a plain in-window read, a sticky live reading of CURRENT, ABSENT or HISTORICAL treated as lock-free, and a HISTORICAL snapshot relabeled CURRENT. This is not the failed a00de3f assertion and not the plain-seqlock campaign. Seq wrap, fault preservation, and native admission are outside this check."
+    },
+    {
+      "id": "barrier_local_winner",
+      "mode": "characterization",
+      "invariants": ["barrierImpl"],
+      "temporal": "completion",
+      "protocolInitializers": {"barrierImpl": "initProtocol"},
+      "oldInvariants": ["absentIsIdle", "completedMeansInBarrier", "flagIsRound", "naiveSound", "noInfer", "unelectedEntry"],
+      "oldInitializers": {
+        "absentIsIdle": "initProtocol",
+        "completedMeansInBarrier": "initProtocol",
+        "flagIsRound": "initProtocol",
+        "naiveSound": "initProtocol",
+        "noInfer": "initInfer",
+        "unelectedEntry": "initMislabel"
+      },
+      "source": [
+        "lib/setup.c:barrier_sync_op",
+        "lib/setup.c:___sync_op_struct",
+        "lib/setup.c:SYNC_GET_MSG",
+        "lib/setup.c:SYNC_SEND_MSG"
+      ],
+      "papers": [],
+      "scope": "Defined-access completed-operation record. The caller's proposal can win, so the elected op may equal the entry op. COMPLETED_PAST requires election, the elected op, the VM round, and tag 1. Publishing the entry op before election is the negative control. ABSENT is not idleness. The flag is not the round. A torn read and a SAME_CYCLE inference are negative controls. Cohort overwrite beyond this finite election, argument words, seq wrap, fault preservation, and native admission are outside this check."
+    }
+  ]
+}

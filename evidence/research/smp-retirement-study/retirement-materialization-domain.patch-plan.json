@@ -1,0 +1,118 @@
+{
+  "schema": "retirement-materialization-domain.patch-plan.v1",
+  "task": "repair-9-12",
+  "status": "evidence-proposal-not-implemented",
+  "sourceBoundProducer": ".cache/tasks/repair-9-12/build/gambit-core/c86dff86b3d7e2ed55e4d3900f2a58ea05c9ca955064da1e1da07d0c114a06d6",
+  "fields": {
+    "vmNative": [
+      "retirement_epoch",
+      "retirement_domain_version",
+      "retirement_entries",
+      "retirement_registry_mut",
+      "retirement_gc_readers",
+      "retirement_finalizing"
+    ],
+    "nativeEntry": [
+      "immutable key",
+      "prepare_state",
+      "native_list_owner",
+      "prepared_gc_epoch",
+      "abort_requested",
+      "abort_ack_epoch"
+    ],
+    "schemeVm": [
+      "appended retirement-roots; preserve unused-field2"
+    ],
+    "schemeEntry": [
+      "saved thread/current continuation",
+      "authoritative live root vectors",
+      "callback current/suffix/error/cursor",
+      "abort state"
+    ]
+  },
+  "functionChanges": [
+    {
+      "files": [
+        "lib/_thread.scm",
+        "lib/_thread#.scm",
+        "include/gambit.h.in"
+      ],
+      "proposed": [
+        "##retirement-prepare!",
+        "##retirement-landing!",
+        "##retirement-abort!"
+      ],
+      "ordering": [
+        "root carrier before save",
+        "old-cohort materialization before PREPARED",
+        "ABORT_ACK for all members before release/new epoch"
+      ],
+      "doNot": [
+        "restore pre-GC fp/bits",
+        "replay consumed callbacks",
+        "wait for Scheme under count-changing collective"
+      ]
+    },
+    {
+      "files": [
+        "lib/mem.c",
+        "lib/mem.h"
+      ],
+      "proposed": [
+        "retirement_gc_snapshot_begin",
+        "setup_still_owner_to_scan",
+        "mark_rc_owner",
+        "retirement_gc_mark_pending",
+        "retirement_gc_account",
+        "retirement_gc_snapshot_end"
+      ],
+      "ordering": [
+        "PREPARING excluded from pending native scan",
+        "pending still setup before setup completion barrier",
+        "pending RC actual-slot marking before internal strong-root barrier",
+        "view lease retained through cleanup/accounting/resize last use"
+      ],
+      "doNot": [
+        "scan lists under active and pending owners twice",
+        "copy RC data into temporary then forget writeback",
+        "sweep pending donor finalizers early",
+        "cache movable carrier body pointer across GC"
+      ]
+    },
+    {
+      "files": [
+        "lib/setup.c",
+        "lib/mem.c"
+      ],
+      "proposed": [
+        "collective count/domain commit",
+        "OP_VM_RETIRE_FINALIZE common-result path"
+      ],
+      "ordering": [
+        "no GC lease and all same-epoch Ready before membership/domain commit",
+        "actual keyed join0 and borrower grace",
+        "receiver root install then native splice/domain removal under GC exclusion",
+        "cleanup empty donor state then release slot/carrier"
+      ],
+      "doNot": [
+        "use MISC_MEM_LOCK as full GC quiescence",
+        "allocate/callback/nested on_all_processors inside finalize",
+        "return one collective member early",
+        "rejoin a successfully joined worker"
+      ]
+    }
+  ],
+  "nativeChecksStillOwed": [
+    "actual captured stack-frame materialization",
+    "GC-forwarded continuation rollback with donor2 failure",
+    "heap-space failure after root movement",
+    "native RC relocation writeback after between-GC mutation",
+    "second-GC still mark setup",
+    "unique active/pending/receiver native list enrollment",
+    "join0 while snapshot lease held",
+    "GC immediately before/after finalization selection",
+    "callback prefix/current/suffix error retention",
+    "retained-memory accounting distinct from live-object statistics"
+  ],
+  "formalContractMigration": false
+}

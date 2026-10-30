@@ -11,6 +11,38 @@ from gambit_smp import native_capabilities as native, recipes
 
 
 class NativeRecipeTests(unittest.TestCase):
+    def test_shared_library_is_typed_and_does_not_publish_an_executable(self):
+        self.recipe['steps'][0]['arguments']['target']='shared-library'
+        self.recipe['steps']=self.recipe['steps'][:1]
+        self.save()
+        result=self.run_recipe('shared-library')
+        self.assertEqual(result['outcome'],'PASS')
+        output=result['steps'][0]['outputs']
+        self.assertEqual(set(output),{'library'})
+        self.assertEqual(output['library']['type'],'native-shared-library')
+        argv=next(a for a,_ in self.calls if '-MD' in a)
+        self.assertTrue('-dynamiclib' in argv or '-shared' in argv)
+
+    def test_runtime_projection_is_read_only_and_does_not_widen_overlay_inputs(self):
+        from gambit_smp.source_capabilities import PROJECT_SOURCE, OVERLAY_INPUT
+        self.assertIn('source-runtime',PROJECT_SOURCE)
+        self.assertNotIn('source-runtime',OVERLAY_INPUT)
+
+    def test_interposer_requires_darwin_typed_artifact_and_rejects_stacking(self):
+        from types import SimpleNamespace
+        library=self.root/'test.dylib';library.write_bytes(b'bound instrumentation')
+        bound=[];kinds=[]
+        def artifact(ref,kind):kinds.append(kind);return library
+        ctx=SimpleNamespace(env={},artifact=artifact,bind=lambda paths:bound.extend(paths))
+        args={'interpose':{'step':'adapter','output':'library'}}
+        with patch('sys.platform','darwin'):
+            native.native_interposition(args,ctx)
+            self.assertEqual(ctx.env['DYLD_INSERT_LIBRARIES'],str(library))
+            self.assertEqual(bound,[library]);self.assertEqual(kinds,['native-shared-library'])
+            with self.assertRaises(ValueError):native.native_interposition(args,ctx)
+        with patch('sys.platform','linux'), self.assertRaises(ValueError):
+            native.native_interposition(args,SimpleNamespace(env={}))
+
     def test_suite_parameters_share_typed_fixture_contract(self):
         args = {"runtime": {"step": "runtime", "output": "runtime"},
                 "identity": {"step": "runtime", "output": "identity"},
@@ -506,6 +538,17 @@ class NativeRecipeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             core_command(build_capacity(2), "unbounded-target")
 
+    def test_official_bootstrap_can_follow_self_source_without_accepting_configured_source(self):
+        producer = {"id": "current", "capability": "gambit.source-core", "arguments": {}}
+        target = {"id": "bootstrap", "capability": "gambit.bootstrap", "dependsOn": ["current"],
+                  "arguments": {"runtime": {"step": "current", "output": "runtime"}}}
+        graph = {"current": producer, "bootstrap": target}
+        native.graph(target, graph, recipes.CAPABILITIES)
+        producer["capability"] = "gambit.configure"
+        target["arguments"]["runtime"]["output"] = "source"
+        with self.assertRaisesRegex(ValueError, "type mismatch"):
+            native.graph(target, graph, recipes.CAPABILITIES)
+
     def test_bootstrap_accepts_typed_current_producer_review_reference(self):
         args = {"runtime": {"step": "seed", "output": "runtime"},
                 "identity": {"step": "seed", "output": "identity"},
@@ -713,6 +756,11 @@ class NativeRecipeTests(unittest.TestCase):
                                  "arguments": {"sourceLock": "source.lock.json"}, "budgetSeconds": 10}]
         self.save()
         def git_execute(argv, cwd, timeout, **kwargs):
+            kwargs.get('metadata',{}).update(parentReaped=True,processGroupQuiescent=True)
+            if '-xpf' in argv or '-xf' in argv:
+                flag='-xpf' if '-xpf' in argv else '-xf'
+                with tarfile.open(argv[argv.index(flag)+1]) as tree:
+                    tree.extractall(argv[argv.index('-C')+1],filter='data')
             if "rev-parse" in argv:
                 return 0, str(gitdir) if "--absolute-git-dir" in argv else commit, False, 0.01
             if "archive" in argv:
@@ -724,12 +772,12 @@ class NativeRecipeTests(unittest.TestCase):
             if "apply" in argv and "--check" not in argv:
                 (Path(cwd) / "lib/mem.c").write_text("candidate")
             return 0, "", False, 0.01
-        with patch.object(native, "host_tools", return_value=({"git": self.gcc}, {})), \
+        with patch.object(native, "host_tools", return_value=({"git": self.gcc, 'tar':self.gcc,'sh':self.gcc}, {})), \
                 patch.object(recipes, "execute", side_effect=git_execute):
             result = recipes.run(self.root, self.path, self.root / "materialized", Path("no-quint"), Path("no-node"),
                                  gcc=self.gcc, allow_native=True)
         self.assertEqual("PASS", result["outcome"])
-        self.assertEqual(7, len(result["steps"][0]["commands"]))
+        self.assertIn('source-extract',[row['stage'] for row in result['steps'][0]['commands']])
         self.assertEqual("CURRENT", recipes.inspect_run(self.root / "materialized")["identityStatus"])
         (gitdir / "HEAD").write_text("changed")
         self.assertEqual("STALE", recipes.inspect_run(self.root / "materialized")["identityStatus"])

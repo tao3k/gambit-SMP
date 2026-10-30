@@ -1,0 +1,78 @@
+#+TITLE: Modern C Component Assurance: GC work
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: architecture
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %32ITEM %24STATUS %24OBLIGATION
+
+* RESEARCH GC work
+:PROPERTIES:
+:CUSTOM_ID: gc-work
+:COMPONENT: gc-work
+:AUTHORITY: GambitRuntimeAssurance
+:STATUS: local-model-slices-checked-source-refinement-open
+:EVIDENCE_CLASS: target-protocol-and-source-study
+:END:
+
+The wrapper imports CollectionContract with Relocate=true and Mutation=none. Forwarding identity, body readiness, publication, acquisition and scan completion stay separate. The injected early-finish control is a target design error, not a reachable native bug. The old direct finish-to-rescan claim remains withdrawn because source model guards exclude it.
+
+** State, transitions and necessary invariant
+Private/queued/claimed/descendant obligations and phase-scoped counted owners -> collection work frontier.
+
+claim/initialize/publish/acquire/scan/rescan/finish; source Tail and partial-copy states require extra relation.
+
+Required: Finish excludes every covered work class; preterminal rescan retains custody and closed epochs cannot reopen.
+
+Abstraction boundary: One object/two roots with stopped mutators does not cover real chunk partitions, partial copies, weak producers or independently scheduled workers.
+
+** Actual source and checked model scope
+[[file:../../../../vendor/gambit/lib/mem.c][Primary producer/consumer source]]. Source anchors: =mem.c:3251-3307,3520-3625,6667-6770,6938-7048=.
+
+[[file:../../../../models/library/gc/CollectionContract.qnt][Existing baseline model]] remains in models/.
+[[file:../../../../models/gambit/gc_work_contract.qnt][The component QNT]] has 4 deterministic positive/omission histories;
+its exact check scope is =gc_work_contract:Test$=. It supplies no exhaustive or native reachability proof.
+
+[[file:../../../../models/gambit/lean/WorkAccounting.lean][The independent Lean companion]] is checked with the exact declared symbol set:
+#+BEGIN_EXAMPLE
+GambitSMP.WorkAccounting:zeroCountAndEmptyQueuesExcludeHiddenWork;reopenedWorkRevokesZeroCount
+#+END_EXAMPLE
+These are conditional mathematical slices, not a new C/GSC transition simulation.
+The qualified namespace names are independently checked against the compiled formal module.
+
+** Obligations and dependency handoff
+#+NAME: gc-work-needs
+| Need | Method class | Completion premise |
+|---+---+---|
+| GW-H | interleaving | Positive and omission histories for Finish excludes every covered work class; preterminal rescan retains custody and closed epochs cannot reopen |
+| GW-I | induction | Checked conditional lemmas only; One object/two roots with stopped mutators does not cover real chunk partitions, partial copies, weak producers or independently scheduled workers |
+| GW-S | source-refinement | Initial relation, every real source action/stutter, concrete observation reflection and progress; claim/initialize/publish/acquire/scan/rescan/finish; source Tail and partial-copy states require extra relation |
+| GW-M | native-memory-order | Concrete atomics, root writes, lock order, callbacks/escapes, profile and physical last use |
+
+GW-S depends on HR-S, CO-S and SP-SOURCE. Partial-copy/Tail/chunk partition custody and all strong/weak/foreign producers are still needed beyond this one-object model.
+
+Failure remains with the sending custodian until a same-scope receiver accepts
+complete responsibility. A requested cancellation, produced pathname, local
+queue-empty observation or passed companion lemma is not that acceptance.
+
+** Elimination and added work
+Retire fixed PSTATE-equals-worker assumptions only after participant and worker roles have independent roots, task and phase contracts. Added work includes epoch grants, descendant accounting and memory-order qualification. Shared producer containment can eliminate support transactions conditionally; current performance is not established.
+
+Modern C owns this baseline redesign. The protocol and formal reuse are language
+independent; none proves an additional net gain from maintaining Zig.
+
+[[file:../../../modeling/component-assurance.org][The composed closure matrix and typed shared contracts]] retain cross-component
+prerequisites and counterexample controls. No runtime implementation or native test
+is authorized or performed by these research checks.
+
+
+
+** RESEARCH Generational admission extends the GC component
+[[file:modern-c-generational-design.org][Young boundary, generated stores and complete collector composition]] adds GEN-H/I
+and GC-GEN to this component. Its native SysML depends on the existing work,
+control and host-root source obligations; the old GW-S does not depend on the
+new collector candidate. This avoids turning an existing-source audit into a
+claim of a generational implementation.
+
+** RESEARCH Barrier and promotion obligations
+[[file:generational-barrier-design.org][WB-H/I, WB-WRITERS, WB-LOG, WB-SNAPSHOT, WB-PROMOTE and WB-MEMORY]] refine
+GC-GEN. The target schema has StoreTicket, RememberedCut and CopyReservation;
+concrete C writers, log endpoints, reserve bounds and memory order remain open.

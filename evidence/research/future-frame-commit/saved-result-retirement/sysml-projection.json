@@ -1,0 +1,440 @@
+{
+  "source": [
+    {
+      "key": "legacy-layout",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tcl.h",
+      "needle": "typedef struct Tcl_SavedResult",
+      "limit": "typically stack allocated; raw fields are not an owner registry"
+    },
+    {
+      "key": "save",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c",
+      "needle": "statePtr->freeProc = iPtr->freeProc;",
+      "limit": "legacy token moves native string/free hook out of interpreter"
+    },
+    {
+      "key": "restore",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c",
+      "needle": "Tcl_ResetResult(interp);",
+      "limit": "legacy restore disposes current result BEFORE snapshot install"
+    },
+    {
+      "key": "discard",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c",
+      "needle": "statePtr->freeProc(statePtr->result);",
+      "limit": "no interpreter argument; no settled-token bit after disposal"
+    },
+    {
+      "key": "set-result",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c",
+      "needle": "oldFreeProc(oldResult);",
+      "limit": "SetResult publishes new result before old free hook callout"
+    },
+    {
+      "key": "modern-save",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c",
+      "needle": "statePtr->objResult = Tcl_GetObjResult(interp);",
+      "limit": "modern opaque snapshot retains object state; can first dispose native string"
+    },
+    {
+      "key": "modern-restore",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclResult.c",
+      "needle": "Tcl_SetObjResult(interp, statePtr->objResult);",
+      "limit": "object restore then discard state; arbitrary release callouts remain"
+    },
+    {
+      "key": "trace-holder",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c",
+      "needle": "state = Tcl_SaveInterpState((Tcl_Interp *) iPtr, TCL_OK);",
+      "limit": "local trace state spans user trace callback"
+    },
+    {
+      "key": "rewind-holder",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclBasic.c",
+      "needle": "TclNRAddCallback(interp, RewindCoroutineCallback, state,",
+      "limit": "heap NR callback data[0] owns state until restore callback"
+    },
+    {
+      "key": "expr-holder",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclExecute.c",
+      "needle": "Tcl_NRAddCallback(interp, ExprObjCallback, state, resultPtr,",
+      "limit": "NR callback data[0] branches Restore/Discard on result"
+    },
+    {
+      "key": "background-holder",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclEvent.c",
+      "needle": "saved = Tcl_SaveInterpState(interp, code);",
+      "limit": "saved local spans bgerror evaluation and branch-dependent restore/discard"
+    },
+    {
+      "key": "legacy-abi",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclDecls.h",
+      "needle": "Tcl_DiscardResult(Tcl_SavedResult *statePtr);",
+      "limit": "public and stubs entry; no actual legacy caller found in captured subset"
+    },
+    {
+      "key": "parent-model",
+      "path": "dev/refactoring/modern-c/models/quint/callback_producer.qnt",
+      "needle": "action retireDomain=",
+      "limit": "actual preceding result/producer gate; new proof joins only at settled exit"
+    },
+    {
+      "key": "marker",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "___still_obj_refcount_dec (marker);",
+      "limit": "irreversible cleanup does not become idempotent by deleting completion record"
+    },
+    {
+      "key": "subst-holder",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclCompCmdsSZ.c",
+      "needle": "TclSubstParse(interp, bytes, numBytes, flags, &parse, &state);",
+      "limit": "indirect state producer through out parameter; TclSubstParse definition not in captured subset"
+    },
+    {
+      "key": "object-copy-cost",
+      "path": "evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h",
+      "needle": "ckalloc((unsigned int)(len) + 1U)",
+      "limit": "TclInitStringRep nonempty branch: n+1 bytes and n-byte memcpy; existing conversion cost, not added modern-C overhead"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "custody-safety",
+      "status": "conditional-model",
+      "condition": "A held through B disposal; C cannot be overwritten without settlement; record readers/issuers drain"
+    },
+    {
+      "key": "captured-holders",
+      "status": "source-bound",
+      "condition": "real modern local/NR callback state holders; legacy definitions/API only in captured subset"
+    },
+    {
+      "key": "legacy-holder-closure",
+      "status": "unresolved",
+      "condition": "all external legacy snapshot callers, struct aliases and abandonment paths enumerated"
+    },
+    {
+      "key": "reentrant-adapter",
+      "status": "unresolved",
+      "condition": "intercept raw result writes/free hooks or reject unsupported reentry; protected C is not current Tcl semantics proof"
+    },
+    {
+      "key": "record-retirement",
+      "status": "unresolved",
+      "condition": "stable lookup anchor, closed ACK producers, drained observers and no raw TicketId pointer escape"
+    },
+    {
+      "key": "native-completion",
+      "status": "unresolved",
+      "condition": "same-operation cleanup/free receipt; unknown cannot retry"
+    },
+    {
+      "key": "c23-refinement",
+      "status": "unresolved",
+      "condition": "owner thread, loaded Tcl ABI, release/acquire and generation no-wrap"
+    }
+  ],
+  "route": [
+    {
+      "actionName": "saveA",
+      "lemma": "SavedResultRetirement.saveAPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "installB",
+      "lemma": "SavedResultRetirement.installBPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "beginRestore",
+      "lemma": "SavedResultRetirement.beginRestorePreserves",
+      "source": "restore",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "reenterPublishC",
+      "lemma": "SavedResultRetirement.reenterPublishCPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "loseB",
+      "lemma": "SavedResultRetirement.loseBPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "ackB",
+      "lemma": "SavedResultRetirement.ackBPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "beginCRelease",
+      "lemma": "SavedResultRetirement.beginCReleasePreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "loseC",
+      "lemma": "SavedResultRetirement.loseCPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "ackC",
+      "lemma": "SavedResultRetirement.ackCPreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "commitRestore",
+      "lemma": "SavedResultRetirement.commitRestorePreserves",
+      "source": "restore",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "beginDiscard",
+      "lemma": "SavedResultRetirement.beginDiscardPreserves",
+      "source": "discard",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "beginRestoredRelease",
+      "lemma": "SavedResultRetirement.beginRestoredReleasePreserves",
+      "source": "set-result",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "loseA",
+      "lemma": "SavedResultRetirement.loseAPreserves",
+      "source": "discard",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "ackA",
+      "lemma": "SavedResultRetirement.ackAPreserves",
+      "source": "discard",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "completeFirst",
+      "lemma": "SavedResultRetirement.completeFirstPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "completeSecond",
+      "lemma": "SavedResultRetirement.completeSecondPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "lookupRecord",
+      "lemma": "SavedResultRetirement.lookupRecordPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "returnRecord",
+      "lemma": "SavedResultRetirement.returnRecordPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "closeObserverGate",
+      "lemma": "SavedResultRetirement.closeObserverGatePreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "closeIssuer",
+      "lemma": "SavedResultRetirement.closeIssuerPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "retireRecord",
+      "lemma": "SavedResultRetirement.retireRecordPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    },
+    {
+      "actionName": "reuseSlot",
+      "lemma": "SavedResultRetirement.reuseSlotPreserves",
+      "source": "parent-model",
+      "obligation": "custody-safety"
+    }
+  ],
+  "gain": [
+    {
+      "key": "real-holder-classification",
+      "saved": "avoid treating all snapshots as native string/freeProc owners",
+      "added": "nonempty legacy-to-object conversion already allocates n+1 bytes and copies n bytes; object/token references persist",
+      "condition": "native string conversion may free before modern save returns",
+      "status": "source-bound"
+    },
+    {
+      "key": "restore-escrow",
+      "saved": "0 admitted loss of saved A or overwrite of protected C while B release unknown",
+      "added": "simultaneous A/B/C custody and callout record",
+      "condition": "managed result interception or explicit refusal; raw Tcl not proven equivalent",
+      "status": "conditional-model"
+    },
+    {
+      "key": "completed-records",
+      "saved": "O(L) completed records after proven closed issuer/readers instead of keeping all history forever",
+      "added": "stable generation anchor plus retained records for live producers/readers/result debt",
+      "condition": "L counts all not-yet-qualified identities; can remain unbounded without closure",
+      "status": "conditional"
+    },
+    {
+      "key": "unknown-disposal",
+      "saved": "0 admitted blind retries or record retirement based solely on done",
+      "added": "opaque OperationId/result/provider holds retained indefinitely if needed",
+      "condition": "known backend receipt and remaining payload roots are separate",
+      "status": "conditional-model"
+    },
+    {
+      "key": "runtime-retirement",
+      "saved": "0 current runtime paths retired; no measured speedup",
+      "added": "snapshot adapters, observer/issuer lifecycle and native receipts",
+      "condition": "all native refinement gaps must close",
+      "status": "design-only"
+    }
+  ],
+  "issuer": [
+    {
+      "key": "snapshot-owner",
+      "source": "save",
+      "signature": "exclusive saved token and result identity across Restore/Discard",
+      "gap": "legacy struct can escape; no complete holder census"
+    },
+    {
+      "key": "native-callback-owner",
+      "source": "rewind-holder",
+      "signature": "NR callback data[0] or local trace owner keeps modern state until normal endpoint",
+      "gap": "callback deletion/abandonment and whole coroutine product unresolved"
+    },
+    {
+      "key": "result-owner",
+      "source": "restore",
+      "signature": "A snapshot escrow + B disposal identity + protected C owner",
+      "gap": "not implemented by raw Tcl_SetResult/ResetResult fields"
+    },
+    {
+      "key": "completion-registry",
+      "source": "parent-model",
+      "signature": "settled InvocationId then close ACK producers and observer gate; drain prior readers",
+      "gap": "guard counts alone do not prove old raw aliases disappeared"
+    },
+    {
+      "key": "generation-owner",
+      "source": "legacy-abi",
+      "signature": "stable lookup authority rejects old generation before accessing reused record",
+      "gap": "no safe first load from already reclaimed record; wrap/anchor retirement unresolved"
+    }
+  ],
+  "consumer": [
+    {
+      "key": "legacy-token",
+      "source": "legacy-layout",
+      "access": "caller-supplied typically stack struct",
+      "lifetime": "caller must consume once via Restore or Discard",
+      "limit": "no actual caller in partial local capture; external/public ABI remains"
+    },
+    {
+      "key": "command-trace",
+      "source": "trace-holder",
+      "access": "local state spans traceProc then Restore before Tcl_Release",
+      "lifetime": "normal trace dynamic scope",
+      "limit": "foreign escape can bypass endpoint"
+    },
+    {
+      "key": "coroutine-rewind",
+      "source": "rewind-holder",
+      "access": "state copied into NR callback data[0], restored by RewindCoroutineCallback",
+      "lifetime": "NR callback lifetime, not just C stack",
+      "limit": "full deletion/rewind callback closure unresolved"
+    },
+    {
+      "key": "expression-NR",
+      "source": "expr-holder",
+      "access": "state in ExprObjCallback data[0]; success Restore, error Discard",
+      "lifetime": "callback until selected endpoint",
+      "limit": "not proof every callback completes under all exits"
+    },
+    {
+      "key": "background-error",
+      "source": "background-holder",
+      "access": "saved spans bgerror and fallback/output branches",
+      "lifetime": "selected Restore or Discard branch",
+      "limit": "selected captured source only, not all Tcl state owners"
+    },
+    {
+      "key": "legacy-restore",
+      "source": "restore",
+      "access": "Reset current result -> install saved freeProc/string -> replace object",
+      "lifetime": "A stays owned while B callout may run",
+      "limit": "raw reentrant mutation can invalidate ordering; requires admission"
+    },
+    {
+      "key": "legacy-discard",
+      "source": "discard",
+      "access": "object decrement then saved custom hook",
+      "lifetime": "caller token + native operation until authoritative completion",
+      "limit": "no automatic token invalidation or retry safety"
+    },
+    {
+      "key": "subst-compiler",
+      "source": "subst-holder",
+      "access": "state out parameter then conditional Restore before syntax error emission",
+      "lifetime": "compiler local token across bytecode emission",
+      "limit": "producer implementation absent from captured files; alias closure remains unresolved"
+    }
+  ],
+  "edge": [
+    {
+      "fromNode": "Saved A",
+      "toNode": "Restore escrow",
+      "contract": "retain A while old-current B disposes"
+    },
+    {
+      "fromNode": "Old current B",
+      "toNode": "Reentrant new C",
+      "contract": "protected publication requires managed adapter; not raw equivalence"
+    },
+    {
+      "fromNode": "Restore escrow",
+      "toNode": "Interpreter A",
+      "contract": "commit only after known B and C settlement"
+    },
+    {
+      "fromNode": "Saved A",
+      "toNode": "Discard unknown",
+      "contract": "retain opaque operation and provider; do not retry hook"
+    },
+    {
+      "fromNode": "Invocation done",
+      "toNode": "Completion record retained",
+      "contract": "saved results, ACK producers and observers can still refer"
+    },
+    {
+      "fromNode": "Closed issuer and observer gate",
+      "toNode": "Prior reader drain",
+      "contract": "close is not a grace period"
+    },
+    {
+      "fromNode": "Prior reader drain",
+      "toNode": "Record retirement",
+      "contract": "result closure and completion evidence also required"
+    },
+    {
+      "fromNode": "Record retirement",
+      "toNode": "Generation slot reuse",
+      "contract": "stable anchor rejects old ACK before record access"
+    }
+  ]
+}

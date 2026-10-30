@@ -75,6 +75,11 @@ class LeasedTreeChecksTests(unittest.TestCase):
                 self.assertEqual(reads.call_count, 1)
                 context.leased_tree_checks.verify()
                 self.assertEqual(reads.call_count, 2)
+                costs = context.leased_tree_checks.costs()
+                self.assertEqual((1, 2, 1), tuple(costs[n] for n in
+                                 ('full_reads', 'reused', 'final_reads')))
+                self.assertTrue(all(costs[n] >= 0 for n in
+                                ('read_seconds', 'reuse_seconds', 'verify_seconds')))
             finally:
                 context.workspace_leases.close()
             self.assertIsNone(recipes._leased_tree_checks.get())

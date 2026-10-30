@@ -1,0 +1,285 @@
+#+TITLE: Private Frame Plans and VM Resize Root Scope
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: frame-seal-root-scope
+:AUTHORITY: GambitFrameSealRootScope
+:STATUS: conditional-model; source-and-C11-open
+:MAINLINE: modern generated C
+:END:
+
+A modern C backend needs a private, validated module plan and a separately frozen
+runtime root/source scope. FrameSpec validates local frame arithmetic; it cannot
+alone certify a whole-VM copying grant. New resize-request roots change the
+reachable object and descriptor union even when the requesting processor does
+not survive. This is an architecture contract, with no runtime implementation,
+preprocessing, native execution or performance qualification.
+
+The single maintained routing source is [[file:models/sysml/frame-seal-root-scope.sysml][native SysML]].
+Its explicit component seams bind build-publisher -> gc-work (sealed plan),
+host-roots -> gc-work (frozen root domain), and continuation -> gc-work (old
+descriptor lease union) to actual actions and lemmas. ASCENT checks these edges,
+including a missing-seam negative case. This is a conditional model association,
+not a claim that the underlying C transition already realizes the protocol.
+
+Its projected [[file:frame-seal-root-scope-matrix.org][source, alias, cost and closure matrix]] drives
+[[file:../../modeling/ascent/frame-seal-root-scope.rules.scm][ASCENT checks]] and [[file:diagrams/frame-seal-root-scope.d2][D2]].
+The preceding [[file:copy-producer-envelope-design.org][producer envelope]] remains historical evidence;
+this study takes new immutable source snapshots including setup.c rather than
+silently rebinding its old receipts to the newer resize implementation.
+
+* RESEARCH Actual FrameSpec writers and aliases
+** Constructor and replacement writers
+=targ-make-frame-spec= in =_t-c-3.scm= checks kind, exact stored size and link,
+effective size and gc-map coverage, then returns a seven-field *mutable* vector.
+The three return wrappers in =_t-c-2.scm= construct normal/task/internal variants.
+No direct named field setter for that vector was found in the bounded three-file
+backend slice. This is not a proof that arbitrary Scheme vector mutation, hooks,
+unsafe FFI or compiler extensions cannot reach it.
+
+=targ-add-label= writes label class at index 2 and info at index 3, separately.
+That is a real reference replacement writer. =targ-get-lbl= canonicalizes the
+label vector through the label table. =targ-emit-label= puts the same vector in
+the code stream; the ordered queue also holds it. =reverse val-lbls= copies a
+list spine, not those vectors or their number cells. =set-car! p= installs a
+procedure plan referring to the code, labels, resources and debug information.
+The subsequent loop still resolves goto label number cells: the set-car! itself
+is therefore too early to sign a complete module emission snapshot.
+
+=targ-get-ofd-count=, the DEF_LBL_RET traversal and the DEF_OFD/chunk traversal
+read these aliases independently. A proposed concurrent replacement between
+count and body emission can make them disagree. The current sequential path
+has not been shown to execute that race; it is a counterexample to admitting
+shared mutable plans into a parallel compiler without an ownership protocol.
+
+** Private sealing protocol
+1. Acquire an exclusive compilation-session owner for the target/provider state,
+   code stream, label table/queue, number cells, resource and debug plan. Prevent
+   reentrant mutation through macros, callbacks and continuation restoration.
+2. Finish all label numbering and layout-affecting writes. Capture the effective
+   generator/target ABI: stored-to-effective frame arithmetic, register count,
+   body/header size, alignment, reserve, word width and inline/OFD encoding.
+3. Keep source and candidate graphs rooted across every allocation. Copy the
+   reachable mutable label/code/cell graph with an identity relocation table.
+   A shallow FrameSpec copy does not detach its containers or target profile.
+   Restrict semantic fields to validated symbols/exact integers; reject foreign
+   or mutable extension payloads unless their copy protocol is qualified.
+4. Revalidate copied class/info pairs, frame sizes, link, roots, label numbering,
+   resource references and count/body consistency. All code and descriptor
+   passes use that one private plan. Derive root-map chunks from this same view.
+5. Publish only the complete rooted candidate and its producer summary. Unpublished
+   failures discard candidate ownership; published-but-unacknowledged candidates
+   remain rooted until publication outcome and consumer leases are resolved.
+6. A continuation resuming construction must re-enter the owner protocol and
+   validate its construction identity. It may neither mutate a published private
+   snapshot nor replay output commit. Unknown aliases or untracked hooks refuse
+   reuse and select a rebuilt isolated session.
+
+This is a proposed producer protocol. The current vectors do not implement it.
+Private copies protect consumers against *later* source mutations; they do not
+make an unstable read during copying safe. A revision check after a racy read is
+not a substitute for excluding writers. Build-session ownership is independent
+from the GC participant freeze used below.
+
+* RESEARCH Real VM request-root lifecycle
+** Producers, scanner and cleanup consumers
+=___setup_vmstate= initializes every request root to FAL under exclusive setup.
+=current_vm_resize_request= first checks GC_RUNNING, bounded serial and IDLE
+admission; it refuses same-origin reentry. It writes the thunk before publishing
+WRITING -> QUEUED, with no intervening allocation, callback or safepoint. The
+sync token combines serial and origin; the selected operation validates both.
+
+=execute_sync_op= reloads =source->thunk= after queued selection because another
+selected resize may have collected. Processor zero assigns =r->thunk= in
+=___vm_resize_pstate=, followed by the old-roster barrier before any GC. GC
+=mark_vmstate= scans the ledger root and *all* MAX_PROCESSORS request slots,
+not participant_count. Authorized scanner writes update movable object pointers.
+
+The ledger clears its thunk only outside RESIZE_RETAINED; successful startup
+also installs context roots. After the selected collective, the source slot is
+cleared only by the CONSUMED -> WRITING CAS winner, then publishes IDLE. Unknown
+or interrupted QUEUED/SELECTED becomes RETAINED with its root and serial intact.
+=___can_retire_pstate= refuses a nonidle origin; =___cleanup_vmstate= and global
+cleanup refuse nonidle request roots. These are explicit retention boundaries,
+not evidence that an unknown request eventually drains.
+
+The bounded source inventory includes setup initialization, source publish/ACK,
+ledger publish/clear and collector relocation. Whole-program native aliases,
+platform cancellation, manual entry into internal operations and every root
+domain's writer closure remain unqualified.
+
+** Frozen root contract and source budget
+Let R be the union of prior VM/global/context/FFI roots, all request slots, the
+resize ledger, pending-start contexts, and retained domains. Freeze *structural*
+writers at the old collective cut: no admitted WRITING source slot or new root
+publication can straddle the census. The scanner may still relocate values in
+registered slots. State flags alone are insufficient to prove a quiescent writer;
+WRITING also covers ACK clearing, which the source waits to do after the collective.
+The no-safepoint prequeue window and old-roster sync protocol require a complete
+caller/C11 proof before signing the runtime freeze receipt.
+
+Let U(R) be canonical physical source objects reachable from R. Canonical identity
+is allocation identity + source epoch/half + physical extent, independent of the
+number of root slots, forwarding aliases or descriptor names. For newly added
+request roots DeltaR, charge only U(R union DeltaR) minus U(R). A source slot,
+ledger and startup context pointing at one thunk do not triple its source charge.
+The new roots can retain a previously unreachable closure/continuation graph;
+its newly live physical objects and source extents must be included.
+
+#+begin_example
+B_new = B_old + DeltaU + DeltaA + DeltaT
+DeltaU = charge(U(R union DeltaR) minus U(R))
+B >= U + T;  U <= Q + A under the prior physical SourceCover hypotheses
+K >= P + floor(B / (C-G+1)), with 0 < G <= C
+N >= P_stack + K_heap + E_post_or_failure
+#+end_example
+
+These are conditional bounds, not measurements. If Q already bounds the entire
+frozen old source space, adding root aliases within that space may leave the
+conservative Q-based B unchanged, while increasing actual live copying work.
+If the root exposes objects outside the certified source cover, reject and
+rebuild the cover or select an alternative. Do not add newly reserved empty
+target sections to old-source Q. Strong/weak phases share the same committed
+source credits; neither a second root nor a weak-stage rescan refunds them.
+
+** Descriptor liveness and profile union
+A request thunk can reach procedures, denv, captured frames and continuations
+whose return points reference old code/OFD. Keep the transitive module dependency
+union alive, including modules reached through captured data, while source,
+ledger, context, maintenance or native users remain. Public entry closure,
+source ACK or removal of the origin processor is not descriptor detachment.
+GC root coverage proves object reachability only under the actual scanner;
+it does not automatically implement a dynamic loader's code-unload lease.
+
+The module producer union must include all such live generations when deriving
+G, encoding/root-map ABI and frame producer limits. Roots in still/permanent
+storage may cost no copying themselves but can reach movable graphs and old
+code. A simple root-slot count or current module registry misses both effects.
+The exact loader-to-frame reachability and unload guard remain source obligations.
+
+* RESEARCH Receipt issuance, revocation and alternative space
+:PROPERTIES:
+:CUSTOM_ID: issuance
+:END:
+
+| Point | Required evidence | Failure custody and action |
+|-------+-------------------+----------------------------|
+| Seal local FrameSpec | Stable private graph; final identities; exact ABI; field validation | No producer witness on shallow copy or unknown writer |
+| Issue local G | All ordinary/manual/native/frame producers in live descriptor union | Pin old summaries; missing cap selects alternative |
+| Issue B | Complete frozen roots; physical source cover; unique charge; alignment/threshold budget | Keep roots registered; refuse stale census |
+| Issue capacity | Same VM/source/root/module epochs; 0<G<=C; packing and detached-space receipt | No partial setup before collective agreement |
+| Change before copying | Close issue/start race and compare full identity tuple | Revoke receipt; recensus/replan or choose alternative |
+| New activation during copying | Defer structural producer/root admission; allow only registered relocation | Preserve active plan; retain pending work outside execution |
+| Unknown copy/setup outcome | No safe rollback receipt | Retain roots, descriptors and grants; no refund or unfenced retry |
+| Release old descriptor | Admissions closed; all frame/native/maintenance/root users detached | Retain on unknown lease or pending continuation |
+
+Alternative-space selection must preserve legal Scheme semantics: a capacity
+receipt refusal is not a Scheme program error. Large objects/frames, unknown
+native producers or impossible shared packing need a separately qualified space
+strategy. Its global totality, allocation-failure recovery and user-observable
+error policy are still OPEN. A planned fallback cannot be used as a proof of
+progress or erase partially committed copying obligations.
+
+** Concrete receipt records
+#+begin_src text
+SealedModulePlan = {
+  generatorDigest, sessionIdentity, semanticPlanDigest, labelRelocationDigest,
+  abiDigest, resolvedFrameSpecs, objectProducerManifest, maximumGrant,
+  rootLayouts, moduleDependencySummary, constructionGuardIdentity
+}
+CapacityReceipt = {
+  vmIdentity, collectionEpoch, rosterEpoch, rootAdmissionEpoch,
+  sourceCoverDigest, liveModuleGenerationUnionDigest, abiDigest,
+  Q, A, U, T, B, G, C, participantStackCount, workerCount, heapSectionCount,
+  detachedStorageGrantIdentity, writerClosureReceipt, descriptorLeaseSet
+}
+#+end_src
+
+The proposed records are contracts, not existing runtime structures. Scheme
+constructs semantic frame/object summaries; a generated modern C loader checks
+ABI and installs rooted immutable handles. Runtime GC owns the live census,
+producer/root admission epochs, physical packing and descriptor lease release.
+A compiler plan is reusable across runtime epochs; its runtime capacity receipt
+is not. Output and source-map identities belong to the module plan commit and
+must be invalidated with layout changes in incremental compilation.
+
+* RESEARCH C11 publication and exclusion obligations
+The header selects __sync builtins, Windows, emulated or sequential CAS families.
+This study does not infer a current Darwin effective configuration from macro
+text. Ordinary thunk writes require a release publication/acquire observation
+*and* mutual exclusion from collector relocation under the same freeze epoch.
+A volatile state or atomic state load alone does not legalize a concurrent plain
+read/write of a Scheme root slot.
+
+A modern C adapter must prove: prequeue publication reaches sync consumers;
+ledger publication precedes GC; scanner writes reach post-GC reloads; source ACK
+cannot overlap frozen scanning; serial/generation cannot wrap into ABA; and
+receipt revocation/start are serialized. Exception, pthread cancellation and
+continuation exit cannot bypass ownership guards. None is claimed established
+by the scalar model's atomic actions.
+
+* RESEARCH Executable model and proof boundary
+[[file:models/quint/frame_seal_root_scope.qnt][The actual QNT model]] has 20 protocol actions, 20 safety conjuncts,
+eight positive histories and five deliberately corrupted negative histories.
+One symbolic request represents an arbitrary origin. It is not a quantified
+proof of all MAX_PROCESSORS instances, concurrent requests or full heap graphs.
+=ledger= in this abstraction denotes *downstream custody* (ledger plus any
+accepted successor context), not the instantaneous r->thunk bit. Its delayed
+close is conservative; code clears the physical ledger earlier. That concrete
+sequence needs stuttering/refinement and caller receipts, not action-name equality.
+
+The =coverSource= constants are small witness values used to exercise guards;
+Q=510/B=512 are not measured Gambit capacities. =moduleClosed= is an explicit
+external premise. The abstraction deliberately has no safe native transition
+which silently introduces a missing module or unregistered root during copying.
+
+The restricted typed JSON extractor checks state binding identity, field types,
+expression support and the complete step roster, then emits
+[[file:models/lean/FrameSealRootAst.lean][the actual Lean AST]]. [[file:models/lean/FrameSealRoot.lean][Lean induction]] covers
+those extracted steps. [[file:models/lean/FrameRootComposition.lean][The composition proof]] imports the preceding
+physical SourceCover theorem: given a valid source cover and an issued model
+receipt, its destination + alignment + threshold charge fits B. The cover and
+root completeness themselves are not fabricated by the receipt or scalar model.
+
+ASCENT checks action-to-lemma edges, source hashes, evidence scope, imported
+proof identity and absent obligations. A synthetic all-receipts case is only a
+negative-control harness. Actual source-refinement and native-memory-order
+receipts remain missing; actual candidate admission must remain false.
+
+** Retained counterexamples
+- Shallow label copy lets a later class/info replacement split count and OFD output.
+- Signing at set-car! precedes final goto numbering and is premature.
+- Ignoring an out-of-roster retained source can miss a movable object graph.
+- Source ACK followed by old-module unload leaves a continuation return descriptor dangling.
+- Per-root byte sums double-charge aliases; ignoring newly reachable unique objects undercharges B.
+- Checking state with CAS while reading an unfrozen plain thunk does not remove a C data race.
+- Selecting another plan after copying started can refund committed credits or lose initialized objects.
+
+** Closure matrix
+| Obligation | Status | Remaining requirement |
+|------------+--------+-----------------------|
+| Bounded writer/alias anchors | Source witnessed | Full extensions/hooks/FFI closure remains open |
+| Private snapshot unaffected by later live mutation | Model proved | Concrete graph copier and stable read protocol |
+| All model step safety | Lean induction | C11/source refinement; arbitrary-origin product composition |
+| Issued receipt -> conditional SourceCover bound | Lean composition | Native disjoint physical cover and all-producer grants |
+| Request slot VM scanner coverage | Direct source evidence | Writer freeze, relocation and caller closure |
+| Old descriptor transitive leases | Required architecture | Loader/frame/FFI complete consumer inventory |
+| Alternative legal Scheme behavior and performance | Open | No runtime or performance evidence in this study |
+
+* RESEARCH Maintenance and theoretical benefit
+The [[file:frame-seal-root-scope-matrix.org][SysML-derived matrix]] states formulas, added memory/work and rejection
+conditions. Reusing a sealed producer summary can avoid repeated descriptor
+interpretation; it does not avoid source occupancy census or root scanning.
+Old C emission paths retire only after generated modern C and all runtime
+consumers use the same sealed contract, including old-module generations.
+No such path is retired by this research. Modern C can implement every protocol
+here; these results establish no separate Zig benefit and no speedup percentage.
+
+Research receipts: [[file:../../../evidence/research/frame-seal-root-scope/checks.json][checks]],
+[[file:../../../evidence/research/frame-seal-root-scope/source-witnesses.json][source anchors]],
+[[file:../../../evidence/research/frame-seal-root-scope/writer-inventory.json][bounded writer inventory]],
+[[file:../../../evidence/research/frame-seal-root-scope/input.json][identity and logs]].

@@ -1,0 +1,71 @@
+#+TITLE: VM Arena Scan, Sweep, Census and History Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: vm-arena-collector-matrix
+:AUTHORITY: VMArenaCollector
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** Caller
+
+| key | anchor | condition |
+|---+---+---|
+| arena-setup | mem.c:4210-4247,6775-6805 | Initialize each arena once per epoch; positive still refcounts seed traversal; storage remains VM-owned after creator exit |
+| discovery-and-workers | mem.c:3626-3647,6667-6771 | Discovering worker owns its local still queue; storage owner differs from scanner; claim and queue publication must preserve outstanding work |
+| weak-and-sweep | mem.c:4039-4080,5032-5105,6872-6930 | PSTATE will-list membership needs separate handoff; retain weak/testator and GC-hash semantics; drain derived work before exactly-once arena sweep |
+| capacity-census | mem.c:1556-1684,4387-4427,6256-6293,6367-6472 | Charge deferred words once; recompute physical live and quarantine words across VM arena membership, not current processors |
+| history-consumers | mem.c:367-370,7000-7049,7509-7522; _kernel.scm:3999-4043,4126-4130 | Allocation history differs from occupancy; GC folds/unfolds baseline; archive departed contributions; process-statistics exposes distinct observables |
+
+** Protocol
+
+| key | anchor | condition |
+|---+---+---|
+| freeze-membership | setup.c:918-978; mem.c:7002-7009; proposed epoch cut | StorageHandoffReceipt precedes creator exit; freeze VM arenas and worker tickets separately; no mid-epoch cleanup or ownership migration |
+| scan-work | mem.c:3626-3647,4210-4247,6686-6690 | Initialize marks once; discovered objects may queue on any authorized worker; queued, in-flight and unpublished work must all settle |
+| weak-closure | mem.c:4039-4080,5032-5105,6896-6902 | Strong quiescence precedes weak decisions; process_wills may add work; weak-derived closure precedes GC-hash cleanup and sweep |
+| sweep-authority | mem.c:4387-4427,6910-6930; c_intf.c:1683-1710 | One arena sweep authority; unreachable ordinary blocks freed; admitted asynchronous foreign shell remains charged until release settlement |
+| census-and-history | mem.c:6256-6293,6367-6472,7000-7049; _kernel.scm:4031-4043 | Census waits for all arena sweep receipts; count physical quarantine and reserves separately; signed baseline rebase and archived history survive departure |
+
+** Route
+
+| key | anchor | qntAction | leanLemma | condition |
+|---+---+---+---+---|
+| registration | setup.c:930-978; mem.c:4210-4247 | beginGC | retiredStillCounted | Epoch arena membership includes VM-retained storage independently of current processor set |
+| termination | mem.c:6686-6690,6738-6767 | enterWeak | emptyQueueInsufficient | Queue empty is insufficient while dequeued scan or publication debt remains |
+| coverage | mem.c:6896-6900,6928-6930 | enterCensus | sweepCoverage | All weak closure and arena sweep authorities must complete before capacity publication |
+| retirement | mem.c:4400-4406; c_intf.c:1699-1707 | freeReleased | unknownRetains | Unsettled foreign duty retains shell and capacity; no blind callback retry |
+| statistics | mem.c:6283-6293,7000-7049; _kernel.scm:3999-4043 | depart | archivePreserves | Archive source history once; moving physical storage is not allocating bytes again |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| vm-arena-authority | Creator-affinity bookkeeping and duplicate independent list/census ownership for migrated arenas | Arena registry, epoch tickets, exact setup/sweep assignment; O(N) body and edge scanning remains | Work saving requires removed affinity/copy/rebinding greater than metadata and barriers; no collector speedup inferred |
+| honest-capacity | Dropped departed arena bytes, deferred double charge and foreign shell undercount | Charged/deferred/reserve/quarantine ledger and completed sweep census; retained unknown duties cost memory | Capacity correctness is required even with zero speed gain; unbounded unresolved duties prevent bounded retention |
+| history-and-service | Repeated source-history recovery and processor lifetime pinning solely for statistics | Signed occupancy baselines or equivalent separated counters, archived history and explicit API adaptation | Compiler span improves only when processor affinity was a real critical path; modern C supports contract without demonstrated Zig-specific gain |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| membership | handoff;depart;beginGC | retiredStillCounted;transferNotAllocation;archivePreserves | Refine stable VM registry versus current PSTATE enumeration; all source/storage/root and native holder transfer prerequisites remain inherited |
+| tracing | dequeue;finishScan;enterWeak;processWeakKeep;enterSweep | emptyQueueInsufficient;weakWorkBlocksSweep | Refine real CAS winner-to-queue publication, body writeback, in-flight scan and chunk producers; no premature global termination |
+| capacity | sweep;enterCensus;finishGC;freeReleased | sweepCoverage;deferredOnce;chargeQuarantine;censusMustFollowSweep;unknownRetains | Prove exact survivor sets, foreign task ownership, reserve reconciliation and publish capacity after all sweep receipts |
+| history | handoff;depart;finishGC | rebasePreserves;foldUnfold;signedBaselineRequired;netBenefit | Define observed statistic per API/phase; signed baselines, departed history archival, F64 precision and source compatibility separately |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| producer-closure | False | Complete RC/still/root/weak/task/native producers and all permitted writers admitted |
+| vm-ownership | False | Actual VM arena registry and parent storage/root handoff preserve bodies, RC allocations and destructor ownership |
+| gc-seal | False | Real C CAS publication debt, dequeue/in-flight custody, termination and barrier refinement remain open |
+| scan-coverage | False | Actual mark/reset, PSTATE weak-domain handoff, strong/weak/GC-hash, sweep and census adapters cover every target arena exactly once |
+| retirement | False | Foreign affinity, task roots, pending leases and unknown outcomes settle; arena metadata reuse waits for empty storage, retired tickets and archived history |
+| source-replacement | False | Per-PSTATE authority removed for migrated arenas only after complete producer/consumer migration |
+| platform | False | Statistics API equivalence, overflow/F64 behavior, C memory model, host registration and native qualification remain open |

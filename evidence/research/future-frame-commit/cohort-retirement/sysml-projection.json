@@ -1,0 +1,307 @@
+{
+  "source": [
+    {
+      "key": "shrink-admission",
+      "path": "vendor/gambit/lib/_mem/capacity-resize.inc",
+      "needle": "if (head->next != head)",
+      "limit": "reject nonempty RC domain; no general handoff inferred"
+    },
+    {
+      "key": "shrink-join",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___transfer_retired_still (ps, ___ps);",
+      "limit": "only after known successful thread_join"
+    },
+    {
+      "key": "retained-join",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "r->slots[i].phase = ___RESIZE_SLOT_RETAINED;",
+      "limit": "join failure retains resources; no termination proof"
+    },
+    {
+      "key": "old-roster",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "old-set commit, matching OP_SET_PROCESSOR_COUNT",
+      "limit": "departing thread uses committed count before exit"
+    },
+    {
+      "key": "still-transfer",
+      "path": "vendor/gambit/lib/_mem/capacity-resize.inc",
+      "needle": "retirement is not object death.",
+      "limit": "successful join and closed collective are stated preconditions"
+    },
+    {
+      "key": "cleanup-api",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___GSTATE->___cleanup_pstate",
+      "limit": "public function-table access; internal caller census not external closure"
+    },
+    {
+      "key": "root-domain-cleanup",
+      "path": "vendor/gambit/lib/_mem/memory-lifecycle.inc",
+      "needle": "prepare_rc_cleanup (___ps);",
+      "limit": "then still cleanup, RC cleanup and gate destruction"
+    },
+    {
+      "key": "setup-failure",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "if ((err = setup_sync_op_pstate (___ps))",
+      "limit": "unpublished initialization failure is distinct from live worker shrink"
+    },
+    {
+      "key": "whole-vm-cleanup",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "VM cleanup retained resize resources",
+      "limit": "global shutdown refuses retained resize, not full external observer grace"
+    },
+    {
+      "key": "previous-grace",
+      "path": "dev/refactoring/modern-c/models/quint/rc_reader_grace.qnt",
+      "needle": "action confirmCohortDrain=",
+      "limit": "abstract physical-drain permit refined here; not implemented counter service"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "cohort-safety",
+      "status": "conditional-model",
+      "condition": "closed admission; normal drain; known worker termination; zero exported observers"
+    },
+    {
+      "key": "internal-shrink",
+      "status": "source-bound",
+      "condition": "actual old-set commit, native thread exit, successful join then transfer and cleanup"
+    },
+    {
+      "key": "external-api",
+      "status": "unresolved",
+      "condition": "public cleanup and foreign pointer readers require stable enclosing VM authority"
+    },
+    {
+      "key": "native-drain",
+      "status": "unresolved",
+      "condition": "all claims, descendants and abnormal exits covered by effective collective"
+    },
+    {
+      "key": "native-join",
+      "status": "unresolved",
+      "condition": "successful join adapter and cancellation/exception landing qualified on selected target"
+    },
+    {
+      "key": "c23-refinement",
+      "status": "unresolved",
+      "condition": "memory orders, generation and native width correspondence"
+    }
+  ],
+  "route": [
+    {
+      "actionName": "enterLookup",
+      "lemma": "CohortRetirement.enterLookupPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "exitLookup",
+      "lemma": "CohortRetirement.exitLookupPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "acquireExternal",
+      "lemma": "CohortRetirement.acquireExternalPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "returnExternal",
+      "lemma": "CohortRetirement.returnExternalPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "closeRoster",
+      "lemma": "CohortRetirement.closeRosterPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "escapeScanner",
+      "lemma": "CohortRetirement.escapeScannerPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "collectiveDrain",
+      "lemma": "CohortRetirement.collectiveDrainPreserves",
+      "source": "old-roster",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "exitWorker",
+      "lemma": "CohortRetirement.exitWorkerPreserves",
+      "source": "shrink-join",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "joinUnknown",
+      "lemma": "CohortRetirement.joinUnknownPreserves",
+      "source": "retained-join",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "joinKnown",
+      "lemma": "CohortRetirement.joinKnownPreserves",
+      "source": "shrink-join",
+      "obligation": "cohort-safety"
+    },
+    {
+      "actionName": "retireDomain",
+      "lemma": "CohortRetirement.retireDomainPreserves",
+      "source": "shrink-join",
+      "obligation": "cohort-safety"
+    }
+  ],
+  "gain": [
+    {
+      "key": "closed-internal-readers",
+      "saved": "0 added per-lookup RMW if all internal readers remain in closed collective",
+      "added": "existing barriers and join retained",
+      "condition": "complete internal synchronous scope; no exported lookup",
+      "status": "conditional"
+    },
+    {
+      "key": "shrink-domain",
+      "saved": "reuse existing RC-empty rejection; no RC migration needed for admitted shrink",
+      "added": "nonempty RC domains remain ineligible until real handoff exists",
+      "condition": "existing can_retire_pstate plus known join",
+      "status": "source-bound"
+    },
+    {
+      "key": "exported-readers",
+      "saved": "no universal hazard scheme forced on synchronous internal users",
+      "added": "O(A) enrolled observer leases for A exported readers or explicit refusal",
+      "condition": "stable admission anchor before first VM/task load",
+      "status": "unresolved-native"
+    },
+    {
+      "key": "failed-join",
+      "saved": "0 speculative cleanups or gate destruction after unknown join",
+      "added": "retained worker/VM/native resources; unbounded retention possible",
+      "condition": "unknown is not worker termination",
+      "status": "conditional-model"
+    },
+    {
+      "key": "retirement",
+      "saved": "0 runtime paths retired by formal checks",
+      "added": "unify typed cleanup preconditions across live shrink and private setup rollback",
+      "condition": "native all-callers and abnormal-exit refinements",
+      "status": "design-only"
+    }
+  ],
+  "issuer": [
+    {
+      "key": "roster-coordinator",
+      "source": "old-roster",
+      "signature": "old roster commit before departing thread exit",
+      "gap": "external entrants not inherently closed"
+    },
+    {
+      "key": "native-join-owner",
+      "source": "shrink-join",
+      "signature": "successful join witnesses departing OS-thread termination",
+      "gap": "does not witness external thread or callback retirement"
+    },
+    {
+      "key": "storage-owner",
+      "source": "still-transfer",
+      "signature": "transfer surviving still list and accounting before context cleanup",
+      "gap": "RC and effectful domains rejected by current shrink admission"
+    },
+    {
+      "key": "vm-api-owner",
+      "source": "cleanup-api",
+      "signature": "stable VM entry permit before public cleanup and first pointer load",
+      "gap": "current public ABI does not supply composed receipt"
+    },
+    {
+      "key": "retained-custodian",
+      "source": "retained-join",
+      "signature": "keep old native/storage identity on unknown join or escaped scan",
+      "gap": "recovery and liveness not established"
+    }
+  ],
+  "consumer": [
+    {
+      "key": "live-shrink",
+      "source": "shrink-join",
+      "access": "old-set commit -> exit -> join -> still transfer -> cleanup",
+      "lifetime": "departing worker known dead; remaining roster lives",
+      "limit": "other native readers need separate closure"
+    },
+    {
+      "key": "abort-growth",
+      "source": "retained-join",
+      "access": "abort entry then join created threads; cleanup initialized slots only if joins known",
+      "lifetime": "unpublished contexts and retained native entry records",
+      "limit": "unknown create/published contexts are not private rollback"
+    },
+    {
+      "key": "setup-rollback",
+      "source": "setup-failure",
+      "access": "cleanup after failed sync initialization before successful setup return",
+      "lifetime": "exclusive unpublished setup lifetime",
+      "limit": "must prove no custom callback published it"
+    },
+    {
+      "key": "global-shutdown",
+      "source": "whole-vm-cleanup",
+      "access": "shrink to one; reject retained requests; cleanup current pstate and VM",
+      "lifetime": "setup/VM lifecycle owner",
+      "limit": "public foreign users and reentry still unresolved"
+    },
+    {
+      "key": "public-cleanup",
+      "source": "cleanup-api",
+      "access": "function pointers exported in global table",
+      "lifetime": "caller must provide enclosing lifetime and exclusivity",
+      "limit": "internal grep is not external caller closure"
+    }
+  ],
+  "edge": [
+    {
+      "fromNode": "Old roster",
+      "toNode": "Closed collective",
+      "contract": "close membership and drain internal readers / descendants"
+    },
+    {
+      "fromNode": "Closed collective",
+      "toNode": "Worker exit",
+      "contract": "departing thread exits before native cleanup"
+    },
+    {
+      "fromNode": "Worker exit",
+      "toNode": "Known join",
+      "contract": "one OS-thread termination receipt"
+    },
+    {
+      "fromNode": "Known join",
+      "toNode": "Storage handoff",
+      "contract": "transfer still objects and accounting; require RC admission"
+    },
+    {
+      "fromNode": "Storage handoff",
+      "toNode": "Domain retirement",
+      "contract": "also close and drain exported observers"
+    },
+    {
+      "fromNode": "Unknown join / escaped scanner",
+      "toNode": "Retained custody",
+      "contract": "no cleanup or gate reuse; no invented completion"
+    },
+    {
+      "fromNode": "Public cleanup API",
+      "toNode": "External entry authority",
+      "contract": "first metadata load must already be safe"
+    }
+  ]
+}

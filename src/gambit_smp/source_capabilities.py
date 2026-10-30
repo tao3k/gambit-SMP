@@ -14,6 +14,7 @@ from gambit_smp.framework import digest, relative
 
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 TREE = {"source-tree", "configured-tree"}
+PROJECT_SOURCE = TREE | {'source-runtime', 'seed-runtime'}
 OVERLAY_INPUT = TREE | {"compilation-workspace"}
 
 
@@ -52,7 +53,9 @@ def validate_source_lock(lock):
     for name, row in inventory.items():
         source_name(name)
         fields(row, ("baseSha256", "candidateSha256"))
-        sha(row["baseSha256"])
+        # Null means the path must be absent in the pinned archive, not empty.
+        if row["baseSha256"] is not None:
+            sha(row["baseSha256"])
         sha(row["candidateSha256"])
 
 
@@ -77,9 +80,45 @@ def source_file(root, name):
     return path
 
 
+def verify_source_base(root, name, row):
+    """Distinguish an absent new path from an existing empty source file."""
+    source_name(name)
+    path = Path(root)
+    for part in name.split("/"):
+        path = path / part
+        if path.is_symlink():
+            raise ValueError("source file cannot traverse a symlink")
+        if path.exists() and path != Path(root) / name and not path.is_dir():
+            raise ValueError("source parent must be a directory")
+    if row["baseSha256"] is None:
+        if path.exists():
+            raise ValueError("new source path must be absent from pinned archive")
+    elif digest(source_file(root, name)) != row["baseSha256"]:
+        raise ValueError("archived base source differs from lock")
+
+
 def reference(value):
     from gambit_smp.native_capabilities import reference as check
     check(value)
+
+
+def project_bytes(data, ranges):
+    """Check an explicit byte projection; this makes no semantic locality claim."""
+    if not isinstance(ranges, list) or not ranges:
+        raise ValueError("explicit byte-range inventory required")
+    end, pieces = 0, []
+    for span in ranges:
+        fields(span, ("start", "end", "sha256"))
+        if (type(span["start"]) is not int or type(span["end"]) is not int
+                or not end <= span["start"] < span["end"] <= len(data)):
+            raise ValueError("ordered disjoint positive byte spans within source required")
+        sha(span["sha256"])
+        piece = data[span["start"]:span["end"]]
+        if hashlib.sha256(piece).hexdigest() != span["sha256"]:
+            raise ValueError("projection span byte identity mismatch")
+        pieces.append(piece)
+        end = span["end"]
+    return b"\n".join(pieces)
 
 
 def validate_overlay(args, inputs):
@@ -155,7 +194,7 @@ def validate_workspace_build(args, inputs):
 def graph(step, by_id, registry):
     contracts = {
         "source.overlay": {"source": OVERLAY_INPUT},
-        "source.project": {"source": TREE},
+        "source.project": {"source": PROJECT_SOURCE},
         "source.bind": {"workspace": {"compilation-workspace"}},
         "native.workspace-build": {"workspace": {"compilation-workspace"}, "binding": {"source-binding"}},
     }
@@ -206,7 +245,7 @@ def overlay(args, ctx):
 
 def project(args, ctx):
     from gambit_smp.recipes import source_path, tree_identity
-    source = ctx.artifact(args["source"], TREE)
+    source = ctx.artifact(args["source"], PROJECT_SOURCE)
     workspace = ctx.directory / "workspace"
     workspace.mkdir()
     records = []
@@ -219,15 +258,7 @@ def project(args, ctx):
             raise ValueError("projection origin differs from reviewed byte identity")
         content = data
         if "ranges" in row:
-            pieces = []
-            for span in row["ranges"]:
-                if span["end"] > len(data):
-                    raise ValueError("projection span escapes its source file")
-                piece = data[span["start"]:span["end"]]
-                if hashlib.sha256(piece).hexdigest() != span["sha256"]:
-                    raise ValueError("projection span byte identity mismatch")
-                pieces.append(piece)
-            content = b"\n".join(pieces)
+            content = project_bytes(data, row["ranges"])
         target = relative(workspace, row["target"])
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
@@ -248,7 +279,7 @@ def bind(args, ctx):
     if (provenance.get("schema") != "source-byte-provenance.v1"
             or provenance.get("sourceRefinementAdmitted") is not False):
         raise ValueError("mechanical byte provenance required")
-    source = ctx.artifact(provenance["source"], TREE)
+    source = ctx.artifact(provenance["source"], PROJECT_SOURCE)
     files = {}
     for row in provenance["files"]:
         target = relative(workspace, row["target"])
@@ -256,7 +287,7 @@ def bind(args, ctx):
         path = (relative(source, origin["path"]) if origin["kind"] == "source-artifact"
                 else relative(ctx.root, origin["path"]))
         data = path.read_bytes()
-        expected = b"\n".join(data[span["start"]:span["end"]] for span in row["ranges"]) if "ranges" in row else data
+        expected = project_bytes(data, row["ranges"]) if "ranges" in row else data
         if digest(path) != row["sha256"] or target.read_bytes() != expected or digest(target) != row["outputSha256"]:
             raise ValueError("source/workspace byte correspondence drift")
         files[row["target"]] = row["outputSha256"]
@@ -277,10 +308,14 @@ def workspace_build(args, ctx):
     binding = read_json(ctx.artifact(args["binding"], "source-binding"))
     if binding.get("workspace") != args["workspace"] or binding.get("sourceRefinementAdmitted") is not False:
         raise ValueError("matching non-refinement workspace binding required")
+    if set(path.relative_to(workspace).as_posix() for path in workspace.rglob('*') if path.is_file()) != set(binding['files']):
+        raise ValueError('workspace inventory differs from binding')
+    for name, expected in binding['files'].items():
+        if digest(relative(workspace, name)) != expected:
+            raise ValueError('workspace binding drift')
     copied = ctx.directory / "inputs"
-    from gambit_smp.fixture_storage import source_capacity
-    with source_capacity(copied):
-        shutil.copytree(workspace, copied)
+    # A bound projection is not another complete Gambit source/runtime tree.
+    shutil.copytree(workspace, copied)
     if set(path.relative_to(copied).as_posix() for path in copied.rglob("*") if path.is_file()) != set(binding["files"]):
         raise ValueError("workspace inventory differs from binding")
     for name, expected in binding["files"].items():
@@ -298,7 +333,7 @@ def capabilities(Capability):
         "source.project": (validate_project, project, (("workspace", "compilation-workspace"),)),
         "source.bind": (validate_binding, bind, (("binding", "source-binding"),)),
         "native.workspace-build": (validate_workspace_build, workspace_build,
-                                   (("executable", "native-executable"), ("object", "native-object"))),
+                                   (("executable", "native-executable"), ("object", "native-object"), ("library", "native-shared-library"))),
     }
     return {name: Capability(validate, executor=executor, graph=graph, outputs=outputs)
             for name, (validate, executor, outputs) in entries.items()}

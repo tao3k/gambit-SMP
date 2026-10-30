@@ -1,0 +1,144 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "ci-modern-c-modular-bootstrap",
+  "scope": "Exact locked modern-C source, unchanged Darwin Bazel profile, current-source interpreted host then complete two-pass bootstrap; not full SMP acceptance",
+  "budgetSeconds": 600,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/modular-smp-bootstrap/qualified/source.lock.json",
+    "evidence/research/modular-smp-bootstrap/qualified/source-overlay.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/research/modern-c-bootstrap/entry-custody-host.json",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/modular-smp-bootstrap/intent-current.json",
+    "vendor/gambit/tests/frame-continuation.scm",
+    "vendor/gambit/tests/frame-continuation-roots.scm",
+    "evidence/research/modern-c-bootstrap/historical-log-restoration.json",
+    "evidence/research/modular-smp-bootstrap/review-current.json",
+    "dev/refactoring/modern-c/models/sysml/copy-custody.sysml",
+    "dev/refactoring/modern-c/models/sysml/memory-organization.sysml",
+    "evidence/research/memory-organization/validation.json",
+    "evidence/research/modern-c-bootstrap/request-custody-records/model__dev__refactoring__modern-c__models__sysml__copy-custody.sysml",
+    "evidence/research/modular-smp-bootstrap/fragment-admission.json",
+    "evidence/research/modular-smp-bootstrap/ci-host.json"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [
+
+      ],
+      "arguments": {
+        "sourceLock": "evidence/research/modular-smp-bootstrap/qualified/source.lock.json",
+        "buildWorkspace": "gambit-core"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      },
+      "budgetSeconds": 150
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        },
+        "bootstrapHost": "evidence/research/modular-smp-bootstrap/ci-host.json"
+      },
+      "budgetSeconds": 600
+    },
+    {
+      "id": "review",
+      "capability": "gambit.review",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "intent": "evidence/research/modular-smp-bootstrap/intent-current.json",
+        "target": "bootstrap"
+      }
+    },
+    {
+      "id": "bootstrap",
+      "capability": "gambit.bootstrap",
+      "dependsOn": [
+        "seed",
+        "review"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "seed",
+          "output": "identity"
+        },
+        "retryReview": {
+          "step": "review",
+          "output": "review"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "review",
+        "bootstrap"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": [
+
+          ]
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

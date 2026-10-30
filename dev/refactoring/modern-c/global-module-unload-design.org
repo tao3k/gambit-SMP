@@ -1,0 +1,292 @@
+#+TITLE: Global Image Ownership and Module Unload Permission
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: global-module-unload
+:AUTHORITY: GambitGlobalModuleUnload
+:STATUS: conditional-model; actual-owner-closure-and-C11-open
+:MAINLINE: modern generated C
+:END:
+
+The unload authority must belong to an *image group*, not one Scheme module or
+one VM. A linker can recursively enumerate several module structs, while the
+current loader list stores only native handles. Local detachment receipts must
+cover each distinct required owner under a closed image/module-generation
+manifest. Heap liveness, registry removal and returning from one callback do
+not supply that closure.
+
+[[file:models/sysml/global-module-unload.sysml][Native SysML]] owns source facts, consumer classes, inventories,
+component seams and proof obligations. [[file:global-module-unload-matrix.org][The projected matrix]] and
+[[file:diagrams/global-module-unload.d2][D2]] are derived. This extends
+[[file:frame-seal-start-retire-design.org][the previous local-versus-global retirement study]], preserving its evidence.
+No runtime/compiler implementation, preprocessing, native unload test or
+performance measurement is included.
+
+* RESEARCH Real storage and executable consumers
+** Image handle is not ModuleId
+=os_dyn.c= has the process-global =___dyn_mod.dl_list=. Each dl_entry contains
+only next and native handle. Successful loading resolves a linker and publishes
+the handle; =setup.c= traverses module/linkfile graphs with =for_each_module=.
+There is no existing complete image-to-module-generation/VM ownership record.
+Equal OS handles can also reflect repeated loader references: release each owned
+reference by operation identity rather than treating handle bits as a unique load.
+
+A proposed ImageId combines loader-record incarnation, owned OS-reference
+identity, content/ABI identity and unload generation. Module generation is a
+separate key. The frozen ImageMemberManifest lists every contained module and
+its code/data/label/OFD ownership, including dependencies represented by other
+handles or the process runtime. Static runtime modules and no-unload profiles
+must remain nonreclaimable rather than becoming fabricated dynamic candidates.
+
+** Program, registry, init and metadata consumers
+=___module_struct= contains lbltbl/ofdtbl, constant/subtyped tables, setup_mod,
+init_mod and moddescr. Fixup may align/copy labels and OFD data, then installs
+host code/goto labels and label-to-OFD pointers. Moving metadata does not detach
+its host code or all native data addresses from the loaded image.
+
+=setup_module_collect_moddescrs= creates a permanent foreign wrapper around the
+raw module pointer, installs it in the Scheme descriptor and the program's
+module descriptor array, then calls setup_mod. =##init-mod= dereferences that
+raw wrapper to call init_mod; the later init stage calls the Scheme thunk.
+=##program-descr= exposes the process program descriptor. Descriptor accessors
+and aliases retained by user code remain consumers even after registry removal.
+
+=##remove-registered-module= clears one registry list cell. Registration has an
+explicit atomicity TODO. Neither operation is a descriptor detachment or code
+unload protocol. Under configured multi-VM support, Scheme globals use their
+VM-selected global cells; the C loader owner is process-global. Do not infer
+that all Scheme registry storage is itself a single process-shared table, or
+that the multi-VM branches are qualified on the current Darwin build.
+
+The permanent/raw module-pointer representation is a serious retirement limit:
+if an observer can still invoke init through it, the image must remain alive.
+A modern owned descriptor facade must either retain that image lease, or prove
+all raw aliases detached before retiring it. Simply copying the descriptor,
+clearing the registry or observing one GC cycle is insufficient. Existing raw
+permanent objects may force process-lifetime retention on compatibility routes.
+
+** Captured frames, restoration and GC maintenance
+=mark_captured_continuation= reads RETI/RETN sizes/links from return labels.
+=mark_continuation= decodes descriptors and uses their GC maps; stack transfer
+and kernel restoration also read those return points. Inactive and multi-shot
+continuations are therefore real metadata/code consumers. A root retirement
+receipt must cover the last reachable captured frame and every saved/restorable
+context, not just currently executing processors.
+
+Scheme closure/denv reachability, code execution and maintenance scanning are
+separate leases. A worker may scan old descriptors after external entry closes.
+Its worker/carrier identity is not proof that a foreign destructor permits that
+OS thread. Required executor/VM affinity must come from registration; missing
+affinity excludes certified early unload. Its child tasks inherit the same
+image/module generation; child acceptance must
+precede parent credit return and parent last use. Current scanner/root coverage
+is not an existing descriptor-lifetime ledger, and has not been refined to the
+new abstract transfer steps.
+
+** FFI exports and destructors
+=___SCMOBJ_to_FUNCTION= either returns a static c-define host function pointer
+or creates a C closure. =___make_c_closure= registers the Scheme procedure as RC
+data, but its trampoline also jumps to converter code. The procedure root alone
+does not account for that converter's image owner. Native code may retain either
+export after the original Scheme activation ends.
+
+=___POINTER_to_SCMOBJ= stores a raw release_fn in a foreign object. GC sweep and
+processor cleanup both call =___release_foreign=. That function clears its fields
+before invoking release_fn; cleared fields do not prove the callback returned,
+that its code is detached or that derived tasks completed. A foreign object can
+be unreachable precisely when its native destructor still needs image code.
+
+The actual Tcl example installs scheme_call_cmd and scheme_delete_cmd through
+Tcl_CreateCommand, with RC payload referring to a still Scheme vector. Deleting
+the Scheme payload and deleting/draining the external callback registration are
+different events. Its invocation, deletion, nested callback and unknown-result
+paths require leases for both payload and native entry code. These are witnessed
+producer/consumer sites, not a new proof of Tcl concurrency or cleanup safety.
+
+The [[file:../../../evidence/research/global-module-unload/source-witnesses.json][source anchors]] and [[file:../../../evidence/research/global-module-unload/writer-inventory.json][bounded inventories]] cover these sites.
+Arbitrary raw native exports, OS callbacks, TLS/atexit/profiling hooks and every
+shared library dependency still prevent a universal closed consumer inventory.
+
+* RESEARCH Image-owner manifest and local receipts
+#+begin_src text
+OwnerKey = (ImageId, ModuleGeneration, VMIncarnation | ProcessOwnerId, Role)
+ImageOwnerManifest = (CloseEpoch, MemberDigest, RequiredOwnerKeys,
+                      PendingAdmissions, NativeExports, LoaderPolicy)
+LocalDetachReceipt = (OwnerKey, CloseEpoch, CoverageDigest, RootEpoch,
+                      NoFutureEntryReceipt, KnownCompletionSet)
+GlobalUnloadPermit = (ImageId, CloseEpoch, MemberDigest,
+                      AcceptedOwnerMapDigest, NativeAndTaskDrain,
+                      ObserverDrain, TeardownQualification)
+#+end_src
+
+These are proposed contracts. VM slot numbers and raw handle bits are not
+sufficient identities: both can be reused. Module generation, VM incarnation,
+image membership and close epoch must match. The aggregator accepts a receipt
+once per OwnerKey; duplicate delivery is idempotent. Two deliveries from one VM
+cannot stand in for another VM or another member module.
+
+The owner roster includes VM module bindings, captured/restorable contexts,
+maintenance and pending-start/resize roots, native callback registrations and
+process-level exports. All local image-member module generations must be covered.
+A VM-local receipt can summarize a set of keys only if the adapter proves that
+set's complete membership and no untracked future producer. The actual two-slot
+QNT model represents two required owner aggregates; the adapter must prove the
+quotient covers the real owner product.
+
+** Close and registration ordering
+1. Keep a stable image-control record outside reclaimable image storage.
+   Register a VM/process owner credit before exposing an executable binding,
+   descriptor pointer, callback or native function address.
+2. Serialize global admission closure with owner reservation. Freeze all accepted
+   owner identities plus in-progress reservations; a preclose observer is still
+   debt even if it has not yet dereferenced the module payload.
+3. Send per-VM closure requests without holding the VM-list/image/GC locks across
+   waits. Each VM closes its local module admission, remains able to participate
+   in GC/sync and drains existing users. VM removal is not a shortcut to receipt.
+4. Acquire validated local receipts into the owner-keyed map. Known failures
+   leave custody with the sender; unknown delivery preserves the original record.
+   Stale epoch/incarnation/digest mismatch is rejected, never counted as progress.
+5. Issue the global permit only after the frozen roster is completely represented,
+   global native/task/observer debts are zero, no pending handoff/unknown outcome
+   remains, and the loader teardown profile is qualified.
+
+The existing VM-list mutex only protects a topology surface where enabled; it
+is not an image borrow gate. The source even contains an interrupt traversal
+whose locking is disabled with a recursive-lock warning. A new image protocol
+must not wait for callbacks or GC while holding a lock those paths need. No
+cross-VM native execution acceptance is inferred from this source inspection.
+
+* RESEARCH Child tasks and unknown results
+For a task derived from an already admitted parent, closing public admission
+does not erase the parent's responsibility. The task may proceed using a
+transferred existing image credit, provided its code/root/payload dependencies
+remain in the same qualified scope. This is not reopening public borrow admission.
+
+| Handoff point | Required custody | Failure behavior |
+|---------------+------------------+------------------|
+| Prepare child | Parent keeps code/root lease; rooted task candidate | Known allocation failure leaves parent responsible |
+| Publish/accept | Child receipt identifies generation and task identity | Unknown acknowledgment keeps parent and candidate owned |
+| Commit transfer | Atomically move credit, or prove overlap until acceptance | Never decrement parent before an accepted child is protected |
+| Parent last use | Parent no longer touches old descriptor/payload | Return only after all final accesses |
+| Child completes | Registered stable completion guard records known result | Unknown/exceptional completion keeps global debt |
+
+Parent-derived work, deferred foreign cleanup and in-flight scans must appear
+in the same drain ledger. The scalar model checks one such transfer and preserves
+its credit; real chunk queues, GC worker exit and native task executors still
+need refinement. A parent-to-child count equation is not a C11 publication proof.
+
+* RESEARCH C11 close, late borrow and final release
+A modern C baseline can use a short owner lock or an atomic image-state ledger.
+Neither may span GC waits, user callbacks or dlclose. CAS is not assumed faster.
+For the atomic candidate, reservation and closure linearize on the same authority;
+a separate closed flag and unrelated counter read do not suffice.
+
+| Operation | Proposed order | Remaining condition |
+|-----------+----------------+---------------------|
+| Reserve owner/observer | acq_rel RMW before payload dereference | Stable control, correct generation and bounded credit |
+| Close admission | acq_rel transition sharing reservation authority | Every prior reservation remains in the frozen roster |
+| Publish local receipt/child | Release | Fully initialized rooted record; no pending last use |
+| Accept receipt/child | Acquire or acq_rel transfer | Exact identity; no duplicate decrement |
+| Return final credit | acq_rel with stable completion record | Known outcome; interrupted return must not become fabricated zero |
+| Observe complete drain | Acquire after admission closure | All owner receipts, no observers/tasks/unknown ledger debt |
+| Begin loader transaction | Pinned record before call; no runtime locks held | Qualified finalizer closure and no reentry into retired generation |
+
+C11 [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570]] sections 5.1.2.4 and 7.17 separate synchronization, atomic
+modification and storage lifetime. Those rules motivate the proposed ordering;
+the model does not implement the C11 weak-memory axioms, finite-word encoding,
+ABA exhaustion or all guard-return failure windows. These remain required proof
+obligations rather than being promoted from an interleaving check.
+
+* RESEARCH Loader transaction, side effects and actual reclamation
+The source cleanup loop calls dlclose then frees its list entry without recording
+a per-operation outcome. It is a global shutdown path, not a newly qualified
+concurrent unload service. The failed-load dlclose site is a separate case.
+Existing no-unload and profiling caveats must remain part of the policy scope.
+
+[[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/dlclose.3.html][Apple's archived dlclose documentation]] describes a reference release that may
+invoke termination routines and documents cases that stay loaded. It is platform
+background, not qualification of the current local dyld build. A successful OS
+reference release must not be labeled measured bytes reclaimed or permission to
+reuse stale pointers.
+
+Before calling the loader, reserve a stable transaction with a unique OperationId,
+owned loader reference and pinned adapter/runtime dependencies. Do not blindly
+reenter old module code from finalizers after its admission closes. A finalizer
+that needs asynchronous image-dependent work requires an independently retained
+loader reference and a qualified two-stage teardown protocol; otherwise reject
+early-unload admission and preserve the image's lifetime.
+
+Known dlclose success records HandleReferenceReleased. Known failure and unknown
+return require platform-specific reconciliation. Unknown outcome retains the
+control identity and outcome record, forbids old code entry and automatic retry,
+and does NOT prove the image is still mapped. Even if the mapped image remains,
+its generation cannot be silently reused. The QNT loader pin represents custody
+of this transaction/metadata; it is not an OS guarantee to keep code mapped.
+
+* RESEARCH Actual models and composition
+[[file:models/quint/global_module_unload.qnt][The QNT model]] contains 28 actions, nine positive histories and seven corrupted
+negative histories. It separates owner closure, local issuance, delivery,
+preclose observers, native debt, child transfer, global permission and known/
+unknown loader outcomes. Owner and user domains are bounded representative
+aggregates; receipt-issuance and completion actions require independently valid
+source witnesses. ScopeComplete and TeardownQualified are external premises,
+not facts learned from these samples.
+
+[[file:models/lean/GlobalUnloadAst.lean][Typed-IR extraction]] checks symbol binding, field types and the full action roster.
+[[file:models/lean/GlobalUnload.lean][Lean induction]] proves initial/all-step/reachable safety, complete receipt
+requirements, duplicate-delivery idempotence and child-credit conservation.
+[[file:models/lean/GlobalUnloadComposition.lean][Composition]] adds owner-set union and duplicate-key properties, a conditional
+two-owner quotient, and the preceding global-readiness contract with the actual other-owner/native/
+task/observer debt sums, not a literal assumed zero. It explicitly
+requires a complete real-owner mapping; it does not derive arbitrary N-VM safety
+from a two-slot model.
+
+SysML connects build-publisher membership summaries, GC maintenance, continuation
+frames and host-root/native completion to resource-exit aggregation. The
+[[file:../../modeling/ascent/global-module-unload.rules.scm][actual ASCENT DSL]] checks those action/lemma seams, source digests,
+lexical inventories and imported proof identity. Actual source/C11 receipts stay
+missing, so actual candidate admission remains false. A synthetic all-receipts
+control does not certify source/native correctness.
+
+| Obligation | Current evidence | Gap |
+|------------+------------------+-----|
+| Descriptor/code consumer classes | Actual load/fixup/frame/FFI/Tcl/cleanup sites | Full alias/export/finalizer closure |
+| Module-to-image grouping | Linker recursion plus raw handle-list shape | Complete generated membership and loader dependency adapter |
+| Owner-keyed aggregation | QNT histories and extracted Lean induction | Dynamic VM enrollment/incarnation and concrete receipt issuance |
+| Child responsibility transfer | Model conservation and rejection/unknown cases | Actual queue/last-use/GC publication refinement |
+| Close versus late borrow | Explicit observer debt and negative histories | Real C11 authority and all native ingress paths |
+| Loader completion | Known/unknown transaction model | Current dyld outcome/finalizer contract and bytes reclaimed |
+
+** Retained counterexamples
+- One VM receipt permits unloading while another owner's frames remain.
+- Duplicate receipt messages are counted as distinct owners.
+- A receipt from an earlier close epoch is accepted for a new generation.
+- A preclose observer is ignored when the final count appears zero.
+- Parent credit disappears before a child is accepted.
+- Unknown native/loader completion is treated as a known release.
+- A complete module receipt is applied to an incompletely identified shared image.
+
+* RESEARCH Net benefit and migration dependencies
+The [[file:global-module-unload-matrix.org][derived matrix]] lists costs and positive-benefit conditions. With n distinct
+owner keys, one closure cycle needs O(n) membership/receipt work plus real user
+quiescence. It does not eliminate frame/root scans or native callback teardown.
+Potential memory benefit is reclaimed image bytes minus owner/summary/transaction
+metadata and quarantined retention; platform-pinned images can yield zero reclaimed
+bytes. Parallel local drains reduce unnecessary global serialization only if
+native callers are actually admitted into this ownership protocol.
+
+Modernization order: generate complete image/module ownership summaries; separate
+owned descriptor metadata from raw permanent pointers; register VM and native
+owners before publication; qualify local detach/child transfer; install global
+aggregation; finally qualify loader teardown. The global-only list can cease to
+be the sole lifetime authority on those admitted routes. Legacy/raw or unknown
+routes retain process lifetime. No current runtime path is retired by this study,
+and no independent Zig net benefit is established.
+
+Research receipts: [[file:../../../evidence/research/global-module-unload/checks.json][checks]],
+[[file:../../../evidence/research/global-module-unload/input.json][identity and logs]],
+[[file:../../../evidence/research/global-module-unload/source-witnesses.json][source witnesses]].

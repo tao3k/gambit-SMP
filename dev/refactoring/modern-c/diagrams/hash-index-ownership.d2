@@ -1,0 +1,31 @@
+direction: down
+vars: { d2-config: { layout-engine: elk } }
+reconstruction_roots: "reconstruction-roots\n_io.scm deserialize -> _system.scm implode-gc-hash-table; binary deserialize -> gc-hash-table-reconstruction-begin/commit! -> object-scanning.inc"
+producer: "producer\n_system.scm make-table-aux checks-done -> table flags -> table-get-gcht/allocate"
+reference_repair: "reference-repair\nmem.c scan -> process_gc_hash_tables -> repaired key/value references and owner dispatch"
+native_index: "native-index\nobject-scanning.inc actual strong-key movement; weak-tables.inc reference repair; hash-table-api.inc pure lookup and writer-owned reconstruction"
+physical_cursor: "physical-cursor\n_system.scm gc-hash-table-for-each/search/foldl -> visitor -> GC -> same physical cursor"
+scheme_index: "scheme-index\n_system.scm table-access -> recorded test/hash -> existing resize/reinsert for explicit reconstruction debt"
+owner_lifetime: "owner-lifetime\ngc-hash-table-resize flag retention; table-copy -> make-table-aux; serialize/deserialize flags"
+witness: "witness\nnew target gsc default heap -> full two-pass bootstrap -> compiled map/multishot/GC and hash-index-owner controls"
+producer -> reference_repair: responsibility contract
+reference_repair -> native_index: responsibility contract
+reference_repair -> scheme_index: responsibility contract
+producer -> owner_lifetime: responsibility contract
+owner_lifetime -> witness: responsibility contract
+scheme_index -> witness: responsibility contract
+reference_repair -> physical_cursor: responsibility contract
+physical_cursor -> witness: responsibility contract
+reconstruction_roots -> reference_repair: responsibility contract
+reconstruction_roots -> scheme_index: responsibility contract
+reconstruction_roots -> witness: responsibility contract
+proof_HI_QNT: "HI-QNT / quint\ndev/refactoring/modern-c/models/quint/hash_index_owner.qnt"
+physical_cursor -> proof_HI_QNT: separate obligation
+proof_HI_LEAN: "HI-LEAN / lean\ndev/refactoring/modern-c/models/lean/HashIndexOwner.lean"
+scheme_index -> proof_HI_LEAN: separate obligation
+proof_HI_NATIVE: "HI-NATIVE / native\nevidence/research/hash-layout/native-observations.json"
+witness -> proof_HI_NATIVE: separate obligation
+proof_HI_REFINE: "HI-REFINE / source-refinement\nvendor/gambit/lib/_system.scm"
+owner_lifetime -> proof_HI_REFINE: separate obligation
+reconstruction_roots -> proof_HI_QNT: same schedule model
+reconstruction_roots -> proof_HI_LEAN: existing transport premise

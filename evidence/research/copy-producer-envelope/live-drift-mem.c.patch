@@ -1,0 +1,34 @@
+--- evidence/research/copy-producer-envelope/source-snapshots/mem.c
++++ vendor/gambit/lib/mem.c
+@@ -7089,7 +7089,15 @@
+       (slot->generation != ___ps->context->startup_generation ||
+        ___startup_load(slot) != ___STARTUP_READY))
+     return 0; /* membership publication does not certify scheduler initialization */
++  /* A pending source activation cannot disappear through membership shrink.
++   * This includes a request that would retire its own origin. No C stack or
++   * unknown join is accepted as a source-root handoff receipt. */
++  if (___COMPARE_AND_SWAP_WORD
++        (&vm->resize_requests[___PROCESSOR_ID(___ps,vm)].state,
++         ___RESIZE_SOURCE_IDLE, ___RESIZE_SOURCE_IDLE) != ___RESIZE_SOURCE_IDLE)
++    return 0;
+   ___rc_header *head = &___ps->context->mem.rc_head_;
++
+   ___WORD *base = ___CAST(___WORD*,___ps->context->mem.still_objs_);
+   if (head->next != head)
+     return 0; /* no freeze receipt for external RC/native borrowers */
+@@ -7170,6 +7178,15 @@
+   mark_array (work, ___BODY0_AS(___VM_SCMOBJ(___vms),___tSUBTYPED),
+               ___VM_SIZE);
+   mark_array (work, &___vms->resize.thunk, 1);
++  {
++    int i;
++    /* All origins are frozen by the old collective. Registry lifetime is the
++     * VM's, not participant_count or a caller C frame. Never skip a retained
++     * slot because its origin is absent or its operation has failed. */
++    for (i=0; i<___MAX_PROCESSORS; i++)
++      mark_array (work, &___vms->resize_requests[i].thunk, 1);
++  }
++
+ }
+ 
+ 

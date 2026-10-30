@@ -1,0 +1,129 @@
+#+TITLE: Unified Storage Index — Benefits, Costs and Closure
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: storage-index-matrix
+:AUTHORITY: GambitStorageIndexTransactions
+:END:
+Rows below are evaluated from SysML. Formal routes locate proposed replacements; they do not assert existing native implementation.
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| overlap-authority | duplicate physical slot identities and duplicate scan writes | one owner transaction per reserve and unlink; O(n) reference overlap search | all allocation and view authorities participate; current native retirements zero |
+| lost-reply | duplicate allocation registration and premature source release on retry | one stable operation record per request; exact query; replay tombstone storage | same request identity; no process-crash recovery promised |
+| source-writer | holding source after a proved independent copy is covered | alias path blocks writes for full lifetime; copy adds roots and storage | copy branch inherited only from parent; not proved in new product |
+| parallelism | serial preparation of disjoint rooted candidates | serialized metadata mutation and contention; no fairness guarantee | only preparation outside lock; physical non-overlap and isolated root slots proved |
+| cleanup | processor-local cleanup guessing whether shared header is live | VM owner drain and retained unknown-result work | cleanup_rc bypass must retire only after all exported callers migrate |
+| language-choice | duplicating registry ownership across C and Zig | Zig would still need allocator index GC bridge transaction ledger and FFI admission | no demonstrated incremental Zig benefit over shared modern C contract |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| mutex | initialize candidate outside owner lock under scan-visible source root | lock owner then revalidate revision generation extent and request identity | no Scheme callback allocator or GC safepoint while holding index lock; unlock synchronizes later successful lock | short serialized reserve commit unlink operations |
+| publication | single owner transaction publishes immutable descriptor plus root-cell registration and result | scanner and lookup use same lock or proved acquire-load pinned snapshot | release/acquire only publishes initialization; does not pin storage or synchronize moving GC cell writes | bundle root plus descriptor pin and GC round participation |
+| CAS-alternative | CAS whole pinned snapshot with exact expected revision | failed CAS updates expected; inspect only after acquire and lifetime protection | cannot CAS separate list root and receipt independently; retry overlap check; no weak CAS failure interpreted as rejection | snapshot allocation retries reclamation and possible contention |
+| settlement | same owner transaction validates exact lease then removes occupancy and records completed result | old or duplicate token returns already-settled or stale without decrement | never decrement then independently record; cancellation no nonlocal exit inside commit; stable owner retains unknown outcome | one exact ledger mutation no blind counter decrement |
+| generation | close drain unpublish grace then advance checked generation | all old keys and operation receipts compare complete identity | generation is not index revision or semantic payload version; exhaust refuses new issuance | checked counters tombstones delayed reuse |
+| GC | candidate source pin precedes first movable allocation; descriptor registered before visible publication | one canonical physical slot per round; GC updates through registered cell | alias metadata immutability does not make root cell immutable; no duplicate scanner writes | root enumeration pin scan ownership; integration unresolved |
+
+** Need
+
+| key | kind | path | scope | owner.componentId |
+|---+---+---+---+---|
+| ST-formal | formal | dev/refactoring/modern-c/models/quint/storage_index_transactions.qnt | two fixed operation identities; alias leases; two storage generations; safety only | storage |
+| ST-bridge | bridge | dev/refactoring/modern-c/models/lean/StorageIndex.lean | restricted typed IR all-step induction; trusted parser and emitter | storage |
+| ST-storage | native | vendor/gambit/lib/_mem/rc-allocation.inc | complete allocator provenance and overlap transaction issuer absent | storage |
+| ST-roots | native | vendor/gambit/lib/_mem/rc-roots.inc | private-root protection and every-round registry scan product unproved | storage |
+| ST-writers | native | vendor/gambit/lib/setup.c | indirect exported setters and all native borrowers not closed | storage |
+| ST-platform | native | vendor/gambit/include/_gambit/activity_log.h.in | effective Darwin C23 mutex and atomic ABI unqualified | storage |
+| ST-lifetime | native | vendor/gambit/lib/_mem/memory-lifecycle.inc | unknown-result custodian and real cleanup retirement signer absent | storage |
+| ST-execution | native | vendor/gambit/examples/tcltk/tcltk.scm | nested callbacks continuation and exception completion guard product open | storage |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| storage | storage_index_transactions.chooseAdjacent | StorageIndex.chooseAdjacentPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.observeA | StorageIndex.observeAPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.reserveA | StorageIndex.reserveAPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.prepareA | StorageIndex.prepareAPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.publishA | StorageIndex.publishAPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.queryA | StorageIndex.queryAPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.borrowA | StorageIndex.borrowAPreserves | tcl-call | ST-execution |
+| storage | storage_index_transactions.returnA | StorageIndex.returnAPreserves | tcl-call | ST-execution |
+| storage | storage_index_transactions.scanA | StorageIndex.scanAPreserves | rc-scan | ST-roots |
+| storage | storage_index_transactions.finishScanA | StorageIndex.finishScanAPreserves | rc-scan | ST-roots |
+| storage | storage_index_transactions.revokeA | StorageIndex.revokeAPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.drainA | StorageIndex.drainAPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.abortA | StorageIndex.abortAPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.settleA | StorageIndex.settleAPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.rejectOldA | StorageIndex.rejectOldAPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.observeB | StorageIndex.observeBPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.reserveB | StorageIndex.reserveBPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.prepareB | StorageIndex.prepareBPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.publishB | StorageIndex.publishBPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.queryB | StorageIndex.queryBPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.borrowB | StorageIndex.borrowBPreserves | tcl-call | ST-execution |
+| storage | storage_index_transactions.returnB | StorageIndex.returnBPreserves | tcl-call | ST-execution |
+| storage | storage_index_transactions.scanB | StorageIndex.scanBPreserves | rc-scan | ST-roots |
+| storage | storage_index_transactions.finishScanB | StorageIndex.finishScanBPreserves | rc-scan | ST-roots |
+| storage | storage_index_transactions.revokeB | StorageIndex.revokeBPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.drainB | StorageIndex.drainBPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.abortB | StorageIndex.abortBPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.settleB | StorageIndex.settleBPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.rejectOldB | StorageIndex.rejectOldBPreserves | rc-cleanup | ST-lifetime |
+| storage | storage_index_transactions.sourceWrite | StorageIndex.sourceWritePreserves | rc-write | ST-writers |
+| storage | storage_index_transactions.closeIndex | StorageIndex.closeIndexPreserves | rc-register | ST-storage |
+| storage | storage_index_transactions.reuse | StorageIndex.reusePreserves | rc-free | ST-storage |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| checkedInsert | StorageIndexAlgebra.checkedInsert |
+| overlapRejects | StorageIndexAlgebra.overlapRejects |
+| intervalAdjacency | StorageIndexAlgebra.intervalAdjacency |
+| differentGenerationDifferentLease | StorageIndexAlgebra.differentGenerationDifferentLease |
+| differentOperationDifferentLease | StorageIndexAlgebra.differentOperationDifferentLease |
+| settlementCannotConsumeNew | StorageIndexAlgebra.settlementCannotConsumeNew |
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| tcl-call | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Raw data_rc copy before generated entry; no explicit lease here |
+| tcl-delete-native | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___release_rc) (___CAST(void*,client_data)); | Delete adapter must close admission and defer physical release while leased |
+| tcl-install | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Tcl caller initializes payload before command publication; raw setter remains public |
+| rc-register | vendor/gambit/lib/_mem/rc-allocation.inc | tail->next = h; | Plain list insertion requires owner and collector exclusion |
+| rc-free | vendor/gambit/lib/_mem/rc-allocation.inc | if (--h->refcount == 0) | Nonatomic decrement and unlink are not safe arbitrary-thread admission |
+| rc-write | vendor/gambit/lib/_mem/rc-allocation.inc | h->data = val; | All semantic writers must join freeze/generation protocol or deny admission |
+| rc-cleanup | vendor/gambit/lib/_mem/rc-allocation.inc | ___HIDDEN void cleanup_rc | Bulk cleanup frees chain independent of per-entry leases |
+| rc-scan | vendor/gambit/lib/_mem/rc-roots.inc | mark_array (work, &h->data, 1); | Actual GC slot update; target private carrier is not implicitly scanned |
+| retire-refuse | vendor/gambit/lib/_mem/capacity-resize.inc | return 0; /* no freeze receipt for external RC/native borrowers */ | Current processor retirement refuses nonempty RC rather than manufacturing a lease |
+| setter-export | vendor/gambit/lib/setup.c | = ___set_data_rc; | Public GSTATE function pointer permits indirect/out-of-tree callers; lexical sites do not close writer authority |
+| view-drain | vendor/gambit/lib/_mem/collection-round.inc | BARRIER(); /* no worker may retain a stopped root view past this cut */ | Root view grace cut precedes ordinary execution |
+| task-claim-body | vendor/gambit/include/_gambit/vm_state.h.in | t->incarnation != t->origin->incarnation | Claim dereferences descriptor/origin before CAS; not a safe retain of freed storage |
+| cas-sync-builtins | vendor/gambit/include/_gambit/activity_log.h.in | __sync_val_compare_and_swap(p,oldval,newval) | One alternative implementation; effective Darwin selection remains open |
+| header-config | vendor/gambit/include/makefile.in | HEADER_CONFIG = | Ordered configured header composition; generated artifact provenance open |
+| mem-order | vendor/gambit/lib/mem.c | #include "_mem/rc-allocation.inc" | Bind new implementation inclusion path/order |
+| rc-layout | vendor/gambit/include/_gambit/memory_state.h.in | typedef struct ___rc_header_struct | Links/refcount/data do not contain VM storage identity or extent |
+| rc-allocation | vendor/gambit/lib/_mem/rc-allocation.inc | ___ALLOC_MEM(bytes + sizeof (___rc_header)) | Allocation lacks durable identity and checked-extent receipt |
+
+** Closure observation
+
+| Obligation | Status |
+|---+---|
+| ST-formal | scoped conditional formal receipt |
+| ST-bridge | scoped conditional formal receipt |
+| ST-storage | unresolved native integration |
+| ST-roots | unresolved native integration |
+| ST-writers | unresolved native integration |
+| ST-platform | unresolved native integration |
+| ST-lifetime | unresolved native integration |
+| ST-execution | unresolved native integration |

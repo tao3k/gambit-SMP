@@ -1,0 +1,79 @@
+# Wait backend and fault coordinator: implementation contract
+
+2026-10-23. Existing repair-9-12 work item, native8/12. The user now includes eventual source implementation and focused native closure in scope; the production lease must naturally release first. No other-thread operation or unchanged full inventory is authorized. Current contents are source research and an unverified implementation specification, not an installed backend.
+
+## Backend interfaces and call ordering
+
+Introduce a private `device_wait_plan` and `device_wait_outcome` around the body of `___device_select` in os_io.c. Proposed plan fields: original absolute device deadline, existing device-relative poll limit, independent relative sleep cap, caller class and wait-instance identity. Outcome fields: READY, REAL_DEADLINE, INTERNAL_RECHECK, INTERRUPTED or ERROR; immediate native errno; matching instance; selector-return witness. Keep semantic deadline and native sleep duration separate. Original `state.timeout` and device expiry remain unchanged. The clock/type conversion must not treat raw Mach ticks as seconds.
+
+The simplest reference backend uses one finite **relative OS wait per return**, capped before syscall, and exits the native call on every EINTR/recheck; it need not compute a new monotonic absolute deadline. The existing absolute-to-relative conversion retains current wall-clock semantics for real user deadlines. A backend that retries internally or tracks its own absolute cap must instead use a qualified monotonic source, frequency conversion, overflow/error policy and a non-resetting remaining bound. `___time_get_monotonic_time` has a wall-clock fallback in some builds; the separately captured4463 configuration defines HAVE_MACH_ABSOLUTE_TIME and os.h derives USE_mach_absolute_time. This is source/config evidence only, not current executing-gsi qualification.
+
+`___device_select` currently calls device CHECK handlers after select/poll and uses `timeout_reached=(result==0)`. Internal expiration must skip ordinary timeout readiness and return INTERNAL_RECHECK. Genuine readiness still passes through original device checks. If a real deadline and cap coincide, choose real deadline or perform an actual deadline comparison; never infer it merely from native0. Preserve relative device-poll requirements and rebuild mutable fdsets each native reentry.
+
+Scheduler chain: `___os_condvar_select` finishes native wait and its primitive condvar lock restoration; `##wait!` removes its idle-list entry under V and unlocks V; the devices caller finishes P-held device/timeout checks, then explicitly unlocks P. Only after that cut may `##wait-fault-observe-unlocked!` publish/claim coordinator work. Bare idle path already releases P before wait but ignores its return code, so it needs the same explicit observation hook. `##thread-heartbeat!` observes only after its P unlock. The kernel bridge saves/restores generated registers around native wait; no allocating Scheme callback belongs inside its raw C frame.
+
+Keep the public/native cleanup callers explicit. `___device_cleanup` also calls `___device_select` while retrying close(EAGAIN); every non-NO_ERR wait result currently returns immediately. Mapping INTERNAL_RECHECK to EINTR globally would change cleanup semantics. A compatibility wrapper may preserve the old public result while a typed private core and all scheduler/cleanup callers migrate coherently. Scheduler rechecks return to scheduler; cleanup rechecks retry close under their own live owner, without running arbitrary Scheme. Persistent close failure returns retained failure with the device/group still owned. The current group cleanup breaks on a child cleanup error and then frees the group; device cleanup also removes the device from its group before both close loops finish. That source error-side ownership must be addressed before broad backend admission; it is not a reproduced crash or the proven missing-thunk writer. Fix group/child lifecycle together and audit foreign cleanup callbacks plus callers that ignore errors.
+
+## Concrete fields and initialization
+
+| Scope | Proposed state | Initialization / last consumer |
+|---|---|---|
+| Native per-wait local | plan/outcome, original deadline, internal-recheck flag, instance | Created before wait; ends after device/condvar restoration and instance outcome copy. No SCMOBJ payload |
+| P wait domain | instance, wake_seq/park_seq, sticky immediate fault, quarantine phase, active writer/selector scopes where existing grace is insufficient | Publish ready after OS setup; close new old-instance park before fd grace; never reset fault on a successful later write |
+| VM native coordinator gate | Healthy/Faulted/Posted/Running/Preparing/Committed/Retained/Dead plus one owner CAS and instance/epoch | No allocation while claiming; survives observers and every error path. A phase is not a root or proof of execution context |
+| VM traced record | control Scheme thread/procedure, exit intent, current/pending callback cursor, caught error, saved request/thread/GC owners, per-invocation context references | Publish during `##startup-threading!` after threading/interrupt initialization. Candidate slot2 is unused only in the pinned source, not reserved against another producer; validate before applying. mem.c mark_vm_scmobj scans VM_SIZE fields in the separately identified source supplement |
+| C host invocation | initialized marker, live/nonreturnable/dead state and matching invocation identity | All-path finalizer in ___run after catcher restoration and only once return to that invocation is impossible. A raw native throw does not restore ordinary Scheme fp/R0 |
+
+## Real coordinator carrier instead of idle-C Scheme calls
+
+At startup, `##fault-control-make!` creates a private root thread with `##make-root-thread`, pins it to P0, constructs its real continuation through normal thread initialization, and publishes the thread plus procedure in the traced VM record. Existing run-queue placement respects macro-thread-pinned and stealing rejects pinned threads; explicit `##thread-migrate-to!` still needs a control-thread guard. Do not assume pinning alone proves every migration path.
+
+`##fault-control-post!` is a native/scalar observation plus ordinary T/P run-queue publication under the existing lock-order protocol. It never invokes `##thread-intr!` synchronously, borrows an application's result mutex, or puts its request node on a processor hint queue. All parked processors, including P0, use the independent native-return contract; P0's unlocked scheduler recheck can therefore see the sticky VM gate without a successful pipe write. Queue the registered control thread exactly once; let normal scheduler restore set current-thread and release T/P before `##fault-control-run!` executes. Internal delivery remains admitted while new external work is quarantined. Reposting or waiting on the coordinator's own completed/request mutex is forbidden.
+
+This startup/control-thread path is a proposed implementation, not something the current frozen runtime already supplies. Allocation failure before record publication leaves it unregistered. Partial startup cleanup follows existing native prefix cleanup and cannot call an absent Scheme helper. An embedding host without a valid Scheme carrier retains and reports failure through its actual owner contract; it cannot synthesize one by setting a ready bit.
+
+## Exit ordering and root coverage
+
+The control thread claims the matching fault epoch on P0, checks all scheduler/native locks are released and stores the exit intent in the traced record. `##exit` and recursive exit during jobs/wills route to this same coordinator boundary under an explicit status policy. Callbacks run while the full old cohort and saved private GC work remain serviceable. Detach cursors into rooted ownership before external calls; consume a callback before invoking it; catch ordinary Scheme failure into a traced error slot; keep untouched suffix and error updated by subsequent GC. Final-will action/testator keep their existing typed weakness/strong-use semantics. Arbitrary raw C unwind is retained unsupported context, not ordinary exception completion.
+
+Perform this preparation **before** `___cleanup_checked` calls `___cleanup_all_interrupt_handling` and seals registry admission. Doing it after those calls risks requiring the GC/collective service just disabled. After a proved preparation/collective cut, publish committed ownership once, finish per-invocation nonreturnability/finalizers and join/last-consumer closure. A join failure retains saved owners; a smaller processor_count is not successful teardown and does not authorize reopening an old destroyed epoch. Exact ordering of marker finalization versus collective commit remains a source-refinement obligation for each actual invocation, including the coordinator itself; the model's aggregate marker state is a contract, not proof of that construction.
+
+FD closure requires no old writer, selector/drain, observer or old re-park. Device-group destruction separately requires every pending child close/release to finish or an explicitly retained owner. VM/pstate destruction additionally requires no accepted mailbox/active-frame owner, saved private GC work, callback batch, external host borrow or returnable invocation. A sender receives no fabricated abandonment when primordial/VM exit bypasses ordinary BTQ abandonment. Whole-VM terminal disposition and a per-request reply are distinct outcomes.
+
+## Combined QNT and execution boundary
+
+`models/gambit/wait_fault_exit_composition.qnt` is now repository-owned. It combines wait return, device/P unlock, immutable real deadline, matching-instance fault claim, registered P0 carrier queue/restore, two GC rounds plus a GC after caught callback error, suffix/error roots, private-work handoff witness, controlled invocation finalization, join/device-close failure retention and VM storage release. Seven positive profiles include four conditional completions and three safety-only retentions;20 mutations and8 named trajectories are authored. Separate old models remain unchanged. A bounded contract state machine does not implement the backend or refine every C interleaving.
+
+Validation must wait for the live production lock's natural release, then bind exact model/source bytes under unchanged budgets. Native closure must use normal workspace.execution_scope plus registered process scope and a causal managed source delta in the existing producer directory. No sibling workspace, timeout reset, old-seal reuse or unqualified residual output is admitted. The later implementation needs actual source compilation, fault injection (hard wake failure, deadline, lock cuts, native cleanup failure, repeated epoch, exit/GC/unwind), normal controls and same-producer acceptance. No model/native PASS or production source modification is claimed by this document.
+
+
+Verifier guard receipt: `.cache/tasks/repair-9-12/processes/audit/runs/55d334ba6e0b4ce4b6cf4dec4793ec53/outputs/wait-fault-composition-checks/receipt.json`. Production custody remains live; verificationLaunched=false, allAccepted=null, no checker/trajectory rows. The combined model, tests and runner are maintained in the repository, not a temporary-only draft. The old temporary model copy was removed after repository publication; old bytes remain in immutable audit outputs. No runtime implementation or native verification was performed while the peer lease was held.
+
+
+## Real model checks completed (2026-10-23)
+
+The user explicitly requested direct testing now. Only the repository-owned QNT verifier was enabled in registered audit scope during the observed production lease; no production custody was acquired/bypassed, source applied, native program launched or peer operated. Earlier guard-deferred receipts remain immutable; the updated runner and its authorization receipt are separately hashed.
+
+[Actual validation](../evidence/research/smp-retirement-study/wait-fault-exit-composition-validation.json) records27 TLC profiles plus8 selected TypeScript trajectories,35 accepted checks. Four safety/fair-completion candidates each generate61 states/42 distinct; opaque/join/native-close retention profiles have29/37/37 distinct states and safety checks only. All20 mutations have decoded distinguishing witnesses. Total checker/trajectory time179.227179s; original30s/check and12-worker/1GiB/8MiB caps retained. No separate typecheck command is counted.
+
+The negative witnesses cover P-held coordinator claim, internal device deadline, original-deadline overwrite, unregistered/wrong-P0/duplicate coordinator, missing VM/frame/error/suffix roots, early shrink/private-work loss, stale wait ack, returnable marker kill, writer-active free, opaque fake exit and device-group early free. This closes the finite model experiment for these exact bytes, not source refinement: registration, independent return, caller unlock, invocation nonreturnability and private-work handoff transitions still need actual C/Scheme implementation and fault injection. The native failure generation, first-eight gates and native8/12 result are unchanged. Production lock remained held at final read; no compilation or native injection was run. No additional commit, staging or push.
+
+
+## Implemented backend and native controls (2026-10-23)
+
+The independent-return slice is now applied and compiled in the original c86dff86
+workspace under normal task and workspace custody. The actual GSI completed bare
+wait returns and a250ms semantic-deadline control. Six native Darwin interpose
+controls exercised ordinary, one-EINTR and persistent-EBADF nonblocking self-pipe
+writes, including GC/root-value/deadline progress; every run completed with exit0
+and measured write attempts. See
+[the source/artifact-bound validation summary](../evidence/research/smp-retirement-study/native-wait-backend-validation.json).
+The initial Nix-PATH relink failure is retained; continuation restored the exact
+original configure-proof tool environment and deducted already-used build/link
+seconds from the original caps. This establishes native execution of the slice,
+not the proposed full typed plan/outcome, fault publication or coordinator.
+Permanent wake errors are still ignored by the old abort writer. P0 control-fiber
+registration, matching fault ownership, post-unlock dispatch and exit/last-consumer
+root closure remain required; independent return alone cannot recover a node lost
+from both interrupt queues. Source-core/runtime admission stays false and native
+qualification stays8/12.

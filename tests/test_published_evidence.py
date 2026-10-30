@@ -9,6 +9,18 @@ from gambit_smp.framework import ROOT, digest
 
 
 class PublishedEvidenceTests(unittest.TestCase):
+    def test_registered_observations_are_typed_data_not_log_file_dependencies(self):
+        from gambit_smp.output_observations import validate, TRANSCRIPT_SUFFIXES
+        manifest = json.loads((ROOT/'evidence/published-inputs.json').read_text())
+        self.assertTrue(manifest['observations'])
+        for identity, observation in manifest['observations'].items():
+            self.assertEqual(identity, observation['sha256'])
+            for name in observation['origins']:
+                self.assertIn(Path(name).suffix.casefold(), TRANSCRIPT_SUFFIXES)
+                self.assertFalse((ROOT/name).exists(), name)
+            validate(observation)
+            self.assertFalse({'text', 'stdout', 'stderr', 'rawText', 'lines'} & observation.keys())
+
     def test_selected_replay_material_is_tracked_exact_and_nonadmitting(self):
         manifest = json.loads((ROOT / 'evidence/published-inputs.json').read_text())
         self.assertEqual(manifest['schema'], 'published-evidence-inputs.v1')

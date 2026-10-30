@@ -1,0 +1,242 @@
+# Map Through a Modern Generated C Runtime Contract
+
+Design only. No Scheme expansion, GVM generation, compiler, native test or
+performance experiment was run. The stored C is an independent source artifact,
+not a reproduced build of the selected Scheme. Read the
+[evidence](map-generated-c-evidence.md),
+[point inventory](map-generated-c-points.md),
+[conditional arguments](map-generated-c-proof-obligations.md) and
+[modernization matrix](map-generated-c-modernization-matrix.md).
+
+MC01. The objective is a substantive Gambit compiler/runtime reconstruction:
+retain Scheme control and the paper's target negotiation, make roots, effects,
+allocation, ownership and code lifetime explicit, and support independently
+qualified runtime algorithms and code providers. Generated C is the selected
+realization, not the modernization objective itself. AI-assisted implementation
+does not discharge these semantic or runtime obligations. Human-day estimates
+are not the decision criterion in this study. [ME01, ME03, MP01, MP02]
+
+![Semantic completion and native providers](map-generated-c-pipeline.svg)
+[D2 source](map-generated-c-pipeline.d2).
+
+## Real Input and Compilation Boundary
+
+MC02. Use public `map`, list.scm 850–929, including checked wrappers, one-list
+and multiple-list branches. Its unchecked `##map` neighbor is not an equivalent
+substitute. The feature-bound input includes macro/force/check selection,
+binding identities, actual compiler evaluation scheduling and the mutable
+`##allow-length-mismatch?` policy. The latter has a setter; a frozen default is
+not a valid optimization premise. The standard's freedom over callback order
+does not establish exact reproduction of this implementation. Input mutation
+is outside the standard's valid map domain, but remains a useful stronger
+source-preservation counterexample if that profile is selected. [ME01, MP05]
+
+MC03. The full proposed path is:
+
+| Boundary | Input and authoritative output | Existing anchor / work still needed |
+| --- | --- | --- |
+| Scheme source and expansion | `_std.scm` includes list.scm; resolved binding/feature/order/FFI facts | ME01, ME09; no expansion or new GVM witness exists here |
+| Optional high-level export | Parsed pre-normalization Scheme graph with lexical identity, effects and nonlocal control | ME03; importer must validate transformed graph and rerun affected analysis |
+| Normalization and GVM | Existing closure/control lowering, variable homes, frame/live/closed data and target feedback | ME03; paper PVM is architectural motivation, not today's exact GVM implementation |
+| Semantic completion in Scheme | Explicit calls, check/materialize/reload sequences, exits, FrameSpec and PointId intents | ME04; extract decisions currently interleaved with C emission |
+| Common native planning in Scheme | HostGraph, concrete frame layouts, root maps, allocation bounds and ModulePlan | ME05–ME06, ME10; reject or request a bounded explicit amendment when unsupported |
+| Scheme C rendering | Typed hosts, point/descriptor tables, constants, globals, C-interface adapters and binding products | ME09–ME11; renderer formats an accepted plan rather than rediscovering liveness |
+| C frontend and native linkage | Compile selected C products using the effective native profile | Retained work; changing the renderer does not eliminate preprocessing or compilation |
+| Runtime module binding | Validate/relocate/register/setup the whole admitted module cohort, then execute Scheme initialization | ME10–ME11; module setup and Scheme program initialization are distinct events |
+| Execution, GC and control | Real roots, active/captured frames, runtime roles, owner transitions and retained code | ME07–ME08, ME11–ME13; algorithms and native admission remain necessary |
+
+The default C realization keeps Gambit's explicit Scheme stack and admitted
+host/trampoline protocol. It does not compile each non-tail Scheme call as an
+ordinary recursive C call. A replacement control ABI is a separate complete
+provider profile; it is not required merely to extract the semantic authority.
+Nor is retaining the present protocol a commitment to retain today's collector
+or opaque ownership indefinitely. [ME08, ME11]
+
+## What Semantic Completion Must Produce for Map
+
+MC04. The one-list source orders `proc(car(lst))`, then `cdr(lst)` and recursive
+map, then output `cons`. In the stored host, L3 calls the arbitrary procedure
+with return point L2; L2 saves the callback result at STK(-4), reads the current
+pair's cdr from STK(-5), reloads proc from STK(-6), and sets L4 for the recursive
+return. L4 builds the output pair after the tail returns. These offsets are
+artifact correspondence, not portable semantic homes. `proc` can allocate,
+raise, capture control, enter foreign code or fail to return. Its unknown
+effects are a conservative boundary until independently refined. [ME01–ME02]
+
+![Map calls, roots and recovery](map-generated-c-roots.svg)
+[D2 source](map-generated-c-roots.d2).
+
+MC05. Emit distinct logical continuation frames:
+
+| Frame intent | Values/relations needed across the transfer | Required completion |
+| --- | --- | --- |
+| Await one-list callback | Procedure, current input pair, caller continuation and surrounding dynamic state | Materialize live managed homes before transfer; preserve result value protocol; read cdr only after return |
+| Await recursive map | Pending callback result and continuation link; other values only if independently live | Root pending result across arbitrary descendant calls/GC/capture; distinguish tail sentinel from element |
+| Await `cars` / `apply` | Saved proc and rests needed after helper return; current args owned according to the call protocol | Helper effects/root maps and actual apply dispatch are transitive dependencies |
+| Await `cdrs` / multi-list recursion | Saved pending element and rests/current-list relationship required by the next step | Preserve false/empty/signed-index outcomes and mutable mismatch policy |
+| Checked wrapper / error tail exit | Original arguments, argument identity and destination continuation | Preserve reconstruction of diagnostics and the root state after argument rearrangement |
+| Internal checkpoint | Live register/home representation, saved actual return point and caller frame relation | RETI expansion and internal runtime-role entry are explicit; never reuse a normal-return map blindly |
+
+Logical lists above identify obligations, not final minimal root sets. New
+liveness must derive exact homes at each point; blindly rooting every listed
+historical value can retain entire input lists and destroy space behavior.
+Return addresses, raw frame links and managed object words need distinct
+representations and reader rules. They are not interchangeable root cells.
+
+MC06. FrameSpec records logical live value identities, closure/environment
+dependencies, representation at entry, caller/link meaning, dynamic-state
+relation, permitted reentry/capture and value-delivery convention. Physical
+FrameLayout records slot offsets, alignment, normal/internal kind, encoded
+size/link/maps and register-save recipes. PointId refers to a semantic graph
+node/edge/role occurrence scoped to its module/contract identity. C label
+ordinals, symbol indices and procedure-table positions are relocations derived
+from the accepted plan. They never define semantic identity. [ME03–ME07]
+
+An intent such as `map / one-list / callback-return` is only an explanatory
+name: multiple occurrences/clones require distinct graph identities. A point
+may have more than one physical entry/check label. Any transformation changing
+liveness, clone identity, allocation or control invalidates affected completion
+and layout products. Stable spelling is not proof that an old map still fits.
+
+MC07. The stored artifact has 23 dispatch labels, including entry, and 22 return
+descriptors: 9 RETN and 13 RETI. Ten poll sites plus three heap checks account
+for these 13 internal resumptions in this host. The
+[inventory](map-generated-c-points.md) relates every descriptor to an actual
+call or checkpoint. It is a finite artifact audit, not a complete new GVM graph
+or runtime coverage measure. [ME02]
+
+In particular, RETI's encoded `fs` is caller-size information; the runtime
+decodes it using `round(fs, FRAME_ALIGN) + FRAME_SPACE(NB_GVM_REGS+1) -
+FRAME_RESERVE`. RETN uses its encoded size directly. The current template gives
+alignment 4, reserve 3 and five GVM registers. Thus the literal RETI size 8
+expands to size 17 and physical FRAME_SPACE 20; RETN size 5 uses FRAME_SPACE 8.
+This is source arithmetic, not a generated header/native ABI observation.
+Different root maps with equal sizes remain distinct contracts. [ME05–ME06]
+
+MC08. Checks are semantic events with preconditions, materialized roots,
+allocation debt/write bounds, runtime-role entry and separate resume/overflow/
+exception paths. Stored L4 performs CONS before CHECK_HEAP at L5; L5 resumes
+after allocation and must not reexecute the cons. Pre-checking instead can be
+valid only with a newly proved reserve/initialization/checkpoint schedule; it
+is not textual substitution. The whole interval includes padding, helper
+allocation and any cached-float boxing, not just pair payload. [ME02, ME04]
+
+The selected host contains no F64BOX and no ALLOC_CLO text. This does not mean
+callbacks allocate no floats or closures. Floating materialization is a general
+completion obligation from `_t-c-2.scm`; it is not a saving charged to every map
+iteration. Internal recursive helpers may be lifted; arbitrary callback
+closures still need their real environment and mutable-cell semantics. [ME04]
+
+The actual checkpoint producer writes the private return point to temp1 and
+transfers to stack-limit or heap-limit. The selected kernel constructs an
+internal continuation by aligning caller extent, saving all GVM registers and
+the actual return point, then entering the runtime internal-return marker.
+Stack-limit can deliver Scheme interrupt handlers; heap-limit tail-calls
+`##check-heap`. Internal-return restores the saved registers/actual point and
+undoes alignment. These are distinct role-entry and private-resume contracts;
+the runtime role's own label is not the map point's RETI descriptor. Transitive
+rest/arity/not-procedure/force/foreign roles remain qualified dependencies even
+where they are outside this stored host's 22 descriptors. [ME06, ME14, RD05]
+
+MC09. Multi-list map has a distinct continuation chain: stored L11 returns
+from `cars`, L12 from `apply`, L8 from `cdrs`, L6 from recursive mapping, L9 from
+initial `cdrs`, and L14 from the checked multi-list helper. Helpers build managed
+lists and return structured sentinel meanings. False/fixnum callback results
+are valid list elements; only helper-tail results are interpreted as sentinels.
+Removing helpers or reordering them requires a semantic proof including mutable
+policy, exception/capture behavior and roots. [ME01–ME02]
+
+## Continuation and Module Binding Are Part of the Same Contract
+
+MC10. Capture can occur in an unknown callback or a poll-delivered handler.
+The active frame and any captured heap frame must describe the same values,
+links and internal-return interpretation to capture, scan and restore readers.
+Repeated invocation must preserve earlier returned lists; a destructive
+accumulator or a scoped native arena cannot replace pending frames without an
+escape/multiplicity proof. Tail dispatch bounds native stack growth, while
+the existing non-tail map algorithm still retains O(n) pending Scheme work.
+Dynamic-wind/exception/value delivery and foreign stack-marker validity remain
+runtime semantics, not consequences of C or Zig local cleanup. [ME07–ME08, MP03, MP05]
+
+MC11. Map belongs to `_std`, whose source includes list.scm. In the stored
+module, global index 971, symbol index 995 and primitive label ordinal 1772
+connect `map` to its host; these are observed positions, not reusable stable
+IDs. ModulePlan must bind the public symbol/global, procedure and arity,
+constants, helper/runtime imports, labels/descriptors, C declarations/init,
+supply/demand metadata and setup/initialization order. Replacing map text alone
+does not replace `_std` module construction or the old dump path. [ME09–ME11]
+
+![Module binding and retained control](map-generated-c-binding.svg)
+[D2 source](map-generated-c-binding.d2).
+
+MC12. Proposed binding states are `prepared → validated → relocated →
+registered → native-setup-complete → Scheme-initializing → active`, with explicit
+failure/custody edges. Immutable code/layout products can be shared only under
+their declared mutability; VM globals, setup progress and scan registrations
+are distinct instances. Before registration, failure returns unpublished
+storage to its owner. After registration, failure retains roots/code/readers
+until an acknowledged withdrawal cut. After user initialization begins, record
+partial external effects and the permitted retry/recovery policy; no universal
+rollback or exactly-once successful initialization is promised. Reentrant
+initializers and import cycles require explicit component order/partial states.
+
+The existing `setup_module_fixup` explicitly asks whether the phase should be
+atomic across VMs and sets SETUP_FIXUP_DONE before subsequent compatibility
+checks/fixups. It is not evidence for the proposed transaction/state machine.
+`setup_module_collect_moddescrs` invokes `setup_mod`; that call is not proof
+that the Scheme program's initializer has already completed. New ownership and
+publication replace this ambiguity rather than wrap the flag in a manifest.
+[ME10–ME11]
+
+MC13. Code/descriptors remain retained while reachable procedures, captured
+continuations, suspended contexts, foreign callbacks, tasks or scanning readers
+can refer to them. Shutdown rejects new entries, settles accepted transfers and
+waits for actual last users before unregister/free. A source-based PointId does
+not keep native code alive. Module relocation and code/GC lifetime therefore
+must be planned with FrameSpec, not postponed to an unrelated linker layer.
+[ME07–ME13]
+
+## Modernization Outcome and Retirement
+
+MC14. The complete target remains the proposed context-local young allocation,
+VM-wide coordinated young evacuation/promotion and concurrent nonmoving mature
+collection, with independent worker/context ownership and explicit FFI/store
+protocols. That is new runtime work; generated C alone supplies none of it.
+Map's saved callback results, arbitrary foreign participation and captured
+frames must participate in that target, not only pass against today's full
+copying collector. The old protocol is a source oracle and possible qualified
+control realization, not a ceiling on the reconstruction. [ME12–ME13]
+
+MC15. Retire responsibilities in this dependency order, across a closed cohort:
+
+1. Move call/check/root/materialization semantics from old C scanning to Scheme
+   completion, including exceptional/runtime-role edges; retain independent
+   source and frame readers for comparison.
+2. Replace normal/internal frame and descriptor construction with one accepted
+   native plan used by host, GC and continuation readers.
+3. Replace host/control emission and every selected C-interface/import binding;
+   old macro helpers may remain only as declared physical leaves with no hidden
+   semantic authority.
+4. Replace whole-module constants/globals/label/setup products and runtime
+   publication/lifetime handling for the selected cohort, including bootstrap
+   and link-info consumers; then retire that cohort's old dump route.
+5. Replace allocator/store/root/worker/FFI policies with the selected modern
+   runtime as their caller and phase proofs close. Retire old whole-runtime
+   paths only after all their remaining callers have replacements.
+
+This is a proof dependency order, not a proposal to stop at a small patch.
+Other targets/raw FFI users can keep an old route alive; they must be explicitly
+migrated or excluded from the claimed retirement domain. No path has retired
+in this research. The accompanying matrix reports capability and runtime
+tradeoffs rather than estimated human effort. [ME03–ME13]
+
+## Captured Map Collector Refinement
+
+The [GC follow-up](map-continuation-gc-design.md) traces actual stack-backed
+capture, GC materialization, shared shell/frame mutation, repeated break-handler
+restore and the real frame reconstruction caller. It refines the young/mature
+collector, barrier/root/phase and major snapshot requirements behind MC14.
+The [benefit matrix](map-continuation-gc-benefit-matrix.md) keeps first
+materialization, active roots, replay and major work separate from potentially
+eliminated repeated mature work. All new collector/support operations remain
+design-only; the 22 stored descriptors remain source correspondence.

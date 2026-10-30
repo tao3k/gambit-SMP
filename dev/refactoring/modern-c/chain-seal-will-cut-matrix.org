@@ -1,0 +1,153 @@
+#+TITLE: Captured Chain Sealing and Global Will Classification — Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitChainSealWillCut
+:STATUS: conditional-model-induction; source-schedule-and-c11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| capacity-before-fixup | vendor/gambit/lib/mem.c | while (alloc + words + ___SUBTYPED_BODY > limit) | Next fresh frame can publish previous chunk before writing previous ptr |
+| frame-ready | vendor/gambit/lib/mem.c | publish_object_scan (work, copy_header); | All publisher call sites inventoried; frame publisher follows initial copied payload |
+| pending-link | vendor/gambit/lib/mem.c | ptr = &___FP_STK(alloc,link+1); | Cursor retains preceding copied-frame link address |
+| already-forwarded-fixup | vendor/gambit/lib/mem.c | *ptr = ra2; /* already copied, replace by forwarding pointer */ | Separate fixup branch exists; capacity witness uses the fresh-frame branch |
+| copy-lock | vendor/gambit/lib/mem.c | MISC_MEM_LOCK();\n\n      next_frame: | Copier holds global memory lock; this alone does not exclude frame scanner |
+| strong-weak-barrier | vendor/gambit/lib/mem.c | garbage_collect_mark_strong_phase (work);\n\n  BARRIER(); | Strong closure precedes weak phase but does not serialize weak classification against weak marking |
+| will-repair | vendor/gambit/lib/mem.c | mark_array (work, tail_exec+___WILL_TESTATOR, 1); | Executable and moved-to-executable paths directly repair testator |
+| chunk-authority | vendor/gambit/lib/mem.c | if (alloc_heap_chunk_start != work->local_scan_chunk_) | Current source uses explicit local chunk identity; parent range guard is historical |
+| terminal | vendor/gambit/lib/mem.c | if (___FIXNUMP(cf) && cf != ___END_OF_CONT_MARKER) | Seal last link without successor |
+| retag | vendor/gambit/lib/mem.c | *orig_ptr = ___TAG(___UNTAG_AS(*orig_ptr, ___tFIXNUM), ___tSUBTYPED); | Retag follows all link resolution |
+| custom | vendor/gambit/lib/mem.c | return custom_msection_alloc (); | Custom grant unknown |
+| grant | vendor/gambit/lib/mem.c | alloc_heap_limit = alloc_heap_start + (___MSECTION_SIZE>>1); | Standard half section |
+| shared | vendor/gambit/lib/mem.c | space = (space - 2*___MSECTION_FUDGE) >> 2; | Shared stack remaining grant |
+| markers | vendor/gambit/lib/mem.c | alloc_heap_limit_ -= 2; | Two end markers plus first link word |
+| frame-max | vendor/gambit/lib/mem.h | #define ___MAX_NB_FRAME_SLOTS   8192 | Static slot limit |
+| threshold | vendor/gambit/lib/mem.h | #define ___MSECTION_BIGGEST     255 | Threshold not maximum chunk size |
+| end-value | vendor/gambit/include/gambit.h.in | #define ___END_OF_CONT_MARKER ___VOID | Nonfixnum terminal |
+| callcc | vendor/gambit/lib/_thread.scm | (receiver (reify-continuation cont)) | Captured continuation retained by closure |
+| capture | vendor/gambit/gsc/_t-c-2.scm | (targ-emit-jump-inline "CONTINUATION_CAPTURE" safe? nb-args) | Actual capture emitter |
+| public-will | vendor/gambit/lib/_nonstd.scm | (define-prim (make-will testator action) | Distinct wills may share testator |
+| will-list | vendor/gambit/include/gambit.h.in | ___ADD_SUBTYPED_ELEM(___WILL_NEXT,___ps->context->mem.nonexecutable_wills_) | Per-context registration |
+| will-decision | vendor/gambit/lib/mem.c | UNMARKED(testator)) /* testator was not marked? */ | Mutable mark observation |
+| will-local | vendor/gambit/lib/mem.c | determine_will_executability (nonexecutable_wills); | Local decide immediately followed by retention |
+
+** Footprint
+
+| key | required | reuse | premise |
+|---+---+---+---|
+| steady debt | <=1 pending link | ptr cursor | Sequential loop boundary |
+| transient debt | <=2 unsealed copied frames | Existing destination storage | Initialize successor before predecessor fixup |
+| deferred chunk | <=1 per admitted sequential copier | Retain allocated chunk | Drain before next close; next frame fits grant |
+| frame cap | fs+2 <=8194 words | Existing guarded copy layout | SUBTYPED_BODY=1 EXTRA=1 and valid descriptor |
+| section grant | 65536 minus 3 marker words | Existing standard tospace | Unshared standard allocation only |
+| chunk bound | threshold+maxFrame+terminator conditional | No O(N) whole-chain buffer | Regular threshold checks; current stale local-alloc check unresolved |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| reserve | initialize | Fit grant; retain owner |
+| initialize | fix-previous | At most two copied obligations |
+| fix-previous | install | Seal predecessor; current pending |
+| install | reserve | Advance chain |
+| install | defer-chunk | Retain last unresolved chunk |
+| defer-chunk | publish | Whole physical coverage sealed |
+| install | terminal | Seal END without successor |
+| install | forwarded | Same-epoch sealed suffix |
+| terminal | retag | No pending copied link |
+| forwarded | retag | Stop; do not recopy suffix |
+| reserve | failure | Owner retains unresolved debt |
+| strong-closure | classify-all | Freeze roster and lists |
+| classify-all | decision-cut | Every owner acknowledges |
+| decision-cut | weak-retain | Then repair and derived work |
+
+** Obligation
+
+| key | status | scope | gap |
+|---+---+---+---|
+| chain | proved-in-model | All lengths scalar accounting | Object identity and physical chunk mapping open |
+| terminal | proved-in-model | Empty and final-frame exits | Actual retag and descriptor mapping open |
+| forwarded | conditional | Same-epoch sealed suffix | Receipt issuer not implemented |
+| capacity | conditional | Bounded debt and failure custody | Custom/shared grant and byte bounds open |
+| Scheme reachability | source-family | Public callcc and make-will callers | Exact emitted frames and processor schedule unqualified |
+| shared will | proved-in-model | Two lists same testator | Native schedule unqualified |
+| global cut | proved-in-model | All classification precedes retention | Full weak producer roster open |
+| C11 | open | READY queue and phase publication | Source/configuration refinement absent |
+| native | open | No implementation or native tests | No performance qualification |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| rolling seal | Avoid O(N) full-chain staging | One link record; transient second frame | One deferred chunk with fit/drain rule |
+| suffix reuse | 0 new copies for S sealed suffix frames | One suffix lifetime check | Already a C advantage; no added speed credit |
+| will consistency | W decisions before weak retention | Existing O(W) work plus one collective cut | Frozen lists and all weak producers gated |
+| snapshot option | May avoid new rendezvous | Immutable strong epoch metadata | All decisions read stable snapshot; not free |
+| C retirement | Remove immediate READY and fused classify-retain entry | Seal API and split phase entry | All callers migrated; no Zig requirement |
+| parallel overlap | Other workers scan sealed prefixes | Delay P bytes per copier plus phase handoff | Useful overlap exceeds handoff cost; no timing evidence |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| captured_chain_seal.reserve | ChainSeal.reservePreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.initializeCopy | ChainSeal.initializeCopyPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.resolvePrevious | ChainSeal.resolvePreviousPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.finishInstall | ChainSeal.finishInstallPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.deferChunk | ChainSeal.deferChunkPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.publishDeferred | ChainSeal.publishDeferredPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.publishPrefix | ChainSeal.publishPrefixPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.certifySuffix | ChainSeal.certifySuffixPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.terminal | ChainSeal.terminalPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.forwarded | ChainSeal.forwardedPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.capacityFailure | ChainSeal.capacityFailurePreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.retagRoot | ChainSeal.retagRootPreserves | Actual typed IR update; source mapping open |
+| captured_chain_seal.release | ChainSeal.releasePreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.strongReachable | WillCut.strongReachablePreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.decideA | WillCut.decideAPreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.decideB | WillCut.decideBPreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.legacyDecideA | WillCut.legacyDecideAPreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.legacyDecideB | WillCut.legacyDecideBPreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.classifyCut | WillCut.classifyCutPreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.weakMark | WillCut.weakMarkPreserves | Actual typed IR update; source mapping open |
+| will_classification_cut.finish | WillCut.finishPreserves | Actual typed IR update; source mapping open |
+
+** Composition
+
+| key | lemma | scope |
+|---+---+---|
+| chain | ChainSeal.arbitraryLengthSafe | Any length accounting |
+| debt | ChainSeal.unresolvedBound | At most two transient obligations |
+| steady | ChainSeal.quiescentLinkBound | One at loop boundary |
+| fit | ChainSeal.grantIncludesFrame | Given fit |
+| chunk | ChainSeal.closedChunkBound | Given threshold and maxFrame |
+| will | WillCut.reachableSafe | All modeled steps |
+| decision | WillCut.sharedDecision | Same strong observation |
+| legacy | WillCut.legacyDisagreement | Updates with Quint guard-admitted trace |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| roots | collector | Root and chain identity | CS-source |
+| collector | collector | Deferred chunk to scan | CS-frameInduction |
+| collector | control | Frozen roster decision cut | CS-weakInduction |
+| collector | native | C11 readiness publication | CS-platform |
+
+** Proof routing
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| CS-frameHistory | interleaving | dev/refactoring/modern-c/models/quint/captured_chain_seal.qnt | Three frames and both exits |
+| CS-weakHistory | interleaving | dev/refactoring/modern-c/models/quint/will_classification_cut.qnt | Two owners shared testator |
+| CS-frameInduction | induction | dev/refactoring/modern-c/models/lean/ChainSeal.lean | All steps arbitrary length accounting |
+| CS-weakInduction | induction | dev/refactoring/modern-c/models/lean/WillCut.lean | All steps consistent decisions |
+| CS-projection | restricted-projection | dev/refactoring/modern-c/models/lean/ChainSealAst.lean | Both typed IR exact rosters trusted emitter |
+| CS-source | source-refinement | dev/refactoring/modern-c/chain-seal-will-cut-design.org | Physical mapping and producer closure open |
+| CS-platform | native-memory-order | dev/refactoring/modern-c/chain-seal-will-cut-design.org | Actual C11 and config refinement open |

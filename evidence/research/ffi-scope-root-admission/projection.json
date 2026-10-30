@@ -1,0 +1,415 @@
+{
+  "route": [
+    {
+      "key": "marker-before-arguments",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___BEGIN_SFUN(proc,decl)",
+      "obligation": "Root bundle must precede marker allocation and parameter conversion"
+    },
+    {
+      "key": "compiler-sfun-emitter",
+      "sourcePath": "vendor/gambit/gsc/_ptree2.scm",
+      "needle": "(define (c-function param-typs result-typ proc-name c-defined? scope)",
+      "obligation": "Generator owns entry RootSpec and conversion cleanup manifest"
+    },
+    {
+      "key": "marker-protection-gap",
+      "sourcePath": "vendor/gambit/lib/c_intf.c",
+      "needle": "proc_or_false may have been GC'd",
+      "obligation": "Protect moving procedure and direct Scheme arguments before fallible marker allocation"
+    },
+    {
+      "key": "rc-scan-owner",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_rc (___PSPNC);",
+      "obligation": "Current processor-zero RC scanning is insufficient as all-processor entry root directory proof"
+    },
+    {
+      "key": "sfun-error-reentry",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___SFUN_ERROR while",
+      "obligation": "Conversion handler can reenter call; root guard remains until result and cleanup are settled"
+    },
+    {
+      "key": "call-frame-marker",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "needle": "___fp[-2] = stack_marker;",
+      "obligation": "Marker becomes continuation frame data; native guard cannot replace frame/root contract"
+    },
+    {
+      "key": "return-multiple",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___COVER_RETURN_TO_C_HANDLER_MULTIPLE_RETURN;",
+      "obligation": "Multiple C return is diagnosed; old completion cannot release a new generation"
+    },
+    {
+      "key": "tcl-scheme-entry",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "(c-define (##tcltk-call vect args)",
+      "obligation": "Actual generated native callback has a Scheme-object argument and string-list conversion"
+    },
+    {
+      "key": "tcl-delete-owner",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___EXT(___release_scmobj) (___EXT(___data_rc)",
+      "obligation": "Delete release and nested callback drain must meet foreign endorsement"
+    },
+    {
+      "key": "tcl-result-destructor",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___CAST(Tcl_FreeProc*,___EXT(___release_string))",
+      "obligation": "Result bytes are not enough if destructor entry still depends on retiring code"
+    },
+    {
+      "key": "scope-last-use",
+      "sourcePath": "vendor/gambit/lib/native_scope.c",
+      "needle": "Only the producer, AFTER its last actual write/borrow",
+      "obligation": "Scope release must follow marker invalidation and old PSTATE last use"
+    },
+    {
+      "key": "json-environment",
+      "sourcePath": "dev/refactoring/modern-c/models/lean/PinRosterDetachment.lean",
+      "needle": "theorem environmentExactDomain",
+      "obligation": "Compose existing exact-domain theorem without claiming parser verification"
+    }
+  ],
+  "contract": [
+    {
+      "key": "entry-root-bundle",
+      "owner": "foreign/roots",
+      "accountable.moduleId": "foreign",
+      "counterpart.moduleId": "roots",
+      "actionName": "registerGuard acquireScope publishRoots",
+      "invariant": "Protected caller carrier before guard admission; transfer entry roots before marker allocation",
+      "gap": "Raw stale SCMOBJ cannot be repaired at entry; all-processor carrier and converter closure required"
+    },
+    {
+      "key": "marker-and-reload",
+      "owner": "roots/semantic",
+      "accountable.moduleId": "roots",
+      "counterpart.moduleId": "semantic",
+      "actionName": "allocateMarker collect reloadRoot initializeMarker",
+      "invariant": "GC may update the root slot; initialize marker from reloaded value",
+      "gap": "No reuse of pre-allocation C local; all supported conversion paths remain to refine"
+    },
+    {
+      "key": "stable-completion",
+      "owner": "release/control",
+      "accountable.moduleId": "release",
+      "counterpart.moduleId": "control",
+      "actionName": "throwExit settleException invalidateMarker releaseScope",
+      "invariant": "Unknown exit retains guard root permit and VM borrow; marker invalid before permit release",
+      "gap": "No longjmp-dependent automatic cleanup state; task receipt must be stable"
+    },
+    {
+      "key": "publication-cut",
+      "owner": "native/collector",
+      "accountable.moduleId": "native",
+      "counterpart.moduleId": "collector",
+      "actionName": "prepare publish admit observe withdraw",
+      "invariant": "One roster admission cut excludes withdrawal; matched release/acquire publishes immutable metadata",
+      "gap": "C11 HB embedding and existing compiler-specific atomic backends remain distinct"
+    },
+    {
+      "key": "real-endorsement",
+      "owner": "release/foreign",
+      "accountable.moduleId": "release",
+      "counterpart.moduleId": "foreign",
+      "actionName": "endorseSemantic endorseForeign endorseResident issue",
+      "invariant": "Root/frame owner callback owner and resident result owner independently attest exact task and source",
+      "gap": "Tcl record still carries Scheme procedure callback and release capability; current certificate blocked"
+    },
+    {
+      "key": "json-admission",
+      "owner": "build/semantic",
+      "accountable.moduleId": "build",
+      "counterpart.moduleId": "semantic",
+      "actionName": "registerGuard publishRoots releaseScope",
+      "invariant": "Actual typed-IR guard/update certificates plus finite JSON environment",
+      "gap": "Parser emitter field identity and full source simulation remain open"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "preallocation-roots",
+      "status": "bounded-checked",
+      "scope": "One root bundle and one bounded moving collection before entry",
+      "counterexample": "Protecting only marker or proc misses direct Scheme parameters"
+    },
+    {
+      "key": "publication-lifetime",
+      "status": "bounded-checked",
+      "scope": "One roster lease scanner and immutable publication",
+      "counterexample": "Acquire does not create a slot storage lease"
+    },
+    {
+      "key": "release-guards",
+      "status": "conditional-proved",
+      "scope": "Marker active and unknown states reject permit release",
+      "counterexample": "Normal-return epilogue is not nonlocal completion proof"
+    },
+    {
+      "key": "hb-embedding",
+      "status": "conditional-proved",
+      "scope": "Event-order arithmetic given actual synchronizes-with and stable cut premises",
+      "counterexample": "Atomic flag alone cannot publish earlier non-atomic data without matching acquire"
+    },
+    {
+      "key": "actual-expressions",
+      "status": "conditional-proved",
+      "scope": "Three actual FFI admission action guard/update expressions",
+      "counterexample": "AST certificate is local meaning not whole C11 or collector proof"
+    },
+    {
+      "key": "actual-source-c11",
+      "status": "open",
+      "scope": "All argument converters nonzero processor roots stable exception custody actual backend proof",
+      "counterexample": "Current native_scope integration and three endorsements not implemented"
+    },
+    {
+      "key": "json-environment",
+      "status": "partially-proved",
+      "scope": "91-row exact-domain proof and strict projection controls",
+      "counterexample": "JSON parser and independent source-to-IR extraction remain trusted"
+    }
+  ],
+  "gain": [
+    {
+      "key": "entry-root-bundle",
+      "avoided": "Scattered ad hoc protection per generated FFI argument",
+      "added": "O(A) root locations and post-allocation reloads for A live Scheme inputs",
+      "condition": "One generated RootSpec replaces duplicated cases only after every converter adopts it"
+    },
+    {
+      "key": "stable-guard",
+      "avoided": "Repeated ambiguous cleanup and unsafe scope release on exception",
+      "added": "One stable per-activation record plus root and VM borrow; nested callbacks need distinct records",
+      "condition": "Unknown results retain memory; no bounded-retention claim"
+    },
+    {
+      "key": "shared-roster",
+      "avoided": "Per-entry global serialization when qualified admission protocol is used",
+      "added": "O(P) registered root scans and admission synchronization",
+      "condition": "Benefit requires reduced serialization exceeding publication and scan work"
+    },
+    {
+      "key": "terminal-detachment",
+      "avoided": "C bytes of old code retained solely for late terminal result queries",
+      "added": "B copied bytes plus E directory endorsements resident codec and destructor storage",
+      "condition": "C > B + E; no outstanding Scheme callback continuation or old destructor capability"
+    },
+    {
+      "key": "modern-c-baseline",
+      "avoided": "A second runtime language is unnecessary for these mechanisms",
+      "added": "Generated C entry ABI atomics root metadata and exception custody proofs",
+      "condition": "Zig must independently demonstrate benefit beyond the same required contracts"
+    }
+  ],
+  "binding": [
+    {
+      "key": "guard",
+      "qntAction": "registerGuard",
+      "leanLemma": "noBorrowRejectsGuard",
+      "refinement": "Actual selected guard and update meanings checked; source and C11 relation open",
+      "guardLemma": "registerGuardGuardMeaning",
+      "updateLemma": "registerGuardNextMeaning"
+    },
+    {
+      "key": "roots",
+      "qntAction": "publishRoots",
+      "leanLemma": "noGuardRejectsRoots",
+      "refinement": "Actual selected guard and update meanings checked; source and C11 relation open",
+      "guardLemma": "publishRootsGuardMeaning",
+      "updateLemma": "publishRootsNextMeaning"
+    },
+    {
+      "key": "release",
+      "qntAction": "releaseScope",
+      "leanLemma": "markerBlocksRelease",
+      "refinement": "Actual selected guard and update meanings checked; source and C11 relation open",
+      "guardLemma": "releaseScopeGuardMeaning",
+      "updateLemma": "releaseScopeNextMeaning"
+    }
+  ],
+  "flow": [
+    {
+      "fromNode": "c0",
+      "toNode": "c1",
+      "reason": "Protected source carrier transfers to entry roots"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "c2",
+      "reason": "Marker roots survive through result and error conversion"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "c4",
+      "reason": "Settled custody is required before endorsements"
+    },
+    {
+      "fromNode": "c0",
+      "toNode": "c3",
+      "reason": "Root admission needs a stable roster cut"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "c2",
+      "reason": "Maintenance scan lease survives external close"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "o5",
+      "reason": "Actual endorsers still need caller closure"
+    },
+    {
+      "fromNode": "c0",
+      "toNode": "o0",
+      "reason": "Incoming values are protected before registration"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o0",
+      "reason": "GC movement requires slot reload"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o2",
+      "reason": "Marker and unknown states block release"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "o1",
+      "reason": "Immutable metadata and storage leases"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "o3",
+      "reason": "Actual release-acquire HB embedding required"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o4",
+      "reason": "Selected typed-IR guard and update meanings"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o6",
+      "reason": "Exact finite reference domain"
+    },
+    {
+      "fromNode": "o4",
+      "toNode": "o5",
+      "reason": "Local syntax certificate does not prove source simulation"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "c5",
+      "reason": "Source identity binds endorsement admission"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o5",
+      "reason": "All catcher and restoration paths remain to refine"
+    }
+  ],
+  "endorsement": [
+    {
+      "roleName": "semantic",
+      "scope": "Root bundle frame return and multi-shot closure for exact activation",
+      "issuer": "Generated SFUN and return-to-C root/frame owner",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___COVER_RETURN_TO_C_HANDLER_MULTIPLE_RETURN;"
+    },
+    {
+      "roleName": "foreign",
+      "scope": "Command ingress closed all callbacks and deletion effects drained",
+      "issuer": "Tcl command adapter owner",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___HIDDEN void scheme_delete_cmd"
+    },
+    {
+      "roleName": "resident",
+      "scope": "Immutable result and resident decoder error and destructor closure",
+      "issuer": "Tcl result adapter and resident codec owner",
+      "sourcePath": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___CAST(Tcl_FreeProc*,___EXT(___release_string))"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "FA-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/ffi_root_admission.qnt",
+      "subjectScope": "Protected incoming carrier transfer entry root bundle moving marker allocation stable guard and exceptional custody"
+    },
+    "shards": {
+      "obligationId": "FA-B",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/ffi_publication_cut.qnt",
+      "subjectScope": "Reference release-acquire publication with serialized roster lease and maintenance scan cut"
+    },
+    "induction": {
+      "obligationId": "FA-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/FfiScopeRootAdmission.lean",
+      "subjectScope": "Root and release guard exclusions plus conditional HB event-order lemmas"
+    },
+    "expression": {
+      "obligationId": "FA-X",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/FfiScopeRootAst.lean",
+      "subjectScope": "Actual registerGuard publishRoots releaseScope meanings and finite JSON reference domain"
+    },
+    "source": {
+      "obligationId": "FA-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/ffi-scope-root-admission-design.org",
+      "subjectScope": "Actual FFI converters callback deletion continuation and all processor roots OPEN"
+    },
+    "platform": {
+      "obligationId": "FA-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/ffi-scope-root-admission-design.org",
+      "subjectScope": "C11 stable registration matched publication nonlocal jumps and backend refinement OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "FA-S",
+      "prerequisite.obligationId": "FA-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/ffi_root_admission.qnt",
+      "prerequisite.subjectScope": "Protected incoming carrier transfer entry root bundle moving marker allocation stable guard and exceptional custody"
+    },
+    "1": {
+      "dependent.obligationId": "FA-S",
+      "prerequisite.obligationId": "FA-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/FfiScopeRootAdmission.lean",
+      "prerequisite.subjectScope": "Root and release guard exclusions plus conditional HB event-order lemmas"
+    },
+    "2": {
+      "dependent.obligationId": "FA-S",
+      "prerequisite.obligationId": "FA-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/ffi-scope-root-admission-design.org",
+      "prerequisite.subjectScope": "C11 stable registration matched publication nonlocal jumps and backend refinement OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "FA-S",
+      "prerequisite.obligationId": "PR-S",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/pin-roster-detachment-design.org",
+      "prerequisite.subjectScope": "All slot root FFI exception and stop caller refinement OPEN"
+    },
+    "4": {
+      "dependent.obligationId": "FA-S",
+      "prerequisite.obligationId": "FA-X",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/FfiScopeRootAst.lean",
+      "prerequisite.subjectScope": "Actual registerGuard publishRoots releaseScope meanings and finite JSON reference domain"
+    },
+    "5": {
+      "dependent.obligationId": "FA-S",
+      "prerequisite.obligationId": "FA-B",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/ffi_publication_cut.qnt",
+      "prerequisite.subjectScope": "Reference release-acquire publication with serialized roster lease and maintenance scan cut"
+    }
+  }
+}

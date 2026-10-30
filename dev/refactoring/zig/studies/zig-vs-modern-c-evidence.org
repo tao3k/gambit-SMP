@@ -1,0 +1,274 @@
+#+TITLE: Zig / Modern-C Differential Evidence
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: zig
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Zig / Modern-C Differential Evidence :zig:
+:PROPERTIES:
+:ID: 271d8cdb-f691-5614-9049-c85f9a51f30a
+:CUSTOM_ID: zig-modern-c-differential-evidence
+:SOURCE_PATH: docs/experimental/zig/zig-vs-modern-c-evidence.md
+:SOURCE_SHA256: 96d23336ce8fac246cbf188615e9e7e75ba18c03fa54e1b179704bc3d2e87912
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Research HEAD ~b67da6262a973a0ae898002d5c7f5be2d8b5a90d~;
+vendor Gambit HEAD ~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~.
+Local SHA bindings retain working-copy bytes. This is source/literature reading
+and theoretical comparison only. No compiler, native small test or ASCENT run.
+
+*** 1. Current Gambit Source Anchors
+:PROPERTIES:
+:ID: a1ca1994-399d-5dbd-a358-0b6abc3c725a
+:CUSTOM_ID: 1-current-gambit-source-anchors
+:END:
+
+| ID | Directly reviewed source | Relevance and limit |
+|-
+| G01 | [[file:../../../../vendor/gambit/gsc/_back.scm][_back.scm]]:17-145 | Target negotiates representation, primitives, calls/frames and interface emission ownership. It does not specify a target-free native emitter. |
+| G02 | [[file:../../../../vendor/gambit/gsc/_t-c-1.scm][_t-c-1.scm]]:338-390 | C target consumes and clears interface lists, builds module products and maps referenced objects. New product types must retain semantic identities and explicit ownership; neither language removes these duties. |
+| G03 | [[file:../../../../vendor/gambit/gsc/_t-c-2.scm][_t-c-2.scm]]:345-448,825-905 | Reserve/check/private-return/root-materialization behavior is part of emission. Scheme completion must expose it; native type machinery is not a substitute. |
+| G04 | [[file:../../../../vendor/gambit/gsc/_ptree2.scm][_ptree2.scm]]:2093-2112,2902-2933 | Registry information is cleared and wrappers partition parameter handling. A shared semantic producer is needed under C and Zig alike. |
+| G05 | [[file:../../../../vendor/gambit/include/gambit.h.in][gambit.h.in]]:9958-10002; [[file:../../../../vendor/gambit/lib/c_intf.c][c_intf.c]]:1683-1711,6511-6550 | Cleanup has configured C++/C forms and setjmp/exception branches; release invalidates before callback; marker constructor retains a rooting TODO. Neither a Zig error union nor defer changes those protocols. |
+| G06 | [[file:../../../../vendor/gambit/lib/setup.c][setup.c]]:1592-1618 | Module version and several structure sizes are checked. They are partial compatibility checks, not complete ABI/layout/control proof. Imported types do not erase runtime admission. |
+| G07 | [[file:../../../../vendor/gambit/lib/os_dyn.c][os_dyn.c]]:408-454 | Dynamic loader handles are retained and cleaned under configured platform/unload branches. Native resource ownership is real; lexical cleanup of each helper alone does not establish module lifetime. |
+| G08 | [[file:../../../../vendor/gambit/gsc/_gsclib.scm][_gsclib.scm]]:498-593; [[file:../../../../vendor/gambit/bin/gambuild-C.unix.in][gambuild-C.unix.in]]:238-283,331-410 | Existing request/configuration/command assembly has concrete owners. One resolver and typed argv can be implemented with C as well; a new Zig build layer must replace named support rather than duplicate it. |
+
+G08 was already studied in the source-bound native-request design. Its source
+anchors are reread for this differential study; no configured script or shell
+command is executed. The same caution applies to macro branches in G05.
+
+*** 2. Primary Language / Library / Platform Sources
+:PROPERTIES:
+:ID: 0ac2bd50-760d-575b-a3a8-19425ceb79fa
+:CUSTOM_ID: 2-primary-language-library-platform-sources
+:END:
+
+These are reviewed local notes. Their hashes bind this note, not upstream bytes.
+Versioned source URLs identify intended versions but no downloaded source-byte
+snapshot is claimed. Rolling documentation and primary paper access were read
+on 2026-10-20. Upstream examples/test transcripts are published evidence, not
+experiments performed here.
+
+**** P01 — Bounded Zig Language Mechanisms
+:PROPERTIES:
+:ID: 4485050e-b866-51f5-a88c-449ff3a48117
+:CUSTOM_ID: p01-bounded-zig-language-mechanisms
+:END:
+
+[[https://ziglang.org/documentation/0.15.1/][Zig 0.15.1 reference]], Tagged union,
+Exhaustive Switching, Error Union Type, defer, comptime and Lifetime/Ownership.
+Payload capture and exhaustive branches support typed native dispatch;
+compile-time types support native specialization; explicit success/error values
+and lexical cleanup support ordinary-return code. Lifetime remains the
+programmer's responsibility. These features motivate ZC01-ZC03. Our deductions
+apply to the selected safe typed style, not arbitrary casts, raw imports,
+foreign escapes, general memory safety or measured maintenance savings.
+
+**** P02 — A Concrete Allocator Interface, Not Automatic Ownership
+:PROPERTIES:
+:ID: 1400d351-e9c7-5224-b8cd-280197738e4e
+:CUSTOM_ID: p02-a-concrete-allocator-interface-not-automatic-ownership
+:END:
+
+[[https://raw.githubusercontent.com/ziglang/zig/0.15.1/lib/std/mem/Allocator.zig][Zig 0.15.1 Allocator source]],
+~ptr~, ~vtable~, allocation/resize/remap/free operations. The library exposes
+reusable native allocation mechanics with explicit dispatch. Our inference is
+that Z1 can reuse such support when it replaces real project work. B1-C can
+use an equivalent context/vtable and existing libraries. No performance,
+ownership-proof or Scheme-root conclusion follows from the interface.
+
+**** P03 — Credit the C Alternative Its Existing Mechanisms
+:PROPERTIES:
+:ID: 77f574cc-6660-5fcd-8fa5-2aa6e714b22e
+:CUSTOM_ID: p03-credit-the-c-alternative-its-existing-mechanisms
+:END:
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570, C11 committee draft]]
+initially returned indexed declaration/static-assert material, but targeted
+section rereads timed out. The accessible primary
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1441.htm][N1441 generic-selection proposal]]
+and [[https://open-std.org/JTC1/SC22/WG14/issues/c11c17/issue0481.html][WG14 C11/C17 issue 0481]]
+independently describe generic selection; the issue also documents historical
+qualification/array interpretation problems. Our B1-C design credits C generic
+selection, generated/opaque APIs and static checks while qualifying its actual
+compiler policy. Historical issues do not prove current GCC/Clang behavior.
+No claim of a complete N1570 reread or installed profile support is made. The
+newer [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf][N3096 draft]]
+also failed to open; no C23-specific comparison is inferred from failed access.
+
+**** P04 — C Enum Coverage Can Be Diagnosed
+:PROPERTIES:
+:ID: 32acc892-9c42-5842-9481-a9212823d644
+:CUSTOM_ID: p04-c-enum-coverage-can-be-diagnosed
+:END:
+
+[[https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html][GCC warning options]],
+~-Wswitch-enum~ and ~-Werror~; [[https://clang.llvm.org/docs/DiagnosticsReference.html][Clang diagnostic reference]],
+~-Wswitch-enum~. Both primary documents describe enum-switch diagnostics.
+Our inference is that B1-C can require a strict coverage policy in its managed
+profile. Therefore enum exhaustiveness alone is not a Zig-only argument.
+These rolling pages are not observations of the configured compiler flags or
+guarantees about tag/payload correctness, extensions or every future compiler.
+
+**** P05 — Native Construction APIs Exist but Do Not Retire Owners Automatically
+:PROPERTIES:
+:ID: 8999d7e2-f093-5356-a744-ad0b4dde357b
+:CUSTOM_ID: p05-native-construction-apis-exist-but-do-not-retire-owners-automatically
+:END:
+
+[[https://raw.githubusercontent.com/ziglang/zig/0.15.1/lib/std/Build.zig][Zig 0.15.1 Build source]],
+native build-step and ~addTranslateC~ entry points, supplies actual construction
+mechanisms. Our inference is limited: a selected native component may reuse
+them. Custom dependency closure, effective configuration, artifact identity,
+retained Bazel coordination and caller retirement remain project obligations.
+No implicit second build authority or cache/performance benefit is assumed.
+
+**** P06 — Charge Version and Backend Burdens
+:PROPERTIES:
+:ID: 32f1cf81-1914-5deb-9a86-f0d231134c45
+:CUSTOM_ID: p06-charge-version-and-backend-burdens
+:END:
+
+[[https://ziglang.org/download/0.16.0/release-notes.html][Zig 0.16.0 release notes]],
+@cImport Moving to Build System, Incremental Compilation, aarch64 Backend and
+LLVM 21: the notes record C-import evolution, incremental limitations and
+backend/regression work. Our inference is to charge language/library/toolchain
+support and isolate provider identities. These facts concern that release,
+not every later release or a local installed binary. They do not forecast
+Gambit build/runtime performance.
+
+**** P07 — MLIR Access Is Shared With C
+:PROPERTIES:
+:ID: a1d64b79-eb55-5f1a-b36e-676f00fc9404
+:CUSTOM_ID: p07-mlir-access-is-shared-with-c
+:END:
+
+[[https://mlir.llvm.org/docs/CAPI/][MLIR C API]], Design, Scope and Ownership,
+provides a C-interoperable entry surface and explicitly does not guarantee
+stability. B1-C may access it directly or use a bounded C++ service where
+needed. Our inference is that “can call MLIR” is not positive differential
+evidence for Zig; only an identified reduction in provider adaptation could be.
+
+**** P08 — Gambit's Paper Motivates the Contract, Not Zig Selection
+:PROPERTIES:
+:ID: c08da541-65df-59a2-b9a2-b4b41837b347
+:CUSTOM_ID: p08-gambits-paper-motivates-the-contract-not-zig-selection
+:END:
+
+[Feeley and Miller, A Parallel Virtual Machine for Efficient Scheme Compilation
+(1990)](https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf),
+sections 1-2, especially 2.3-2.5, read as extracted PDF text. Bidirectional target
+information covers calling, closure and primitive choices while the frontend
+uses logical objects/frames/arguments. Our inference is to preserve negotiated
+semantic authority while modernizing native construction. This supports B1-C
+and Z1 equally; it supplies no modern language preference, current ABI or cost
+bound. No historical benchmark number is transferred.
+
+**** P09 — A Functional LLVM Backend Still Owns Runtime Conventions
+:PROPERTIES:
+:ID: c709718c-192d-5768-8706-a4aee90c33c1
+:CUSTOM_ID: p09-a-functional-llvm-backend-still-owns-runtime-conventions
+:END:
+
+[[https://arxiv.org/html/1805.08842v2][Farvardin and Reppy, Compiling with Continuations and LLVM, v2]],
+sections 2.2-3.5, read in HTML. The paper describes explicit allocation checks,
+calling/tail and continuation/GC integration for PML/Manticore. Our inference
+is that LLVM mechanics can be delegated while language/runtime conventions
+remain local. Its representation, old API constraints and performance results
+are not transferred to Gambit or treated as a Zig advantage.
+
+**** P10 — Paper Access Limit Retained
+:PROPERTIES:
+:ID: ee5021e6-696e-538d-8873-a0991fc5336f
+:CUSTOM_ID: p10-paper-access-limit-retained
+:END:
+
+The [[https://www.iro.umontreal.ca/~feeley/papers/HuberdeauFeeleySFPW18.pdf][author-hosted 2018 Gambit C/native tail-call paper]]
+again returned access denied. Prior notes remain historical context. No new
+claim is extracted from that failed access; current Gambit source and P08/P09
+are the explicit premises used here. A failed attempt to open an upstream
+allocator implementation or compiler-error example likewise supplies no finding.
+
+**** P11 — Compile-Time Reuse Has a Compilation Budget
+:PROPERTIES:
+:ID: e2c5fc47-f742-572a-ad06-7e30c9274cc7
+:CUSTOM_ID: p11-compile-time-reuse-has-a-compilation-budget
+:END:
+
+[[https://raw.githubusercontent.com/ziglang/zig/0.15.1/lib/std/meta.zig][Zig 0.15.1 meta source]],
+~stringToEnum~ and its comment about compile-time map construction, supplies a
+concrete type-parameterized native helper and an explicit compilation-cost
+caveat. This supports considering helper reuse and charging its compilation
+burden. It is not a Gambit timing result or a reason to assume all comptime
+specialization is cheap.
+
+*** 3. Argument Coverage and Remaining Certificates
+:PROPERTIES:
+:ID: b3274bab-9101-5a3d-b44b-c7c1bccb1828
+:CUSTOM_ID: 3-argument-coverage-and-remaining-certificates
+:END:
+
+| Item | Evidence / deduction | Remaining boundary |
+|-
+| Same-capability C counterdesign | BC01-BC08 plus P03/P04 | Proposed design; not implemented or qualified |
+| Typed private variants | P01 plus G01-G04; local L1 reasoning | Scheme meaning, wire imports, casts and compiler trust remain; no cost bound inferred |
+| Ordinary cleanup / typed results | P01 plus G05/G07; local L2 reasoning | Only contained ordinary returns; no asynchronous or nonlocal cleanup guarantee |
+| Native helper/library reuse | P01/P02/P05 plus G02-G04/G07 | A named B1-C support implementation must actually retire; no default generator/library deletion |
+| Neutral/rejected broad credit | G05/G08 and P04/P06-P09 | C API, generic LLVM, no-GC and build slogans do not prove Zig increment |
+| Aggregate positive sign | Paired cost-certificate conditions in the design | TG4 actual support retirement and TG5 justified bounds/accepted budget remain open |
+
+No paper directly proves Zig cheaper for this Gambit refactor. Theoretical
+support consists of reviewed source needs, primary language/library mechanisms,
+a fair counterdesign and explicit deductions/counterexamples. Neither reference
+counts nor conditional inequalities are a completed net-benefit certificate.
+
+*** 4. Source-to-Support Follow-Through
+:PROPERTIES:
+:ID: d25571a1-8a47-548f-9f62-00e537f7d098
+:CUSTOM_ID: 4-source-to-support-follow-through
+:END:
+
+The [[file:native-support-change-certificate.org][support/change certificate]] follows
+actual label and module-product production, rather than assuming a handwritten
+C implementation exists. These additional anchors were read directly at the
+same research/vendor HEADs above; no generated C or native tool was executed.
+
+| ID | Reviewed source | Finding / boundary |
+|-
+| G09 | [[file:../../../../vendor/gambit/gsc/_t-c-2.scm][_t-c-2.scm]]:276-301 | Scheme produces proc and return payloads, including normal/task/internal kinds, and stores class/info in mutable label vectors. This establishes semantic variants, not required native residency. |
+| G10 | [[file:../../../../vendor/gambit/gsc/_t-c-1.scm][_t-c-1.scm]]:648-783,1137-1211 | Scheme handles object references, ordered/identity tables, procedure queues and module counts/sections. These are existing Scheme decisions, not a census of C constructors Zig would remove. |
+| G11 | [[file:../../../../vendor/gambit/gsc/_t-c-1.scm][_t-c-1.scm]]:1934-2017,2047-2064 | Scheme chooses proc/return macro forms, IFD/OFD selection, separate OFD count and output traversals. Consolidating the physical decision is a shared redesign opportunity, not evidence of an existing mismatch. The return-kind else maps to normal; accepted-domain changes need producer closure. |
+| G12 | [[file:../../../../vendor/gambit/include/gambit.h.in][gambit.h.in]]:9224-9267,11839-11875 | C macros perform frame alignment, descriptor/GC-map packing and label record construction. New native packing must retain decoder/profile correspondence; tagged source types do not establish binary layout. |
+| G13 | [[file:../../../../vendor/gambit/gsc/_t-cpu.scm][_t-cpu.scm]]:161-180 | Assembled code/fixups are packaged through the C backend. Direct packaging removes a selected route detour in C or Zig; no measured saving follows. |
+| G14 | [[file:../../../architecture/runtime/control/studies/hostgraph-generation-contract.org][HostGraph contract]]:sections 2-4 | Proposed G4 freeze, common G5 plan, FrameLayout authority and bounded amendment protocol require shared physical decisions. They do not prescribe a resident native copy of every semantic variant. This is project design evidence, not upstream implementation. |
+
+Primary sources P01, P04 and P08 were revisited for this refinement. The
+[[https://ziglang.org/documentation/0.15.1/#Tagged-union][Zig 0.15.1 reference]]
+supports selected typed construction/capture and ordinary cleanup mechanisms;
+ownership still remains explicit. The
+[[https://gcc.gnu.org/onlinedocs/gcc/Warning-Options.html#index-Wswitch-enum][GCC enum warning policy]]
+supports crediting strict C enum coverage. The
+[[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][1990 Gambit paper]],
+section 2, supports negotiated logical/backend boundaries. None establishes
+engineering cost or a required native sum. WG14 N1570 again failed to open;
+there is no new C-standard finding from that attempt. These are reviewed notes,
+not newly pinned upstream bytes or published experiments reproduced locally.
+
+The constructive result is conditional and local: in the specified resident
+LP-C/LP-Z pair, selected Zig language operations make SC-ADT-C's project
+association implementation unnecessary. The streaming counterdesign and a
+stable C generator defeat a universal cost/necessity inference. The cleanup
+example demonstrates no whole support-family retirement. Both findings are
+architecture deductions from the paired designs, not source observations that
+existing helpers were removed. TG4 has a scoped mechanism result; its global
+obligation and TG5 remain open, with no witness issued.

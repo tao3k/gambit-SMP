@@ -1,0 +1,169 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-runtime-role-protocol",
+  "scope": "Same existing role QNT; three histories, complete finite two-participant safety and four counterexamples; separate from universal Lean laws and concrete C memory/lifecycle refinement",
+  "budgetSeconds": 100,
+  "inputs": [
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/research/capacity-admission/protocol-tools.json",
+    "dev/refactoring/modern-c/models/quint/runtime_roles.qnt"
+  ],
+  "steps": [
+    {
+      "id": "role-parse",
+      "capability": "quint.parse",
+      "dependsOn": [],
+      "budgetSeconds": 5,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt"
+      }
+    },
+    {
+      "id": "role-type",
+      "capability": "quint.typecheck",
+      "dependsOn": [
+        "role-parse"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse"
+      }
+    },
+    {
+      "id": "role-tests",
+      "capability": "quint.test",
+      "dependsOn": [
+        "role-parse",
+        "role-type"
+      ],
+      "budgetSeconds": 5,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse",
+        "main": "runtime_roles",
+        "seed": "0x11",
+        "maxSamples": 100,
+        "expectedTests": [
+          "fullRoundTest",
+          "overflowDeliveryTest",
+          "successDeliveryTest"
+        ]
+      }
+    },
+    {
+      "id": "role-safety",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "role-parse",
+        "role-tests"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse",
+        "initializer": "init",
+        "step": "step",
+        "invariant": "safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "role-early-close",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "role-parse",
+        "role-tests"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse",
+        "initializer": "init",
+        "step": "earlyClose",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "role-wrong-origin",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "role-parse",
+        "role-tests"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse",
+        "initializer": "init",
+        "step": "wrongOrigin",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "role-result-overwrite",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "role-parse",
+        "role-tests"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse",
+        "initializer": "initConsumed",
+        "step": "overwriteResult",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "role-early-resume",
+      "capability": "quint.verify",
+      "dependsOn": [
+        "role-parse",
+        "role-tests"
+      ],
+      "budgetSeconds": 15,
+      "arguments": {
+        "source": "dev/refactoring/modern-c/models/quint/runtime_roles.qnt",
+        "parsed": "role-parse",
+        "initializer": "init",
+        "step": "earlyResume",
+        "invariant": "safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "role-parse",
+        "role-type",
+        "role-tests",
+        "role-safety",
+        "role-early-close",
+        "role-wrong-origin",
+        "role-result-overwrite",
+        "role-early-resume"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

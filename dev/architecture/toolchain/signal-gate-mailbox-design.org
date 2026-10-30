@@ -1,0 +1,288 @@
+#+TITLE: Generation Gate and Stable Mailbox Admission Contract
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:nil
+
+* RESEARCH Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox
+:STATUS: conditional-models-source-open
+:CANONICAL_MODEL: models/sysml/signal-gate-mailbox.sysml
+:END:
+
+Modern C is the required runtime direction. This study refines
+[[file:signal-route-retirement-design.org][signal route retirement]] into coherent gate snapshots, explicit CAS denials,
+non-wrapping capacity, mailbox batch ownership and normal-thread VM binding.
+Signal-safe capture and native lifetime stay in the engineering layer; Scheme
+retains handler semantics and policy. A stable mailbox is not a universal encoding
+of arbitrary Scheme callbacks or per-VM events.
+
+SysML owns eight contract rows, ten dependencies, seven open gates and four
+benefit rows. Python invokes native SysML and projects Org/D2. Actual ASCENT rules
+join source, action, lemma, dependency and prior model subjects by scope/hash.
+No runtime/compiler implementation, native test, build or performance experiment
+is included. The parent evidence and models remain frozen.
+
+* RESEARCH Source facts that constrain semantics
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-source
+:END:
+
+| Real producer/consumer | Source | Established fact | Design implication |
+|-
+| User interrupt | os_setup.c:3044–3049 | Callback selects vmstate0 and processor 0 | Signal number alone cannot identify a retired VM generation; preserve or explicitly change selection point |
+| Heartbeat and termination | os_setup.c:3037–3040,3053–3056; setup.c:95–136 | Routes through VM/processor broadcast | Moving list traversal to a normal owner needs a defined topology snapshot and VM leases |
+| Signal wrapper | os_base.c:1817–1839 | int-only handler; sa_handler, flags zero/SA_INTERRUPT; ignores installation status | No SA_SIGINFO event identity or kernel-provided VM generation exists in this path |
+| Child status | os_io.c:8503–8561 | waitpid loop, native device-group lookup and status update; errno restored | Coalesced notification can require many native reconciliation actions and retained child-resource ownership |
+| Scheme dispatch | setup.c:206–228; _kernel.scm:1448–1476 | Selects/clears a flag and calls current interrupt vector; setter mutates vector | Existing bit representation does not prove arbitrary handler effects may be merged or delayed across policy change |
+| Atomic macros | gambit.h.in:11014–11026 and alternative sync branches | CAS/fetch-add/fetch-clear/barrier available through multiple backends | Existing macros do not directly specify packed gate width, signal lock-freedom or new mailbox batching semantics |
+| Target retirement | setup.c:932–978; os_io.c:11808–11828 | PSTATE/OS cleanup and join paths exist | Route gate does not replace root, endpoint close or OS join receipts |
+
+The int-only ABI and delivery/disposition distinctions are consistent with
+[[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/sigaction.2.html][Apple's archived sigaction description]]. This is a historical platform contract,
+not current local Darwin qualification. No native bug is claimed from source
+shape alone. Source census covers guarded in-tree seams, not all embedding aliases.
+
+* RESEARCH Typed gate contract
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-gate
+:END:
+
+** State and snapshot
+GateWord is one initialized unsigned atomic scalar encoding Enabled, Generation
+and ActiveCount. For word width W, generation bits G and count bits C require
+1+G+C ≤ W, disjoint fields and explicit masks. CountMax=2^C−1 and GenMax=2^G−1
+are bounds, not counts that may silently wrap. Coherent snapshot means one atomic
+load of the scalar; separate field loads are not an equivalent snapshot. Do not
+use a struct with padding as an assumed bitwise identity.
+
+Immutable RouteRecord fields are initialized before release/open publication.
+No handler reads the reclaimable record, native descriptor or VM pointer until
+successful acquire entry. The permanent gate/trampoline/mailbox live outside
+PSTATE, Scheme GC storage and per-VM unloadable code. Their reclamation is a
+separate process-shutdown problem.
+
+** Result algebra and bounded execution
+| Entry observation/result | What it proves | Permitted continuation |
+|-
+| Acquired(generation, pin) | One conditional atomic increment succeeded against the complete snapshot | Read immutable route under this pin; publish accepted work; release pin after last old access |
+| SnapshotClosed | Observed snapshot has no admission | Eligible reason goes to stable mailbox; no route read |
+| SnapshotSaturated | Observed count has no room | Eligible fallback; no increment, decrement or field carry |
+| CompareMismatch | Strong CAS did not install desired word; expected may now contain another word | No pin, even if returned word looks open; fallback or separately bounded retry contract |
+| StaleGeneration | Snapshot/failed comparison identifies another generation | No access to either old or new route; generation hint is not signal origin identity |
+| GenerationExhausted | Generation cannot advance without wrap | Seal this slot; do not reopen modulo its bit width |
+
+The default handler makes one strong CAS attempt after an eligible non-full
+snapshot, then takes bounded fallback on failure. A snapshot-full denial can be
+conservative: another handler may leave before fallback. That does not grant a
+late entry or make the denial a statement about the current count. If a future
+profile uses weak CAS it must handle spurious failure explicitly; no unbounded
+handler retry loop is admitted by this design. Lock-free CAS alone does not
+establish a wait-free target instruction sequence or whole-handler latency bound.
+
+A CAS result never authorizes semantic work twice. Only acquired pins can publish
+route-bound work. Eligible denial publishes one coalescible process intent;
+it does not reinterpret the failed expected word as a VM address. Unknown native
+notification remains a separate custody record from the pin, as in the prior study.
+
+* RESEARCH MailboxReasonSpec and late-signal ownership
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-semantics
+:END:
+
+MailboxReasonSpec declares: reason class, process custodian, coalescing equivalence,
+native payload shape, generation-invariant meaning, observation/selection point,
+consumer reconciliation effect, policy-change rule, notification fallback and
+lifetime owner. These are semantic admission fields, not build configuration.
+
+A plain stable bit is admitted only for a process-scoped, coalescible, native-only
+reason whose meaning is unchanged by route generation or policy changes. No SCMOBJ,
+raw VM pointer or counted payload can hide inside the bit. Distinct effects may
+merge only when one consumer action or reconciliation closure preserves the
+required observations. Same signal number is insufficient evidence.
+
+| Actual source reason | What must be proved before bit-mailbox admission |
+|-
+| User interrupt | Match vm0/processor0 selection time, Scheme vector behavior, ordering and observable exceptions; choose explicit process-intent policy if changing the boundary |
+| Heartbeat | Preserve documented coalescing and scheduler/VM topology selection; do not infer lost heartbeat counts are always unobservable |
+| Terminate | Retain a process-level obligation rather than losing it with one VM; define whether/how active VMs are selected |
+| SIGCHLD | Reconcile all waitpid/status work and native child tables; one bit is not one completed child |
+| SIGWINCH / SIGCONT | Preserve native tty/mode effects and timing, or justify an explicit semantic change; generic notification is not already equivalent |
+| VM-specific/count-bearing extension | Refuse this bit path; require an identity-carrying envelope with valid VM/root leases or another qualified transport |
+
+The current Scheme interrupt-vector setter means policy is mutable. Existing
+flags do not prove invariance across that mutation. Keep admitted reason meaning
+fixed across the process-shell lifetime, or provide a separately proved identity/
+policy-epoch transport. A handler paused before reading a reusable mailbox bank
+can otherwise recreate the same ABA hole as a route pointer. This study does not
+claim that a finite per-policy bit bank fixes that problem.
+
+A delayed kernel signal has no implicit old VM generation. Generation in an entry
+snapshot records a route admission attempt, not signal creation provenance. After
+old VM retirement, an eligible denied reason remains owned by the process service.
+It is neither discarded nor automatically assigned to the newly opened VM. The
+process custodian can execute its process-level effect, retain it unresolved, or
+make an explicit leased target decision under an admitted policy.
+
+An ineligible reason must be rejected before a managed handler/profile is installed.
+Fallback at runtime is not permission to drop an unsupported event. Unconverted
+legacy paths remain outside managed retirement and retain their old dependencies.
+
+* RESEARCH Mailbox publication and consumption
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-batch
+:END:
+
+Use a permanent native pending word and an admitted coalescing bit per reason.
+Producer uses qualified atomic fetch-or. Consumer uses one atomic exchange with
+zero to claim a batch, then holds its own stable in-flight responsibility until
+execution, binding or failure transfer is acknowledged. Consumer must not overwrite
+an unfinished batch. Producers publishing during consumption leave another pending
+bit; completing the old batch must not clear that new bit. A load followed by a
+separate store-zero loses an intervening publication and is rejected.
+
+Where a record carries payload, release publication plus matching acquire
+consumption makes initialization visible. The pending bit alone carries no VM/root
+payload. Batch identities and observed outcomes belong in ordinary-thread custody
+journals, not allocated from a signal handler. Wake bytes remain hints: finite-wait
+fallback and old-roster progress retain their prior qualification requirements.
+
+The QNT uses event-identity sets as ghost coverage of one equivalent reason bit.
+Those sets are not a proposed native per-event queue and do not turn a coalesced
+bit into a reliable count. A batch is consumed/bound as a whole; the model does not
+split equivalent ghost events among different targets. Per-reason observational
+equivalence remains an open proof obligation.
+
+* RESEARCH VM binding and retirement journal
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-binding
+:END:
+
+BindingReceipt includes process reason/spec identity, normal-owner batch identity,
+policy decision, target VM generation, registry/root/service lease, accepted-work
+identity, publication cut and known/unknown outcome. Under the VM lifecycle gate,
+validate live target, acquire its lease, and invalidate any retirement receipt
+before authorizing commit. Do not load a raw VM pointer and increment a potentially
+freed reference afterward. Scheme policy may select a target, while the native
+service validates custody before delivery.
+
+| Binding state | Custodian / action |
+|-
+| Unbound process batch | Process-lifetime native service; no old VM dependency implied |
+| Authorized, target lease held | Same batch/journal plus pinned target; VM retirement blocked |
+| Authorization/commit acknowledgement unknown | Keep original journal and target lease; query identity; no timeout rebinding to another VM |
+| Known rejected/aborted before publication | Release target lease only after failure is known; batch stays process-owned |
+| Commit accepted | Transfer custody once to rooted target-work domain; receipt records target generation |
+| Target already retired | Reject binding; retain process custody or execute process-level effect |
+| Delivered work still pending | Preserve target roots and actual old-roster participation; handler completion is irrelevant |
+
+Publishing to a target invalidates retirement before acceptance. Selected operation
+completion settles only that round's accepted work, preserving later arrivals.
+Ordinary custodian must remain able to service GC while waiting for a result;
+no lock spans collective service or acknowledgement wait. Delivery failure can
+require retaining the entire VM and services, not only a native batch pointer.
+Old route pin zero, bit cleared, target lease release, OS join and VM cleanup are
+separate receipts. The model abstracts native close/root/guard/join duties through
+the prior contract and does not re-prove them from its generation integer.
+
+* RESEARCH C memory-order and representation obligations
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-memory
+:END:
+
+| Operation | Initial modern C contract | Obligation still open |
+|-
+| Gate snapshot | One SC load of initialized unsigned scalar | Packing/decode and always-lock-free admitted ABI |
+| Strong CAS | SC success and SC failure; private expected object; exact complete-word comparison | Correct lowering; failure result never yields a pin |
+| Pin decrement / revoke / zero observation | SC RMW/loads; last old access before release | Source release-sequence/lifetime proof; no count underflow or wrap |
+| Mailbox publish / exchange | Signal-safe lock-free atomic fetch-or and exchange; release/acquire matching as needed, SC permitted initially | Whole participating access audit; no ordinary store-zero bypass |
+| Normal target binding | VM registry/lifecycle gate and atomic journal acceptance | Pointer lifetime, root relocation, known/unknown decision and rollback semantics |
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570 7.17.7.4]] specifies failure updating expected and weak CAS spurious
+failure; failure order cannot be release/acq_rel or stronger than success. Its
+signal and atomic clauses constrain the target admission. These facts do not prove
+current legacy macro variants implement this typed contract. Emulated atomic paths
+that take mutexes cannot silently serve the signal lane. Qualify at initialization,
+never by invoking a lock-free query from the handler. Unsupported targets refuse
+managed retirement or retain a separately justified lifetime policy; they do not
+pretend a generic C macro is universally signal-safe.
+
+QNT is sequentially atomic. Lean proves abstract admission and mailbox transition
+properties, not weak-memory compilation or packed-machine-word correctness.
+No C/native execution is used to claim this gap closed.
+
+* RESEARCH Models and traceability
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-models
+:END:
+
+[[file:../../../models/build/signal_gate_mailbox.qnt][QNT]] models three handler attempts, capacity one, generations one/two, coherent
+snapshot versus CAS, saturated/closed/stale/mismatch outcomes, a coalescible batch,
+process custody, target authorization/lease uncertainty and two-member collective
+service. Capacity and generation constants force boundaries; they are not proposed
+production bit widths or measured costs. Exhaustion seals the slot instead of
+wrapping it. Bound fallback work requires an explicit policy receipt.
+
+Histories cover mismatch while another handler wins, full snapshot becoming stale,
+late attempt after next VM opens, process handling after old VM retirement, concurrent
+publish during batch consumption, explicit binding, unknown-decision lease and
+retirement after selected work. Negative controls wrap a count/generation, bind
+without authority, erase mailbox responsibility, free the process custodian,
+insert a raw VM payload, free a leased VM or drop a concurrent publication.
+
+[[file:../../../models/build/SignalGateMailbox.lean][Lean]] proves failed/closed/stale/full admission boundaries, non-carry arithmetic,
+mailbox coverage for every publish/exchange/finish step, concurrent publication
+survival, reason-domain rejection, binding and lease retirement conditions.
+It does not prove source handler observational equivalence, full QNT induction,
+packed-field decoding, native signal timing or progress. Model authorization is a
+normal-owner policy premise; it is not automatically evidence that any source
+signal has qualified that policy.
+
+[[file:../../modeling/ascent/signal-gate-mailbox.rules.scm][ASCENT DSL]] checks eight actual component/source/action/lemma bindings, ten
+shared-contract edges, four frozen prior invariants and scoped receipt hashes.
+Missing-step/component/prior, stale-hash/scope and open-parent cases remain blocked.
+Only synthetic complete evidence becomes a candidate; seven real admission gates
+stay open. Source refinements are not manufactured from successful local joins.
+
+* RESEARCH Benefit and retirement matrix
+:PROPERTIES:
+:CUSTOM_ID: signal-gate-mailbox-benefit
+:END:
+
+[[file:signal-gate-mailbox-matrix.org][Canonical matrix]] quantifies logical mechanisms without inventing timing: an
+admitted entry uses one snapshot load, one successful strong CAS and one final
+decrement, plus work/notification publication. Denial uses snapshot, at most one
+CAS and eligible mailbox publication. Per batch, one exchange claims responsibility;
+semantic reconciliation and optional VM lease/journal cost remain. Instruction
+counts inside atomic lowering and latency are unmeasured.
+
+Stable process metadata is O(R+B+V) for reason classes, retained batches and target
+VM leases, plus the gate/handler state. Coalescing can reduce notification storage
+and target coordination only when equivalent effects admit it. It cannot reduce
+required child reconciliation or counted Scheme effects. Net benefit requires
+avoided duplicate work/lifetime coupling > atomics, policy, batching, retention and
+root/scan overhead. Atomic retirement can avoid an all-thread mask rendezvous merely
+to reclaim an old route, but required mask policy still needs its own transaction.
+
+Modern C preserves Gambit's C role with typed gate results, native-only capture
+and Scheme-owned policy. Zig cannot remove these proof or runtime responsibilities;
+no incremental language net benefit is demonstrated.
+
+Retirement dependencies:
+1. Generate MailboxReasonSpec from source and Scheme policy contracts. Refuse
+   unproven process/coalescing domains; do not reinterpret legacy callback semantics.
+2. Introduce the stable shell and typed whole-word gate interface. Retire direct
+   signal-time VM lookup only after ordinary-owner topology selection is qualified.
+3. Replace ignored/unclassified entry outcomes and unchecked counter arithmetic
+   with explicit denial/sealing. Preserve existing non-signal atomic users separately.
+4. Replace mailbox load/clear with batch ownership and normal target journal.
+   Retire raw target binding only after accepted-work root/service leases exist.
+5. Retire old route/endpoint/VM paths only after pin, work, decision and native
+   retirement receipts close. Never free the process shell during individual VM cleanup.
+No runtime path is implemented or removed by this study.
+
+* RESEARCH Reproducibility
+[[file:../../modeling/tools/signal-gate-mailbox-study.py][Python driver]] queries native SysML and runs local QNT/Lean, actual ASCENT,
+D2 rendering and Org parsing. [[file:../../../evidence/research/signal-gate-mailbox/checks.json][Structured receipts]] retain hashes, prior alignment
+and open gates. Authoring failures remain retained; raw diagnostics are cache-local.
+No Babel, native build or native test is executed.

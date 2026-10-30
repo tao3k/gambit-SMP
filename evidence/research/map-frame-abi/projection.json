@@ -1,0 +1,568 @@
+{
+  "owner": [
+    {
+      "moduleId": "semantic",
+      "ownerPath": "dev/architecture/compiler",
+      "owns": "Normalization, GVM semantic completion, effects, FrameSpec, PointId and primitive/FFI legality"
+    },
+    {
+      "moduleId": "native",
+      "ownerPath": "dev/refactoring/modern-c",
+      "owns": "Mechanical lowering and generated frame/root/layout/entry declarations from completed plan"
+    },
+    {
+      "moduleId": "execution",
+      "ownerPath": "dev/architecture/runtime/execution",
+      "owns": "Execution grants, park/reentry, participant membership, resize and exit admission"
+    },
+    {
+      "moduleId": "roots",
+      "ownerPath": "dev/architecture/runtime/interfaces",
+      "owns": "Cross-owner root-cut, slot-update and last-reader agreement; execution/FFI remain value custodians, GC remains scanner"
+    },
+    {
+      "moduleId": "collector",
+      "ownerPath": "dev/architecture/runtime/gc",
+      "owns": "Heap layout, allocation budgets, copy/scan tasks, phases, promotion and reclaim decisions"
+    },
+    {
+      "moduleId": "control",
+      "ownerPath": "dev/architecture/runtime/control",
+      "owns": "Captured/current/saved frame interpretation, denv mutation, restore and supported nonlocal exits"
+    },
+    {
+      "moduleId": "foreign",
+      "ownerPath": "dev/architecture/runtime/ffi",
+      "owns": "Borrow scopes, root protection before marker allocation, nested callback origin and acquired-effect cleanup"
+    },
+    {
+      "moduleId": "release",
+      "ownerPath": "dev/architecture/runtime/ffi",
+      "owns": "Classified release effects, thread-affine jobs, WaitContext, derived-task accounting and shutdown drain"
+    },
+    {
+      "moduleId": "build",
+      "ownerPath": "dev/architecture/toolchain",
+      "owns": "Rule planning, dependencies, rebuild decision, CPU/memory scheduling and transactional artifact publication"
+    }
+  ],
+  "source": [
+    {
+      "key": "scheme-frame-producer",
+      "sourcePath": "vendor/gambit/gsc/_t-c-2.scm",
+      "sourceNeedle": "(define (targ-gen-label-return*",
+      "consumer": "GC/control/native",
+      "obligation": "Per-successor liveness, return variable and internal saved-register closure",
+      "actionName": "emit",
+      "guardName": "true",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Source-to-QNT guard/update semantics and Scheme output identity remain open"
+    },
+    {
+      "key": "frame-freeze",
+      "sourcePath": "vendor/gambit/gsc/_t-c-3.scm",
+      "sourceNeedle": "(define (targ-make-frame-spec",
+      "consumer": "C descriptor emitter",
+      "obligation": "Validate kind/fs/link/map and preserve stored versus actual frame sizes",
+      "actionName": "emit",
+      "guardName": "true",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Existing constructor reused; not claimed as new implementation"
+    },
+    {
+      "key": "descriptor-emission",
+      "sourcePath": "vendor/gambit/gsc/_t-c-1.scm",
+      "sourceNeedle": "(targ-frame-spec-stored-fs info)",
+      "consumer": "module label and OFD tables",
+      "obligation": "Emit exact constructor result; no reinterpretation or new implicit layout",
+      "actionName": "compile",
+      "guardName": "s.emitted",
+      "lemmaName": "forwardSimulation",
+      "boundary": "No re-generation or installed-object provenance proven"
+    },
+    {
+      "key": "stored-map-labels",
+      "sourcePath": "vendor/gambit/lib/_std.c",
+      "sourceNeedle": ",___DEF_LBL_INTRO(___H_map,",
+      "consumer": "all map frame consumers",
+      "obligation": "L2 normal(5,0,7), L4 normal(5,0,9); actual internal descriptors remain distinct",
+      "actionName": "capture",
+      "guardName": "not(s.captured)",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Only two normal rows enter arithmetic proof; twenty other returns not erased"
+    },
+    {
+      "key": "gc-frame-reader",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "sourceNeedle": "___HIDDEN void mark_frame",
+      "consumer": "stack and captured frame GC",
+      "obligation": "Decode same slots, scan selected roots, update moving references, keep return labels alive",
+      "actionName": "collect",
+      "guardName": "s.root",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Opaque root Boolean does not prove all real roots or heap relocation"
+    },
+    {
+      "key": "restore-reader",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "sourceNeedle": "fp += fs+1; /* get base of frame */",
+      "consumer": "heap frame to execution stack",
+      "obligation": "Copy frame fields, preserve logical values and denv/wind, reload roots before execution",
+      "actionName": "reload",
+      "guardName": "not(s.running)",
+      "lemmaName": "forwardSimulation",
+      "boundary": "No complete concrete frame-value transfer or dynamic-wind simulation"
+    },
+    {
+      "key": "multishot-caller",
+      "sourcePath": "vendor/gambit/lib/_thread.scm",
+      "sourceNeedle": "(define-prim (##continuation-graft-aux",
+      "consumer": "repeatable saved continuation",
+      "obligation": "Each shot has fresh execution/native activation and shared Scheme identities",
+      "actionName": "resume",
+      "guardName": "s.loaded==s.epoch",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Three abstract invocations do not compute real map outputs or arbitrary shots"
+    },
+    {
+      "key": "module-fixup",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "sourceNeedle": "___HIDDEN ___SCMOBJ setup_module_fixup",
+      "consumer": "installed descriptor/code cohort",
+      "obligation": "Validate semantic frame ABI and bind exact labels/OFD tables before entering module",
+      "actionName": "bind",
+      "guardName": "s.native",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Current version/sizeof checks do not certify frame-wire semantics"
+    },
+    {
+      "key": "artifact-driver",
+      "sourcePath": "../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss",
+      "sourceNeedle": "(def (compile-scm-file",
+      "consumer": "Gerbil stage query and native jobs",
+      "obligation": "ABI edit invalidates true descendants; a native tool edit cannot certify layout equivalence by itself",
+      "actionName": "abiEdit",
+      "guardName": "true",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Full dynamic dependencies, snapshots and observable result encoding open"
+    },
+    {
+      "key": "frame-reflection",
+      "sourcePath": "vendor/gambit/lib/_io.scm",
+      "sourceNeedle": "(define-prim (##implode-frame",
+      "consumer": "frame mutation and deserialization",
+      "obligation": "Reconstruction is a writer and never recreates expired native authority",
+      "actionName": "returnShot",
+      "guardName": "s.running",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Reflection/writer closure remains a source requirement outside this finite protocol"
+    },
+    {
+      "key": "old-cohort-retirement",
+      "sourcePath": "vendor/gambit/lib/os_dyn.c",
+      "sourceNeedle": "___cleanup_dyn_module",
+      "consumer": "loader, saved frames, GC and diagnostics",
+      "obligation": "No unload while captured return addresses/descriptors or actual native users remain",
+      "actionName": "releaseCaptured",
+      "guardName": "not(s.running)",
+      "lemmaName": "forwardSimulation",
+      "boundary": "Model release is admitted all-alias grace, not inference from caller return"
+    }
+  ],
+  "witness": [
+    {
+      "key": "callback-return",
+      "sourcePath": "vendor/gambit/lib/_std.c",
+      "labelIndex": 2,
+      "storedFs": 5,
+      "linkSlot": 0,
+      "mask": 7,
+      "liveSlots": "1,2,3",
+      "useSite": "STK(-6) proc and STK(-5) source list after callback"
+    },
+    {
+      "key": "recursive-return",
+      "sourcePath": "vendor/gambit/lib/_std.c",
+      "labelIndex": 4,
+      "storedFs": 5,
+      "linkSlot": 0,
+      "mask": 9,
+      "liveSlots": "1,4",
+      "useSite": "STK(-4) saved callback result plus returned suffix before CONS"
+    }
+  ],
+  "impact": [
+    {
+      "key": "liveness-content",
+      "trigger": "Changed map body or successor roots, unchanged wire schema",
+      "semantic": "Recompute affected procedure plan and semantic dependency consumers",
+      "native": "Re-emit/recompile changed module and true inline/dependency consumers",
+      "runtime": "Reuse unchanged decoder; retain old module descriptors/code for live saved frames",
+      "retirement": "Do not rebuild whole runtime just because a mask value changes"
+    },
+    {
+      "key": "frame-wire-schema",
+      "trigger": "Changed tag, bit width, slot interpretation, internal saved-register or OFD rules",
+      "semantic": "Reuse only a proven target-independent semantic projection",
+      "native": "Invalidate matching emitter/decoder/runtime/loader/native ABI cohort",
+      "runtime": "All readers must agree; old frames require old decoder service or proven migration, otherwise reject activation",
+      "retirement": "Old descriptor decoder retires only after old GC/capture/restore/label users close"
+    },
+    {
+      "key": "target-physical",
+      "trigger": "Changed word size, alignment, register allocation/call/root representation",
+      "semantic": "Target feedback can invalidate normalization, primitives and GVM; never assume frontend reuse",
+      "native": "Rebuild affected layout and code plus runtime ABI consumers",
+      "runtime": "No mixing old saved frames with incompatible collector/restore representation",
+      "retirement": "Portability remains parameterized; no universal cross-architecture saved continuation"
+    },
+    {
+      "key": "native-tool",
+      "trigger": "Compiler or service upgrade with demonstrated unchanged semantic/layout contract",
+      "semantic": "Keep admitted semantic and emission products",
+      "native": "Invalidate affected object/link recipes; ABI-changing flags reclassify as target-physical",
+      "runtime": "Keep installed live cohort; tool identity is not runtime compatibility proof",
+      "retirement": "Retire repeated frontend work only with dependency and output equivalence"
+    },
+    {
+      "key": "no-change",
+      "trigger": "Exact demanded projections, trace and output manifests stable",
+      "semantic": "Zero admitted semantic producer executions; fresh stateful instances still cost",
+      "native": "Reuse matching emitted/object/link products",
+      "runtime": "No runtime layout replacement required",
+      "retirement": "No timestamps or same file names as reuse authority"
+    }
+  ],
+  "refine": [
+    {
+      "key": "initial",
+      "qualified": true,
+      "lemma": "initialSafe",
+      "premise": "Literal selected QState initial record and alpha image",
+      "gap": "QNT evaluator initialization semantics and literal-expression encoding still require external bridge"
+    },
+    {
+      "key": "representation",
+      "qualified": true,
+      "lemma": "safetyReflection",
+      "premise": "Explicit flat-QState to nested-LState alpha and relates",
+      "gap": "Real Scheme values, root addresses and native objects are not encoded by this relation"
+    },
+    {
+      "key": "guards",
+      "qualified": true,
+      "lemma": "guardCorrespondence",
+      "premise": "All twelve Lean Event cases including stutter",
+      "gap": "QNT source expression semantics to qGuard is not kernel-proved"
+    },
+    {
+      "key": "updates",
+      "qualified": true,
+      "lemma": "updateCorrespondence",
+      "premise": "All twelve Lean Event cases including stutter",
+      "gap": "QNT record-update semantics to qNext is not kernel-proved"
+    },
+    {
+      "key": "steps",
+      "qualified": true,
+      "lemma": "forwardSimulation",
+      "premise": "Any Lean qStep under relates has a matching lStep",
+      "gap": "This is a mirror-transition theorem, not a proof about the Quint tool implementation"
+    },
+    {
+      "key": "histories",
+      "qualified": true,
+      "lemma": "historySimulation",
+      "premise": "Finite arbitrary-length histories of the mirrored relations",
+      "gap": "Three-shot bound is an explicit QNT instance, not a Scheme restriction"
+    },
+    {
+      "key": "qnt-encoding",
+      "qualified": false,
+      "lemma": "open",
+      "premise": "Interpreter/translation relation for exact QNT guard/update/Int/Bool/stutter expressions",
+      "gap": "Independent expression semantics or verified translation needed; textual hashes and theorem names are insufficient"
+    },
+    {
+      "key": "source-and-progress",
+      "qualified": false,
+      "lemma": "open",
+      "premise": "Scheme map, physical GC relocation, native loader, all aliases and fair progress",
+      "gap": "Source simulation, full OFD/RETI, C11 and concurrency/liveness remain open"
+    }
+  ],
+  "gain": [
+    {
+      "key": "shared-frame-contract",
+      "avoided": "Repeated semantic/layout interpretation across emission, GC, restore and loader",
+      "added": "Schema completeness, descriptor space and joint migration",
+      "condition": "Current Scheme FrameSpec and C decoder already exist; savings must be additional real retired responsibilities"
+    },
+    {
+      "key": "old-cohort-reuse",
+      "avoided": "Rebuilding/re-expanding unchanged semantic products for a layout or tool-only edit",
+      "added": "Exact dependency projections, validation and old code/descriptor pins",
+      "condition": "No speedup if changed target semantics cross the cut; old live frames may retain unbounded storage"
+    },
+    {
+      "key": "multishot-gc",
+      "avoided": "Eligible repeated mature graph scans and repeated support construction",
+      "added": "Remembered stores, roots, per-shot restore/wind/native effects",
+      "condition": "Mask correctness is necessary but insufficient for generational scan exclusion; full writers and GC architecture remain open"
+    },
+    {
+      "key": "precise-invalidation",
+      "avoided": "Unnecessary whole-runtime rebuild on a per-procedure root-mask edit",
+      "added": "Per-module/spec/codec fingerprints and consumer graph",
+      "condition": "Schema change still invalidates all affected readers; bytes/time and net gain unmeasured"
+    }
+  ],
+  "gate": [
+    {
+      "key": "scheme-generation",
+      "qualified": false,
+      "duty": "Reproduce exact Scheme-to-descriptor output under identified configuration"
+    },
+    {
+      "key": "full-frame-coverage",
+      "qualified": false,
+      "duty": "Normal/internal/task, inline/OFD, saved-register and all return label roots"
+    },
+    {
+      "key": "source-observations",
+      "qualified": false,
+      "duty": "Map values, aliases, denv, dynamic-wind, exceptions and native suffix effects"
+    },
+    {
+      "key": "gc-runtime",
+      "qualified": false,
+      "duty": "Nonzero roots, all stores, moving GC, phase progress and capacity"
+    },
+    {
+      "key": "old-code-grace",
+      "qualified": false,
+      "duty": "Loader, captured/saved frames, active callers, GC and native diagnostic users all close"
+    },
+    {
+      "key": "incremental-reflection",
+      "qualified": false,
+      "duty": "Complete dynamic trace, input snapshots, phase support and consumer observation equivalence"
+    },
+    {
+      "key": "qnt-c11-native",
+      "qualified": false,
+      "duty": "Exact QNT encoding, C11/ABI instruction refinement and unchanged native acceptance"
+    }
+  ],
+  "field": [
+    {
+      "qntField": "cb",
+      "leanField": "shape.cb",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "rc",
+      "leanField": "shape.rc",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "fs",
+      "leanField": "shape.fs",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "link",
+      "leanField": "shape.link",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "captured",
+      "leanField": "run.captured",
+      "representation": "Bool identity"
+    },
+    {
+      "qntField": "root",
+      "leanField": "run.root",
+      "representation": "Bool identity"
+    },
+    {
+      "qntField": "pin",
+      "leanField": "run.pin",
+      "representation": "Bool identity"
+    },
+    {
+      "qntField": "running",
+      "leanField": "run.running",
+      "representation": "Bool identity"
+    },
+    {
+      "qntField": "epoch",
+      "leanField": "run.epoch",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "loaded",
+      "leanField": "run.loaded",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "shots",
+      "leanField": "run.shots",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "frameAbi",
+      "leanField": "run.frameAbi",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "runtimeAbi",
+      "leanField": "run.runtimeAbi",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "abi",
+      "leanField": "build.abi",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "emitAbi",
+      "leanField": "build.emitAbi",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "objAbi",
+      "leanField": "build.objAbi",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "emitted",
+      "leanField": "build.emitted",
+      "representation": "Bool identity"
+    },
+    {
+      "qntField": "native",
+      "leanField": "build.native",
+      "representation": "Bool identity"
+    },
+    {
+      "qntField": "tool",
+      "leanField": "build.tool",
+      "representation": "unbounded mathematical Int identity"
+    },
+    {
+      "qntField": "objTool",
+      "leanField": "build.objTool",
+      "representation": "unbounded mathematical Int identity"
+    }
+  ],
+  "event": [
+    {
+      "actionName": "capture",
+      "guardName": "not(s.captured)",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "collect",
+      "guardName": "s.root",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "reload",
+      "guardName": "not(s.running)",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "resume",
+      "guardName": "s.loaded==s.epoch",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "returnShot",
+      "guardName": "s.running",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "abiEdit",
+      "guardName": "true",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "emit",
+      "guardName": "true",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "compile",
+      "guardName": "s.emitted",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "toolEdit",
+      "guardName": "true",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "bind",
+      "guardName": "s.native",
+      "lemmaName": "forwardSimulation"
+    },
+    {
+      "actionName": "releaseCaptured",
+      "guardName": "not(s.running)",
+      "lemmaName": "forwardSimulation"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "MF-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/map_frame_abi.qnt",
+      "subjectScope": "Three-shot, two normal map frame masks, staged ABI edits and old installed cohort pins; finite abstract protocol"
+    },
+    "induction": {
+      "obligationId": "MF-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/MapFrameAbi.lean",
+      "subjectScope": "Explicit flat/nested relation, twelve event guard/update and history simulation, safety reflection and two stored descriptor witnesses; QNT expression bridge open"
+    },
+    "source": {
+      "obligationId": "MF-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/map-frame-abi-design.org",
+      "subjectScope": "Scheme producer, descriptor emit/decode, real GC/restore/module consumers and clean/incremental observation reflection OPEN"
+    },
+    "platform": {
+      "obligationId": "MF-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/map-frame-abi-design.org",
+      "subjectScope": "C11, effective target/configuration, moving roots, loader lifetime and native/performance acceptance OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "MF-S",
+      "prerequisite.obligationId": "MF-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/map_frame_abi.qnt",
+      "prerequisite.subjectScope": "Three-shot, two normal map frame masks, staged ABI edits and old installed cohort pins; finite abstract protocol"
+    },
+    "1": {
+      "dependent.obligationId": "MF-S",
+      "prerequisite.obligationId": "MF-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/MapFrameAbi.lean",
+      "prerequisite.subjectScope": "Explicit flat/nested relation, twelve event guard/update and history simulation, safety reflection and two stored descriptor witnesses; QNT expression bridge open"
+    },
+    "2": {
+      "dependent.obligationId": "MF-S",
+      "prerequisite.obligationId": "MF-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/map-frame-abi-design.org",
+      "prerequisite.subjectScope": "C11, effective target/configuration, moving roots, loader lifetime and native/performance acceptance OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "MF-S",
+      "prerequisite.obligationId": "AA-S",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/advantage-architecture-design.org",
+      "prerequisite.subjectScope": "All six existing replacement decisions and nine owners/interfaces; full Gambit/Gerbil source observation and model refinement OPEN"
+    }
+  }
+}

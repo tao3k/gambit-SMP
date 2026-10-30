@@ -3,6 +3,7 @@ import unittest
 from gambit_smp import evidence_index as index
 from gambit_smp import protocol_evidence as evidence
 from gambit_smp import verify_protocols as verify
+from tests.protocol_current import assert_current_status
 
 
 class GCWaitNotificationTests(unittest.TestCase):
@@ -28,7 +29,7 @@ class GCWaitNotificationTests(unittest.TestCase):
                      "gc_scan_sync_resource_initialization"):
             self.assertIn(name, self.case["openObligations"])
         facts, _ = evidence.facts(index.ROOT)
-        self.assertTrue(any(row[0] == self.case["id"] for row in facts["protocol_checked"]))
+        assert_current_status(self, index.ROOT, "evidence/gc-wait-notification.json", facts)
         self.assertIn((self.case["id"], "include/gambit.h:___CONDVAR_WAIT"),
                       facts["protocol_source"])
         self.assertEqual(["eager_chain_work_closure", "gc_work_closure"], self.case["composes"])

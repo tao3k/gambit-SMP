@@ -24,8 +24,9 @@ class EndedInterruptResultLifecycleTests(unittest.TestCase):
         receipt = json.loads((native / "receipt.json").read_text())
         self.assertEqual(receipt["status"], "DENY")
         self.assertFalse(receipt["results"][0]["timeout"])
-        log = (native / "gsi-0.log").read_text()
-        self.assertEqual(log.count("FAILED (test-error abandoned-mutex-exception? (mutex-lock! request)) GOT #t"), 2)
+        from gambit_smp.output_observations import recorded
+        output = recorded(ROOT, native / "gsi-0.log")
+        self.assertEqual(len(output['failures']['assertions']), 2)
 
     def test_source_candidate_changes_only_the_smp_slow_path(self):
         parent = json.loads((ROOT / "evidence/fixtures/sfun-owned-unwind/source.lock.json").read_text())

@@ -1,0 +1,90 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "modern-c-ci-wind-resume",
+  "scope": "Independent exact-source module; local C/kernel checks cannot supply this Scheme observation",
+  "budgetSeconds": 90,
+  "workspacePolicy": "in-place",
+  "inputs": [
+    "evidence/research/modular-smp-bootstrap/qualified/source.lock.json",
+    "evidence/research/modular-smp-bootstrap/qualified/source-overlay.patch",
+    "evidence/research/modular-smp-bootstrap/ci-producer.json",
+    "dev/refactoring/modern-c/tests/wind-resume.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [
+
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/research/modular-smp-bootstrap/qualified/source.lock.json"
+      }
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.completed-runtime",
+      "dependsOn": [
+        "candidate"
+      ],
+      "budgetSeconds": 20,
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "producer": "evidence/research/modular-smp-bootstrap/ci-producer.json"
+      }
+    },
+    {
+      "id": "wind-resume",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "runtime"
+      ],
+      "budgetSeconds": 90,
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "program": "dev/refactoring/modern-c/tests/wind-resume.scm",
+        "stdout": "WIND-RESUME-GC-PASS shots=3\n",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 30
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "wind-resume"
+      ],
+      "budgetSeconds": 10,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": [
+
+          ]
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

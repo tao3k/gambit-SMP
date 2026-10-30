@@ -1,0 +1,771 @@
+{
+  "source": [
+    {
+      "key": "return-owner",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "/* not the same processor that created frame */",
+      "obligation": "owner-affinity"
+    },
+    {
+      "key": "return-stale",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "/* not first return */",
+      "obligation": "one-native-return"
+    },
+    {
+      "key": "return-unwind",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___throw_error (___PSP ___FIX(___UNWIND_C_STACK));",
+      "obligation": "live-catcher"
+    },
+    {
+      "key": "call-frame",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___fp[-2] = stack_marker;",
+      "obligation": "frame-marker-coordinate"
+    },
+    {
+      "key": "call-catcher",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2]",
+      "obligation": "unwind-destination"
+    },
+    {
+      "key": "marker-root",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "proc_or_false = *proc_root; /* reload after allocating the marker */",
+      "obligation": "root-reload"
+    },
+    {
+      "key": "marker-kill",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "___VECTORELEM(marker, 0) = ___FAL; /* invalidate the C stack frame */",
+      "obligation": "return-invalidation"
+    },
+    {
+      "key": "legacy-root",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "wrapper. Managed startup uses the explicit rooted endpoint above.",
+      "obligation": "legacy-not-rooted"
+    },
+    {
+      "key": "catcher-local",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "___jmpbuf_struct ___jbuf, *___old_catcher = ___ps->catcher;",
+      "obligation": "c-stack-dynamic-extent"
+    },
+    {
+      "key": "catcher-restore",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "#define ___END_TRY } ___ps->catcher = ___old_catcher; }",
+      "obligation": "nested-catcher-restore"
+    },
+    {
+      "key": "continuation-closure",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(##continuation-return-aux cont val1 val2 val3 others)",
+      "obligation": "multi-shot-logical-control"
+    },
+    {
+      "key": "wind-user",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "((macro-dynwind-after src))",
+      "obligation": "reentrant-winding"
+    },
+    {
+      "key": "direct-no-winding",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim ##continuation-return-no-winding",
+      "obligation": "cannot-use-dynamic-wind-only"
+    },
+    {
+      "key": "saved-roots",
+      "path": "vendor/gambit/lib/_mem/root-origins.inc",
+      "needle": "mark_array (work, context->saved, sizeof(context->saved)/sizeof(*context->saved));",
+      "obligation": "saved-registers"
+    },
+    {
+      "key": "entry-root",
+      "path": "vendor/gambit/lib/_mem/root-origins.inc",
+      "needle": "mark_array (work, &context->entry_marker, 1);",
+      "obligation": "context-marker-root"
+    },
+    {
+      "key": "rc-root",
+      "path": "vendor/gambit/lib/_mem/rc-roots.inc",
+      "needle": "context->mem.rc_head_.next",
+      "obligation": "context-owned-rc"
+    },
+    {
+      "key": "tcl-reentry",
+      "path": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___EXT(___data_rc) (___CAST(void*,client_data))",
+      "obligation": "raw-before-guard"
+    },
+    {
+      "key": "tls-status",
+      "path": "vendor/gambit/lib/os_thread.c",
+      "needle": "pthread_setspecific (___thread_mod.tls_ptr_key, ptr); /* ignore error */",
+      "obligation": "checked-binding-required"
+    },
+    {
+      "key": "thread-id",
+      "path": "vendor/gambit/lib/os_thread.c",
+      "needle": "thread->thread_id = pthread_self ();",
+      "obligation": "native-thread-identity"
+    },
+    {
+      "key": "paper-fulltext",
+      "path": "evidence/research/guard-thread-admission/feeley-sfp-paper.txt",
+      "needle": "We have not yet implemented this approa h in Gambit-C.",
+      "obligation": "historical-proposal-not-current"
+    }
+  ],
+  "issuer": [
+    {
+      "key": "thread",
+      "proposedIssuer": "NativeDomainRegistry",
+      "actualSource": "os_thread.c thread_init_from_self / thread_set_pstate",
+      "status": "required refactoring; no qualified signer",
+      "responsibility": "generation-bearing thread identity; TLS checked; no unknown detachment"
+    },
+    {
+      "key": "return",
+      "proposedIssuer": "NativeReturnOwner",
+      "actualSource": "_kernel return handler / setup.c ___call",
+      "status": "required refactoring; no qualified signer",
+      "responsibility": "return lease, live catcher and segment identity; ordinary C return path is serialized by owner"
+    },
+    {
+      "key": "guard",
+      "proposedIssuer": "NativeEntrySpec generated entry",
+      "actualSource": "foreign_conversion BEGIN_SFUN / BEGIN_TRY",
+      "status": "required refactoring; no qualified signer",
+      "responsibility": "fresh activation ticket outside captured frames; source pin and completion ownership"
+    },
+    {
+      "key": "roots",
+      "proposedIssuer": "VMRootRegistry",
+      "actualSource": "root-origins context roots and RC scan",
+      "status": "required refactoring; no qualified signer",
+      "responsibility": "mutable GC slots published before source release; scan acknowledgement and retirement grace"
+    },
+    {
+      "key": "retire",
+      "proposedIssuer": "DomainRetirementCoordinator",
+      "actualSource": "setup.c run / c_intf kill marker",
+      "status": "required refactoring; no qualified signer",
+      "responsibility": "no stack free from marker invalidation; native exit and root/code-reader drain all required"
+    }
+  ],
+  "need": [
+    {
+      "key": "Domain-formal",
+      "kind": "formal",
+      "path": "dev/refactoring/modern-c/models/quint/native_return_domains.qnt",
+      "scope": "finite-domain-safety",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Domain-bridge",
+      "kind": "bridge",
+      "path": "dev/refactoring/modern-c/models/lean/NativeReturn.lean",
+      "scope": "typed-ir-lean",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Domain-thread",
+      "kind": "native",
+      "path": "vendor/gambit/lib/os_thread.c",
+      "scope": "checked-native-domain-registration",
+      "owner.componentId": "thread"
+    },
+    {
+      "key": "Domain-return",
+      "kind": "native",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "scope": "stack-extent-and-return-issuer",
+      "owner.componentId": "return"
+    },
+    {
+      "key": "Domain-guard",
+      "kind": "native",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "scope": "all-entry-completion-guard",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Domain-roots",
+      "kind": "native",
+      "path": "vendor/gambit/lib/_mem/root-origins.inc",
+      "scope": "vm-guard-root-enumeration",
+      "owner.componentId": "roots"
+    },
+    {
+      "key": "Domain-retire",
+      "kind": "native",
+      "path": "vendor/gambit/lib/setup.c",
+      "scope": "stack-thread-root-code-product",
+      "owner.componentId": "thread"
+    },
+    {
+      "key": "Domain-lowering",
+      "kind": "native",
+      "path": "vendor/gambit/gsc/_t-c-1.scm",
+      "scope": "native-entry-spec-lowering",
+      "owner.componentId": "control"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "native_return_domains.enterGuard",
+      "lemma": "NativeReturn.enterGuardPreserves"
+    },
+    {
+      "actionName": "native_return_domains.captureScheme",
+      "lemma": "NativeReturn.captureSchemePreserves"
+    },
+    {
+      "actionName": "native_return_domains.leaveActivation",
+      "lemma": "NativeReturn.leaveActivationPreserves"
+    },
+    {
+      "actionName": "native_return_domains.resumeFirst",
+      "lemma": "NativeReturn.resumeFirstPreserves"
+    },
+    {
+      "actionName": "native_return_domains.settleFirst",
+      "lemma": "NativeReturn.settleFirstPreserves"
+    },
+    {
+      "actionName": "native_return_domains.physicalReturn",
+      "lemma": "NativeReturn.physicalReturnPreserves"
+    },
+    {
+      "actionName": "native_return_domains.resumeSecond",
+      "lemma": "NativeReturn.resumeSecondPreserves"
+    },
+    {
+      "actionName": "native_return_domains.rejectStaleReturn",
+      "lemma": "NativeReturn.rejectStaleReturnPreserves"
+    },
+    {
+      "actionName": "native_return_domains.settleSecond",
+      "lemma": "NativeReturn.settleSecondPreserves"
+    },
+    {
+      "actionName": "native_return_domains.closeCapture",
+      "lemma": "NativeReturn.closeCapturePreserves"
+    },
+    {
+      "actionName": "native_return_domains.scanGrace",
+      "lemma": "NativeReturn.scanGracePreserves"
+    },
+    {
+      "actionName": "native_return_domains.retireRoots",
+      "lemma": "NativeReturn.retireRootsPreserves"
+    },
+    {
+      "actionName": "native_return_domains.detachThread",
+      "lemma": "NativeReturn.detachThreadPreserves"
+    },
+    {
+      "actionName": "native_return_domains.unknownExit",
+      "lemma": "NativeReturn.unknownExitPreserves"
+    },
+    {
+      "actionName": "native_return_domains.rejectWrongOwner",
+      "lemma": "NativeReturn.rejectWrongOwnerPreserves"
+    },
+    {
+      "actionName": "native_return_domains.settleRejectedOwner",
+      "lemma": "NativeReturn.settleRejectedOwnerPreserves"
+    },
+    {
+      "actionName": "native_return_domains.earlyPhysicalReturn",
+      "lemma": "NativeReturn.earlyPhysicalReturnPreserves"
+    },
+    {
+      "actionName": "native_return_domains.resumeAfterReturn",
+      "lemma": "NativeReturn.resumeAfterReturnPreserves"
+    },
+    {
+      "actionName": "native_return_domains.settleAfterReturn",
+      "lemma": "NativeReturn.settleAfterReturnPreserves"
+    },
+    {
+      "actionName": "native_return_domains.resumeAgainLive",
+      "lemma": "NativeReturn.resumeAgainLivePreserves"
+    },
+    {
+      "actionName": "native_return_domains.settleAgainLive",
+      "lemma": "NativeReturn.settleAgainLivePreserves"
+    },
+    {
+      "actionName": "native_return_domains.returnAfterTwo",
+      "lemma": "NativeReturn.returnAfterTwoPreserves"
+    }
+  ],
+  "route": [
+    {
+      "component": "control",
+      "actionName": "native_return_domains.enterGuard",
+      "lemma": "NativeReturn.enterGuardPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.captureScheme",
+      "lemma": "NativeReturn.captureSchemePreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.leaveActivation",
+      "lemma": "NativeReturn.leaveActivationPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.resumeFirst",
+      "lemma": "NativeReturn.resumeFirstPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.settleFirst",
+      "lemma": "NativeReturn.settleFirstPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "return",
+      "actionName": "native_return_domains.physicalReturn",
+      "lemma": "NativeReturn.physicalReturnPreserves",
+      "producerAnchor": "return-stale",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.resumeSecond",
+      "lemma": "NativeReturn.resumeSecondPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "return",
+      "actionName": "native_return_domains.rejectStaleReturn",
+      "lemma": "NativeReturn.rejectStaleReturnPreserves",
+      "producerAnchor": "return-stale",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.settleSecond",
+      "lemma": "NativeReturn.settleSecondPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.closeCapture",
+      "lemma": "NativeReturn.closeCapturePreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "roots",
+      "actionName": "native_return_domains.scanGrace",
+      "lemma": "NativeReturn.scanGracePreserves",
+      "producerAnchor": "entry-root",
+      "obligationId": "Domain-roots"
+    },
+    {
+      "component": "roots",
+      "actionName": "native_return_domains.retireRoots",
+      "lemma": "NativeReturn.retireRootsPreserves",
+      "producerAnchor": "entry-root",
+      "obligationId": "Domain-roots"
+    },
+    {
+      "component": "thread",
+      "actionName": "native_return_domains.detachThread",
+      "lemma": "NativeReturn.detachThreadPreserves",
+      "producerAnchor": "thread-id",
+      "obligationId": "Domain-retire"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.unknownExit",
+      "lemma": "NativeReturn.unknownExitPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "return",
+      "actionName": "native_return_domains.rejectWrongOwner",
+      "lemma": "NativeReturn.rejectWrongOwnerPreserves",
+      "producerAnchor": "return-stale",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.settleRejectedOwner",
+      "lemma": "NativeReturn.settleRejectedOwnerPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "return",
+      "actionName": "native_return_domains.earlyPhysicalReturn",
+      "lemma": "NativeReturn.earlyPhysicalReturnPreserves",
+      "producerAnchor": "return-stale",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "return",
+      "actionName": "native_return_domains.resumeAfterReturn",
+      "lemma": "NativeReturn.resumeAfterReturnPreserves",
+      "producerAnchor": "return-stale",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "return",
+      "actionName": "native_return_domains.settleAfterReturn",
+      "lemma": "NativeReturn.settleAfterReturnPreserves",
+      "producerAnchor": "return-stale",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.resumeAgainLive",
+      "lemma": "NativeReturn.resumeAgainLivePreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.settleAgainLive",
+      "lemma": "NativeReturn.settleAgainLivePreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "control",
+      "actionName": "native_return_domains.returnAfterTwo",
+      "lemma": "NativeReturn.returnAfterTwoPreserves",
+      "producerAnchor": "continuation-closure",
+      "obligationId": "Domain-guard"
+    }
+  ],
+  "proof": [
+    {
+      "key": "initialSafe",
+      "lemma": "NativeReturn.initialSafe"
+    },
+    {
+      "key": "stepPreserves",
+      "lemma": "NativeReturn.stepPreserves"
+    },
+    {
+      "key": "reachableSafe",
+      "lemma": "NativeReturn.reachableSafe"
+    },
+    {
+      "key": "guardRootCoverage",
+      "lemma": "NativeReturn.guardRootCoverage"
+    },
+    {
+      "key": "returnNeedsLiveStack",
+      "lemma": "NativeReturn.returnNeedsLiveStack"
+    },
+    {
+      "key": "freshSecondTicket",
+      "lemma": "NativeReturn.freshSecondTicket"
+    },
+    {
+      "key": "unknownRetainsCustody",
+      "lemma": "NativeReturn.unknownRetainsCustody"
+    },
+    {
+      "key": "retirementCut",
+      "lemma": "NativeReturn.retirementCut"
+    },
+    {
+      "key": "staleReturnDoesNotRevive",
+      "lemma": "NativeReturn.staleReturnDoesNotRevive"
+    },
+    {
+      "key": "threadExitCut",
+      "lemma": "NativeReturn.threadExitCut"
+    },
+    {
+      "key": "consumedReturnNeverRevives",
+      "lemma": "NativeReturn.consumedReturnNeverRevives"
+    },
+    {
+      "key": "newShotGetsFreshTicket",
+      "lemma": "NativeReturn.newShotGetsFreshTicket"
+    }
+  ],
+  "paper": [
+    {
+      "key": "gambit-pvm",
+      "title": "Feeley and Miller: A parallel virtual machine for efficient Scheme compilation",
+      "url": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
+      "section": "2",
+      "basis": "Front/back-end contract carries machine-specific facts",
+      "boundary": "Historical PVM is not a current C23 ABI proof"
+    },
+    {
+      "key": "gambit-c-segments",
+      "title": "Feeley: Portable first-class continuations with C",
+      "url": "https://www.schemeworkshop.org/2000/feeley.ps",
+      "section": "1-5",
+      "basis": "Unlimited Scheme extent differs from dynamic C extent; independent native segments proposed",
+      "boundary": "Section 5 says not implemented then; preserve arbitrary C local state; no historical timings transferred"
+    },
+    {
+      "key": "ocaml-effects",
+      "title": "Retrofitting Effect Handlers onto OCaml",
+      "url": "https://anil.recoil.org/papers/2021-pldi-retroeff.pdf",
+      "section": "3.1 and 5.3",
+      "basis": "Separate system/fiber stacks and explicit callback transitions",
+      "boundary": "One-shot effects do not cross C frames; neither restriction is silently applied to Gambit"
+    },
+    {
+      "key": "c23-draft",
+      "title": "WG14 N3096 C23 working draft",
+      "url": "https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf",
+      "section": "5.1.2.4; 7.13.2.1",
+      "basis": "Release/acquire publication; longjmp requires same thread and live setjmp invocation",
+      "boundary": "Working draft, not purchased final ISO text; atomics do not extend C automatic lifetime"
+    }
+  ],
+  "grounding": [
+    {
+      "component": "return",
+      "producerAnchor": "return-stale",
+      "paperKey": "gambit-c-segments",
+      "obligationId": "Domain-return"
+    },
+    {
+      "component": "control",
+      "producerAnchor": "continuation-closure",
+      "paperKey": "gambit-pvm",
+      "obligationId": "Domain-guard"
+    },
+    {
+      "component": "thread",
+      "producerAnchor": "thread-id",
+      "paperKey": "ocaml-effects",
+      "obligationId": "Domain-thread"
+    },
+    {
+      "component": "control",
+      "producerAnchor": "catcher-local",
+      "paperKey": "c23-draft",
+      "obligationId": "Domain-guard"
+    }
+  ],
+  "gain": [
+    {
+      "key": "G1",
+      "avoided": "No current C-stack-copying work removed; zero-copying constraint retained",
+      "added": "Pinned native carrier and explicit segment registry",
+      "condition": "No arbitrary C-stack copying; thread-affine libraries remain on owner"
+    },
+    {
+      "key": "G2",
+      "avoided": "No current thread-count saving established; avoid an N-thread-per-resumption redesign",
+      "added": "N fresh resumption guards/tickets plus initial entry; active segments K, receipt history Q and pinned time",
+      "condition": "Sharing is by live native segment, not by continuation shot; pool reuse only after full native exit"
+    },
+    {
+      "key": "G3",
+      "avoided": "No existing conservative C-stack scanning saving established; account actual root slots",
+      "added": "Registered mutable root slots; per-round S visits plus descriptor pins",
+      "condition": "All foreign Scheme references are declared; raw aliases reject managed qualification"
+    },
+    {
+      "key": "G4",
+      "avoided": "Potential independent Scheme scheduling through isolated native ownership",
+      "added": "Per-domain serialization; no global registry CAS required by design",
+      "condition": "Pure Scheme scheduler remains free; live native return paths stay thread-bound"
+    },
+    {
+      "key": "G5",
+      "avoided": "Proposed per-ticket settlement rejects duplicate completion; no measured baseline saving",
+      "added": "Stable receipt storage and replay retention",
+      "condition": "Delivery retry uses same ticket; a genuine continuation resumption receives a new ticket"
+    },
+    {
+      "key": "G6",
+      "avoided": "Legacy marker-as-lifetime-proxy responsibility can retire",
+      "added": "NativeEntrySpec lowering and ModuleSpec/FrameSpec leases",
+      "condition": "Only after every SFUN/run/generated entry and FFI alias is covered"
+    },
+    {
+      "key": "G7",
+      "avoided": "Zig required language/runtime supports eliminated: none proven",
+      "added": "Zig would still need the same root, stack and return contracts",
+      "condition": "C23 is baseline; no incremental semantic gain from language substitution established"
+    },
+    {
+      "key": "G8",
+      "avoided": "Unknown outcomes never authorize eager free",
+      "added": "Retained bytes and blocked retirement may be unbounded",
+      "condition": "Correctness gain only; requires observable reconciliation before a liveness or memory bound claim"
+    }
+  ],
+  "memory": [
+    {
+      "key": "registry",
+      "publication": "Initialize stable domain then release-publish generation/state",
+      "observation": "Acquire+pin before dereferencing",
+      "obligation": "Lookup load alone is not lifetime protection; close admission and drain readers"
+    },
+    {
+      "key": "return-lease",
+      "publication": "Owner-serialized live-to-claimed transition; pin native owner",
+      "observation": "Acquire observes segment generation and catcher validity",
+      "obligation": "CAS claim alone is not physical return receipt; unknown remains owned"
+    },
+    {
+      "key": "root-transfer",
+      "publication": "Publish target slots release; GC acquire snapshot and updates",
+      "observation": "Collector round acknowledgement before source slot release",
+      "obligation": "Atomic pointer publication is not GC root registration; moving collector rewrites actual slot"
+    },
+    {
+      "key": "settlement",
+      "publication": "Ticket-scoped completion state acq_rel",
+      "observation": "Duplicate observation uses acquire and exact activation incarnation",
+      "obligation": "Captured guard cannot settle newer activation; no winding-only release"
+    },
+    {
+      "key": "retirement",
+      "publication": "Close gates acq_rel then drain pins/GC/code readers",
+      "observation": "Acquire observes last release and known native exit",
+      "obligation": "A zero counter alone does not imply no late entrant; atomic lock-free support not assumed"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "Scheme_GVM",
+      "toNode": "NativeEntrySpec",
+      "custody": "semantic intent and FrameSpec roots"
+    },
+    {
+      "fromNode": "NativeEntrySpec",
+      "toNode": "StableGuard",
+      "custody": "fresh activation TicketId"
+    },
+    {
+      "fromNode": "NativeEntrySpec",
+      "toNode": "NativeThreadDomain",
+      "custody": "checked native owner binding"
+    },
+    {
+      "fromNode": "NativeThreadDomain",
+      "toNode": "NativeReturnDomain",
+      "custody": "live C segment and catcher extent"
+    },
+    {
+      "fromNode": "NativeReturnDomain",
+      "toNode": "ReturnCheck",
+      "custody": "owner and generation; one physical return"
+    },
+    {
+      "fromNode": "StableGuard",
+      "toNode": "RootBundle",
+      "custody": "registered mutable GC slots"
+    },
+    {
+      "fromNode": "RootBundle",
+      "toNode": "GC_Round",
+      "custody": "source held until acknowledged"
+    },
+    {
+      "fromNode": "Scheme_GVM",
+      "toNode": "CapturedContinuation",
+      "custody": "multi-shot Scheme frames and descriptor leases"
+    },
+    {
+      "fromNode": "CapturedContinuation",
+      "toNode": "FreshResumption",
+      "custody": "new ticket; never revive dead C frame"
+    },
+    {
+      "fromNode": "FreshResumption",
+      "toNode": "ReturnCheck",
+      "custody": "stale native target raises; Scheme work still possible"
+    },
+    {
+      "fromNode": "ReturnCheck",
+      "toNode": "KnownNativeExit",
+      "custody": "normal return or qualified unwind"
+    },
+    {
+      "fromNode": "KnownNativeExit",
+      "toNode": "RetirementJoin",
+      "custody": "native pins and readers drained"
+    },
+    {
+      "fromNode": "GC_Round",
+      "toNode": "RetirementJoin",
+      "custody": "root grace and descriptor-reader drain"
+    },
+    {
+      "fromNode": "StableGuard",
+      "toNode": "UnknownCustody",
+      "custody": "nonreturn or lost reply retains owner"
+    },
+    {
+      "fromNode": "UnknownCustody",
+      "toNode": "ReconciliationRequired",
+      "custody": "no expiry-based stack or root free"
+    },
+    {
+      "fromNode": "RetirementJoin",
+      "toNode": "ReusePermit",
+      "custody": "closed capture and no live native obligations"
+    }
+  ],
+  "role": [
+    {
+      "key": "NativeThreadDomain",
+      "identity": "Native thread incarnation, checked TLS, owner dispatcher",
+      "retirement": "Admission closed, all attached segments/readers drained, known native exit and TLS detach",
+      "boundary": "Not equivalent to processor ID"
+    },
+    {
+      "key": "NativeReturnDomain",
+      "identity": "Segment generation, native return target, live local catcher extent",
+      "retirement": "Known return/unwind consumes return permission and invalidates affected extents",
+      "boundary": "OS thread alive does not mean returned invocation alive"
+    },
+    {
+      "key": "StableGuard",
+      "identity": "Activation TicketId, rooted arguments and completion custody",
+      "retirement": "Exact activation settled, entry closed, scanner and code readers drained",
+      "boundary": "Guard persistence does not extend local jmp_buf lifetime"
+    },
+    {
+      "key": "CapturedContinuation",
+      "identity": "Scheme frames, denv and descriptor leases",
+      "retirement": "All reachable holders and in-flight restorations relinquished",
+      "boundary": "A restoration does not recreate expired native return authority"
+    },
+    {
+      "key": "RootBundle",
+      "identity": "Actual GC-updatable slots and owner generation",
+      "retirement": "Transfer acknowledged, borrowers drained and collector grace",
+      "boundary": "Native pointer pin alone is not a registered Scheme root"
+    }
+  ]
+}

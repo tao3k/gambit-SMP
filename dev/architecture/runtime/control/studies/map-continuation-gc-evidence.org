@@ -1,0 +1,61 @@
+#+TITLE: Map Continuation GC Evidence
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: control
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Map Continuation GC Evidence :control:
+:PROPERTIES:
+:ID: 632dfee6-4a30-5a68-bad2-4379bf9b8766
+:CUSTOM_ID: map-continuation-gc-evidence
+:SOURCE_PATH: docs/experimental/zig/map-continuation-gc-evidence.md
+:SOURCE_SHA256: 8c23ed008fbe266de906b2da54a1919b2f7c947c743d78d31a4e1bff2954b105
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Selected working-source review, 2026-10-21. Research HEAD
+~1a2d8612f2065387c62858e10baf63ce369cc48c~; vendor HEAD
+~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~. Exact bytes/spans are bound by
+the [[file:../../../../../docs/experimental/zig/map-continuation-gc-traceability.json][trace]]. No executed Scheme/GVM,
+loaded native runtime, implemented collector or measured performance is claimed.
+
+| ID | Gambit source anchor / spans | Observation and boundary |
+|-
+| CE01 | [[file:../../../../../vendor/gambit/lib/gambit/list/list.scm::850][public map]], 735–816, 850–929; [[file:../../../../../vendor/gambit/lib/_std.c::74716][stored C]], 74716–74992, 146100–146123 | Real callback-before-cdr, pending recursive result, post-CONS check and multi-list helper/sentinel paths. Stored C is not a reproduced current build. |
+| CE02 | [[file:../../../../../vendor/gambit/include/gambit.h.in::6589][capture]], 6589–6618; [[file:../../../../../vendor/gambit/include/gambit.h.in::6654][graft]], 6654–6668; [[file:../../../../../vendor/gambit/include/gambit.h.in::6716][return]], 6716–6742; [[file:../../../../../vendor/gambit/gsc/_t-c-2.scm::4275][completion]], 4275–4320 | Stack continuation header/frame/denv, break frontier, thread denv/cache writes and native emission/control-context changes. This is not always an immediate full heap copy. |
+| CE03 | [[file:../../../../../vendor/gambit/lib/mem.c::3667][materialization]], 3667–3815; [[file:../../../../../vendor/gambit/lib/mem.c::3817][active and heap readers]], 3817–3966, 4096–4148 | Stack-backed capture copying, forwarding sharing, FRAME allocation and GC map readers. Current STW copying code is a reference, not a concurrent major scanner. |
+| CE04 | [[file:../../../../../vendor/gambit/lib/_kernel.scm::1115][break restoration]], 1115–1280; [[file:../../../../../vendor/gambit/lib/_kernel.scm::1281][internal restoration]], 1281–1346 | Stack/heap frame cases, heap-to-execution-stack copying, link replacement and RETN/RETI decoding. Saved-frame reuse differs from one-shot consumption. |
+| CE05 | [[file:../../../../../vendor/gambit/include/gambit.h.in::5906][continuation fields]], 5906–5931; [[file:../../../../../vendor/gambit/lib/_kernel.scm::3145][setters]], 3145–3163, 3439–3558; [[file:../../../../../vendor/gambit/lib/_kernel.scm::3562][construct/copy/next]], 3562–3727; [[file:../../../../../vendor/gambit/lib/_io.scm::11690][frame reconstruction]], 11690–11727; [[file:../../../../../vendor/gambit/gsc/_t-c-2.scm::4263][emission]], 4263–4273 | Real mutable fields/frame slots, shallow continuation shell copying, destructive cursor advance and serializer frame writer. Existing comments about link slots do not prove safe arbitrary structural edits. |
+| CE06 | [[file:../../../../../vendor/gambit/gsc/_t-c-2.scm::823][frame construction]], 823–916; [[file:../../../../../vendor/gambit/gsc/_t-c-3.scm::471][physical maps]], 471–522; [[file:../../../../../vendor/gambit/include/gambit.h.in::9206][header decoding]], 9206–9319, 1381 | Normal/internal root map construction, internal saved registers, frame reserve/alignment. Source arithmetic is not an observed native layout. |
+| CE07 | [[file:../../../../../vendor/gambit/lib/mem.c::60][allocation classes]], 60–86; [[file:../../../../../vendor/gambit/lib/mem.c::3410][section flip]], 3410–3469; [[file:../../../../../vendor/gambit/lib/mem.c::3490][copying]], 3490–3665; [[file:../../../../../vendor/gambit/lib/mem.c::6990][phases]], 6990–7085; [[file:../../../../../vendor/gambit/include/gambit.h.in::5328][pair/global stores]], 5328–5329, 6764–6771; [[file:../../../../../vendor/gambit/gsc/_t-c-2.scm::3356][inactive SSB]], 3356–3365 | Selected full movable copying, still/permanent distinction, coordinated phases and real raw writers. Broader current-mechanism audit remains RD02; no active generational algorithm inferred from tags. |
+| CE08 | [[file:../../../../../vendor/gambit/lib/_thread.scm::4623][call/cc]], 4623–4706; [[file:../../../../../vendor/gambit/lib/_thread.scm::4908][dynamic transfer/value delivery]], 4908–5078 | Actual continuation closure and wind/value operations; callbacks can reenter Scheme and allocate. Threaded implementation branches need their own configured admission. |
+| CE09 | [[file:../../../../../vendor/gambit/lib/mem.c::674][root carriers]], 674–829, 3969–3996, 6511–6650; [[file:../../../../../vendor/gambit/lib/c_intf.c::6511][marker]], 6511–6562; [[file:../../../../../vendor/gambit/lib/setup.c::1049][coordination]], 1049–1115; [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::3160][existing patch]], 3160–3234, 3433–3452, 4362–4385 | Actual roots, per-processor registration/scan concerns, pre-allocation marker TODO, synchronization and existing donor/per-processor work. Credit prior C work; patch text is not loaded-runtime evidence. |
+
+| ID | Primary research or selected upstream source | Lesson and limit |
+|-
+| LP01 | [[https://anil.recoil.org/papers/2020-icfp-retropar.pdf][Retrofitting Parallelism onto OCaml]], §§1.2–1.3, 4, 5.4 | Study sequential/parallel/pause requirements, C-interface constraints and fiber scan/activation coordination. Historical collector alternatives are not both asserted as current OCaml. |
+| LP02 | [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][Retrofitting Effect Handlers onto OCaml]], one-shot continuation and stack implementation discussions | An explicit restricted control choice; Gambit's multi-shot contract needs its own restoration/lifetime proof. |
+| LP03 | [[https://small.r7rs.org/attachment/r7rs.pdf][R7RS]], §§3.5, 6.10 | Repeated continuation invocation, dynamic-wind and no implementation mutation of prior map results on multiple returns; input mutation is outside valid map domain. |
+| LP04 | [[https://github.com/ocaml/ocaml/blob/5.3/runtime/memory.c#L161][Selected OCaml memory.c]], write_barrier/caml_modify and atomic operations; [[https://github.com/ocaml/ocaml/blob/5.3/runtime/minor_gc.c#L255][minor_gc.c]], Cont_tag and remembered/local-root traversal | Concrete separation of old referent protection, young-source remembering, continuation promotion and root processing. Exact orders/representation are not transplanted into Gambit. |
+| LP05 | [[https://github.com/ocaml/ocaml/blob/5.3/runtime/major_gc.c#L1071][Selected OCaml major_gc.c]], caml_darken_cont | Claimed continuation scanning with acquire/release coordination; special stack references require a protocol. Not proof of our proposed frame leases. |
+| LP06 | [[https://ocaml.org/manual/5.3/intfc.html][OCaml C interface]], §12.2; [[https://ocaml.org/manual/5.3/parallelism.html][parallel GC manual]], §3 | Blocking/reacquire/heap access and parallel-GC boundaries provoke concrete Gambit FFI questions. Selected release documentation/source is not a local binary observation. |
+| LP07 | [[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Feeley/Miller PVM paper]], §2 | Front/back negotiation and logical object/frame abstraction motivate explicit compiler/runtime products, not duplicated semantics hidden in emitters. No historical speedup imported. |
+
+| ID | Prior local design | Use / status |
+|-
+| RD01 | [[file:map-generated-c-design.org][Map generated C path]], [[file:../../../../../docs/experimental/zig/map-generated-c-points.json][point inventory]] | Actual stored 22 return descriptors and proposed semantic/module path; no new backend implementation |
+| RD02 | [[file:../../gc/studies/gc-current-mechanism-audit.org][Current mechanism audit]], [[file:../../gc/studies/gc-native-runtime-design.org][full collector candidate]] | Existing GC facts and proposed young/mature/worker/store/root policy; this study refines capture/mutation/snapshot choices |
+| RD03 | [[file:../../../../refactoring/modern-c/studies/generated-c-native-contract.org][Native generated C contract]], [[file:../../../../refactoring/zig/studies/native-service-support-design.org][shared services]] | Scheme semantic authority, C policy implementation, RootRegistry/BarrierLog/ReleaseCoordinator responsibilities; labor estimates do not decide value |
+
+The selected OCaml release tag and paper sections are external provenance, not
+architectural version names for this project. Web source review supplies no
+native admission. Source-composed scenarios, formulas and diagrams are inert
+design reasoning; no solver or research engine was evaluated.

@@ -1,0 +1,242 @@
+#+TITLE: Force Root Transfer, Maintenance Admission and Extraction Fidelity
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Architectural decision
+:PROPERTIES:
+:CUSTOM_ID: force-maintenance-fidelity
+:AUTHORITY: GambitForceMaintenanceFidelity
+:STATUS: conditional-models-only; source-and-platform-open
+:END:
+
+Modern generated C remains the required backend. Scheme owns promise semantics,
+reentrant forcing, continuation and liveness. The native contract owns explicit
+root transfer, descriptor borrowing and final use. This study neither adds a Zig
+runtime nor changes running code. It extends [[file:reti-ofd-semantics-design.org][the RETI/OFD study]];
+its receipts remain frozen and are not promoted to runtime evidence.
+
+The architectural gain is that one explicit FrameSpec and installed-cohort lifetime
+contract can serve execution, captured continuations, moving GC and incremental
+replacement. Closing external admission is not permission to remove old GC metadata.
+A collector scanning an old continuation is a necessary maintenance consumer.
+
+* RESEARCH Actual force and temp2 route
+:PROPERTIES:
+:CUSTOM_ID: force-transfer-source
+:EVIDENCE_KIND: source-inspection
+:END:
+
+** Producer, root handoff and collecting computation
+
+[[file:../../../vendor/gambit/gsc/_t-c-2.scm::(define (targ-apply-force)][targ-apply-force]]
+adjusts the stack, emits FORCE1, generates a return-internal descriptor, emits
+FORCE2 and then materializes FORCE3 at the selected destination. The generator's
+internal descriptor explicitly covers saved GVM registers and the actual return
+address; this is existing machinery, not a new optimization.
+
+[[file:../../../vendor/gambit/include/gambit.h.in::#define ___FORCE1][FORCE1]] first evaluates
+src into ___temp. A determined promise yields its cached value without the slow
+call. For an undetermined promise it writes the promise to ps->temp2 and the
+internal label to temp1, then jumps to handler_force.
+
+[[file:../../../vendor/gambit/lib/_kernel.scm::promise = ___ps->temp2;][handler_force]] reads
+both transfer slots into C locals, saves caller registers and actual return in
+the internal frame, sets R0 to internal_return, transfers the promise through
+PUSH_ARGS1 and tail-calls force-out-of-line. PUSH_ARGS1 uses R1 when the register
+configuration permits, otherwise the argument stack. Neither a raw C local nor
+PSTATE membership is a sufficient movable-root declaration.
+
+[[file:../../../vendor/gambit/lib/_kernel.scm::(define-prim (##force-out-of-line promise)][force-out-of-line]]
+explicitly enables interrupts around the thunk. The promise is then part of the
+ordinary Scheme computation, including reentrant promise resolution and state
+linking. The stored [[file:../../../vendor/gambit/lib/_kernel.c::___SET_R2(___PROMISESTATE(___STK(-6)))][_kernel.c]]
+keeps the promise in a stack slot across the thunk and has a POLL before invocation.
+This is a stored-code witness, not attestation of the loaded Darwin object.
+
+** Return and the genuinely sensitive interval
+
+[[file:../../../vendor/gambit/lib/_kernel.scm::___ps->temp2 = ___R1;][internal_return]] saves the
+thunk result from R1 into temp2 before POP_REGS restores caller registers. It pops
+the actual return, restores registers, decodes the caller size and jumps to the
+internal return label. FORCE2 reloads temp2 into ___temp; FORCE3 places that result
+at the generator-selected location. The stored ##force entry in
+[[file:../../../vendor/gambit/lib/_std.c::___FORCE1(1,___R1)][_std.c]] immediately assigns R1
+and returns. Restored caller R1 and the forced result are distinct values.
+
+[[file:../../../vendor/gambit/lib/mem.c::mark_array (___PSP ___ps->r,][mark_registers]] scans
+ps->r; mark_saved scans ps->saved. The strong phase calls both and continuation
+scanning. There is no direct temp2 occurrence in the inspected mem.c. This does
+NOT prove a bug: the existing design relies on a noncollecting transfer interval,
+not on treating every PSTATE field as a root.
+
+| Interval | Required owner | Collecting edge rule | Present evidence |
+|----------+----------------+----------------------+------------------|
+| FORCE1 to argument publication | transfer promise plus saved caller frame | no collection/reentry until Scheme argument is registered | source sequence; effective jumps/hooks open |
+| thunk computation | argument/stack/register roots and internal frame | collector rewrites declared roots, then restoration reloads | source saves and masks; full simulation open |
+| internal_return save to FORCE2 | temp2 transient result | no safepoint, GC, nested force or callback while temp2 is sole carrier | source sequence only |
+| FORCE2 to destination | ___temp transfer then declared destination | no collecting instrumentation before root materialization | generic emitter found; all representations open |
+| exception or continuation escape before normal return | captured Scheme state and exceptional completion owner | never synthesize normal force-result delivery | complete source closure open |
+
+The proposed generator annotation is TransferWindow(input, destination, resumePoint,
+forbiddenEffects). A checker must reject insertion of POLL, allocation slow path,
+callback, throwing instrumentation or a new native dispatch boundary inside it,
+unless it instead materializes a rewritable root and restores it afterwards.
+It must include expanded JUMPEXT/JUMP, DEF_SLBL/AM_HERE_PS and coverage hooks under
+the effective target configuration. The five-register profile is not universal.
+A moving collection between saveResult and consumeForce is an explicit abstract
+counterexample in Lean. Asynchronous OS suspension alone does not imply collection;
+proving which handler/sync-op can collect is a separate source/platform obligation.
+
+Multi-shot continuation capture during the thunk retains the internal frame and
+saved caller roots. Each actual normal return must establish its own transfer
+window. A suspension cannot preserve a raw temp2 value as a substitute for that
+frame. Concurrent use of a single PSTATE transfer slot is not admitted by this design.
+
+* RESEARCH Two admission authorities and late readers
+:PROPERTIES:
+:CUSTOM_ID: maintenance-admission-cut
+:END:
+
+ExternalGate closes new calls/binds. MaintenanceGate belongs to the stable
+installed-cohort directory, not to an external function address. A live rooted
+activation, saved continuation, inspector or admitted native callback carries a
+dependency on the old cohort. It can request GC metadata access after ExternalGate
+closes. A stale pointer discovered without such a dependency is not a valid grant.
+
+Reservation is acquired BEFORE reading a label header, OFD pointer or map. Admission
+and MaintenanceGate close share a linearization domain: a proposed packed
+(generation, closed, reservation count) CAS is one possible modern-C representation.
+A separate load of open followed by an unrelated fetch_add is invalid: close can
+observe zero, unload, and then the reader increments freed state. Stable directory
+storage has its own owner and is not freed by code unload. Generation reuse, count
+overflow and raw untracked readers refuse retirement until resolved.
+
+The QNT reserve action is the abstract successful admission. enter transfers one
+reservation to an active reader, preserving their sum. It does not recheck a closed
+maintenance gate and silently drop responsibility. A reservation admitted before
+rootCut may finish after both gates close. A live scanner may derive child work
+under its existing cohort grant even after independent maintenance admission
+closes. The derive action reserves child debt BEFORE the parent releases its
+reader; the child then uses enter. Parent lastRead before child reservation is
+forbidden. This is inherited authority, not reopening either gate. RootCut closes
+independent root publication, not the internal traversal of already owned work. abortReservation is allowed only before
+any payload dereference or after safe reader cleanup. Uncertain handoff preserves
+the debt and sets unknown; it is not a successful completion.
+
+RootCut requires closed external admission AND a complete closed producer set:
+active computations, captured frames and their aliases, registers/saved state,
+queued and private scanner tasks, FFI roots, debugger/profiler borrows and loader
+fixup users. The finite model summarizes this certified cut as roots=0; it does
+not prove that any existing runtime site can sign it. Discovering a previously
+unaccounted old-root reference revokes the cut before admission can proceed; after
+actual unload such discovery is a violated premise, not recoverable late admission.
+
+A scanner must not wait for code retirement while holding the only lease needed to
+scan/retire its roots. Closing maintenance early creates this circular dependency.
+After rootCut, close MaintenanceGate; drain reservations and readers, including
+queued/private tasks. Only then can a final owner consider reclaim. All-user closure
+and progress remain open; finite tests are safety evidence, not a liveness proof.
+
+** C11 obligations, deliberately not claimed proved
+
+1. Initialize immutable descriptor/cohort fields before release publication in the
+   stable directory; acquire lookup must read that publication before dereference.
+2. Gate close and successful reserve must be ordered by the SAME gate protocol.
+   CAS failure retries must revalidate generation and closed state. A reader cannot
+   acquire a pin after touching payload. Count overflow cannot wrap to zero.
+3. Transfer reservation to reader without an observable zero-debt gap. One combined
+   state transition or an overlapping handoff can refine the QNT atomic action;
+   unrelated decrement-then-increment cannot. Work queue publication must transfer
+   the owning reservation, not create an unowned pointer.
+4. Final descriptor/code access is sequenced before releasing its debt. A candidate
+   implementation using acq_rel RMW completion and an acquire final observation
+   must establish happens-before from EVERY reader, including release-sequence and
+   counter-reset cases. Acquire on another atomic does not establish this.
+5. RootCut publication must synchronize with root writers/GC epochs as well as gate
+   operations. The closer rechecks both counts and unknown after all producers close.
+   Loader hooks, native aliases and exceptions have separate final-use obligations.
+
+No instruction-level C11 execution graph, race-freedom theorem or actual Darwin
+macro/profile match is provided here. These conditions are requirements on the
+future implementation, not instructions to patch the runtime now.
+
+* RESEARCH Typed IR to Lean AST fidelity
+:PROPERTIES:
+:CUSTOM_ID: extraction-fidelity
+:TRUST_BOUNDARY: official-parser; JSON-decoder; binding-resolver; Python-generator
+:END:
+
+The prior adapter emits certificates about the generated AST. Those certificates
+can detect a changed guard against the manually specified transition relation;
+they do not establish a correct parser or a correct JSON-to-AST extraction.
+This study adds an independently stated resolved integer-tree semantics and a
+structural extraction theorem. extract either rejects or preserves Option-valued
+integer meaning. Unsupported nodes reject rather than receiving a default value.
+The admitted literals, resolved fields and addition have no effects or failures
+other than rejection. This is a deliberately narrow theorem, not the whole adapter.
+
+| Layer | Required witness | Failure policy | Status |
+|-------+------------------+----------------+--------|
+| source to official IR | exact source/tool hash, successful typing, import closure | no partial admission after diagnostics | trusted parser/typechecker |
+| JSON to resolved typed tree | unique declaration IDs, reference table lookup, scope and type match | reject duplicate defs, shadowed/wrong bindings, unknown fields | open |
+| resolved integer tree to AST | constructor relation and structural meaning preservation | unsupported yields none | Lean conditional theorem |
+| boolean predicates | literal/field typing, polarity, >= operand reversal, fold identity | reject unsupported or mixed types | existing generated certificate; extractor relation open |
+| updates | exact full record or distinct known fields; every RHS reads OLD state | reject duplicate fields or multiple assignments | existing old-state lemma; actual parse relation open |
+| actionAll | pure guards plus one terminal assignment; rollback on disabled branch | reject interleaved effect/assignment | source witness; relation open |
+| actionAny | union of enabled relations, disabled alternatives roll back | do not claim probability/fairness equivalence | relation to actual tool open |
+| init and safe | initial valuation and observed predicate correspond exactly | no omitted field/diagnostic mapped to success | scoped AST certificates only |
+| output and manifest | source IR schema adapter AST hashes bound together | stale or missing scope blocks ASCENT closure | local receipt checks |
+
+The prior Python adapter builds a name-keyed definition dictionary and reads state
+references by spelling. Even if current successful official typing prevents some
+collisions, a proof about arbitrary supplied JSON cannot assume that protection.
+Do not silently label the existing adapter strict against duplicate IDs or shadowed
+references. A future admission layer must check declaration-ID uniqueness, resolved
+reference identity and schema completeness, or restrict admission to an authenticated
+specific IR and explicitly keep its decoder in the trusted base. The integer theorem
+starts AFTER resolution and does not discharge this gap.
+
+Counterexamples retained as obligations: duplicate def overwrites in a dictionary;
+same s spelling resolves to another binding; update RHS reads accumulator instead
+of old state; omitted failed branch changes enabled relation; >= translated without
+operand reversal; ignored unsupported node treated as true. Absence of these in a
+sampled history is not an extraction proof. Existing frozen rejection controls and
+AST receipts are referenced, not rerun or upgraded.
+
+* RESEARCH Closure, migration and net benefit
+:PROPERTIES:
+:CUSTOM_ID: force-maintenance-benefit
+:END:
+
+[[file:force-maintenance-fidelity-matrix.org][The matrix]] is a native SysML projection.
+[[file:models/sysml/force-maintenance-fidelity.sysml][SysML]] binds each source route,
+contract, model scope and gap. ASCENT requires exact path/digest/scope receipts for
+FM-H/FM-I/FM-S/FM-E and the prior RO-S dependency. Current finite and conditional
+proof receipts cannot satisfy FM-S, FM-E or RO-S. A synthetic complete case tests
+routing and is explicitly not source qualification.
+
+Migration order: annotate/check TransferWindow and root handoffs; cover all descriptor
+readers with stable cohort grants; establish full RootCut producers and queue handoff;
+prove reserve/close and last-use C11 refinement; validate effective configuration;
+then replace FORCE/implicit temporary and global-only unload paths where ALL actual
+consumers have moved. Existing promise semantics, GC roots and portable C remain.
+No old macro or cleanup routine is retired by this documentation.
+
+For N independently admitted scan tasks (and D derived child tasks), the proposed protocol adds N reservation acquisitions,
+N ownership transfers and N final completions, plus D child reservations,
+D transfers and D completions, plus gate/cut operations per retired
+cohort. These are logical work counts, not measured machine instructions. Batching
+can reduce grants to ceil(N/b) only if one immutable-cohort grant covers the entire
+batch, including private work and exceptional exits. No batching speedup is asserted.
+Retained storage is the sum of bytes of still-owned/unknown cohorts plus directory
+and task metadata; an unbounded raw alias can prevent any finite retention bound.
+For force, the design may preserve the current zero-extra-root hot path if its
+no-safepoint window is proved; otherwise explicit root publication/reload is added.
+No CPU, memory, scan or build speedup percentage is justified by these formal checks.
+
+Benefits and costs belong to the modern-C redesign. Zig would still need the same
+root, continuation, borrow and memory-order contracts. This study demonstrates no
+language-specific positive Zig net benefit. Incremental rebuild reduction requires
+separate consumed-ABI keys and content keys; safe installed-cohort retention is a
+precondition for replacement, not a substitute for dependency-graph correctness.

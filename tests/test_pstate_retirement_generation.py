@@ -4,6 +4,7 @@ from gambit_smp.ascent_program import load_catalog
 from gambit_smp import evidence_index as index
 from gambit_smp import protocol_evidence as evidence
 from gambit_smp import verify_protocols as verify
+from tests.protocol_current import assert_current_status
 
 
 class PStateRetirementGenerationTests(unittest.TestCase):
@@ -32,9 +33,7 @@ class PStateRetirementGenerationTests(unittest.TestCase):
                            "gc_resize_c_memory_order"):
             self.assertIn(obligation, self.case["openObligations"])
         facts, _ = evidence.facts(index.ROOT)
-        checked = [row for row in facts["protocol_checked"]
-                   if row[0] == self.case["id"]]
-        self.assertEqual(1, len(checked))
+        assert_current_status(self, index.ROOT, "evidence/pstate-retirement-generation.json", facts)
         result = index.query(index.export()["facts"],
                              load_catalog(index.ROOT / "evidence/catalog.ss"))
         self.assertTrue(any(row[0] == self.case["id"]

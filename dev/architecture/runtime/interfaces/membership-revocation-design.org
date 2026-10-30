@@ -1,0 +1,299 @@
+#+TITLE: GC Membership Closure, Grant Revocation and Late Work
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: architecture
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %36ITEM %18STATUS %24OWNER %30OBLIGATION
+
+* RESEARCH Target and authority
+:PROPERTIES:
+:ID: 0bc9c651-7555-43dc-9e54-0b056541956f
+:CUSTOM_ID: membership-revocation
+:AUTHORITY: GambitMembershipRevocation
+:OWNER: runtime interfaces; execution and GC implement their respective ends
+:STATUS: design-only; refinement-open
+:EVIDENCE_CLASS: source-grounded-target-contract
+:END:
+
+Modern C is the mandatory implementation line. This is a T0 GC/SMP refactoring
+contract, not a build configuration change or a Zig adoption argument. It extends
+[[file:role-contract-design.org][the three-role design]] while preserving Gambit's existing parallel copying
+and stealing baseline. Root formal specifications remain under repository models/.
+
+[[file:models/sysml/membership-revocation.sysml][Native SysML]] owns the eight necessary laws, shared references and typed
+dependencies. [[file:models/sysml/collection-completion.sysml][Existing phase/debt/permission predicates]] retain their sole ownership;
+this study does not invent a second credit ledger. [[file:diagrams/membership-revocation.d2][Native D2]] / [[file:diagrams/membership-revocation.svg][rendered view]]
+show shared contracts, not a temporal state machine. Org owns the conditional
+argument and evidence interpretation. No requirement satisfaction is asserted.
+
+* Source closure and its limits
+:PROPERTIES:
+:CUSTOM_ID: membership-source
+:STATUS: selected-caller-slice-established
+:END:
+
+#+NAME: membership-source-matrix
+| Source | Observed current behavior | Target obligation / retained behavior |
+|---+---+---|
+| [[file:../../../../vendor/gambit/lib/setup.c::471][setup.c:471–724]] | Priority/combining tree uses processor_count; GC still-word requests combine by addition | Preserve request census and result coverage; a new worker count cannot silently become this participant census |
+| [[file:../../../../vendor/gambit/lib/setup.c::870][setup.c:870–1010]] | Resize can GC using the old processor_count, then synchronously sets count; removed processors clean/exit; shrink joins ignore errors; create failure is fatal | Separate root removal, worker withdrawal, backing retirement and native termination evidence; define partial-failure custody before replacing this path |
+| [[file:../../../../vendor/gambit/lib/setup.c::1013][setup.c:1013–1202]] | GC/resize are dispatched through the same synchronization loop | New independent grants must preserve combined-request completion and capacity-error delivery |
+| [[file:../../../../vendor/gambit/lib/mem.c::3408][mem.c:3408–3461]] | Reset per-PSTATE queues/cursors and initialize both phase worker counts from processor_count | Freeze root participants separately from a worker-team policy; never reset live old-generation queues |
+| [[file:../../../../vendor/gambit/lib/mem.c::6830][mem.c:6830–6870]] | Processor zero scans VM/symbol/RC roots; participants scan continuation/register/saved/cache/processor roots; weak phase moves continuations | Root census includes VM, context, saved/control and foreign carriers; worker withdrawal cannot remove these obligations |
+| [[file:../../../../vendor/gambit/lib/mem.c::3260][mem.c:3260–3307]] | Publish old-tail link, barrier, new tail, barrier, unlock, wake | Account accepted publication before it can escape the closure cut; preserve initialized-byte visibility and both source-order obligations |
+| [[file:../../../../vendor/gambit/lib/mem.c::4321][mem.c:4321–4385]], [[file:../../../../vendor/gambit/lib/mem.c::6667][6667–6770]] | Queue head removal/unlock precedes complete chunk scanning; local scan, stealing and mutex-protected idle counting already exist | Queue emptiness excludes neither acquired chunks nor private copy/Tail work; custody moves queue → counted scanner |
+| [[file:../../../../vendor/gambit/lib/mem.c::6938][mem.c:6938–7080]] | Barriers order setup, strong, weak, cleanup and heap resize; contexts prepare allocation afterward | Preserve phase ordering and coherent relocation result separately from capacity success |
+| [[file:../../../../vendor/gambit/lib/mem.c::4410][mem.c:4410–4440]] | Foreign release is called before still wrapper release | A GC task grant is not a general thread-affine cleanup grant; native effects retain separate delivery/drain responsibility |
+| [[file:../../../../vendor/gambit/include/gambit.h.in::6226][gambit.h.in:6226–6285]], [[file:../../../../vendor/gambit/include/gambit.h.in::10986][10986–11085]] | Ticket-lock volatile polling / mutex branch; word size and compiler predefines select __sync / other / emulated operations | Qualify all actual access paths and macro selections; Darwin/GCC configuration strings alone do not prove portable C ordering |
+
+This selected slice closes request → resize/roots → publish/acquire → phase
+completion in current source. It does not prove a complete native callback,
+RC writer, asynchronous producer or platform-error census. Source coupling is
+not evidence of a reproduced native race. Neither current historical failures
+nor the withdrawn finish→rescan counterexample are rewritten as new failures.
+
+* RESEARCH Distinct cuts and ownership
+:PROPERTIES:
+:CUSTOM_ID: membership-cuts
+:STATUS: target-contract-open
+:END:
+
+Let M(e,g) be the required root-carrier membership for collection e and membership
+generation g, W(e,p,r,t) the worker team, and A the accepted work/transfer domain.
+M, W and execution contexts need not have equal cardinalities. A frozen member
+set does not yet mean published final root values. A zero queue size does not
+mean A is empty. These are definitions of the target interpretation, not claims
+that the current processor_count has already been separated.
+
+#+NAME: membership-cut-matrix
+| Cut | Closes | Still permitted / required | Necessary law |
+|---+---+---+---|
+| Freeze membership | External membership insertion for this cut, serialized with pending admissions | Existing members publish final roots and acknowledge; no wait for root scan to finish before membership freeze | MemberFreezeLaw |
+| Seal roots | Final values/writer census for every frozen required carrier | Scanner acquires descriptors; accepted moving updates later require reload before reentry | RootSealLaw + existing participant acknowledgement |
+| Announce phase revocation | New acquisitions and new external producer rights under one gate | Already admitted producers retain scoped drain rights, including accounted child derivation and pending publication | RevocationAnnouncementLaw |
+| Withdraw one worker | New acquisitions by that worker incarnation | Finish its work or transfer complete restore state and debt to an accepting live custodian; other workers may continue | WorkerWithdrawalLaw |
+| Effective phase revocation | Old scope's remaining grants, publishers, readers and unresolved transfers, after existing phase drain | Publish a separately identified successor; never mutate old scope into a new generation | RevocationEffectiveLaw; PhaseAdvanceLaw |
+| Retire resize backing | Execution entry, root membership, worker use and target-specific late issuers | Release only the actual permitted target after native termination/last-use evidence and single consumption | ResizeRetirementLaw + existing removal/permission/consumption laws |
+
+A membership insertion racing freeze either commits into M before the cut and
+must acknowledge, or is refused/deferred without managed access. A genuinely
+future context can defer only if it holds no root needed by this collection and
+cannot enter before the next admission. A newly discovered *currently relevant*
+root after seal is a census failure, not ordinary future work. Before moving or
+observable copy effects, restart is conditional on retaining roots, revoking and
+draining every affected old grant. After relocation starts, no general restart
+or next-epoch repair is established. Reclaim/resume permission remains denied;
+retaining memory cannot retroactively protect an unregistered stale raw pointer.
+
+Single-worker withdrawal does not require global phase drain. Its release
+receipt must bind VM, worker incarnation, complete cursor/copy/Tail/acquired-chunk
+state and accepted destination. Effective phase revocation does require complete
+phase drain. In CollectorWorkContext, teamGrantLive denotes a custody/drain lease;
+it is not the new-acquisition gate. A revoke bit cannot invalidate pointers
+already loaded by a scanner.
+
+* RESEARCH Late delivery, partial failure and progress
+:PROPERTIES:
+:CUSTOM_ID: membership-late
+:STATUS: conditional-only
+:END:
+
+#+NAME: membership-late-work-matrix
+| History | Acceptance / custody rule | Failure to avoid |
+|---+---+---|
+| External request wins before close | Accept and count before publication becomes visible; close must include it | Check-open / close / enqueue with no outstanding debt |
+| External request loses to close | Refuse this scope; pending disposition retains valid prior custody and debt | Silently drop required work or a raw pointer |
+| Admitted parent derives after external seal | Reserve child before parent release; commit acceptance with a drain lease while phase remains live | Revoking drain rights first, then waiting for the stranded parent |
+| Publisher accepted before close, bytes arrive later | Keep publication user/debt until an observed acceptance or known failure; full scope must match | Phase finishes between queue commit and receipt |
+| Dequeue races worker withdrawal | Queue removal atomically transfers debt to scanner or an accepted successor | Empty queue interpreted as completed scan |
+| Transfer outcome unknown | Source/transfer custodian and prior lease remain live; retain debt and reconcile identity | Blind retry duplicates work or both ends free the payload |
+| Old phase packet after effective revoke | Reject before dereferencing old backing; independently retain any valid prior custody | Matching collection epoch used to accept stale phase/team/producer generation |
+| Root relevant to current cut appears late | Fail the completeness premise; do not issue completion/reuse permission | Re-label current raw alias as future-epoch work |
+
+The scope key is (VM, VM generation, collection, root cut, phase, round, producer
+generation, team identity, team generation). Every accepted record must match
+coherent authority for that key; stable immutable handle resolution must precede
+payload dereference. Finite native identifiers need non-wrap/ABA and handle-table
+lifetime arguments. A thread-local cached copy of an old coordinator scope is
+not coherent authority.
+
+** Conditional no-reopen argument
+Assume a complete member and producer census; serialized admission/close; a
+complete disjoint ledger for private, queued, scanning, reserved-child and
+transfer work; live leases for all publishers/readers; and child acceptance
+before parent settlement. At effective revocation, all origins of later work
+are excluded: external admission is closed; no admitted producer retains a
+right; no private/queued/acquired/reserved/transfer obligation remains; and no
+publisher can expose a previously unobserved acceptance. Thus a new valid task
+in the identical scope contradicts one of those premises. Rejected stale records
+cannot restore the scope or authorize backing access.
+
+This is a conditional safety argument. [[https://www.cs.utexas.edu/~EWD/transcriptions/EWD06xx/EWD684.html][Dijkstra–Scholten's termination analysis]]
+accounts computation messages and return signals and assumes bounded diffusion.
+The lesson for Gambit is to count accepted derived responsibility until it is
+settled, not to copy a distributed algorithm literally. Applying that reasoning
+to shared-memory publication, forwarding winners, weak processing and foreign
+effects requires the additional source refinements above. No such refinement
+is proved here.
+
+Progress separately needs finite production, eventual scheduling/delivery,
+well-founded internal progress and no wait cycle. Close may stop new acquisitions
+but must leave a drain executor or accepted transfer route. A parked participant
+must publish roots before awaiting GC; a withdrawing worker must not await a
+receipt from an owner blocked on that worker's untransferred task. Unknown
+outcomes can block permission indefinitely; a timeout does not prove absence.
+
+* OPEN Modern C memory-order obligations
+:PROPERTIES:
+:CUSTOM_ID: membership-memory-order
+:OWNER: modern-C runtime and platform adapter
+:OBLIGATION: native-access-and-lifetime-refinement
+:END:
+
+The design relies on release/acquire observation of the same synchronization
+object or an equivalent proven lock protocol. Conflicting non-atomic accesses
+without happens-before are not repaired merely by surrounding them with fences.
+These constraints follow from [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570 §§5.1.2.4, 7.17.4]]; concrete mechanisms below
+are proposed obligations, not an evaluated atomic implementation.
+
+#+NAME: membership-memory-order-matrix
+| Boundary | Required order / linearization | Source correspondence / unresolved part |
+|---+---+---|
+| Enroll vs freeze | One serialized commit decision; publish member descriptor before acquired census observation | setup.c processor-count collective is a baseline, not a complete dynamic registry |
+| Final roots vs scan | Root writes and acknowledgement release precede scanner acquire; exclude every admitted writer; retain descriptor | mem.c strong root entry plus existing ROOT-HANDOFF; final-value/root-location closure remains open |
+| New task vs revoke | Gate decision and accepted credit are one protocol; failed post-effect result retains transfer custody | A relaxed Boolean checked before an unrelated queue push is insufficient |
+| Chunk payload vs visibility | Initialized scan inputs and accepted debt precede release publication; acquiring consumer observes them before scan | Preserve end_heap_chunk old-link / first barrier / tail / second barrier obligations until every reader path is mapped |
+| Queue removal vs scan completion | Removal transfers debt; last-use and acquired scan completion precede settlement | scan_complete_heap_chunk occurs after unlock; not covered by empty-queue observation alone |
+| Phase zero vs wake | Check a coherent zero-debt/closed-producer predicate with admission serialization; wait in the protocol's predicate loop | Existing worker count and condition signal are not certificates for newly introduced asynchronous producers |
+| Effective revoke vs reuse | Acquire final drain evidence, prevent new stale-handle resolution, wait all prior readers, then release backing | An atomic revoked flag alone provides no grace period |
+| Result vs reentry | Publish committed relocation and terminal capacity result; context acquires, reloads and invalidates aliases | Coherent capacity failure may still require Scheme error delivery; do not require allocation success to resume that path |
+
+Current __sync selection uses compiler predefines and word size. [[https://gcc.gnu.org/onlinedocs/gcc/_005f_005fsync-Builtins.html][GCC documents]]
+__sync_synchronize as a full barrier and most legacy __sync operations as full
+barriers, with exceptions. That does not by itself certify the complete
+volatile/ticket-lock fast path, platform emulation or all queue reads. The actual
+Darwin/GCC macro branch, supported compiler extension semantics, lock behavior,
+identifier width and all participating accesses remain qualification inputs.
+Choosing modern C atomics requires redesigning the access protocol, not merely
+renaming these macros. No current native data race is asserted by this study.
+
+* OPEN QNT and Lean refinement matrix
+:PROPERTIES:
+:CUSTOM_ID: membership-refinement
+:AUTHORITY: GambitMembershipRevocation; GambitRuntimeModelRelations
+:STATUS: eight-target-laws-open
+:END:
+
+#+NAME: membership-refinement-matrix
+| Target law | Required QNT state / atomic cut | Lean preservation obligation / missing premise | Existing root binding |
+|---+---+---+---|
+| MemberFreezeLaw | enroll / refuse / freeze; immutable finite M with incarnations and pending admissions | Freeze includes every relevant carrier; no hidden root producer; initial representation relation | ROOT-HANDOFF |
+| RootSealLaw | acknowledge / seal / acquire; distinct membership-frozen and final-values-ready states | All members cover actual slot locations and saved/control origins; value version publication and writer exclusion | ROOT-HANDOFF; CONTROL-ORIGIN |
+| RevocationAnnouncementLaw | closeNewAcquisition; keep existing producer/custody capabilities | Close serializes with acquire and cannot strand accepted parent/child obligations | GC-WORK-CLOSURE |
+| RevocationEffectiveLaw | settle producer / publisher / transfer / final reader, then commit revoke | Zero count requires complete lifetime/census premise; same-scope terminal state remains stable | GC-WORK-CLOSURE; RETIRE-WINDOW |
+| WorkerWithdrawalLaw | transfer private/copy/Tail/acquired debt; accept or retain unknown; finish withdrawal | Total debt conserved, exclusive owner or explicit transfer custody, complete restore state and no stale uses | GC-WORK-CLOSURE |
+| LateDeliveryLaw | known pre-effect reject / accepted publication / outcome unknown / stale delivery | No credit gap, duplicate settlement or raw-alias relabel; resolve stable identity before dereference | GC-WORK-CLOSURE; RETIRE-WINDOW |
+| PhaseAdvanceLaw | old revoke then separately publish phase/round/producer-generation successor | No scope mutation/ABA; weak roots and continuation move obligations cannot be omitted | GC-WORK-CLOSURE; CONTROL-ORIGIN |
+| ResizeRetirementLaw | remove root membership, withdraw worker, native last use, consume target permit | Compatible collection identity, replacement-root acceptance, all source/target users and exactly one permit consumption | ROOT-HANDOFF; RETIRE-WINDOW |
+
+Dependencies in SysML are conjunctive proof obligations. They do not instantiate
+satisfaction or generate a behavior. Work/identity/credit numbers are mathematical
+integers; native finite widths and concurrent snapshots require separate proofs.
+
+[[file:../../../../models/library/gc/CollectionContract.qnt][CollectionContract.qnt]] already guards terminal actions with not(done). It
+has one object, two roots, stopped mutators and atomic visibility; its old direct
+finish→rescan trace is excluded. [[file:../../../../models/gambit/gc_work_closure.qnt][gc_work_closure.qnt]] is a supporting two-worker,
+two-object/two-phase slice, not the full dynamic membership/revocation protocol.
+[[file:../../../../models/gambit/lean/WorkAccounting.lean][WorkAccounting.lean]] proves zero-count exclusion only under producer-lifetime
+coverage; its missing-lifetime counterexample prevents using count=0 alone.
+[[file:../../../../models/gambit/lean/SavedStackRetirementWindow.lean][SavedStackRetirementWindow.lean]] retains stable-window/ordered-reuse premises.
+Neither proves C weak-memory refinement or whole-protocol progress.
+
+Every real source transition needs a matching model step or justified stutter,
+including failed acquisition, partial publication and late callback. A separate
+well-founded rank must rule out infinite stuttering. Behavior design must retain
+positive draining histories as well as the negative sketches below; making all
+steps disabled would satisfy safety vacuously. Existing report classes are
+retained: CONTROL-ORIGIN's selected QNT is not covered by its Lean report; the
+selected GC binding has no admitted scoped validation report.
+
+** Counterexample obligations, not executed traces
+#+NAME: membership-counterexamples
+| ID | Design-negative history / false premise | Required rejection or correction |
+|---+---+---|
+| MR-CENSUS | Freeze omits a foreign/current saved-root carrier | Census fails; no root seal / reclaim receipt |
+| MR-ACK | Membership frozen is treated as final root acknowledgement | Separate final publication and scanner acquire |
+| MR-STRAND | Close clears drain rights while a parent owes a child | Keep a live drain route until debt transfer/settlement |
+| MR-DEQUEUE | Head removed, worker exits, queue appears empty | Acquired chunk remains owned and counted |
+| MR-PUBLISH | Producer checks gate, closer observes zero, producer links chunk | Serialized acceptance/close and publication-user accounting |
+| MR-UNKNOWN | Lost receipt causes both sides to retry/free | Retain identity, lease and unresolved debt until reconciliation |
+| MR-STALE | Same collection, different weak phase/team generation accepts packet | Full immutable scope check before backing access |
+| MR-RESIZE | Worker leaves and its context root storage is freed | Root removal/replacement and execution/native last-use proofs remain independent |
+| MR-REVIVE | Delayed old reader survives effective flag and accesses reused backing | Reader census/grace period and handle resolution gate |
+| MR-ABA | Finite generation wraps to match old handle | Native width/non-wrap or safe reuse policy; otherwise reject |
+
+* RESEARCH Benefits, added costs and retirement
+:PROPERTIES:
+:CUSTOM_ID: membership-benefits
+:STATUS: conditional-net-benefit-not-measured
+:OWNER: modern-C refactoring
+:END:
+
+#+NAME: membership-benefit-matrix
+| Change | Work that can disappear | Added necessary work | Positive-net-benefit condition / refutation |
+|---+---+---+---|
+| Separate M and W | Participation/worker-policy coupling and unnecessary worker retention during resize | Membership snapshot, incarnations and a complete root census | Saved coordination/retention exceeds snapshot/admission costs; no benefit if every policy needs the same fixed team |
+| Explicit per-worker withdrawal | Requiring a whole phase stop merely to move a worker's responsibilities | Complete restore/handoff, acknowledgement, retained unknown outcomes | Transfer is cheaper and progresses; refuted by per-task handoff overhead or no useful policy change |
+| Phase closure shared with publication | Duplicated guessed-empty decisions and repeated defensive rescans caused by unclear custody | Gate/credit publication, coherent zero cut and publisher/read leases | Removes demonstrated redundant work; refuted if centralized contention exceeds avoided work or old path already provides it |
+| Target-specific resize retirement | Retaining unrelated resources until an unnecessarily global shutdown | Per-target last-use census and permits | Relevant retention is actually bounded/reduced; extra metadata without earlier safe release provides no demonstrated gain |
+| Preserve existing parallel copy/steal | No new benefit claimed for functionality already present | Adapt existing queues and worker accounting to new roles | Benefit is only incremental decoupling, never credit for inventing parallel GC |
+| Mandatory roots / copied live payload | Exactly 0 required root visits and 0 necessary payload words removed by role separation alone | Descriptor resolution/lease checks may add work | Any scan/copy reduction needs a separate generational/barrier/coverage proof |
+| Zig implementation alternative | No Scheme root, scope, lifetime, weak-memory or cancellation obligation automatically disappears | Additional language/toolchain/ABI boundary unless a named C support path retires | Zig-specific net benefit is unestablished; shared modern-C modernization is insufficient justification |
+
+For matched semantics define A = avoided coordination + avoided redundant scans
++ reduced policy-induced idle time, H = added registry/gate/lease/handoff/drain
+CPU cost. A time benefit requires A > H without shifting the debt into unbounded
+latency or retention. Model space as O(|M| + |W| + |in-flight transfers|), plus
+existing work queues; this is a logical representation bound, not a requirement
+for one allocation or atomic increment per root/edge. Peak-memory improvement
+requires released retained bytes > new metadata + still-retained uncertain work.
+Pause, throughput and peak memory are separate dimensions, not one summed score.
+No numeric speedup, percentage or number of barriers eliminated is established.
+Batch/worker aggregation is a candidate only if it preserves the complete ledger.
+
+#+NAME: membership-retirement-matrix
+| Migration gate | Old responsibility eligible for replacement | Prerequisite / reason still retained now |
+|---+---+---|
+| Complete M snapshot and acknowledgement | processor_count as implicit root-participant census | Real root/writer/FFI membership and reload proofs; source uses remain live |
+| Worker task custody + transfer | PSTATE identity as unique private cursor/chunk/Tail custodian | Complete copy/scan restore and exactly accepted handoff; preserve existing copy algorithm |
+| Phase admission + common drain | Bare worker-count/queue emptiness used as a future generalized completion authority | Complete producer census and C publication refinement; do not remove current working count merely on a structural model |
+| Target-specific removal/last use | Combined cleanup/count-change/join as the only lifetime boundary | Partial setup/create/join failures and native users explicitly accounted; preserve current error behavior until replaced |
+
+Eight new laws are OPEN; zero runtime paths are retired. Next research must close
+actual member/writer inventory, per-worker publisher/reader census and a concrete
+C acquisition/close protocol before claiming a target QNT refinement. Runtime
+implementation, native tests and performance verification are outside this task.
+
+* Structural and association receipts
+:PROPERTIES:
+:CUSTOM_ID: membership-checks
+:EVIDENCE_CLASS: document-structure-and-source-association-only
+:END:
+
+[[file:../../../../evidence/research/t0-membership-revocation/checks.json][The scoped receipt]] binds native tool output, all SysML inputs, unchanged
+root formal sources, source slices, Org links and the native-generated diagram.
+ASCENT joins native-resolved root bindings to existing source-bound component
+hypotheses with the complete target-model bundle. It does not establish that
+these eight new laws are supported observations or proved refinement steps.
+
+#+NAME: membership-native-commands
+#+BEGIN_SRC sh
+sysml -strict -validate -json dev
+sysml -strict -render '#interconnection:GambitMembershipRevocation::ClosureGraph' -render-form d2 -o dev/architecture/runtime/interfaces/diagrams/membership-revocation.d2 dev
+#+END_SRC
+
+[[file:../../../modeling/ascent/membership-revocation.ss][The maintained ASCENT selector]] exports eight native-owned duty records,
+including source hashes, through four existing root pairs. Dependencies can
+require more than the primary root binding of one duty: for example root seal
+also depends on ROOT-HANDOFF, and retirement also on worker/custody contracts.
+A primary association is not a complete dependency proof. The query returns
+hypotheses only and carries both root open premises and target duty premises.

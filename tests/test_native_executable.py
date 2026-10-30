@@ -1,11 +1,167 @@
 """Standalone transport checks; mock executions are not runtime qualification."""
 from pathlib import Path
+import copy
+import json
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from gambit_smp import native_capabilities as native
+from gambit_smp.framework import digest
+
+
+class SharedFixtureTests(unittest.TestCase):
+    """Transport/refusal controls only; these fake programs are never native evidence."""
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name).resolve()
+        self.out = self.root/'run'; self.out.mkdir()
+        self.runtime = self.root/'runtime'; self.runtime.mkdir()
+        (self.runtime/'abi.h').write_text('runtime ABI')
+        self.identity = self.root/'identity.json'; self.identity.write_text('{}')
+        self.source = self.root/'fixture.scm'; self.source.write_text('(display "PASS")')
+        self.compiler = self.root/'gcc'; self.compiler.write_text('fake tool identity')
+        self.frontend = self.root/'cc1'; self.frontend.write_text('fake frontend identity')
+        self.steps = []; self.calls = []; self.mutation = None
+        self.args = dict(runtime=dict(step='runtime',output='runtime'),
+                         identity=dict(step='runtime',output='identity'),program='fixture.scm',stdout='PASS\n')
+
+    def context(self, name):
+        directory=self.out/name;directory.mkdir()
+        ctx=SimpleNamespace(root=self.root,out=self.out,directory=directory,env={'CC':str(self.compiler)},
+            commands=[],extra_inputs={},receipt={'steps':self.steps},tools={'gcc':str(self.compiler)},remaining=lambda:10)
+        def artifact(ref, kind):
+            if ref['output']=='runtime':return self.runtime
+            if ref['output']=='identity':return self.identity
+            row=next(s for s in self.steps if s['id']==ref['step'])['outputs'][ref['output']]
+            path=self.out/row['path']
+            if row['type']!=kind or digest(path)!=row['sha256']:raise ValueError('artifact drift')
+            return path
+        ctx.artifact=artifact
+        def bind(paths):
+            ctx.extra_inputs.update({str(p.resolve()):digest(p) for p in paths})
+        ctx.bind=bind
+        ctx.publish=lambda name,kind,path:{name:dict(type=kind,path=str(path.relative_to(self.out)),sha256=digest(path))}
+        def require(stage, argv, cwd, cap, **kwargs):
+            row=dict(stage=stage,argv=list(map(str,argv)),cwd=str(cwd),environment=dict(ctx.env),
+                     seconds=.001,exit=0,timeout=False,parentReaped=True,processGroupQuiescent=True,stderrBytes=0)
+            ctx.commands.append(row);self.calls.append((name,stage,str(cwd)))
+            if stage=='compile-executable':
+                output=directory/'fixture';output.write_text('fake executable');output.chmod(0o700)
+                (directory/'compile-executable.process.json').write_text(json.dumps(dict(
+                    schema='recipe-process-observation.v1',state='OBSERVED',completionObserved=True,**row)))
+            if self.mutation:self.mutation(stage,ctx)
+            return '' if stage=='compile-executable' else 'PASS\n'
+        ctx.require=require
+        return ctx
+
+    def invoke(self, args, ctx):
+        def compiler(context):
+            context.bind([self.frontend]);return self.compiler
+        with patch.object(native,'compiler',side_effect=compiler), \
+             patch.object(native,'gnu_build_driver',return_value={}), \
+             patch.object(native,'available_processors',return_value=12), \
+             patch('gambit_smp.suite_primitives.check_runtime'):
+            return native.executable_test(args,ctx)
+
+    def producer(self):
+        args=dict(self.args,publishCompilation=True);ctx=self.context('wide')
+        result=self.invoke(args,ctx)
+        self.steps.append(dict(id='wide',capability='gambit.executable-test',arguments=args,
+                               outcome='PASS',commands=ctx.commands,**result))
+        return ctx
+
+    def consumer(self):
+        return dict(self.args,processorTopology='host-managed',compilation=dict(step='wide',output='compilation'))
+
+    def change_manifest(self, change):
+        path=self.out/'wide/compilation.json';record=json.loads(path.read_text());change(record)
+        path.write_text(json.dumps(record));self.steps[0]['outputs']['compilation']['sha256']=digest(path)
+
+    def test_one_compile_and_two_real_invocations_keep_the_original_cwd(self):
+        original=self.producer();ctx=self.context('wide-host')
+        result=self.invoke(self.consumer(),ctx)
+        self.assertTrue(result['compilationReused']);self.assertFalse(result['compilationLaunched'])
+        self.assertEqual(11,result['executionProcessors'])
+        self.assertEqual([('wide','compile-executable'),('wide','run-executable'),('wide-host','run-executable')],
+                         [(a,b) for a,b,_ in self.calls])
+        self.assertEqual(str(original.directory),self.calls[-1][2])
+        self.assertFalse((ctx.directory/'fixture').exists())
+        self.assertFalse((ctx.directory/'fixture.scm').exists())
+
+    def test_source_tool_backend_runtime_output_and_origin_drift_refuse_without_fallback(self):
+        for kind in ('source','tool','backend','runtime','candidate','copied','output','mode','receipt','cross-run','cwd','cpu','alias','manifest-alias','replayed','failed'):
+            with self.subTest(kind=kind):
+                self.setUp();self.producer();ctx=self.context('consumer')
+                paths={'source':self.source,'tool':self.compiler,'backend':self.frontend,
+                       'runtime':self.runtime/'abi.h','candidate':self.identity,
+                       'copied':self.out/'wide/fixture.scm','output':self.out/'wide/fixture',
+                       'receipt':self.out/'wide/compile-executable.process.json'}
+                if kind in paths:paths[kind].write_text('changed')
+                elif kind=='mode':(self.out/'wide/fixture').chmod(0o600)
+                elif kind=='cross-run':self.change_manifest(lambda r:r.update(run=str(self.out/'different')))
+                elif kind=='cwd':self.change_manifest(lambda r:r.update(cwd=str(ctx.directory)))
+                elif kind=='cpu':self.change_manifest(lambda r:r.update(hostCpuCapacity=1))
+                elif kind in ('alias','manifest-alias'):
+                    path=self.out/'wide'/('fixture' if kind=='alias' else 'compilation.json')
+                    target=path.with_name('retained-original');path.rename(target);path.symlink_to(target.name)
+                elif kind=='replayed':self.steps[0]['reused']={'run':'past'}
+                elif kind=='failed':self.steps[0]['outcome']='DENY'
+                with self.assertRaises((ValueError,KeyError,json.JSONDecodeError)):
+                    self.invoke(self.consumer(),ctx)
+                self.assertEqual([],ctx.commands)
+
+    def test_environment_or_recorded_command_cannot_be_normalized(self):
+        for kind in ('environment','argv'):
+            with self.subTest(kind=kind):
+                self.setUp();self.producer();ctx=self.context('consumer')
+                if kind=='environment':ctx.env['EXTRA_CONTEXT']='changed'
+                else:self.change_manifest(lambda r:r['command']['argv'].append('-different'))
+                with self.assertRaises(ValueError):self.invoke(self.consumer(),ctx)
+                self.assertEqual([],ctx.commands)
+
+    def test_bad_compile_receipt_and_mutation_during_execution_cannot_publish_or_pass(self):
+        for kind in ('receipt','source-during-compile','runtime-during-compile','after-share'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                if kind=='after-share':
+                    self.producer();args=self.consumer();ctx=self.context('consumer')
+                    self.mutation=lambda stage,c:(self.out/'wide/fixture').write_text('changed')
+                else:
+                    args=dict(self.args,publishCompilation=True);ctx=self.context('producer')
+                    def mutate(stage,c):
+                        if stage!='compile-executable':return
+                        if kind=='receipt':
+                            path=c.directory/'compile-executable.process.json';r=json.loads(path.read_text());r['timeout']=True;path.write_text(json.dumps(r))
+                        elif kind=='source-during-compile':(c.directory/'fixture.scm').write_text('changed')
+                        else:(self.runtime/'abi.h').write_text('changed')
+                    self.mutation=mutate
+                with self.assertRaises(ValueError):self.invoke(args,ctx)
+                self.assertFalse((ctx.directory/'compilation.json').exists())
+
+    def test_graph_requires_direct_same_program_runtime_and_publication(self):
+        from gambit_smp.recipes import CAPABILITIES
+        runtime=dict(id='runtime',capability='gambit.native-development',arguments={})
+        producer=dict(id='wide',capability='gambit.executable-test',arguments=dict(self.args,publishCompilation=True))
+        target=dict(id='host',capability='gambit.executable-test',arguments=self.consumer(),dependsOn=['runtime','wide'])
+        native.graph(target,{'runtime':runtime,'wide':producer},CAPABILITIES)
+        for kind in ('dependency','program','runtime','gsi','chain','publication'):
+            with self.subTest(kind=kind):
+                p,t=copy.deepcopy(producer),copy.deepcopy(target)
+                if kind=='dependency':t['dependsOn'].remove('wide')
+                elif kind=='program':p['arguments']['program']='other.scm'
+                elif kind=='runtime':p['arguments']['runtime']={'step':'other','output':'runtime'}
+                elif kind=='gsi':p['arguments']['mode']='gsi'
+                elif kind=='chain':p['arguments']['compilation']={'step':'earlier','output':'compilation'}
+                else:p['arguments'].pop('publishCompilation')
+                with self.assertRaises(ValueError):native.graph(t,{'runtime':runtime,'wide':p},CAPABILITIES)
+
+    def test_interpreted_or_chained_publication_is_rejected(self):
+        for args in (dict(self.args,mode='gsi',publishCompilation=True),dict(self.consumer(),publishCompilation=True),
+                     dict(self.args,publishCompilation='yes')):
+            with self.assertRaises(ValueError):native.validate_executable_test(args,['fixture.scm'])
 
 
 class NativeExecutableTests(unittest.TestCase):
@@ -68,6 +224,29 @@ class NativeExecutableTests(unittest.TestCase):
                 self.assertEqual(str(cpu), self.ctx.env["GAMBIT_SMP_AVAILABLE_CPUS"])
                 self.assertEqual(str(result["executionProcessors"]),
                                  self.ctx.env["GAMBIT_SMP_EXPECTED_PROCESSORS"])
+
+    def test_interpreted_fixture_uses_same_runtime_without_compile_or_test_tree_copy(self):
+        interpreter = self.runtime/'gsi/gsi';interpreter.parent.mkdir()
+        interpreter.write_bytes(b'synthetic interpreter identity, not native acceptance')
+        self.args.update(mode='gsi', processorTopology='host-managed')
+        native.validate_executable_test(self.args, ['fixture.scm'])
+        with patch.object(self.ctx, 'require', wraps=self.ctx.require) as require:
+            result = self.execute(capacity=7)
+        self.assertEqual(1, require.call_count)
+        self.assertEqual('run-executable', require.call_args.args[0])
+        self.assertEqual(interpreter, require.call_args.args[1][0])
+        self.assertEqual(self.directory/'fixture.scm', require.call_args.args[1][-1])
+        self.assertEqual(6, result['executionProcessors'])
+        self.assertFalse(result['compilationLaunched'])
+        self.assertNotIn('compileProcessors', result)
+        self.assertFalse((self.directory/'runtime').exists())
+        self.assertFalse((self.directory/'fixture').exists())
+        self.assertFalse(result['runtimeAdmitted'])
+
+    def test_unknown_standalone_mode_is_rejected(self):
+        self.args['mode'] = 'unknown'
+        with self.assertRaisesRegex(ValueError, 'standalone fixture mode'):
+            native.validate_executable_test(self.args, ['fixture.scm'])
 
     def test_unknown_topology_cannot_silently_use_one_processor(self):
         self.args["processorTopology"] = "unknown"

@@ -1,0 +1,191 @@
+#+TITLE: Gerbil Scheme Module Incrementality and Concurrent Compilation
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH The subject is gxi/gxc module development :modern_c:incremental:
+:PROPERTIES:
+:CUSTOM_ID: gerbil-module-build
+:AUTHORITY: GerbilModuleBuild
+:STATUS: design-only-source-refinement-open
+:EVIDENCE_CLASS: source-and-conditional-work-analysis
+:END:
+
+This study concerns Gerbil Scheme modules driven through gxi, std/make and
+gxc. Gambit's own Make bootstrap is a different graph. Concurrent native
+compiler processes, concurrent Gerbil module work, and true parallel execution
+inside one Scheme VM are three separate capabilities.
+
+The [[file:models/sysml/gerbil-module-build.sysml][native SysML model]] owns the four redesign boundaries and their links
+to existing planner, scheduler and publisher source obligations. The
+[[file:gerbil-module-build-matrix.org][benefit/cost matrix]] and [[file:diagrams/gerbil-module-build.d2][D2]] are projections of that model. The existing
+[[file:component-assurance.org][component assurance chain]] remains authoritative for qualified scopes;
+this study does not add a qualification receipt or close a component.
+
+** Source identity and observation boundary
+:PROPERTIES:
+:CUSTOM_ID: gerbil-build-source
+:END:
+
+Read-only source cohort: sibling checkout gerbil-gambit-bootstrap-audit,
+HEAD =1cfb032c7a1612637da6205f5f8a15683eba3ba0=. The four selected files had
+no working-tree delta when inspected. This is not a claim about the currently
+installed gxi/gxc binary or every Gerbil release. Source hashes and native
+model evaluation are retained under [[file:../../../evidence/research/retained/build-concurrency/receipt.json][the retained study inventory]].
+
+- [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/main.ss::203][main.ss]] dispatches gxi and gxc separately. gxi can host the build script;
+  it is not itself a complete incremental compilation policy.
+- [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::207][make-build]] already has coordinators, a completion table, a work channel
+  and bounded workers. It is incorrect to describe it as entirely serial.
+- [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::220][import-mx]] serializes std/make imports; dependency timestamp lookup also
+  locks temporary load-path mutation. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::119][compile-module]] protects import and
+  optimizer initialization, and compile-top-module protects optimize! with
+  the driver mutex. These are distinct lock scopes, not proof of a globally
+  serial compiler or a measured bottleneck percentage.
+- [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::246][build? and build-dependent?]] compare input/output and imported-library
+  timestamps. The selected source explicitly refreshes timestamp observations;
+  that prevents one stale-cache pattern but does not prove content identity.
+- [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::299][coordinators]] wait on imported-module completions before scheduling a
+  whole build operation. This completion does not distinguish interface,
+  transformer support, runtime object and final link readiness.
+- [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/make.ss::502][gxc-compile]] itself has a TODO to split the operation into more actions.
+  [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::621][compile-top-module]] emits runtime code, metadata and optional optimization
+  information. [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss::707][compile-meta-code]] emits SSI and phase code; SSI can contain a
+  load-module call. Interface existence alone is therefore insufficient to
+  start every dependent expansion.
+
+* RESEARCH Reconstruct the module service boundary
+:PROPERTIES:
+:CUSTOM_ID: module-service-boundary
+:END:
+
+** Producer-owned plan and isolated session
+
+Scheme owns dependency discovery, lexical binding identity, phase evaluation,
+optimization and module initialization semantics. The target native executor
+owns process lifecycle and resource admission. Neither Zig nor a different
+Make frontend automatically eliminates these semantic dependencies.
+
+One module request identifies source content, compiler image, options, phase
+imports, include/prelude dependencies, library lookup context, declared effects
+and the relevant runtime ABI. The producer must justify which of these reach
+each output. A reused result needs a stable complete input cut and successful
+origin. Timestamp equality, a process-local module-registry hit and unchanged
+SSI bytes are insufficient independent credentials.
+
+The [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/expander/module.ss::139][expander]] creates mutable module contexts, delayed evaluation and registry
+entries. Initially isolate those states by compilation session or worker
+process. Process isolation gives an ownership boundary, not automatic speedup:
+it adds startup, import/phase instantiation and IPC work. Sharing immutable
+decoded interface programs is a later admitted optimization. Never share a
+previous live lexical or dynamic context as a cached interface by accident.
+
+** Replace whole-module waiting with justified readiness
+
+For A importing B, classify the actual consumed products:
+
+#+NAME: module-readiness-example
+#+BEGIN_EXAMPLE
+B source -> expand/optimize -> coherent interface + generated products
+                                 |                  |
+               required phase support ready         runtime native work
+                                 |                  |
+                             expand A          B runtime ready
+                                 |                  |
+                           native work A --------> final link/load
+#+END_EXAMPLE
+
+This is a candidate partial order, not a rule that every SSI releases A.
+The phase-ready credential covers the entire executable transformer closure,
+including native helpers when macros invoke them, plus fresh instance setup.
+Some imports still need B's runtime artifact. Cyclic expansion remains an
+error where the existing language rejects it; runtime call cycles do not by
+themselves justify a phase cycle or arbitrarily merge every module.
+
+Optimization consumers may depend on B's optimization information even when
+its exported names are unchanged. Runtime-body changes can leave A untouched
+only if A consumes no changed inline/optimizer/transformer projection. The
+current two-output freshness list in gxc-outputs is not a complete proposed
+transaction manifest; enumerate actual outputs per mode, nested module and
+phase before splitting or publishing them.
+
+** One graph scheduler; gxi is an interactive client
+
+Use one owner for each output group and one admitted executor budget across
+module compilation and native follow-up jobs. Reuse or replace the existing
+[[file:../../../../../patches/gerbil-v19-darwin/0002-gerbil-streaming-compile-executor.patch][streaming executor]] deliberately. Its overlap support is already present in
+the patch design and must not be credited again as a new benefit.
+
+A waiting parent delegates or releases CPU capacity without prematurely
+refunding still-running child work. CPU credits and memory reservations are
+different ledgers. Cancellation requests do not establish physical termination;
+unknown exits retain custody and cannot publish success. A failure in one
+module must settle every accepted dependent/follow-up request.
+
+For gxi, use the same immutable build results and request graph as gxc, with a
+separate session activation step. Recompiling B is not equivalent to safely
+rebinding an already loaded A: existing closures, continuation captures, global
+state and effects may still refer to the old generation. Activation must use a
+fresh namespace/session or an explicit migration contract. Hot reload is an
+additional research obligation, not a free consequence of incremental builds.
+
+* OPEN Model refinement and source obligations :qnt:lean:ascent:
+:PROPERTIES:
+:CUSTOM_ID: module-build-proof
+:STATUS: source-and-platform-refinement-open
+:END:
+
+The native SysML references to BP-S, BS-S and BU-S reach the existing ASCENT
+dependency graph; they do not fabricate checked model receipts. No ASCENT
+policy copy is introduced for this study.
+
+#+NAME: module-build-proof-frontier
+| Component | Existing formal subject | Required refinement for this source chain | Status |
+|-----------+-------------------------+-------------------------------------------+--------|
+| Planner | models/build/incremental_build.qnt; IncrementalBuild.lean cut completeness and projectionCutoff | Phase-aware dependency closure, mutable registry and macro/FFI effects; source-output observation fidelity | Open |
+| Scheduler | models/build/scheduler_contract.qnt; budgetStepPreserves and budgetTracePreserves | Replace one completion by consumer readiness; weighted nested CPU/memory grants; wait/delegation and cancellation drain | Open; existing unit-credit histories are narrower |
+| Publisher | models/build/publisher_contract.qnt; existing publication obligations | Actual SSI, phase code, optimizer info, nested products and runtime group commit; activation generation | Open |
+
+Required counterexamples for the next model refinement: release A on SSI while
+B's executable transformer helper is absent; reuse A after an optimizer-only
+change; share a mutable phase context across workers; keep all parent credits
+while children await capacity; refund a cancelled but live process; publish
+partial outputs; activate a new B while old A retains incompatible bindings.
+These are proposed witnesses, not executed tests or proven current defects.
+
+* RESEARCH Benefits count work and critical paths separately
+:PROPERTIES:
+:CUSTOM_ID: module-build-benefit
+:END:
+
+For module i, let E_i be mandatory frontend work and N_i native work. A barrier
+schedule includes avoidable waits only when a replacement has the same actual
+dependencies and effects. Define W as total mandatory work and S as the longest
+dependency path. Any P-CPU schedule has T >= max(W/P, S); this is a lower bound,
+not an attained runtime or a speedup estimate.
+
+Let R be eliminated repeated work and H additional validation, hashing,
+instantiation, IPC, scheduling and publication work. Total-work benefit requires
+R > H. Concurrent execution alone does not reduce W. Removing a false edge can
+reduce S while increasing W through process startup or duplicate imports; report
+both outcomes. A single expensive macro chain can remain the critical path.
+
+#+NAME: module-development-acceptance
+| Change | Target work boundary | Disqualifying shortcut |
+|--------+----------------------+------------------------|
+| No change | Zero admitted compile actions; charge validation and fresh session activation separately | Treat registry cache hit as proof of source freshness |
+| B runtime body only | Recompile B and actual runtime consumers; spare A only with unchanged consumed projections | Assume all non-macro edits leave optimizer consumers unchanged |
+| B macro or include | Re-expand actual phase consumers and recursively discovered effects | Reuse solely because exported symbol names are unchanged |
+| Independent A and C | Concurrent frontends only with isolated state; pipeline their native work | Remove import/driver locks without replacing ownership |
+| gxi activation | Fresh session or separately proved rebinding protocol | Claim transparent reload preserves old closures and continuations |
+
+The [[https://www.microsoft.com/en-us/research/publication/build-systems-a-la-carte/][Build Systems a la Carte paper]] motivates separating rebuild decisions from
+scheduling. [[https://dune.readthedocs.io/en/stable/explanation/tour/engine.html][Dune's engine design]] motivates separating language rule production
+from execution. These are architectural lessons, not evidence that either
+system already models Gerbil's phase identities. [[https://www.gnu.org/software/make/manual/html_node/Job-Slots.html][GNU jobserver documentation]]
+provides a native adapter protocol, including implicit-slot and exact return
+rules; a CPU slot protocol alone does not supply our memory or semantic model.
+
+No build, compiler invocation, native test or performance measurement was run.
+Native SysML validation establishes model structure only.

@@ -9,6 +9,18 @@ from gambit_smp import reproduction_check as reproduction
 
 
 class ReproductionCheckTests(unittest.TestCase):
+    def test_static_source_proof_is_explicit_and_never_checkout_admission(self):
+        result = reproduction.check_source(reproduction.ROOT,'evidence/runtime-source-026.lock.json')
+        self.assertEqual(result['proofKind'],'immutable-selected-source')
+        self.assertFalse(result['checkoutChecked'])
+        self.assertEqual(result['fullSourceArchives'],0)
+        self.assertIn('src/gambit_smp/source_identity.py',result['inputs'])
+        self.assertIn('src/gambit_smp/view_materialize.py',result['inputs'])
+        self.assertEqual(len(result['sourceBindings']),5)
+        self.assertEqual({x['revision'] for x in result['sourceBindings'].values()},
+                         {result['sourceRevision']})
+        self.assertFalse(result['runtimeAdmitted'])
+
     def test_026_source_check_keeps_five_original_file_identities(self):
         result = reproduction.check_source(reproduction.ROOT, "evidence/runtime-source-026.lock.json")
         lock = json.loads((reproduction.ROOT / "evidence/runtime-source-026.lock.json").read_text())
@@ -25,7 +37,7 @@ class ReproductionCheckTests(unittest.TestCase):
     def test_candidate_source_check_uses_its_own_committed_gate(self):
         with patch.object(reproduction, "verify_committed", side_effect=ValueError(
                 "research input is not committed: evidence/runtime-source-026.lock.json")) as gate, \
-             patch.object(reproduction, "materialize") as materializer:
+             patch.object(reproduction, "audit_slice") as materializer:
             with self.assertRaisesRegex(ValueError, "not committed"):
                 reproduction.check_source(reproduction.ROOT, "evidence/runtime-source-026.lock.json", True)
         self.assertIn("evidence/runtime-source-026.lock.json", gate.call_args.args[1])
@@ -191,3 +203,49 @@ class ReproductionCheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SelectedSourceProofTests(unittest.TestCase):
+    def setUp(self):
+        from gambit_smp.task_processes import check_output
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.root=Path(self.tmp.name);self.repo=self.root/'vendor/gambit';self.repo.mkdir(parents=True)
+        self.git=lambda *args:check_output(['git','-C',str(self.repo),*args],timeout=10).decode().strip()
+        self.git('init','-q');self.git('config','user.name','Fixture');self.git('config','user.email','fixture@example.invalid')
+        (self.repo/'lib').mkdir();(self.repo/'lib/a.c').write_text('old\n')
+        (self.repo/'lib/empty.h').write_bytes(b'');(self.repo/'lib/link.c').symlink_to('a.c')
+        self.git('add','.');self.git('commit','-qm','original');self.rev=self.git('rev-parse','HEAD')
+        self.patch=self.root/'slice.patch';self.patch.write_text('--- a/lib/a.c\n+++ b/lib/a.c\n@@ -1 +1 @@\n-old\n+new\n--- /dev/null\n+++ b/lib/new.h\n@@ -0,0 +1 @@\n+added\n')
+        self.lock=dict(schema='gambit-runtime-source-lock.v1',revision=self.rev,submodule='vendor/gambit',
+            repository='https://git.cons.io/mighty-gerbils/gambit.git',patch='slice.patch',
+            patchSha256=hashlib.sha256(self.patch.read_bytes()).hexdigest(),
+            files={'lib/a.c':dict(baseSha256=hashlib.sha256(b'old\n').hexdigest(),candidateSha256=hashlib.sha256(b'new\n').hexdigest()),
+                   'lib/new.h':dict(baseSha256=None,candidateSha256=hashlib.sha256(b'added\n').hexdigest())},
+            configuredToolchainReproduced=False,runtimeAdmitted=False,releaseAdmitted=False)
+        self.path=self.root/'lock.json';self.save()
+    def save(self):self.path.write_text(json.dumps(self.lock))
+    def test_selected_original_objects_leave_newer_dirty_checkout_unchanged(self):
+        from gambit_smp.source_materialize import audit_slice
+        (self.repo/'lib/a.c').write_text('next epoch\n');self.git('commit','-qam','new epoch')
+        head=self.git('rev-parse','HEAD');(self.repo/'lib/a.c').write_text('dirty current\n')
+        result=audit_slice(self.path,root=self.root)
+        self.assertEqual({k:v['candidateSha256']for k,v in self.lock['files'].items()},result['files'])
+        self.assertEqual('dirty current\n',(self.repo/'lib/a.c').read_text())
+        self.assertEqual(head,self.git('rev-parse','HEAD'))
+        self.assertFalse((self.repo/'lib/new.h').exists())
+        self.assertFalse(result['checkoutChecked']);self.assertEqual(result['fullSourceArchives'],0)
+        self.assertEqual(result['absentPaths'],['lib/new.h'])
+        self.assertEqual(result['sourceBindings']['vendor/gambit/lib/a.c']['revision'],self.rev)
+    def test_absent_source_is_not_an_empty_existing_file(self):
+        from gambit_smp.source_materialize import audit_slice
+        self.lock['files']['lib/empty.h']=dict(baseSha256=None,candidateSha256=hashlib.sha256(b'x').hexdigest());self.save()
+        with self.assertRaisesRegex(ValueError,'must be absent'):audit_slice(self.path,root=self.root)
+    def test_symlink_cannot_be_read_as_a_regular_locked_source(self):
+        from gambit_smp.source_materialize import source_binding
+        with self.assertRaisesRegex(ValueError,'regular file'):source_binding(self.root,self.lock,'lib/link.c')
+    def test_patch_and_candidate_drift_fail_closed(self):
+        from gambit_smp.source_materialize import audit_slice
+        self.lock['files']['lib/a.c']['candidateSha256']='0'*64;self.save()
+        with self.assertRaisesRegex(ValueError,'differs from candidate'):audit_slice(self.path,root=self.root)
+        self.patch.write_text('changed')
+        with self.assertRaisesRegex(ValueError,'overlay drift'):audit_slice(self.path,root=self.root)

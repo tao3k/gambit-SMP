@@ -1,0 +1,421 @@
+{
+  "census": [
+    {
+      "key": "requester-entry",
+      "anchor": "setup.c:1132-1151,1182-1198",
+      "condition": "Processor-1 allocating request raises VM sync interrupt and executes selected operation loop; locks needed by that loop are released before join",
+      "status": "source-entry-closed",
+      "qntAction": "requestSync",
+      "leanLemma": "readinessNotReturn"
+    },
+    {
+      "key": "peer-service",
+      "anchor": "setup.c:1117-1128,781-801",
+      "condition": "Other processors enter service_sync_op; nonzero processor keeps servicing even after Scheme run returns",
+      "status": "source-path-closed; fairness-open",
+      "qntAction": "join",
+      "leanLemma": "sleepingDoesNotParticipate"
+    },
+    {
+      "key": "old-roster",
+      "anchor": "setup.c:557-568,900-915",
+      "condition": "Tree captures current processor_count; resize nested GC happens before target membership commit; root-ready does not authorize excluding processor one",
+      "status": "source-order-closed",
+      "qntAction": "selectGc",
+      "leanLemma": "rootsAloneCannotExit"
+    },
+    {
+      "key": "flag-reset",
+      "anchor": "setup.c:1070-1089",
+      "condition": "First selected round resets sync-op flag synchronously; later NOOP is needed before loop exit",
+      "status": "source-order-closed",
+      "qntAction": "resetFlag",
+      "leanLemma": "loopReturnRequiresReset"
+    },
+    {
+      "key": "rc-payload",
+      "anchor": "mem.c:3969-3986,6845-6850",
+      "condition": "VM root adapter must scan processor-1 RC/provisional/error slots while owner executes selected GC; legacy processor-zero RC scan still needs replacement",
+      "status": "source-adapter-open",
+      "qntAction": "scanOwnerRoot",
+      "leanLemma": "readinessNotReturn"
+    },
+    {
+      "key": "loop-result",
+      "anchor": "setup.c:1101-1113",
+      "condition": "Winning or combined request receives result and clears local request; callback return alone does not permit owner resume",
+      "status": "source-order-closed",
+      "qntAction": "acknowledgeRequest",
+      "leanLemma": "gcReturnAloneInsufficient"
+    },
+    {
+      "key": "owner-restore",
+      "anchor": "setup.c:819,1099-1113; c_intf.c:6535-6544",
+      "condition": "After loop exit validate VM/PSTATE generation and reload moved roots; processor-zero deferred error may unwind instead of normal return",
+      "status": "source-binding-open",
+      "qntAction": "restoreOwner",
+      "leanLemma": "loopReturnRequiresReset"
+    },
+    {
+      "key": "guard-error",
+      "anchor": "setup.c:3383-3385; gambit.h.in:9981-9987",
+      "condition": "Stable guard preserves original error and catcher destination through marker cleanup; exception data is handed to rooted VM outcome storage",
+      "status": "source-catcher-open",
+      "qntAction": "catchThrow",
+      "leanLemma": "cleanupPreservesOriginal"
+    },
+    {
+      "key": "procedural-cleanup",
+      "anchor": "setup.c:396-417,4665-4672",
+      "condition": "cleanup_interrupts_pstate releases procedural interrupt queue; it does not itself demonstrate that all sync/GC facilities were disabled",
+      "status": "source-scope-closed; new-admission-open",
+      "qntAction": "disableInterrupts",
+      "leanLemma": "exitNeedsGuard"
+    },
+    {
+      "key": "foreign-and-rc",
+      "anchor": "mem.c:4432-4450,684-699,4933-4934",
+      "condition": "free_still_objs may call release_foreign before bulk RC cleanup; arbitrary foreign effects must close or transfer while old owner still serviceable",
+      "status": "source-producer-open",
+      "qntAction": "drainForeign",
+      "leanLemma": "unknownStorageBlocks"
+    },
+    {
+      "key": "topology-tail",
+      "anchor": "setup.c:517-524,649-699,962-978",
+      "condition": "Message publication unlocks before signal tail; common roster result and old sender lifetime are separate from worker receipt or join",
+      "status": "source-tail-refinement-open",
+      "qntAction": "finishTopologyTail",
+      "leanLemma": "tailReceiptRequiresEverySender"
+    },
+    {
+      "key": "global-cleanup",
+      "anchor": "setup.c:932-933,950,978,4843-4863",
+      "condition": "Live shrink, unactivated rollback, global shutdown and cleanup_mem_vmstate wrapper need distinct permissions; VM wrapper destroys scan facilities before processor-zero memory cleanup, requiring whole-VM preflight",
+      "status": "source-callers-closed; contracts-open",
+      "qntAction": "reuseSlot",
+      "leanLemma": "joinUnknownCannotReuse"
+    }
+  ],
+  "settle": [
+    {
+      "key": "ready-to-dispatch",
+      "anchor": "setup.c:1117-1151",
+      "condition": "Stopped mutator retains dispatcher service and old roster identity; OS sleep without service is rejected",
+      "status": "conditional-model-closed",
+      "qntAction": "join",
+      "leanLemma": "sleepingDoesNotParticipate"
+    },
+    {
+      "key": "gc-to-noop",
+      "anchor": "setup.c:1068-1113",
+      "condition": "Return of garbage_collect_pstate precedes request result/NOOP loop completion; owner root reload follows loop return",
+      "status": "conditional-model-closed",
+      "qntAction": "returnSync",
+      "leanLemma": "gcReturnAloneInsufficient"
+    },
+    {
+      "key": "catcher-and-marker",
+      "anchor": "gambit.h.in:9981-9987; c_intf.c:6555-6561",
+      "condition": "Restore old catcher and invalidate only initialized marker; completion guard records primary outcome before propagation",
+      "status": "source-exit-coverage-open",
+      "qntAction": "settleGuard",
+      "leanLemma": "cleanupPreservesOriginal"
+    },
+    {
+      "key": "outcome-and-root",
+      "anchor": "setup.c:3383-3385; mem.c:4933-4934",
+      "condition": "VM custodian accepts rooted error/result and remaining resources before guard frame withdrawal; pin/readers may delay storage free after rethrow",
+      "status": "conditional-model-closed",
+      "qntAction": "handoffOutcome",
+      "leanLemma": "rethrowNeedsOutcomeRoot"
+    },
+    {
+      "key": "storage-and-foreign",
+      "anchor": "mem.c:4432-4450,684-699",
+      "condition": "Acknowledge native storage ownership and foreign producer closure before topological removal; lost reply does not grant cleanup permission",
+      "status": "source-transfer-open",
+      "qntAction": "permitExit",
+      "leanLemma": "unknownStorageBlocks"
+    },
+    {
+      "key": "tree-and-admission",
+      "anchor": "setup.c:517-524,649-699",
+      "condition": "All participants observe effective roster; sender tails and retained convergence precede teardown; no local target-count veto after commit",
+      "status": "source-round-refinement-open",
+      "qntAction": "convergeRetained",
+      "leanLemma": "tailReceiptRequiresEverySender"
+    },
+    {
+      "key": "exit-and-generation",
+      "anchor": "setup.c:932-978",
+      "condition": "Owner may free only inert remainder; observed known join permits OS/PSTATE generation reuse, ignored/unknown join does not",
+      "status": "platform-open",
+      "qntAction": "reuseSlot",
+      "leanLemma": "joinUnknownCannotReuse"
+    }
+  ],
+  "caller": [
+    {
+      "key": "sync-request",
+      "anchor": "setup.c:1117-1151,1182-1198",
+      "condition": "on_all_processors raises sync interrupt and enters the same execute_sync_op_loop as servicing peers; stop root mutation without disabling processor-1 dispatcher participation"
+    },
+    {
+      "key": "loop-completion",
+      "anchor": "setup.c:1068-1113",
+      "condition": "Selected callback return, request result acknowledgement, first-iteration flag reset and later NOOP exit are distinct; processor-zero deferred error may throw after loop exit"
+    },
+    {
+      "key": "resize-nested-gc",
+      "anchor": "setup.c:887-978",
+      "condition": "Resize has higher priority than GC and may collect internally over old members; it must defer instead of waiting for its blocked guard, and must not consume a different pending GC request"
+    },
+    {
+      "key": "guard-catcher",
+      "anchor": "gambit.h.in:9981-9987,10001-10006; setup.c:3383-3389",
+      "condition": "Stable guard records primary error and old catcher, closes marker and transfers outcome-root custody before exact rethrow; terminal callback does not imply all storage retired"
+    },
+    {
+      "key": "cleanup-authority",
+      "anchor": "setup.c:396-417,932-933,950,978,4665-4672,4843-4863; mem.c:4432-4450,4928-4934",
+      "condition": "Global shutdown, shrink retirement and unactivated setup rollback need different permits; procedural queue cleanup, foreign still release and bulk RC free cannot be treated as a single safe leaf"
+    }
+  ],
+  "protocol": [
+    {
+      "key": "ready-but-participating",
+      "anchor": "setup.c:781-801,1117-1151",
+      "condition": "Ready frame and stopped mutator remain attached to old VM roster and service sync-op; Scheme return does not remove the processor"
+    },
+    {
+      "key": "loop-return",
+      "anchor": "setup.c:1068-1113",
+      "condition": "First reset, selected operation disposition and pending request result settle before final NOOP; resize-internal GC does not consume pending GC, and reload follows the latest epoch"
+    },
+    {
+      "key": "guard-outcome",
+      "anchor": "setup.c:3383-3389; gambit.h.in:9981-9987",
+      "condition": "Guard catches admitted unwind, preserves primary payload/destination, invalidates owned marker and hands rooted outcome to VM custodian; cleanup error cannot overwrite primary unwind"
+    },
+    {
+      "key": "exit-preflight",
+      "anchor": "setup.c:932-978,4843-4863; mem.c:4933-4934",
+      "condition": "Before roster commit or teardown admission closes, drain guard/readers/pins/foreign producers under old serviceable roster; only acknowledged storage move permits retirement"
+    },
+    {
+      "key": "topology-and-reuse",
+      "anchor": "setup.c:517-524,649-699,962-978",
+      "condition": "All participants use one effective topology result; publication acceptance is separate from sender tails/retained convergence; unknown OS join never permits PSTATE generation reuse"
+    }
+  ],
+  "route": [
+    {
+      "key": "registration",
+      "anchor": "setup.c:1117-1151",
+      "qntAction": "requestSync",
+      "leanLemma": "readinessNotReturn",
+      "condition": "VM root handoff must keep old roster serviceable rather than substitute an OS-blocked waiter for processor one"
+    },
+    {
+      "key": "custody",
+      "anchor": "setup.c:1068-1113",
+      "qntAction": "returnSync",
+      "leanLemma": "gcReturnAloneInsufficient",
+      "condition": "GC callback completion does not authorize caller restore before loop reset/result/NOOP closure"
+    },
+    {
+      "key": "coverage",
+      "anchor": "setup.c:3383-3389; gambit.h.in:9981-9987",
+      "qntAction": "handoffOutcome",
+      "leanLemma": "rethrowNeedsOutcomeRoot",
+      "condition": "Stable primary error/result cells must have a custodian independent of the unwound C frame"
+    },
+    {
+      "key": "publication",
+      "anchor": "setup.c:649-699,932-978",
+      "qntAction": "publishRoster",
+      "leanLemma": "nonzeroVoteRequired",
+      "condition": "Root readiness and local veto cannot change processor_count independently; collective effective topology precedes old sender-tail release"
+    },
+    {
+      "key": "retirement",
+      "anchor": "mem.c:684-699,4432-4450,4933-4934",
+      "qntAction": "cleanupInertRc",
+      "leanLemma": "unknownStorageBlocks",
+      "condition": "Old bulk cleanup may run only on an inert, unowned remainder after storage and foreign producer handoff; unresolved transfer retains custody"
+    }
+  ],
+  "gain": [
+    {
+      "key": "service-reuse",
+      "avoided": "A separate FFI GC waiter/coordinator that cannot execute its processor role",
+      "added": "Readiness token, stable owner binding and exact loop-return acknowledgement",
+      "condition": "Reuse current service_sync_op/selected operation and existing NOOP exit only after source refinement; no assumption that root-ready means arbitrary native blocking is legal"
+    },
+    {
+      "key": "guard-reuse",
+      "avoided": "Duplicate cleanup and replay after uncertain response; primary unwind corruption",
+      "added": "Generated C completion state, rooted result/error handoff and per-resource terminal receipts",
+      "condition": "Reuse runtime catcher mechanism with explicit guards; all supported nonlocal exits must reach the contract"
+    },
+    {
+      "key": "retirement",
+      "avoided": "Premature thread retirement, unknown-join slot reuse and bulk freeing retained RC/still storage",
+      "added": "Collective preflight, foreign-release accounting, storage transfer and sender-tail closure",
+      "condition": "Added O(P) acknowledgement/domain bookkeeping may reuse existing rounds only if qualified; no measured speedup or zero-cost topology change is claimed"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "participant",
+      "qntScope": "installGuard;publishReady;requestSync;join;selectGc;resetFlag;enterGc;scanOwnerRoot;returnGc;decideSelectedResize;reselectPendingGc;acknowledgeRequest;arriveNoop;chooseNoop;returnSync;recordDeferredError;catchLoopFailure;restoreOwner",
+      "leanScope": "readinessNotReturn;sleepingDoesNotParticipate;gcReturnAloneInsufficient;internalGcCannotConsumeRequest;loopReturnRequiresReset",
+      "sourceDuty": "Map real tree selection, first_iter, priority resize deferral, pending GC reselection and owner generation; both GCs use old roster; arbitrary request composition and fairness remain open"
+    },
+    {
+      "key": "guard",
+      "qntScope": "allocateMarker;normalReturn;catchThrow;restoreCatcher;closeMarker;recordSecondary;failNormalCleanup;settleGuard;handoffOutcome;withdrawRoot;propagate",
+      "leanScope": "cleanupPreservesOriginal;rethrowNeedsOutcomeRoot;collectiveUnwindMustWait;pinBlocksWithdrawal",
+      "sourceDuty": "Every allowed runtime rethrow requires rooted outcome custody and original catcher restoration; managed error identity and setjmp-safe frame storage remain source obligations"
+    },
+    {
+      "key": "exit",
+      "qntScope": "acquirePin;acquireReader;markUnknown;settleUnknown;releasePin;releaseReader;requestShrink;deferShrink;drainForeign;commitStorageMove;acknowledgeStorage;loseStorageReply;permitExit",
+      "leanScope": "rootsAloneCannotExit;unknownStorageBlocks;exitNeedsGuard",
+      "sourceDuty": "Prepare common effective topology before processor_count changes; foreign producer closure is a receipt assumption, not modeled arbitrary destructor execution"
+    },
+    {
+      "key": "reclaim",
+      "qntScope": "vote;publishRoster;finishTopologyTail;convergeRetained;disableInterrupts;cleanupInertRc;invokeExit;joinSucceeded;joinUnresolved;reuseSlot",
+      "leanScope": "nonzeroVoteRequired;tailReceiptRequiresEverySender;joinUnknownCannotReuse;vmCannotCloseWhileOutcomeRoot;netBenefit",
+      "sourceDuty": "Topology sender-tail/retained convergence, source cleanup paths and OS stop receipt refine separately; current procedural queue cleanup is not destruction of all sync facilities"
+    }
+  ],
+  "prior": [
+    {
+      "key": "strong-receipt",
+      "path": "models/build/ffi_scan_ready_handoff.qnt",
+      "invariant": "safe",
+      "qntAction": "publishReady",
+      "leanLemma": "readinessNotReturn",
+      "condition": "Previous parked root handoff now needs actual sync-op participant and completion-guard integration; product simulation remains open"
+    },
+    {
+      "key": "membership",
+      "path": "models/gambit/gc_sync_membership.qnt",
+      "invariant": "safe",
+      "qntAction": "enterGc",
+      "leanLemma": "loopReturnRequiresReset",
+      "condition": "Existing model separates old GC population, final acknowledgement and resize; this study adds source loop and native guard obligations"
+    },
+    {
+      "key": "cleanup-join",
+      "path": "models/gambit/cleanup_resize_error_contract.qnt",
+      "invariant": "safe",
+      "qntAction": "reuseSlot",
+      "leanLemma": "joinUnknownCannotReuse",
+      "condition": "Reduced processor_count is not OS exit evidence; new generation reuse requires known join, independent of storage already freed by its owner"
+    },
+    {
+      "key": "round-tail",
+      "path": "models/gambit/sync_retirement_round_closure.qnt",
+      "invariant": "safe",
+      "qntAction": "convergeRetained",
+      "leanLemma": "tailReceiptRequiresEverySender",
+      "condition": "Old-tree sender tails and retained-tree convergence are not implied by worker exit alone; finite all-sender receipt here is stronger than a proved minimal source cut"
+    }
+  ],
+  "gate": [
+    {
+      "key": "producer-closure",
+      "qualified": false,
+      "condition": "Native root/error/result frames, foreign destructor producers and late FFI admission require complete source schemas and closure"
+    },
+    {
+      "key": "vm-ownership",
+      "qualified": false,
+      "condition": "PSTATE storage and still/RC capacity move need acknowledged VM ownership; VM itself must retain heap and scan facilities until outcomes/foreign roots drain; unknown teardown may quarantine the whole VM"
+    },
+    {
+      "key": "gc-seal",
+      "qualified": false,
+      "condition": "Root stop must retain a serviceable real sync-op participant; current selection/reset/NOOP/tree and direct resize GC need full source refinement"
+    },
+    {
+      "key": "scan-coverage",
+      "qualified": false,
+      "condition": "Provisional frames, nonzero RC and rooted error channels are proposed adapters; generated root maps and actual relocation remain unqualified"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "Collective preflight, complete foreign release closure and sender-tail/retained convergence must precede resource retirement and slot reuse"
+    },
+    {
+      "key": "source-replacement",
+      "qualified": false,
+      "condition": "Stable C guards, common effective topology, distinct cleanup permits and cleanup_rc interception remain unimplemented"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "ISO C synchronization, setjmp/catcher ABI, OS exit/join receipts and inherited host registration remain unqualified"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "participantCount": 2,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "SGC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/syncop_guard_custody.qnt",
+      "subjectScope": "syncop_guard_custody:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "SGC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/SyncOpGuardCustody.lean",
+      "subjectScope": "SyncOpGuardCustody:readinessNotReturn;sleepingDoesNotParticipate;gcReturnAloneInsufficient;internalGcCannotConsumeRequest;loopReturnRequiresReset;cleanupPreservesOriginal;rethrowNeedsOutcomeRoot;collectiveUnwindMustWait;rootsAloneCannotExit;unknownStorageBlocks;exitNeedsGuard;pinBlocksWithdrawal;vmCannotCloseWhileOutcomeRoot;nonzeroVoteRequired;tailReceiptRequiresEverySender;joinUnknownCannotReuse;vmCannotCloseWhileOutcomeRoot;netBenefit",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "SGC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/syncop-guard-custody-design.org",
+      "subjectScope": "SGC-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "SGC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/syncop-guard-custody-design.org",
+      "subjectScope": "SGC-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "SGC-S",
+      "prerequisite.obligationId": "SGC-H"
+    },
+    "1": {
+      "dependent.obligationId": "SGC-S",
+      "prerequisite.obligationId": "SGC-I"
+    },
+    "2": {
+      "dependent.obligationId": "SGC-S",
+      "prerequisite.obligationId": "SGC-E"
+    },
+    "3": {
+      "dependent.obligationId": "SGC-S",
+      "prerequisite.obligationId": "FSH-S"
+    }
+  }
+}

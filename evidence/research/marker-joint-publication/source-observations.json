@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "marker-input-origin",
+    "sourceAnchors": "lib/c_intf.c:6509-6545;lib/os_dyn.c:744-790,1045-1058",
+    "finding": "make_sfun_stack_marker allocates vector before explicit proc or global closure data copy; TODO names proc relocation hazard",
+    "hazard": "A raw native local or reread global closure identity is not a frozen input root",
+    "proposedReplacement": "Pre-backed entry root and actual closure/code borrow before every allocating operation; rejected enrollment retains upstream custody",
+    "nativeWitness": false
+  },
+  {
+    "caller": "generic-still-filler",
+    "sourceAnchors": "lib/mem.c:1487-1500,1677-1709,1778-1821",
+    "finding": "alloc_scmobj_still links then sets initial count1; make_vector fills body afterwards",
+    "hazard": "Caller-fill contract relies on current cooperative safe points; zero-count/independent worker cannot observe intermediate state",
+    "proposedReplacement": "Dedicated typed private preparation and lease-covered body/list/root/commit; generic controlled-subtype allocation refused",
+    "nativeWitness": false
+  },
+  {
+    "caller": "private-native-allocation",
+    "sourceAnchors": "lib/mem.c:540-600,1560-1606;lib/os_base.c:445-475",
+    "finding": "Aligned wrapper allocates native storage with backpointer; fast still path allocates then adds deferred words",
+    "hazard": "Native allocation is not root/list publication; storing movable proc too early can leave stale private payload",
+    "proposedReplacement": "Raw no-managed-edge shell plus persistent input root; native call outside publication permit",
+    "nativeWitness": false
+  },
+  {
+    "caller": "capacity-lock-and-gc",
+    "sourceAnchors": "lib/mem.c:376-384,1608-1650;lib/setup.c:1182-1200",
+    "finding": "ALLOC_MEM_LOCK protects occupied/deferred accounting; released before ___garbage_collect/on_all_processors",
+    "hazard": "Allocation lock is not a still-list/root lock; holding future permit through GC self-blocks freeze",
+    "proposedReplacement": "Reserve before lease; separate capacity lock from epoch/domain authority; drop all publication permits before capacity-triggered GC",
+    "nativeWitness": false
+  },
+  {
+    "caller": "failure-refund",
+    "sourceAnchors": "lib/mem.c:1658-1674;lib/os_base.c:335-407,476-507",
+    "finding": "After slow allocation failure old code subtracts words; free wrapper hides free/munmap result",
+    "hazard": "Null, unknown allocation and unknown release are different; free_mem_code ignores munmap result",
+    "proposedReplacement": "Canonical reserved/live/returned/quarantine dispositions; no refund or second free from unknown reply",
+    "nativeWitness": false
+  },
+  {
+    "caller": "processor-physical-domain",
+    "sourceAnchors": "lib/mem.c:276-306,4644-4651",
+    "finding": "still_objs, scan queue, deferred words and RC head are PSTATE fields, independently initialized",
+    "hazard": "P0-only shared registry does not include processor-one lists/roots; processor id reuse invalidates raw ownership",
+    "proposedReplacement": "Stable physical-domain identity and grant generation, enumerate every domain; resize pins mapping while permits exist",
+    "nativeWitness": false
+  },
+  {
+    "caller": "rc-root-entry",
+    "sourceAnchors": "lib/mem.c:702-825,3969-3987,6844-6851",
+    "finding": "register_rc links per-PSTATE RC header; mark_rc walks its data, invoked only in processor0 strong branch",
+    "hazard": "Adding another RC cell on processor1 is not a proven root adapter",
+    "proposedReplacement": "VM root domain includes construction/procedure slots directly; require qualified RC closure data transfer",
+    "nativeWitness": false
+  },
+  {
+    "caller": "cooperative-gc-callers",
+    "sourceAnchors": "lib/setup.c:479-488,542-708,1012-1150,1182-1200",
+    "finding": "GC sync op combines requested words, raises VM sync interrupt and rendezvous executes GC per processor",
+    "hazard": "Current SMP uses cooperative participation, not arbitrary concurrent still mutations; combined request is not physical credit ownership",
+    "proposedReplacement": "Keep original sync behavior for legacy; managed frozen-root/native participation and independent worker contract require source refactoring",
+    "nativeWitness": false
+  },
+  {
+    "caller": "setup-and-deferred-fold",
+    "sourceAnchors": "lib/mem.c:4210-4251,6775-6810,7003-7031",
+    "finding": "Setup resets zero-count marks and folds deferred words; barrier precedes strong mark",
+    "hazard": "Freeze between root/list fragments or setup after cross-domain CAS loses root/work/accounting",
+    "proposedReplacement": "Close admission, drain leases, snapshot paired membership and counters, all-domain setup completion before any mark",
+    "nativeWitness": false
+  },
+  {
+    "caller": "zero-count-mark-task",
+    "sourceAnchors": "lib/mem.c:3625-3651,4020-4180,6844-6865",
+    "finding": "mark_array still CAS links object to scanner work; body scanner needs managed subtype case",
+    "hazard": "Raw count0 does not itself root object; failed/unknown task claim cannot drop scan obligation",
+    "proposedReplacement": "Frozen canonical root feeds existing CAS with explicit scanner task responsibility and updateable cells",
+    "nativeWitness": false
+  },
+  {
+    "caller": "sweep-and-recount",
+    "sourceAnchors": "lib/mem.c:4387-4427,6256-6296,6302-6375,6414-6475",
+    "finding": "Sweep rebuilds list and words_still; determine_occupied_words sums all PSTATE live words; resize temporarily assumes requested words live",
+    "hazard": "Pending raw native storage is absent from swept list; repeated requested budget can charge twice or be erased by recount",
+    "proposedReplacement": "Separate pending native credit ledger from published live words; generation-stable reconciliation at sweep/resize",
+    "nativeWitness": false
+  },
+  {
+    "caller": "native-entry-producers",
+    "sourceAnchors": "include/gambit.h.in:10043-10059,13224-13230;gsc/_ptree2.scm:2902-3030,3145-3187",
+    "finding": "Generated static/dynamic SFUN and GSTATE create/kill function pointers consume marker contract",
+    "hazard": "Old object ABI and caller-fill/count1 assumptions cannot consume new result slot blindly",
+    "proposedReplacement": "Scheme emits typed entry/root/activation descriptors; C service returns root-backed canonical result with module capability admission",
+    "nativeWitness": false
+  },
+  {
+    "caller": "run-return-consumers",
+    "sourceAnchors": "lib/setup.c:3276-3420;lib/_kernel.scm:149-178,1020-1072;lib/_kernel.c:10845,11745-11759",
+    "finding": "___run creates/calls/kills marker; ___call matches rooted marker; source and generated kernel read vector fields",
+    "hazard": "Response receipt is not live native return authority; forgotten generated C consumers bypass checks",
+    "proposedReplacement": "Preserve original activation/thread/guard, no result exposure before committed custody; regenerate or reject old consumers",
+    "nativeWitness": false
+  },
+  {
+    "caller": "processor-exit-and-cleanup",
+    "sourceAnchors": "lib/setup.c:763-801;lib/mem.c:4432-4451,4928-4964",
+    "finding": "Child ___run exit sends error to P0 then services sync ops; teardown frees still/RC and VM cleanup names P0 with other-processors TODO",
+    "hazard": "Logical processor exit is not native writer stop; extra root/permit does not survive unconditional teardown",
+    "proposedReplacement": "Drain or transfer all per-domain operations/root/native credits before domain and lock destruction; unknown stop refuses removal",
+    "nativeWitness": false
+  },
+  {
+    "caller": "actual-callbacks",
+    "sourceAnchors": "examples/tcltk/tcltk.scm:124-194,221-228,269-276;tests/server.scm:15-35;tests/mem.scm:274-303",
+    "finding": "Tcl command, server error callback and function-valued callback instantiate real native entries",
+    "hazard": "Nested callback/error/delete can leave construction result or native resource in flight",
+    "proposedReplacement": "Reuse canonical entry/activation/root service with explicit exception custody; no hidden Tcl semantics rewrite",
+    "nativeWitness": false
+  },
+  {
+    "caller": "allocator-backend-scope",
+    "sourceAnchors": "lib/os_base.c:335-407,445-507;include/gambit.h.in:15017-15024",
+    "finding": "SUPPORT_LOWLEVEL_EXEC routes heap alloc/free to code allocator; mmap path adds two size words, release discards munmap status",
+    "hazard": "103/67 aligned-wrapper bytes are not universally OS allocation/RSS or proven successful release",
+    "proposedReplacement": "Profile records malloc versus mmap backend and known/unknown disposition; page/usable/RSS costs remain unresolved",
+    "nativeWitness": false
+  }
+]

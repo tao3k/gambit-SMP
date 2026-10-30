@@ -1,0 +1,18 @@
+(require 'org)
+(require 'org-element)
+(setq enable-local-variables nil)
+(let ((files '("dev/refactoring/modern-c/darwin-force-binding-design.org" "dev/refactoring/modern-c/darwin-force-binding-matrix.org" "dev/refactoring/modern-c/index.org")) (links 0) (missing nil))
+ (dolist (file files)
+  (with-temp-buffer
+   (setq buffer-file-name (expand-file-name file))
+   (setq default-directory (file-name-directory buffer-file-name))
+   (insert-file-contents buffer-file-name)
+   (org-mode)
+   (org-element-map (org-element-parse-buffer) 'link
+    (lambda (link)
+     (when (equal (org-element-property :type link) "file")
+      (setq links (1+ links))
+      (let ((target (expand-file-name (org-element-property :path link))))
+       (unless (file-exists-p target) (push (list file target) missing))))))))
+ (princ (format "Org parsed: %d files; %d links; missing=%S; no Babel executed" (length files) links missing))
+ (when missing (kill-emacs 1)))

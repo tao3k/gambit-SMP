@@ -1,0 +1,298 @@
+#+TITLE: Foreign Cleanup Closure and VM Storage Custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:nil
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-closure
+:STATUS: conditional-models-source-open
+:CANONICAL_MODEL: models/sysml/foreign-cleanup-closure.sysml
+:END:
+
+Modern C is the required runtime direction. This study replaces the leaf-destructor
+assumption with explicit resource, root, execution and storage custody. It extends
+[[file:syncop-guard-custody-design.org][sync-op participant and completion-guard research]]. No runtime code,
+native execution, performance measurement or new language admission is included.
+SysML owns the component contracts, source anchors, model bindings, gates and benefit
+rows. Python queries the native SysML tool and derives the matrix and D2; ASCENT
+checks digest/scope-sensitive routing and actual action/lemma associations.
+
+** Evidence classes
+The source establishes ordering and real call edges. The finite QNT model checks
+adversarial interleavings within its stated domain. Ten SysML contract dependency edges are also checked
+by ASCENT against both endpoint model bindings. Lean proves abstract ledger
+transition preservation and boundary lemmas. None proves that an arbitrary native
+hook terminates, obeys its profile or can run on another OS thread. The source
+simulation, C memory-order refinement and inherited host registration remain open.
+
+* RESEARCH Actual effect and caller census
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-source
+:END:
+
+| Origin / consumer | Source anchor | Actual effect | Architectural consequence |
+|-
+| Generic foreign release | c_intf.c:1683–1710 | Clears hook and pointer before calling hook; propagates error | Logical release is distinct from successful native closure; fields are not an atomic concurrent claim |
+| Unreachable still sweep | mem.c:4387–4427 | Invokes foreign release, ignores status, frees wrapper, recomputes still words | Deferred ownership must be captured before invalidation/free; freeing wrapper is no terminal resource receipt |
+| PSTATE still teardown | mem.c:4432–4450 | Clears chain head before walking hooks and freeing each wrapper | A hook or descendant must not depend on a disappearing source chain |
+| RC bulk teardown | mem.c:684–699 | Unlinks sentinel and frees all native RC blocks without consulting refcount | Retaining ordinary RC references cannot authorize old cleanup; transfer or quarantine required |
+| Pointer conversion | c_intf.c:5156–5191 | Installs caller-supplied hook in new foreign wrapper | Function signature does not establish effect, root or affinity schema |
+| Failed aggregate conversion | c_intf.c:5284–5312,5346,5381 | Calls release_fn directly on conversion failure | Synchronous rollback is a separate origin; never silently turn it into deferred GC work |
+| Device hook installation | os_io.c:10154–10175 and generated syntactic census | Installs device_cleanup_from_ptr; failed wrapping directly cleans native device | Both allocation failure and GC origins need classified ownership |
+| Device cleanup | os_io.c:1625–1666 | Detaches group, closes RD then WR; EAGAIN waits with infinite deadline; finally decrements native refcount | Partial close needs cursor and group-detached state, not retry from entry |
+| Final device release | os_io.c:1603–1622 | Calls release_virt then frees self even if returned status is error | Error may mean pointer already consumed; replay can be invalid |
+| Current processor I/O | os_io.c:930–1021, notably 973–978 | Borrows PSTATE FDSET storage in select path | Storage migration alone does not transfer execution context or OS-thread authority |
+| Device group teardown | os_io.c:183–192,224–250 | Shared module group; cleanup stops on error then frees group | Group/service lifetime must remain until callbacks can no longer consult it |
+
+The structured source census records every textual device hook installation in the
+inspected os_io.c plus direct release and cleanup seams. It is not an all-extension
+alias/effect closure certificate. Tcl's RC-backed callback and deletion pair
+(examples/tcltk/tcltk.scm:193–194,316–326) illustrates retained Scheme payloads, but
+this study does not relabel Tcl delete callbacks as installed foreign release hooks.
+
+** Real execution owner and service scope
+GC cleanup calls free_unmarked_still_objs with the current PSTATE
+(mem.c:6910–6930), not a recorded foreign creator thread. Processor cleanup first
+runs cleanup_interrupts_pstate, then memory cleanup, then OS PSTATE cleanup
+(setup.c:4665–4672,4572–4579). VM cleanup similarly runs memory before OS VM
+cleanup (4599–4605). These are separate origins from io_module_cleanup, which
+first tears down child interrupt handling and then the module-global device group
+(os_io.c:11895–11905). The current source ordering does not itself provide a
+creator-thread affinity certificate or a universal reentrant-hook guarantee.
+Capture affinity at qualified construction, or refuse migration when it is unknown.
+
+The device group is module-global, not owned by one VM. A VM may release its
+service lease only after its work drains; destroying shared I/O services additionally
+requires all dependent VM/native users to release their leases. This model's
+facilities flag abstracts one VM's usable facilities and borrowed services; it
+does not grant one VM authority to destroy process-global I/O state.
+
+** Platform-qualified effects and negative evidence
+POSIX raw close sets stages CLOSED before close_no_EINTR (os_io.c:9920–9961).
+Stage flags therefore do not independently prove a successful kernel close. The
+USE_OPENSSL TCP branch can return EAGAIN from SSL shutdown before freeing TLS
+state (4831–4900). USE_PUMPS branches post kill notifications, poll thread completion
+and clean native pipes/handles (1886–1933,2011–2037,2072–2102); pump threads release
+their device references on exit (2299,2410). These branches are conditional: no
+claim is made that the inspected Darwin configuration enables OpenSSL or Windows
+pumps. POSIX process status polling is driven by SIGCHLD (3564–3593); it is not
+proof that every process destructor blocks. The inspected built-in device path
+does not establish a direct Scheme callback. Arbitrary user hooks that reenter
+Scheme, allocate or unwind require separate admission, not an invented native bug.
+
+* RESEARCH Release profile and state protocol
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-protocol
+:END:
+
+** Release right and capture
+A ReleaseRight identifies a wrapper generation and invocation origin, not just a
+pointer/function pair: distinct wrappers may legitimately release separate native
+references to one address. A capture record contains operation identity, parent,
+release right, effect profile, root schema, native-validity tag, result/error cell,
+owner generation, required VM services, cursor and accounting handles.
+
+Reserve non-GC native record/root capacity before invalidating the wrapper. Failed
+reservation leaves original custody intact and prevents wrapper reclamation; it
+must not take the old unconditional free path. Accepted capture transfers custody
+once. A lost acceptance reply freezes the sender until an identity-bound journal
+query settles ownership; it never authorizes invocation replay. Concurrent explicit
+release versus sweep needs the same claim gate. The existing field stores alone
+provide no such concurrent proof. Successful logical release still makes the
+wrapper observe released state, as documented in gambit.txi:19006–19045.
+
+Verified nonallocating leaf profiles may remain inline. Managed device profiles
+need resumable adapters. Thread-affine hooks stay with their qualified owner;
+unknown hooks cannot be automatically moved to an independent collector worker.
+Explicit foreign-release! and failed conversion retain their synchronous result
+boundary unless a separately justified API change is adopted.
+
+** Derived work and closure
+External ingress closure stops new independent producers, not already accepted
+parents from deriving required cleanup. Before a child becomes visible or escapes
+as an external effect, reserve its credit and custody record. Publication changes
+reserved to queued; an abort refunds only an unescaped reservation. Lost delivery
+retains credit and an unknown result, and requires a query rather than a replay.
+A parent may settle while an accepted child remains: parent completion is not
+global closure. A held reservation itself blocks closure. In a real coordinator
+parent emission is sealed by its completion guard, including all exception tails.
+
+Debt = accepted reservations and work minus settled/refunded work. Waiting,
+known-partial and unknown states remain debt. The refactored task graph models
+obligations behind existing sequential calls and conditional notifications; it
+does not claim that current Gambit already enqueues these derived tasks.
+
+** Device cursor and old roster
+Use phases Captured → Detached → ClosingRead → ClosingWrite → ReleasingNative →
+OutcomeRetained. WaitContext preserves direction, readiness registration, cursor,
+group-detached state, native validity, FDSET/buffer leases, rooted payloads and
+owner generation. Resume the supported phase rather than re-entering device_cleanup
+on a detached object. Native-self-consumed error and partial-native-alive error
+have different tagged outcomes. Neither establishes that all external resources
+are closed; unresolved residue remains a separate obligation.
+
+Do not run potentially infinite select waits inside collective GC. Managed work
+runs after collective return with an attached, serviceable owner. A native wait
+must be able to wake, hand roots to GC, service its sync-op and resume using the
+latest epoch. Existing select_abort is not by itself proof of that protocol.
+Storage may move to VM custody while thread-affine work still prevents processor
+retirement. An independent child may outlive its parent's processor only after
+its execution profile, roots and services are qualified. Prior sync-op topology
+and unknown-join constraints remain required; the new QNT abstracts them as a
+prior receipt and does not re-prove the tree protocol.
+
+* RESEARCH RC/still atomic storage handoff
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-storage
+:END:
+
+Prepare an inactive target arena/root adapter and reserve journal capacity. Close
+source admission, freeze payload writers and drain borrowed/scanner leases. Reach
+a safe epoch outside an active collective. A single publication gate commits
+canonical RC/still chain ownership, target root registration and capacity ownership.
+No GC allocation or arbitrary callback is allowed within this commit gate. A
+collector sees the complete pre-state or post-state, never a missing or duplicate
+canonical domain. A target adapter must rewrite moving Scheme fields, not merely
+keep native memory allocated. Nonzero processor RC coverage remains a prerequisite.
+
+| Transfer outcome | Canonical custodian | Sender obligation |
+|-
+| Prepare allocation failure / target refusal | Source processor, with scan facilities alive | Retain roots, native state and old roster; no cleanup_rc |
+| Known pre-commit abort | Source | Withdraw inactive reservation only; reopen ingress only through explicit generation policy |
+| Commit acknowledged | Target VM domain | Retire source aliases after readers drain; execution affinity may still block exit |
+| Commit performed, reply lost | Target, even before acknowledgement | Sender frozen; query operation identity; do not free, resubmit or count both domains |
+| Commit point cannot be established | Authority journal plus both retained backing stores | No new ownership inference, no slot reuse or VM teardown; quarantine dependent VM if needed |
+| Callback partially failed / externally unknown | Existing accepted task and backing roots | Preserve exact cursor/native-validity and bounded retention; no automatic raw-pointer retry |
+
+RC native bytes, still physical words and deferred allocation quota are different
+ledgers. Preserve physical still ownership once and transfer deferred quota with
+its authority. Folding deferred quota updates booked += deferred, deferred = 0;
+it does not allocate another physical object. Historical occupancy statistics need
+rebaselining at the canonical census and are not resource ownership receipts.
+The bounded model coalesces retained outcomes into one presence bit and assumes
+the declared root adapter covers its complete modeled payload; it does not prove
+per-object root-map completeness. Source exit also waits for unresolved native
+residue, even when a release call has consumed its self pointer.
+The QNT constants four quota units/eight RC units are finite structural tokens,
+not measured byte counts or cost estimates; Lean conservation ranges over naturals.
+
+** C synchronization refinement
+Use one authority/scan gate (mutex or a separately proved epoch scheme) for transfer
+commit, scan enrollment and census enrollment. Initialize immutable records before
+release publication; acquire before consumers read them. Scan enrollment must
+hold the gate or pin an epoch until relocation writes and leases finish. A release
+store to a new owner pointer alone cannot prevent a collector that already chose
+the old roster from missing the domain. Queue reserve/publish/cancel uses one
+linearized credit ledger; notification is only a wakeup, never ownership evidence.
+Do not hold this gate while waiting for native close, servicing GC or invoking hooks.
+These are design obligations; no C11 data-race freedom or weak-memory simulation
+has been proved by the sequentially atomic QNT model.
+
+* RESEARCH Whole VM teardown permit
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-vm
+:END:
+
+Before destroying any GC/scan/I/O facility require: external producer closure;
+all accepted parent emission guards sealed; reservation/queued/running/waiting/
+partial/unknown work zero; all native resources or accepted external residue
+known terminal; result/error roots consumed; borrowers and scanner epochs drained;
+thread-affine work complete; storage handoffs acknowledged; old-roster/sender-tail
+and actual OS join receipts settled. Then residual RC/still storage is inert and
+root domains may be withdrawn. Only then may locks, groups and heap be destroyed.
+
+Current cleanup_mem_vmstate destroys scan synchronization before PSTATE memory
+cleanup (mem.c:4938–4966). Replacing that ordering requires an earlier preflight
+and staged destruction, not merely guarding cleanup_rc at the end. A retained
+root into the heap can require quarantining the entire VM and dependent I/O
+service. Configure bounded retained bytes/tasks and admission backpressure; there
+is no safe fabricated success if a foreign hook never terminates. No general
+liveness guarantee is claimed for arbitrary hooks or permanently lost OS outcomes.
+
+* RESEARCH Conditional proofs, counterexamples and limits
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-proofs
+:END:
+
+[[file:../../../models/build/foreign_cleanup_closure.qnt][QNT]] models three release rights and two owner identities. It checks credit
+conservation, per-right callback count, scanner ownership, quota conservation,
+wait custody and teardown guards. The old-roster receipt is an explicit prior-model premise, not derived from local
+task completion. Unknown delivery in this QNT is queue-publication uncertainty
+before native execution; arbitrary in-flight native mutation is outside its domain.
+
+Positive histories include parent finishing
+before child, unknown publication resolution, target scanning before reply, wait
+across GC and partial cursor restoration. Negative controls deliberately corrupt
+credit, scanner, callback count, waiting context, source exit or teardown. They
+are countermodels to weakened contracts, not demonstrated native executions.
+
+[[file:../../../models/build/ForeignCleanupClosure.lean][Lean]] proves all steps of the abstract credit transition relation preserve
+accepted = settled + debt, with a positive-debt premise on settlement. It proves
+canonical commit and quota-fold identities plus exit/teardown boundary lemmas.
+It does not prove a forward simulation of the whole QNT model, Gambit C, arbitrary
+release hooks, memory ordering or progress. QNT does not model actual kernel close,
+Tcl callbacks, an unbounded task graph or the prior sync-op selection tree.
+
+Prior model mappings (frozen, not rerun): release_producer_admission.safe covers
+per-right capture/rollback separation; still_authority_handoff.safe covers
+canonical storage custody; syncop_guard_custody.safe supplies old-roster/guard
+obligations; gc_work_closure.terminationSafe supplies an analogy for producer
+closure. Their product simulation remains an explicit proof obligation. ASCENT
+checks subject hashes/scopes and action/lemma links; it cannot manufacture this
+simulation. Source and platform receipts are absent, so real admission stays open.
+
+* RESEARCH Scientific basis and benefit boundary
+:PROPERTIES:
+:CUSTOM_ID: foreign-cleanup-benefit
+:END:
+
+[[https://www.hboehm.info/popl03/web/][Boehm, Destructors, Finalizers, and Synchronization (POPL 2003 talk)]] motivates
+examining finalization as synchronization and lifetime design. It does not prove
+that a separate arbitrary worker is safe for Gambit's PSTATE-dependent hooks.
+[[https://www.hboehm.info/gc/finalization.html][Boehm collector finalization guidance]] warns against prompt resource cleanup
+being delegated solely to GC. Thus explicit close and deterministic error delivery
+remain primary paths here; GC cleanup is a fallback with explicit responsibility.
+[[https://ocaml.org/manual/5.4/intfc.html][OCaml C interface, custom blocks and multithreading]] distinguishes root/runtime
+access from blocking sections. We learn the need for an explicit participation
+contract; copying its lock API would not prove Gambit's old-roster participation.
+No upstream speed figure is transferred to this architecture.
+
+Let B be admitted non-leaf releases, T retained tasks, E child edges, P owners,
+S avoided duplicate/rebuilt work, and A capture+dispatch+synchronization+retention
+cost. Positive work benefit requires S>A; critical-path benefit requires removed
+collective waiting > added capture and coordination on that path. Space overhead
+is O(T+E+P) records plus reachable retained Scheme/native storage, potentially
+unbounded without admission/backpressure. No numerical speedup follows from source
+inspection. The objective is a different lifetime/execution architecture, not a
+claim that bookkeeping alone speeds every workload.
+
+[[file:foreign-cleanup-closure-matrix.org][Canonical benefit and closure matrix]] includes modern C versus Zig. Both require the
+same semantic protocol. Zig could supply local allocation/cleanup syntax; it
+cannot eliminate root maps, affinity, callback outcomes or closure proofs. Modern
+C supports the required tagged records, atomics and generated adapters without
+adding a mandatory runtime language. No positive incremental Zig benefit has been
+established for this component.
+
+** Migration and retirement cuts
+1. Classify installed hooks and direct rollback/explicit origins; generate profiles
+   and root schemas. Unknown profiles retain old semantics and prohibit unsafe exit.
+2. Add shared authority journal, VM scan/census domain and nonzero root coverage.
+   Retire processor-only ownership only when every live domain has one adapter.
+3. Replace non-leaf sweep invocation with capture-before-free; preserve explicit
+   synchronous calls. Retire unconditional wrapper freeing only for admitted adapters.
+4. Replace device_cleanup's monolithic retry loop with cursor/WaitContext adapter;
+   preserve shared group and affinity serialization. Retire old loop per profile,
+   not by globally redirecting arbitrary function pointers.
+5. Replace bulk RC/still teardown with inert-remainder cleanup after acknowledged
+   transfer. Replace early VM facility destruction with whole-VM preflight and
+   ordered drain. Old paths retire only after source/platform refinement and
+   separately authorized native acceptance, not on finite model success alone.
+
+* RESEARCH Reproducibility
+[[file:../../modeling/tools/foreign-cleanup-closure-study.py][Python driver]] invokes native SysML, local ASCENT, Quint, Lean, D2 and Org parsing.
+[[file:../../../evidence/research/foreign-cleanup-closure/checks.json][Structured local checks]] distinguish model success from admission. A strengthened GC exclusion check initially rejected an unknown queue-delivery
+state as if it were native execution. The retained counterexample separates those
+concepts: unknown queue delivery retains rooted credit but cannot execute a hook
+during GC; unknown native execution still needs a separate adapter/proof. Initial tool failures
+are retained with the evidence; raw diagnostics stay task-cache-local.

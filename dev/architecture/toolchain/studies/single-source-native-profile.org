@@ -1,0 +1,383 @@
+#+TITLE: One Configuration Source, Two Native Outputs
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN One Configuration Source, Two Native Outputs :toolchain:
+:PROPERTIES:
+:ID: 05217104-18c7-5c2d-bc66-a0e997131c29
+:CUSTOM_ID: one-configuration-source-two-native-outputs
+:SOURCE_PATH: docs/experimental/zig/single-source-native-profile.md
+:SOURCE_SHA256: 2a5147b3c392dd620334c257542c3d6fa4d24961d65d35d1b23e8487f0dbf475
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Date: 2026-10-20. Architecture only; all file/module names introduced here are
+proposed. No configuration producer, decoder, executor or performance experiment
+has been implemented. Refines the [[file:darwin-configured-input-design.org][configured-input audit]]
+and [[file:effective-configuration-darwin-gcc.org][effective configuration model]].
+Evidence S1-S8 is bound in the [[file:single-source-profile-evidence.org][source ledger]];
+acceptance obligations E01-E32 and retirement R2-R8 are in the
+[[file:native-argv-equivalence-matrix.org][equivalence matrix]].
+
+*** 1. Place the Shared Model Before Encoding
+:PROPERTIES:
+:ID: 557155c6-3910-5f9d-b2a8-0053a84f4a99
+:CUSTOM_ID: 1-place-the-shared-model-before-encoding
+:END:
+
+S1 currently composes flags and mode recipes in configure.ac. S2 then produces
+MF/SH/BAT encodings; S3 registers generated files, including gambit.h and
+~gambuild-C.unix~, with config.status. The new authoritative seam belongs
+*between native policy construction and those output encodings*. Parsing the
+finished shell script is a transitional evidence/import path, not the future
+configuration authority.
+
+Select a declarative M4-owned native policy module, proposed
+~native-profile.m4~, included by configure.ac. It owns ordered segment
+composition, mode recipes, suppression rules, tool roles and supported feature
+labels. Existing configure probes own measured compiler/platform values and
+header substitutions. The module emits one inert ~ConfiguredNativeModel~
+from those probe/input results. It also supplies renderer definitions during
+Autoconf generation. Both consumers are generated from the same recipe nodes;
+no second hand-maintained ~BUILD_OBJ~ string or Zig GCC flag table survives.
+M4 is a maintainer-time choice, not a new target runtime dependency.
+
+Proposed generation stages:
+
+1. Existing configure performs probes and captures raw user inputs with origin
+   and presence. Probe success is distinct from semantic/native qualification.
+2. The generated configuration writer constructs the model: literal vector
+   nodes, typed references and explicitly tagged raw compatibility fragments.
+   Graph validation rejects unknown references, cycles, role mismatches and
+   unsupported kinds. There is no evaluation of a model as Scheme or shell code.
+3. The legacy renderer emits current SH bindings/templates and preserves legacy
+   opaque fragment behavior. Its script body retains old metadata/native logic
+   for legacy callers; an unchanged script body is not the managed executor.
+4. The typed projection admits only modeled/decoded inputs and selected modes.
+   It emits a profile plus per-mode unsupported reasons; a legacy-only field
+   must not be converted to an empty vector or silently omit flags.
+5. config.status writes related output files to a generation staging area.
+   A final manifest binds model/header/output digests. Installation activates
+   that manifest only after all required files are present and coherent.
+   Partial generation is unavailable, not a mixed old/new usable profile.
+
+The configure-time writer must run on the build host using the existing
+configure POSIX-shell tool floor, with audited data serialization emitted by
+Autoconf. It must not require Zig, an already-built GSC or MLIR to configure a
+fresh toolchain. Native rules are represented in M4 data declarations; generated
+shell uses fixed control flow, not eval of caller strings to discover argv.
+This adds serialization/validation maintenance; it does not remove configure
+probes or claim their subprocess costs disappear. Detailed M4 macro spelling
+and implementation are intentionally outside this design-only checkpoint.
+
+**** 1.1 Moving Rules Without Duplicating Authority
+:PROPERTIES:
+:ID: 1c0f60a9-a7f8-5895-948c-1a5e99856970
+:CUSTOM_ID: 11-moving-rules-without-duplicating-authority
+:END:
+
+| Current owner | New shared representation | Legacy output | Typed output |
+|-
+| Probe-derived GNU/PIC/bundle flags, S1 | Ordered values with configure origin/capability evidence | Current field spelling/segment order | Same ordered words if decoder admitted |
+| FLAGS_* composition, S1 | Concat/field nodes, including repeated object block in exe | Render field references with correct assignment-time expansion | Resolve captured overrides from presence state |
+| BUILD_* strings, S1 | One mode recipe of typed argument expressions | Render shell placeholders/quoting in current order | Native argv recipe, never shell text |
+| ~${{...}}~ versus ~${...}~ encoding, S2 | CaptureRef versus RequestRef node kinds | Preserve assignment-time versus late substitution behavior | Explicit typed binding stage; no magic dollar syntax |
+| Raw user command fragment | LegacyOpaque with decoder/provenance/reason | Preserve existing semantics in explicit legacy profile | Reject dependent mode unless admitted by declared decoder |
+| Gerbil direct-exe lists, S6 | Gerbil-owned recipe extension, with source digest/ABI | Existing Gerbil invocation | Same typed recipe extension; no generic Gambit-exe substitution |
+| Header/runtime configuration, S3/S4 | Bound header/configuration identity; unresolved runtime artifacts explicit | Same generated header and library policy | Compatibility references to actual artifacts; no invented VM capability |
+
+Gambit owns its native model; Gerbil owns a small versioned extension for its
+two direct-executable recipes and semantic filtering. Both use the same term
+schema and resolver. This is *one definition per rule*, not an assertion that
+Gerbil semantic/link rules should move into Gambit configure. Extension/profile
+pairs have explicit compatibility and identities; the executor does not invent
+these recipes or query Gerbil again.
+
+*** 2. Concrete Data Model
+:PROPERTIES:
+:ID: 978597b8-6b14-5343-9ec3-08e647a57cf3
+:CUSTOM_ID: 2-concrete-data-model
+:END:
+
+The following is descriptive IDL, not Zig implementation. Text is UTF-8 without
+NUL; argument bytes are preserved without Unicode normalization. Fixed tag
+names and IDs are ASCII. Arrays retain ordering and duplicates.
+
+#+BEGIN_SRC text :eval never
+Presence<T> = {state: absent} | {state: present, value: T}
+Origin = {sourceDigest, sourceLocation, ruleId, rawDigest?, decoderId?}
+Tool = {id, program, prefixArgv: [Text], contentDigest?, dependencies: [ArtifactRef]}
+ArtifactRef = {id, role, path, contentDigest?, compatibilityId?}
+Predicate = Bool | Feature(label) | And([Predicate]) | Or([Predicate]) | Not(Predicate)
+Word = Literal(Text) | Path(field) | Join([Literal(Text) | Path(field)])
+Segment = Words([Word]) | Ref(segmentId) | Concat([Segment])
+        | CaptureRef(captureId) | RequestRef(fieldId)
+        | Select(Predicate, Segment, Segment)
+        | LegacyOpaque(rawBytesRef, decoderId, origin)
+Capture = {id, default: Segment, overrideField, overrideRule, origin}
+Mode = {id, toolRole, recipe: Segment, inputRoles, outputRole,
+        resolutionPolicy, legacySupport, managedSupport, sourceRule}
+ConfiguredNativeModel = {schemaVersion, producerId, ruleGraphId, probeRecord,
+  target, featureSet, tools, captures, segments, modes, headerRef,
+  runtimeRequirements, gerbilExtensionCompatibility, origins}
+TypedProfile = {schemaVersion, modelId, typedProjectionId, target, featureSet,
+  tools, captures, segments, modes, headerRef, runtimeRequirements,
+  capabilities, unsupported, completeness, identityEncoding}
+GenerationManifest = {generationId, modelDigest, headerDigest,
+  legacyScriptDigest, typedProfileDigest, producerId, ruleGraphId}
+MetadataRecord = {sourceArtifactId, sourceDigest, field, ordinal,
+  condition: Predicate, payloadEncoding, payload, origin}
+NativeIntent = {schemaVersion, profileRef, mode, producer, cwd, bindings,
+  overrides: {capturedC: Presence<[Text]>, capturedLD: Presence<[Text]>,
+              compiler: Presence<ToolRef>},
+  explicit: {cc: [Text], ldPrelude: [Text], ldTail: [Text],
+             packages: [PackageRequest], packagePaths: [Text]},
+  metadata: [MetadataRecord], environmentRef, inputArtifacts, outputArtifacts,
+  symbolBinding?}
+PackageRequest = {words: [Text], origin}
+Environment = {id, entries: [{name, presence: Presence<Text>}],
+  baselineIdentity, resolutionEnvironmentIdentity}
+ResolutionEvent = {ordinal, stage, sourceRef, action, result, diagnostic?}
+EffectivePlan = {profileId, referencedModelFields, program, prefixArgv,
+  argv, cwd, environmentRef, inputArtifacts, outputArtifacts,
+  resolutionTrace: [ResolutionEvent], dependencies, stageIdentities}
+#+END_SRC
+
+~Join~ produces exactly *one argument*. Thus ~Join(["-I", Path(includeDir)])~
+preserves the generic template's joined include spelling; it is not automatically
+~["-I", includeDir]~. ~Ref~ expands an ordered vector. Path normalization or
+rewriting to a content store is not an implicit Join operation.
+Tool program/prefix and recipe argv are separate: the EffectivePlan ~argv~ is
+the recipe result excluding prefixArgv and executable/argv[0]. Execution passes
+~prefixArgv ++ argv~ as child arguments exactly once; adapters handle argv[0]
+according to their API. All request fields are schema-required unless marked
+optional. Empty metadata/package arrays are explicit. Environment is sealed per
+child, not a process-global mutation; absent and present-empty values differ.
+
+CaptureRef is resolved at request ingress: absent chooses default, present-empty
+uses an empty vector only for the specific C/LD capture rule. RequestRef can
+refer to explicit CC/prelude/tail vectors or declared paths; absent and empty
+are distinct until that field's policy applies. Conditional metadata is a
+separate source-bound record; it is not arbitrary Select code supplied by users.
+Raw source bytes are stored as immutable blobs, never executable nodes in the
+typed projection. A profile whose selected mode reaches LegacyOpaque is rejected.
+
+Graph references must be acyclic and role-correct. Tool and artifact IDs must
+exist; known-but-unavailable tools are explicit unavailable records, not absent
+lookup hints. Unknown tags/version/fields fail schema admission. A compiler
+upgrade cannot reuse an old tool content identity by retaining its path.
+~completeness~ records missing compiler/specs/SDK/runtime/header identities;
+~capabilities~ is selected support, while independent acceptance receipts prove
+qualification. Neither a profile file nor a digest claims runtime correctness.
+
+**** 2.1 Identity and Publication
+:PROPERTIES:
+:ID: a97e52d7-9065-548e-9b7a-828e8190310a
+:CUSTOM_ID: 21-identity-and-publication
+:END:
+
+Select ~native-json-v1~ for the proposed data wire representation: UTF-8 JSON,
+no BOM; fixed ASCII object keys sorted bytewise, no insignificant whitespace;
+array order preserved; integers only with canonical decimal spelling; minimal
+JSON escapes for quotation mark, backslash and controls (lowercase hex for
+remaining controls); other Unicode is emitted as UTF-8 without normalization.
+Optional fields use explicit schema variants, not multiple equivalent spellings.
+Duplicate keys, invalid Unicode, unknown fields and noncanonical identities are
+rejected. This is a project encoding definition, not a claim of an existing
+serializer or conformance test.
+
+~modelId = SHA256("gambit-native-model-v1\0" ++ canonicalModelPayload)~;
+profile identity uses a distinct ~gambit-native-profile-v1~ domain. The payload
+excludes its own ID and acceptance receipts; includes semantic rule/decoder IDs,
+tool/header references and all capability restrictions. Raw evidence locations
+live in an audit attachment; only their binding digests/origin IDs are semantic
+inputs. File timestamps do not substitute for content identity.
+The manifest binds both output file bytes to the same model generation. Repeated
+byte-identical generation must not invalidate native plans merely because a new
+publication ID was assigned. Active-plan keys include only referenced profile
+fields/recipes and stage dependencies, not the legacy shell renderer's unrelated
+formatting changes. Header/runtime changes propagate by their actual consumers.
+Changing a decoder invalidates plans which used it. MLIR provider identity stays
+in referenced service stages, as in the existing invalidation matrix.
+
+The consumer reads one active manifest and verifies all referenced digests; it
+must reject partial/stale/mixed output sets before native effects. Atomic pointer
+activation is a proposed installation protocol, not an assertion that config.status
+currently updates its files transactionally. Portable legacy-only installations
+remain a separate compatibility mode; they do not claim typed availability.
+
+*** 3. Worked Profile and Request Data
+:PROPERTIES:
+:ID: cbc3e001-c48b-5d99-8ba3-355d32892b09
+:CUSTOM_ID: 3-worked-profile-and-request-data
+:END:
+
+All examples below are *non-executable design data*. ~/example~ paths and
+~example.*~ IDs are deliberately symbolic. Missing tool/runtime digests mean
+admission fails; shown argv is an illustrative derivation, not an executable
+plan produced by a tool or a performance receipt.
+
+**** 3.1 Ordinary Object Profile Excerpt
+:PROPERTIES:
+:ID: d798d0c7-029b-55fb-a2f8-7442293dc14c
+:CUSTOM_ID: 31-ordinary-object-profile-excerpt
+:END:
+
+This uses C1's actual flag values. ~common~ and ~defs~ below are complete for
+this object's inspected generated defaults; the rest of the complete profile
+is described by the IDL and is not claimed present in this excerpt.
+
+#+BEGIN_SRC json :eval never
+{
+  "schemaVersion": 1,
+  "id": "example.darwin.gcc.profile",
+  "completeness": "unbound-tool-sdk-runtime",
+  "target": "aarch64-apple-darwin25.6.0",
+  "featureSet": {"known": ["unix", "windows", "gcc", "clang", "visualc", "cc"], "selected": ["unix", "gcc"]},
+  "tools": [{"id": "c", "program": "/opt/homebrew/bin/gcc-16", "prefixArgv": [], "contentDigest": null, "dependencies": []}],
+  "captures": [{"id": "c-default", "default": {"words": ["-foptimize-sibling-calls"]}, "overrideField": "capturedC", "overrideRule": "replace-when-present"}],
+  "segments": {
+    "opt": {"words": ["-O1"]},
+    "common": {"words": ["-ftrack-macro-expansion=0", "-Wno-unused", "-Wno-write-strings", "-Wdisabled-optimization", "-fwrapv", "-fno-strict-aliasing", "-fno-trapping-math", "-fno-math-errno", "-fschedule-insns2", "-fmodulo-sched", "-freschedule-modulo-scheduled-loops", "-foptimize-sibling-calls", "-fomit-frame-pointer", "-fipa-ra", "-fmove-loop-invariants", "-fPIC", "-fno-common"]},
+    "objFlags": {"concat": [{"captureRef": "c-default"}, {"ref": "common"}]},
+    "objDefs": {"words": ["-D___SINGLE_HOST", "-D___INLINE_JUMPS", "-D___TRUST_C_TCO", "-D___CAN_IMPORT_CLIB_DYNAMICALLY", "-D___CAN_IMPORT_SETJMP_DYNAMICALLY"]}
+  },
+  "modes": [{"id": "gambit.c.obj", "toolRole": "c", "inputRoles": ["generated-c"], "outputRole": "native-object", "resolutionPolicy": "gambuild-metadata-v1", "recipe": {"concat": [{"ref": "opt"}, {"ref": "objFlags"}, {"ref": "objDefs"}, {"words": [{"join": ["-I", {"path": "includeDir"}]}, "-c", "-o", {"path": "output"}]}, {"requestRef": "resolvedCC"}, {"requestRef": "inputs"}]}}]
+}
+#+END_SRC
+
+JSON examples use the lower-case single-key tags corresponding to IDL variants;
+strings inside words/joins abbreviate Literal. They omit origin/support fields
+and are not canonical wire payloads or schema-complete profiles.
+The configured sibling-call option also occurs inside common: preserve both
+when capturedC is absent. An empty capturedC leaves the common occurrence.
+Executable composition must preserve its *additional common block*, not derive
+all modes from an optimized/deduplicated object vector (S1/S4).
+
+**** 3.2 Object Intent and Illustrative Result
+:PROPERTIES:
+:ID: 5ab4e1d8-8d35-5a3a-82c9-391f9dfacf38
+:CUSTOM_ID: 32-object-intent-and-illustrative-result
+:END:
+
+#+BEGIN_SRC json :eval never
+{
+  "schemaVersion": 1,
+  "profileRef": "example.darwin.gcc.profile",
+  "mode": "gambit.c.obj",
+  "producer": {"kind": "gambit", "semanticUnit": "example.module", "sourceDigest": "example.c.digest"},
+  "cwd": "/example/work",
+  "bindings": {"includeDir": "/example/runtime/include", "inputs": ["module.c"], "output": "module.o"},
+  "overrides": {"capturedC": {"state": "present", "value": []}, "capturedLD": {"state": "absent"}, "compiler": {"state": "absent"}},
+  "explicit": {"cc": ["-D___DYNAMIC", "-fPIC"], "ldPrelude": [], "ldTail": [], "packages": [], "packagePaths": []},
+  "metadata": [],
+  "environmentRef": "example.bound-child-environment",
+  "inputArtifacts": [{"id": "example.module.c", "role": "generated-c", "path": "module.c", "contentDigest": "example.c.digest"}],
+  "outputArtifacts": [{"id": "example.module.o", "role": "native-object", "path": "module.o"}]
+}
+#+END_SRC
+
+Resolution: capturedC present-empty suppresses its default contribution;
+no metadata/packages implies no package query. Preserve explicit -fPIC even
+though common already contains it. Actual execution must stop at unbound profile
+admission; for a fully bound counterpart the expected program and argument order
+would be:
+
+#+BEGIN_SRC json :eval never
+{
+  "program": "/opt/homebrew/bin/gcc-16",
+  "argv": ["-O1", "-ftrack-macro-expansion=0", "-Wno-unused", "-Wno-write-strings", "-Wdisabled-optimization", "-fwrapv", "-fno-strict-aliasing", "-fno-trapping-math", "-fno-math-errno", "-fschedule-insns2", "-fmodulo-sched", "-freschedule-modulo-scheduled-loops", "-foptimize-sibling-calls", "-fomit-frame-pointer", "-fipa-ra", "-fmove-loop-invariants", "-fPIC", "-fno-common", "-D___SINGLE_HOST", "-D___INLINE_JUMPS", "-D___TRUST_C_TCO", "-D___CAN_IMPORT_CLIB_DYNAMICALLY", "-D___CAN_IMPORT_SETJMP_DYNAMICALLY", "-I/example/runtime/include", "-c", "-o", "module.o", "-D___DYNAMIC", "-fPIC", "module.c"],
+  "cwd": "/example/work",
+  "environmentRef": "example.bound-child-environment"
+}
+#+END_SRC
+
+The managed intent has no CC option fragment to split, LF list to recover or
+shell to evaluate. A legacy caller with ~"-D___DYNAMIC -fPIC"~ can enter this
+intent only after the admitted source-specific decoder, not by labeling that
+whole string one native argument.
+
+**** 3.3 Darwin Bundle and Refused Package Variants
+:PROPERTIES:
+:ID: fdb1f889-0e6a-5eb7-9b4f-a7929b58dd24
+:CUSTOM_ID: 33-darwin-bundle-and-refused-package-variants
+:END:
+
+A separate request after the object producer succeeds:
+
+#+BEGIN_SRC json :eval never
+{
+  "profileRef": "example.darwin.gcc.profile",
+  "mode": "gambit.c.darwin-bundle",
+  "cwd": "/example/work",
+  "bindings": {"includeDir": "/example/runtime/include", "inputs": ["static/module.o"], "output": "module.o1"},
+  "metadataSource": {"path": "module.c", "contentDigest": "example.runtime-c.digest"},
+  "explicit": {"cc": [], "ldPrelude": [], "ldTail": ["-Wl,-alias,____LNK_example,____LNK_example_2e_o1"], "packages": [], "packagePaths": []},
+  "symbolBinding": {"moduleRef": "example", "dynamicLinker": "example.o1", "encoder": "gerbil-c-linker-id-source-bound"}
+}
+#+END_SRC
+
+Alias spelling above is illustrative, not a claim about the encoder's output.
+The producer must supply the exact c-linker-id result and bind it to both names.
+The bundle recipe is ~O ++ FD ++ DD ++ I ++ ["-o", Out] ++ CC ++ LP ++ In ++ LT~
+with program/prefix handled separately. Its metadata source is runtime C;
+input is the static object. O1, -bundle, dynamic definitions and alias position
+come from this route; do not convert it into an archive/dylib recipe.
+This abbreviated request omits artifact/environment fields from the full object
+example and is not schema-complete.
+
+Changing packages from [] to a nonempty request under the retained empty
+PKG_CONFIG configuration yields unavailable-resolver failure *even for obj*.
+A corresponding illustrative rejection record is:
+
+#+BEGIN_SRC json :eval never
+{"stage": "resolution", "code": "package-tool-unavailable", "field": "explicit.packages[0]", "profileRef": "example.darwin.gcc.profile", "compilerStarted": false}
+#+END_SRC
+
+This illustrates failure *after* a counterpart profile has been completely
+bound; the deliberately incomplete examples otherwise fail profile admission
+first. Old ~/dev/tty~ diagnostic transport needs explicit mapping; a new structured
+error is a declared interface change until transport/status parity is admitted.
+Unknown feature ~darwin~, raw CC override and opaque expansion-bearing flag
+fragments instead fail managed admission. They are not query/compiler failures.
+
+*** 4. Scope and Ownership of Retirement
+:PROPERTIES:
+:ID: 6dfec8b7-90d9-50f4-81e4-6d7905881862
+:CUSTOM_ID: 4-scope-and-ownership-of-retirement
+:END:
+
+R2-R8 define real caller retirement; each requires E-matrix coverage and
+source-bound native acceptance in a future implementation. The managed chain is:
+producer intent -> admitted profile -> one resolver -> direct executor.
+Legacy selection is explicit and happens before managed effects. A managed
+rejection never triggers hidden replay through gambuild or gsc -obj.
+
+Gambit retains language generation, semantic link, GC/control/FFI and runtime
+setup; Gerbil retains phase/debug/static meaning, module/alias names and semantic
+link barriers. Configure retains probes/header authority. Zig consumes typed
+profiles and owns native execution/service lifecycle. The old script may stay
+installed while portable or unsupported callers still use it; retirement means
+no migrated request traverses it. Whole-file deletion is a later caller-coverage
+result, not the first milestone.
+
+The [[file:../diagrams/single-source-dual-output.d2][dual-output diagram]] / [[file:../diagrams/single-source-dual-output.svg][SVG]]
+and [[file:../../../research/diagrams/native-retirement-gates.d2][retirement gate diagram]] / [[file:../../../research/diagrams/native-retirement-gates.svg][SVG]]
+show this boundary. Two matching serializations alone do not establish equivalent
+native behavior or measurable savings.
+
+The subsequent [[file:independent-equivalence-evidence-plan.org][independent evidence plan]]
+and [[file:../../../refactoring/modern-c/studies/native-caller-retirement-plan.org][caller retirement inventory]] refine
+qualification: a changed-tool recorder proves a derived construction fixture,
+not original-native parity. Final compiler/query environment must be observed;
+removing old transport entries is not automatically invisible to native tools.

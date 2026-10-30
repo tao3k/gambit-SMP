@@ -1,0 +1,96 @@
+{
+  "schema": "gambit-protocol-extensions.v1",
+  "sourceRevision": "7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882",
+  "quintVersion": "0.33.0",
+  "contextInputs": {
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json": "7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch": "8e6d68b028264cc9ae8225008af1ad3f09a6dfebe6d35268296c85e53fd0d23d",
+    "evidence/research/processor-interrupt-collective-wait/source-review.md": "97c9b937dcf4f3d0984813fe8020d10f35886116eef39e5a2d76abaf9e0f2998",
+    "evidence/research/abandonment-gc-publication/source-audit.md": "4508940f31d6698fc0a028aa011daef65f86c3d506987a788575ab8aa85f0d9b",
+    "patches/fixtures/abandonment-gc-publication.patch": "274cc27a3c2eb8a2c6c416f906a9c23eb926ebd9b4a57d39e192abeba7c55772",
+    "evidence/research/abandonment-gc-publication/source-reader-repaired.lock.json": "651f18daae1befaa0f25d2218277fed62de631f3790838285e409833ed20ca67",
+    "patches/fixtures/abandonment-gc-publication-reader-cumulative.patch": "e0f2b46d591ecbab9156d3d0adf9c83531e9d0c64f4c617b6ceb9b286c63ba12",
+    "evidence/research/abandonment-gc-publication/native-reader-bootstrap-observation.md": "b3c134de45d6746eec5c59bf6f825c07712d8dcbdce4f5c4e5bdfd93128d7443",
+    "evidence/fixtures/pipe-predicate-sync-participation/source.lock.json": "405d1b9db14bb7d8084db3c1e283ace0ab52bda890fb19a218d33dfe8b10df37",
+    "evidence/research/abandonment-gc-publication/processor-interrupt-ticket-audit.md": "66ce8d0f4a58f2d36cc7fcb13d2042671e1d44f5b5107e6adb64e03f9b81600f"
+  },
+  "cases": [
+    {
+      "id": "abandonment_gc_publication",
+      "mode": "characterization",
+      "invariants": ["safe"],
+      "temporal": "completion",
+      "protocolInitializers": {
+        "safe": "initEither"
+      },
+      "oldInvariants": [
+        "joinSafe",
+        "foreignSafe",
+        "admissionSafe",
+        "collectiveSafe",
+        "rawDropSafe",
+        "boundarySafe",
+        "progressSafe",
+        "revalidateSafe",
+        "unlockSafe",
+        "unlockRecheck"
+      ],
+      "oldInitializers": {
+        "joinSafe": "initEarlyDrop",
+        "foreignSafe": "initNoRecheck",
+        "admissionSafe": "initEndAdmit",
+        "collectiveSafe": "initRetainRaw",
+        "rawDropSafe": "initDropRaw",
+        "boundarySafe": "initEntryOnly",
+        "progressSafe": "initParticipateOnly",
+        "revalidateSafe": "initInverseStale",
+        "unlockSafe": "initUnlockHold",
+        "unlockRecheck": "initUnlockStale"
+      },
+      "source": [
+        "lib/_thread.scm:##thread-end-locked!",
+        "lib/_thread.scm:##btq-abandon!",
+        "lib/_thread.scm:##mutex-lock-out-of-line!",
+        "lib/_thread.scm:##mutex-unlock-out-of-line!",
+        "lib/_thread.scm:##lock-3-threads!",
+        "lib/_thread#.scm:macro-mutex-lock!",
+        "lib/_thread#.scm:macro-mutex-unlock!"
+      ],
+      "papers": [],
+      "scope": "Finite one-mutex, one terminating thread, one contender, one queued waiter, two processors as the collective. initEither retains the thread ticket and clears end-condvar while that ticket is held, with inverse locker entry and slow path, inverse unlock, owner/queue recheck, marker admission, and abandon participation. Alias 0/1/2 and locker versus unlocker are free. Negative initializers are incomplete repairs. The state machine does not include the thread-group lock, the signal new-owner acquire, or waiter/new-owner address order. This is not source refinement, not a native admission, and not a cause of the retained TFIB or pipe timeout."
+    },
+    {
+      "id": "processor_interrupt_ticket",
+      "mode": "characterization",
+      "invariants": ["safe"],
+      "temporal": "completion",
+      "protocolInitializers": {
+        "safe": "initParticipating"
+      },
+      "oldInvariants": [
+        "progressPossible",
+        "referenceSafe",
+        "reservationSafe",
+        "notificationSafe",
+        "membershipSafe"
+      ],
+      "oldInitializers": {
+        "progressPossible": "initRaw",
+        "referenceSafe": "initUnrooted",
+        "reservationSafe": "initRereserve",
+        "notificationSafe": "initEarlyNotify",
+        "membershipSafe": "initUnmembered"
+      },
+      "source": [
+        "lib/setup.c:___raise_high_level_interrupt_pstate",
+        "lib/_thread.scm:##thread-intr-propagate!",
+        "lib/_thread.scm:##lock-scheduler-object-with-sync-participation!",
+        "lib/_thread.scm:##thread-check-devices!",
+        "lib/_thread.scm:##wait!",
+        "lib/_thread.scm:##thread-schedule-with-acquired-processor!"
+      ],
+      "papers": [],
+      "scope": "Finite two-role ticket and collective protocol, one queue publication, no unbounded arrivals. The holder entering a collective is a conditional premise, not the retained native owner or sop.op identification. The positive initializer is the Scheme failed-trylock path in ##thread-intr-propagate!: participate without an outstanding ticket, recheck target membership, publish the relocated payload, release, then notify that processor id. A non-member is scheduled locally and does not publish. The exported C ___raise_high_level_interrupt_pstate still reserves if called and is not this positive run. Served-ticket polling is not the source repair. Initially valid negative controls reach raw-wait deadlock, stale payload publication, repeated-reservation orphaning, early notification and publication onto a non-member. Weak fairness covers only this finite operation. No C/ARM memory-order refinement, full GC/resize lifecycle proof, identification of the retained holder, or native admission."
+    }
+  ]
+}

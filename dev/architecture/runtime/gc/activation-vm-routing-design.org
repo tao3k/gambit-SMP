@@ -1,0 +1,353 @@
+#+TITLE: Modern C Activation Binding and Resident VM Routing
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :exports code
+#+TODO: OPEN PREMISE | CHECKED
+
+* Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-decision
+:AUTHORITY: models/sysml/activation-vm-routing.sysml
+:STATUS: CONDITIONAL-HISTORIES-SOURCE-ROUTER-AND-C-ORDER-OPEN
+:COMPONENT: host-roots
+:SHARED_COMPONENT: gc-work
+:END:
+
+Use a bounded /origin mailbox/ that already belongs to a managed base context
+or live parent activation. Canonical bind writes the fixed-cell locator into
+that mailbox before any native effect. Lost ordinary return recovers the same
+locator. Do not add an activation-history dictionary. A resident fixed-capacity
+VM router, outside GSTATE cleanup, validates session/slot generations and pins
+storage before allowing any VM dereference.
+
+This extends [[file:request-retirement-design.org][the bounded retirement design]] rather than treating its origin and
+router prerequisites as solved. [[file:models/sysml/activation-vm-routing.sysml][SysML]] owns needs, dependencies, source routes,
+transitions, gates, support-count/cut predicates, cost rows and topology.
+Native evaluation derives [[file:activation-vm-routing-matrix.org][the matrix]] and [[file:diagrams/activation-vm-routing.d2][D2]]. Actual [[file:../../../modeling/ascent/activation-vm-routing.rules.scm][ASCENT rules]] and [[file:../../../modeling/ascent/activation-vm-routing.request.scm][request]] join
+exact model digest, method, check and scope. [[file:../../../../evidence/research/activation-vm-routing/checks.json][The receipt]] binds source identities,
+conditional checks and unchanged predecessor evidence. No runtime code/native
+test, ABI qualification or measured performance result is introduced.
+
+* What the existing source establishes
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-source
+:END:
+
+** A natural frame is not a stable activation index
+
+[[file:../../../../vendor/gambit/gsc/_ptree2.scm::2850][CFUN argument emission]] aliases Scheme objects to mapped stack locations.
+[[file:../../../../vendor/gambit/lib/_kernel.c::6258][Tracked resize CFUN]] and [[file:../../../../vendor/gambit/lib/_kernel.c::26338][its caller]] show mapped arguments and saved resources.
+[[file:../../../../vendor/gambit/include/gambit.h.in::10325][BEGIN_CFUN_CTX]] materializes the Scheme context; [[file:../../../../vendor/gambit/include/gambit.h.in::10402][CFUN_ARG]] derives the current
+slot. A physical FP or cached SCMOBJ address is therefore unsuitable identity.
+Tracked output is source evidence, not a regenerated/installed-ABI receipt.
+
+[[file:../../../../vendor/gambit/gsc/_ptree2.scm::2902][Conversion cleanup]] and [[file:../../../../vendor/gambit/gsc/_ptree2.scm::3238][body selection]] do not encode the proposed origin/bind
+protocol. [[file:../../../../vendor/gambit/lib/setup.c::1155][current_vm_resize]] copies a thunk in a local sop; [[file:../../../../vendor/gambit/lib/setup.c::1050][sync processing]] may
+execute/copy back a result before a later throw. Existing C contains no
+canonical origin-to-cell recovery service that can simply be reused unchanged.
+
+[[file:../../../../vendor/gambit/lib/setup.c::3276][call/run]] creates return frames and uses catcher/marker state; [[file:../../../../vendor/gambit/lib/_kernel.scm::1026][return-to-C]]
+rejects a dead marker or wrong processor. [[file:../../../../vendor/gambit/lib/setup.c::763][Worker run]] and [[file:../../../../vendor/gambit/lib/setup.c::6395][main run]] need admitted
+base origins. Same-live continuation restoration reloads the current binding;
+a copied historical handle cannot revive a dead C stack. Normal-only AT_END is
+not a general exit guard. The prior root/exit/restoration duties stay open.
+
+** Repeated setup shares addresses and mutable lifecycle fields
+
+[[file:../../../../vendor/gambit/lib/setup.c::32][gstate0]] is a global state object, and [[file:../../../../vendor/gambit/include/gambit.h.in::12116][the global layout]] embeds vmstate0 and
+an integer setup_state. [[file:../../../../vendor/gambit/lib/setup.c::6240][setup]] copies parameters, sets setup_state=2 and
+processor_count=0, and initializes VM-list mutex/links. [[file:../../../../vendor/gambit/lib/setup.c::6320][It later permits cleanup]].
+The selected path does not provide the proposed incarnation/pin protocol.
+Inspecting these stores is not evidence that concurrent/repeated live setup is
+safe. The managed facade must reject setup while Online, Starting, Quiescing
+or Detached readers remain; it must not reinitialize a live lock/list.
+
+[[file:../../../../vendor/gambit/lib/setup.c::4773][setup_vmstate]] constructs VM state and calls setup_os_and_mem_vmstate without
+using its returned status before setting up PSTATE0. Staged acquisition/rollback
+must explicitly propagate each actual result before managed ready publication.
+This is a real source obligation, not an implementation fix made here or proof
+that existing partial initialization is transactional.
+
+** Cleanup consumes the same resize service it must close
+
+[[file:../../../../vendor/gambit/lib/setup.c::4834][cleanup]] checks setup_state, sets it to 2, shuts down interrupt handling, then
+calls current_vm_resize(false,1) before PSTATE/VM destruction. It eventually
+destroys vm_list_mut. [[file:../../../../vendor/gambit/lib/mem.c::4937][VM memory cleanup]] destroys allocation/scan synchronization,
+cleans PSTATE0, frees msections and unlinks the VM list.
+
+Closing all resize admission at cleanup entry would reject its own shrink.
+Also, setting setup_state=2 before later work means that integer is not a
+resumable multi-step cleanup receipt. A missing/unknown shrink result cannot
+justify destruction. [[file:../../../../vendor/gambit/lib/setup.c::942][Ignored join status]] remains a separate member-stop gap.
+The new router cannot use vm_list_mut after that mutex is destroyed, or read an
+old VM merely to decide whether its address belongs to a new instance.
+
+* Bounded origin and canonical activation contract
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-origin
+:END:
+
+#+NAME: activation-vm-routing-identities
+| Identity | Storage and role | Explicit exclusion |
+|----------+------------------+--------------------|
+| RouterAnchor | Resident process/embedding-owned gate and fixed VM cells | Not a mutex inside destructible GSTATE/VM |
+| Session | Checked non-reset setup-attempt generation | Not setup_state or a reusable VM address |
+| VmToken | Anchor/session/VM-slot/generation | No raw expired vms pointer |
+| OriginPermit | VmToken plus base-or-parent mailbox identity/generation | No physical FP, thread ID or callsite-only identity |
+| BindSerial | Checked one-live-bind sequence in the origin mailbox | Never reset while old origin observation can authorize an effect |
+| ActivationHandle | Exact canonical cell locator/full request tag and bind serial | Ring position alone, raw moving value or replay count |
+| EffectPlan | Static site/role plus immutable operation/source intent | A callsite is a plan identifier, not a dynamic activation identity |
+
+Base mailboxes belong to admitted execution contexts/host origins and are
+budgeted before entry. Main and worker startup need their own base origins.
+A processor ID selects an admitted context only with its VM/context generation;
+its physical PSTATE address is not the permit. Stable mailbox state belongs to
+the VM control arena, so PSTATE cleanup cannot destroy its recovery record.
+Native callers without a pre-admitted source/permit cannot enter the managed
+path. RootHandle/marker-before-allocation coverage is not created by this table.
+
+Each live parent activation embeds one synchronous-child mailbox. A child cannot
+outlive the parent's journal backing: child completion/result/source/reader
+drain precedes parent-cell reuse. Multiple concurrent children require separately
+budgeted credits; arbitrary fanout is outside this first admission slice.
+The first selected activation carries one recoverable resize request, sharing
+its fixed cell rather than allocating a second request-identity record. Long-lived
+main/worker run origins are base-context support, not permanently occupied user
+window cells. An unbounded number of historical Scheme frames does not create
+an unbounded native identity table: copied closed handles are inert metadata.
+
+** Binding state and loss recovery
+
+#+NAME: activation-vm-routing-bind-state
+| State | Authoritative storage | May perform native effect? | Recovery |
+|-------+-----------------------+----------------------------+----------|
+| Idle | Existing source/base or parent permit | No | Prepare one checked origin serial |
+| Prepared | Immutable plan and complete source in fixed mailbox | No | Known pre-bind failure returns to caller without issuing key |
+| Binding | Canonical safe cell reserved and its locator committed in origin journal | No | Follow locator, validate full tag and finish binding |
+| Bound | Exact source-view/locator/intent and effect state are publishable | Only after current effect-gate/root admission check | Query same locator even if C return was lost |
+| Closing | VM owns stable source/key/exit and closes future effects | No new effect | Finish/cancel and settle original result |
+| Settled | Child/source/result/readers closed, exact retirement bit/fence holds | No | Retire locator/cell only through preceding window rules |
+
+The /claimBind cut/ publishes both the cell and recoverable origin locator under
+one control transaction. It is not one hardware store. Safe cells, source view,
+intent and locator come before the Bound/ready release; observation delivery is
+independent. A repeated claim on a Binding/Bound origin follows the locator and
+never increments the canonical reservation count. A reused origin serial rejects
+an older query before touching the new binding.
+
+The initial OriginPermit and complete root view are explicit prerequisites.
+They come from bounded VM/context admission or the live parent's mailbox;
+the protocol does not recursively call a new unprotected registry to obtain
+its own origin identity. Full outermost host-entry/root registration still
+needs source refinement and must refuse entry when those prerequisites fail.
+
+For interruption inside the multi-store C cut, the bounded mailbox/cell journal
+must expose ownership and progress before any native publication. A helper may
+finish only with the required stopped-writer/closed-write and root-view receipts.
+If the cell or locator outcome is physically unknown, retain Binding/source
+custody and refuse blind retry/reuse. QNT models the cut atomically; exact C
+write ordering and instruction-level owner-death recovery remain AV-ORDER.
+No dictionary, heap search, FP comparison or timeout fills that proof gap.
+
+** Proposed data view, not runtime implementation
+
+#+NAME: activation-vm-routing-data-view
+#+begin_src scheme
+((origin-permit (vm-token anchor session vm-slot vm-generation)
+                (mailbox base-or-parent-index mailbox-generation))
+ (bind-journal (serial checked) (phase idle prepared binding bound closing)
+               (intent immutable-plan-and-source-lease)
+               (locator canonical-sequence-and-full-slot-tag)
+               (exit-progress stable-vm-owned))
+ (activation-cell (origin-and-serial exact) (source-view managed)
+                  (effect-progress canonical) (child-journal embedded)
+                  (result-ack distinct-from-source-ack)))
+#+end_src
+
+FrameSpec/PointId generates where the caller's current view and opaque handle
+are materialized, copied and restored. An opaque control field must not be
+mistaken for an SCMOBJ by GC scanning/serialization. A captured handle is not an
+extra lifetime pin; a resumed same-live activation must validate current scope,
+serial and binding before use. A fresh evaluation obtains a fresh serial, while
+an old unwound native extent keeps the existing dead-marker failure semantics.
+No general multi-shot native-effect replay protocol is admitted here.
+
+* Resident VM router and repeated setup
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-router
+:END:
+
+Choose a fixed R-slot router with checked generations; the scalar session issuer
+persists outside per-setup GSTATE cleanup. Per-VM entry lookup uses numeric
+slot/session/generation under the resident anchor lock, then acquires a storage
+pin before returning any VM pointer. Unknown/dead/old identity rejects without
+reading GSTATE or creating a VM. Reusing a fixed slot does not reuse its identity.
+This requires no table of every previously destroyed VM.
+
+The model covers one VM slot across two setup sessions; actual multi-VM
+publication, slot selection, generations and arbitrary counter widths remain
+source/refinement duties. Router pins protect storage lifetime, not permission
+to execute: even a pin acquired while Online must recheck user effect admission
+under domain control after cleanup starts. Release anchor lock before domain
+work; never invoke Scheme, callbacks, allocation or GC waits under either lock.
+
+#+NAME: activation-vm-routing-setup-state
+| Phase | New user effects | Existing status settlement | Physical state | Next permitted cut |
+|-------+------------------+----------------------------+----------------+--------------------|
+| Offline | Reject | Old tokens reject in anchor | No live VM | Fresh checked setup session |
+| Starting | Reject | No managed user record yet | Staged, not published | Rollback with consumed session, or fully initialized Online |
+| Online | Admitted under current role/root gates | Admitted with exact identity | Live and pinnable | Quiescing |
+| Quiescing | Reject, including old user pins at effect recheck | Keep alive for original result/source settlement | VM and cleanup service remain owned | Detach only after every debt closes |
+| Detached | Reject | No new VM lookup; existing pinned readers may finish | Storage remains until old pins drain | Physical teardown, then Offline |
+
+Every setup attempt consumes a fresh checked session, including failed setup.
+Cleanup does not reset that issuer. Repeated setup while Starting/Online/
+Quiescing/Detached is Busy/rejected, not a second mutex initialization. Failed
+setup records exact partial resource acquisitions before rollback; no partially
+initialized service becomes ready. At session, VM generation, origin serial or
+pin-count exhaustion, refuse new admission before wrap/increment overflow.
+No random UUID or practically-large counter substitutes for this contract.
+
+The anchor must live in process-resident code/storage or a host-owned gate that
+outlives all runtime instances. First-cut admission assumes static/permanently
+loaded runtime code. Ordinary cleanup is not dlclose: a stale function pointer
+cannot enter unloaded code to ask whether its token expired. Library unload/
+reload, multiple independently loaded copies of an anchor, process restart
+persistence and distributed identity are outside the proof; refuse unload while
+old executable capabilities remain unless a separate loader/host drain protocol
+has been qualified. Do not silently reset the anchor during ordinary setup.
+
+* Cleanup lane, roots and circular-wait avoidance
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-cleanup
+:END:
+
+Reserve one administrative cleanup request/result cell per admitted VM before
+Online. Its typed authority belongs to the cleanup coordinator, not a user flag.
+It is outside the W user activation cells and does not need ordinary user gate
+reopening or a malloc after window exhaustion. It drives the actual shrink/
+member-stop work with the same GC/source safety obligations; it cannot erase
+unknown thread/native results. This extra support is counted explicitly.
+
+Quiescing keeps original canonical status/result and source-root settlement
+reachable. Closing ordinary admission and immediately removing all query access
+would strand the ACK needed for retirement. Allow metadata-only status under a
+separate role until original acceptors and VM cleanup finish. Source ACK remains
+an exact extra lease, not the whole natural Scheme frame or final result ACK.
+A GC source scan keeps its original view even when a descriptor also roots the
+value. Child mailbox and source/root backing are distinct responsibilities.
+
+The cleanup coordinator must keep resumable administrative debt outside the
+old setup_state integer. If shrink returns through an exception or join/stop is
+unknown, remain Quiescing with VM custody; a second cleanup must resume/query the
+same debt rather than return success, rerun a new shrink blindly or destroy
+synchronization. Existing cleanup does not implement that contract.
+
+Wait outside locks for the imported physical root/child/native stop receipts.
+Unknown owner/raw borrower or unresolved result may still prevent physical
+teardown; this design does not assert forced recovery or bounded shutdown time.
+A pending ordinary activation can fill the user window, but cannot consume the
+reserved administrative cell. No GC/owner callback is invoked to manufacture a
+stop receipt under the router/domain lock.
+
+* Models, source obligations and migration cut
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-models
+:END:
+
+[[file:../../../../models/gambit/activation_vm_routing.qnt][QNT]] models two origin roles (one base, one nested), two canonical cells, one VM
+slot, two sessions, sequence ceiling three and bounded bind serials. Issued/
+settled/effect sets are finite ghost history, not physical runtime dictionaries.
+Source freezing, child/consumer/administrative stop receipts and the atomic
+journal cut are premises. Reader pins are Boolean, not full counters. The
+abstract teardown receipt does not prove the real shrink can complete safely.
+
+Histories cover lost Bound return, partial Binding lookup, idempotent claim,
+nested independent locators, parent journal retention, source scan/root
+separation, origin OOM, status-only closing, old VM generation/session/serial,
+setup failure consuming identity, repeated live setup rejection, pinned readers
+across logical detach and final session exhaustion. Unsafe controls lose the
+locator, double-reserve, free a parent/pinned VM, reset the resident epoch,
+execute after user close or erase unaccepted result/source custody.
+
+[[file:../../../../models/gambit/lean/ActivationVmRouting.lean][Lean]] checks selective recovery/identity, session increment, role, reader, child
+and support-budget laws. It is not full QNT induction, arbitrary-word C atomicity,
+FrameSpec layout or Gambit source simulation. Full canonical creation and
+routing refinement remain open even though their bounded abstract histories
+are now present. ASCENT keeps exact local history/law slices distinct from
+source/C proof; no component or runtime admission follows automatically.
+
+#+NAME: activation-vm-routing-first-cut
+| Future source cut | Required change | Old duty retires only when |
+|-------------------+-----------------+----------------------------|
+| Scheme generator and FrameSpec emitters | Generate origin permit, bind serial, opaque locator/effect and restore/exit plan | Every selected caller preserves exact root/home coverage through entry and resume |
+| VM/context/host entry admission | Fixed base origins, bounded child journals and complete source views | Nonzero processor and host registration callers cannot enter with untracked payloads |
+| Canonical resize service | Claim writes cell plus recoverable origin locator before effect; typed status/result | No retry creates another record and no local sop owns a movable thunk |
+| Resident router facade | Fixed VM slots, persistent session issuer and lookup-before-dereference pins | All managed late entries use facade; raw pointer consumers separately inventoried/admitted |
+| Setup and construction | Staged acquisition, exact errors, no live reinitialization, ready published last | Current setup_state/address cannot be mistaken for incarnation or construction receipt |
+| Cleanup and membership | Typed status/admin lanes and resumable original shrink/stop debt | Normal-only cleanup and ignored/unknown stop cannot release VM/source storage |
+| Physical cleanup | Router detach plus pin/root/GC/native/child drain before lock/heap free | No old handle can reach freed state or new incarnation through obsolete storage |
+
+This is a connected modern C generator/runtime ownership refactor. C portability,
+GVM precise frames, continuation and tail-call semantics supply the contracts;
+Zig would not remove the origin, lifetime, scanner or result duties. No second
+runtime implementation or incremental Zig net benefit is established here.
+
+* Benefits and disjoint peak matrix
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-benefit
+:END:
+
+No separate historical activation-to-request or destroyed-VM map is needed in
+this design. Fixed origin journals and canonical locators replace those proposed
+supports. They are not already free in the current source: root-context/host
+admission, embedded child journals, persistent router and admin cells must be
+implemented and maintained. Recovery is a bounded direct lookup with validation;
+repeated attempts still cost O(R) checks for R deliveries.
+
+Let R be VM routing capacity, O the bounded total base/host origins, W total
+activation cells, Hr router-cell bytes, Ho base-mailbox bytes, Hc complete
+activation-cell bytes, Ha admin-cell bytes and A resident-anchor bytes:
+
+\[
+C=A+R H_r+O H_o+W H_c+\lceil W/8\rceil+R H_a+T.
+\]
+
+T includes separately budgeted reader/transport tickets, if not embedded.
+Hc already includes one child journal, bind progress, result, root/exit handles;
+do not add W child journals again as separate storage. O excludes child journals.
+One admitted first-cut activation shares its request/canonical cell; adding a
+second per-request table would invalidate this support budget. Round bitmap,
+check byte products/additions and all capacities before publishing ready.
+
+Native SysML reports capacity counts, including one VM/base origin and two
+activation cells for the bounded model, and a larger two-VM/eight-base-origin/
+64-cell profile. These are parameterized counts, not measured ABI sizes,
+observed nesting, throughput predictions or total memory savings.
+
+\[
+P=\max_t(C+B_{unique}(t)+V_{extra}(t)+Q_{external}(t)+Native_{unique}(t)).
+\]
+
+Copied handles do not duplicate Scheme payload backing. Frozen source/parent
+frames, old pinned VM backing, external queues and child/native resources remain
+separate; count shared backing once. An unknown reader can delay VM free, and
+an unresolved origin/parent can stop new admission. Control capacity bounds do
+not prove total heap/CPU improvement, bounded latency or bounded cleanup time.
+Only after real source/layout/ordering gates close can retirement of old support
+and native performance/resource qualification begin.
+
+* Primary evidence
+:PROPERTIES:
+:CUSTOM_ID: activation-vm-routing-primary
+:END:
+
+[[https://cs.brown.edu/~mph/HerlihyW90/p463-herlihy.pdf][Herlihy and Wing]] distinguish invocation, effect and response. Here that motivates
+an explicit bind linearization cut with a recoverable locator independent from
+the C response. The paper is not a proof that this C journal is linearizable.
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][C draft N1570]] provides the memory-order, lifetime, allocation and setjmp
+constraints used by the predecessor studies. The resident-anchor/source layout
+and release/acquire implementation remain explicit C-refinement obligations.
+A timeout fetching the primary PDF this round is retained in the evidence;
+prior source material is not relabeled as a new platform/ABI qualification.

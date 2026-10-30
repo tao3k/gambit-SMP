@@ -1,0 +1,96 @@
+# Full System Layer: Source and Literature Evidence
+
+Date: 2026-10-19. Companion to the [value study](zig-system-layer-value.md).
+Only source/report/documentation reading and documentation validation occur.
+
+## 1. Source Identity and Reading Coverage
+
+Research HEAD: `b67da6262a973a0ae898002d5c7f5be2d8b5a90d`. Vendor Gambit HEAD:
+`7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882`. The Gerbil source tree is separately
+materialized at parent `.data/ci-source-patch-check`, HEAD
+`1cfb032c7a1612637da6205f5f8a15683eba3ba0`. Its inspected driver is locally
+patched (270 additions / 43 deletions); it is not unmodified upstream Gerbil.
+These are source observations, not installed toolchain or SMP overlay results.
+
+| ID | Source read in this refinement | Observed fact |
+| --- | --- | --- |
+| S1 | Gerbil `src/gerbil/compiler/driver.ss:41-53,952-977,1054-1113,1190-1206` | Environment-selected tools; split compiler/link options; patched Darwin generation/static-object/dynamic-bundle sequence with alias metadata; subprocess status mapped to compiler error |
+| S2 | Vendor `gsc/_gsclib.scm:498-593` | Converts semantic native inputs to environment parameters and invokes configured operation-specific gambuild driver |
+| S3 | Vendor `bin/gambuild-C.unix.in:238-283,331-410` | Combines package/metadata/explicit options; explicit CC clears mode defaults; evaluates command templates |
+| S4 | Vendor `lib/gambit/process/process.scm:76-150` | Process ports, status/output handling and inherited environment appended to supplied variables |
+| S5 | Vendor `lib/setup.c:1592-1616,2068-2098` | Compiler version and several structure sizes checked; object mapping precedes module setup; setup marks loaded link data |
+| S6 | Vendor `lib/os_dyn.c:408-454` | Runtime retains dynamic-loader handles and unloads them during cleanup unless configured otherwise |
+| S7 | Vendor `gsc/_front.scm:225-250`, `gsc/_back.scm:17-95`, `gsc/_t-c-1.scm:337-390` | Pre-normalization seam; target owns representation/link/FFI meaning; C backend consumes C declarations/procedures/inits/object references |
+| S8 | [Direct Gerbil interface source audit](interface-construction-operations-and-state.md) | Current binding/phase/lexical state, publication/error behavior and C00-C17 obligations; read in the preceding refinement, not newly requalified here |
+| S9 | Vendor `lib/os_io.c:8503-8548` | SIGCHLD handler loops over `waitpid(-1, ..., WNOHANG)` then associates status with process devices; in-process competing child owners need a protocol |
+
+Workspace source entry links: [Gerbil driver](../../../../../.data/ci-source-patch-check/src/gerbil/compiler/driver.ss),
+[Gambit request](../../../vendor/gambit/gsc/_gsclib.scm),
+[configured native driver](../../../vendor/gambit/bin/gambuild-C.unix.in),
+[child reaper](../../../vendor/gambit/lib/os_io.c).
+The materialized Gerbil link depends on that local tree. Hashes retain bytes
+for reconstruction rather than assuming the directory is immutable.
+
+| Source | SHA-256 |
+| --- | --- |
+| Gerbil `compiler/driver.ss` | `07a175646c90b16c690cf32d670b8368d534963966bbc84d89896f9bb8e5e300` |
+| Vendor `gsc/_gsclib.scm` | `c4068e8d8c34135354d26c8a6e79adcac73bf34f432b857961bdb4932da94dd0` |
+| Vendor `bin/gambuild-C.unix.in` | `bdd99a03bb24206e348bdc6ae760a02c04573694090e21cc0a9b748dc8522b4c` |
+| Vendor `lib/gambit/process/process.scm` | `31029718e7798ad764a3895ceccb10d4a8b29d2a41ea4558e9cfe2b859dfe17c` |
+| Vendor `lib/setup.c` | `047e88c4561f9a95d770732ff13b942620824a1f74727b3f12ed170063239d46` |
+| Vendor `lib/os_io.c` | `c0e7dc077c7dd6b6a2ee39028506c8a6d5313d29f881bda22d056cd6fce7d93f` |
+| Vendor `lib/os_dyn.c` | `b2221a08612d26bcca163ccecee1a634fb0012dc297a4e56bc39c77e9d894f28` |
+| Vendor `gsc/_front.scm` | `e05dd9b2370da0e1a7baa3c8b7ea1d212fc3efe23e0e90e8fce3db69119c63de` |
+| Vendor `gsc/_back.scm` | `fe9021d1e7f88c46a869d0701d4dc960346b7383e21857102ef2150b448ecf3b` |
+| Vendor `gsc/_t-c-1.scm` | `cd9030133390377167b2b29ad5f06f3854606e762a8a7cb44d932b62127d6b0a` |
+
+## 2. Historical Positive and Negative Evidence
+
+| ID | Report | Retained result and limit |
+| --- | --- | --- |
+| H1 | [Compiled closed-set generation](../../../../../patches/gerbil-v19-darwin/receipts/d1510-compiled-closed-generation-boundary.md) | v5 55-file ordinary-before 3.615736s, population 3.597891s, HIT 0.077661s, ordinary-after 3.575524s; original C/whole-link parity controls. HIT improvement belongs to generation component; no cold/full-consumer or Zig gain |
+| H2 | [Configured object request cost: DENIED](../../../../../patches/gerbil-v19-darwin/receipts/d1510-object-request-cost.md) | ABBA ordinary 0.83/0.93s versus preparation/coordinator 1.52/1.66s, exact object/proof HIT parity. Candidate adds about 81% mean request cost. Existing scheduler already had object parallelism; unchanged route must not be reintroduced |
+| H3 | [Interface evidence ledger](interface-construction-evidence.md) and [live-head control](../../../../../patches/gerbil-v19-darwin/receipts/d1510-head-resolution-live-boundary.md) | Reader component is small; handler timers omit outer resolution; reached predicate can mutate binding. No whole-prefix removable fraction follows |
+
+H1 and H2 were reread for this comparison. H3 uses the preceding source/report
+review and its byte-bound snapshots, without repeating diagnostics. Historical
+profile gates differ across these reports; do not combine their old first-log/
+build/test numbers or replace current admission with a historical pass.
+
+Report byte snapshots at this checkpoint: H1 SHA-256
+`958194fcd597c4afd8cf73a5c5e46ccfa3aa87501cec65aa8c1d79a8a7298441`;
+H2 SHA-256 `1143592ee344b47c6554adb8c24958fc45ed1530cd3fc2649cc9ec59e24eb66a`.
+These bind report bytes, not a new execution or current native acceptance.
+
+## 3. Primary Upstream Reading and Transfer Limits
+
+| ID | Primary reference and coverage | Supports | Does not establish |
+| --- | --- | --- | --- |
+| U1 | [Zig overview](https://ziglang.org/learn/overview/), C integration and manual resource sections | Direct C use and explicit native resource handling fit native adapters | Scheme-safe foreign control, complete C macro translation, automatic memory safety or measured maintenance saving |
+| U2 | [Zig build guide](https://ziglang.org/learn/build-system/), configuration/cache and target examples | Build graph and target/tool integration mechanisms exist | Hermetic custom external actions, Gambit semantic unit independence or a miss-cost advantage |
+| U3 | [Lattner et al., MLIR: A Compiler Infrastructure for the End of Moore's Law](https://arxiv.org/abs/2002.11054), PDF dialect/progressive-lowering discussion and sections 4.4-4.6, 6.1-6.2 | Extensible IR, legality interfaces, diagnostic forms and progressive lowering provide reusable infrastructure | Gambit closure/control/GC semantics or free general Scheme lowering |
+| U4 | [Creating a Dialect](https://mlir.llvm.org/docs/Tutorials/CreatingADialect/), ODS, TableGen and CMake library sections | Custom dialect/conversion implementations have real native/generated build dependencies | Replacing C++/TableGen by Zig without additional work |
+| U5 | [MLIR C API](https://mlir.llvm.org/docs/CAPI/), design/scope/object/ownership sections | Core IR/pass access via opaque handles; explicit ownership conventions | Stable API, complete dialect-specific wrappers or automatic handle lifetime correctness |
+| U6 | [MLIR pass infrastructure](https://mlir.llvm.org/docs/PassManagement/), crash/failure reproduction section | A pinned service can preserve reproducer artifacts and pipeline diagnostics | An enabled mechanism cannot guarantee a complete artifact after every process kill, or establish native semantic equivalence |
+| U7 | [MLIR bytecode](https://mlir.llvm.org/docs/BytecodeFormat/), introduction/versioning | Container and dialect-version mechanisms are distinct | Byte compatibility does not freeze project dialect meaning or runtime protocol |
+
+All upstream pages were read on 2026-10-19. Zig guides are rolling documents,
+not a chosen implementation version; executable examples are not treated as
+repository-qualified code. The MLIR paper's selected sections, rather than a
+new full-paper reproduction or imported benchmark, support this comparison.
+The [earlier literature review](zig-system-engineering-sources.md) retains wider
+paper coverage; none of those external results is a Darwin speedup forecast.
+
+## 4. Evidence Boundary
+
+Observed source seams support a substantial native subsystem. They do not
+measure how many maintainer-hours it saves, establish a dominant startup cause,
+or decide the net value of adopting Zig. The design's role allocation and
+economics are explicit architectural inferences. Source checks, historical
+diagnostics, complete workloads and ongoing engineering cost remain separate
+evidence categories. Historical failures and gates remain unchanged.
+
+Documentation checks: 225 local file references resolve; 96 Markdown tables
+have consistent widths. Both new D2 sources render with D2 0.9.0 (`dagre`,
+theme 0), and their SVGs were visually inspected. No implementation, toolchain
+installation, native/model test or performance validation was performed.

@@ -1,0 +1,112 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-floor-push-controls",
+  "scope": "Finite check that a one-word push from the tospace floor is refused before it writes byte offset 16 of the 24-byte header, and that the 32-byte reservation under stack_break is not that header. The omitted push damages the header. A check that services interrupts is a counterexample. Relations 24-8=16, 4*8=32>24, and 8*8=64>32 are invariant conjuncts. No native bootstrap, stress, runtime, or milestone admission.",
+  "budgetSeconds": 400,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "models/gambit/stack_floor_push_check.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-floor-push/source.lock.json",
+    "evidence/fixtures/darwin-stack-floor-push/review-contract.json",
+    "patches/fixtures/darwin-stack-floor-push.patch",
+    "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-floor-push/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": ["source"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_floor_push_check.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_floor_push_check.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "positive",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_floor_push_check.qnt",
+        "parsed": "parse",
+        "initializer": "initFloor",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "positive-frame",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_floor_push_check.qnt",
+        "parsed": "parse",
+        "initializer": "initFrame",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "omitted",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_floor_push_check.qnt",
+        "parsed": "parse",
+        "initializer": "initFloorOmitted",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "interrupts",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_floor_push_check.qnt",
+        "parsed": "parse",
+        "initializer": "initServicesInterrupts",
+        "step": "step",
+        "invariant": "InterruptsOff",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "type", "positive", "positive-frame", "omitted", "interrupts"],
+      "budgetSeconds": 45,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"},
+        "expected": {"missing": []}
+      }
+    }
+  ]
+}

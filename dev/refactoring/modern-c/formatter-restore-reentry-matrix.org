@@ -1,0 +1,193 @@
+#+TITLE: Formatter Restoration — Reentry and Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitFormatterRestoreReentry
+:STATUS: conditional-model; source-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| save | vendor/gambit/gsc/_gscdebug.scm | (let ((save-wr ##wr)) | Save is invocation-local current formatter, not necessarily the debug closure |
+| install | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! ##default-wr) | Global mutation before conversion and output |
+| inner-call | vendor/gambit/gsc/_gscdebug.scm | (##wr we | Inner operator is mutable global; exact resolution cut needs host evidence |
+| conversion | vendor/gambit/gsc/_gscdebug.scm | (c#parse-tree->expression obj) | Transform executes while default writer is installed |
+| restore | vendor/gambit/gsc/_gscdebug.scm | (##wr-set! save-wr) | Plain restoration can be skipped or replayed and overwrite newer registration |
+| scalar | vendor/gambit/gsc/_gscdebug.scm | (##default-wr we | Scalar branch never enters temporary global swap |
+| var-test | vendor/gambit/gsc/_envadt.scm | (define (var? x) | Special branch requires vector; selected scalar binding excluded |
+| ptree-test | vendor/gambit/gsc/_ptreeadt.scm | (define (ptree? obj) | Special branch requires vector |
+| tree-entry | vendor/gambit/gsc/_ptree2.scm | (define (parse-tree->expression ptree . rest) | Actual transform creates context and traverses parse tree |
+| tree-constant | vendor/gambit/gsc/_ptree2.scm | (se-constant val ptree ctx) | Constants can survive into output payload |
+| tree-eval | vendor/gambit/gsc/_ptree2.scm | (list quote-sym (eval name)) | Procedure-object branch evaluates name; does not itself call the resulting procedure |
+| tree-error | vendor/gambit/gsc/_ptree2.scm | (compiler-internal-error "se, unknown parse tree node type") | Diagnostic escape exists for malformed/unhandled node; legal-source reachability not inferred |
+| expansion | vendor/gambit/gsc/_front.scm | (pp-expression (parse-tree->expression ptree) port) | Ordinary expansion printing converts before printing; not direct evidence debug swap branch is entered |
+| arg-order | vendor/gambit/gsc/_front.scm | (define (arg-eval-order oper nodes) | Host artifact operand order not determined merely by source indentation |
+| dynamic-before | vendor/gambit/lib/_thread.scm | ((macro-dynwind-before dst)) | Winding invokes Scheme before procedures; not a no-callback cleanup primitive |
+| dynamic-after | vendor/gambit/lib/_thread.scm | ((macro-dynwind-after src)) | Unwinding invokes Scheme after procedures; may reenter/fail |
+| dynamic-wind | vendor/gambit/lib/_thread.scm | (define-prim (##dynamic-wind before thunk after) | Runtime supports dynamic extent; debug formatter does not use it |
+| handler | vendor/gambit/lib/_thread.scm | (define-prim (with-exception-handler handler thunk) | Returning dynamic handler may continue old frame |
+| catcher | vendor/gambit/lib/_thread.scm | (define-prim (##with-exception-catcher catcher thunk) | Catcher grafts outer continuation |
+| compiler-catch | vendor/gambit/gsc/_utils.scm | (set! throw-to-exception-handler cont) | Compiler diagnostic channel is separate |
+| compiler-abort | vendor/gambit/gsc/_utils.scm | (throw-to-exception-handler #f) | Compiler diagnostic escape can skip pending ordinary cleanup |
+| setter | vendor/gambit/lib/_io.scm | (set! ##wr x) | Formatter registration has no generation check in this setter |
+| default | vendor/gambit/lib/_io.scm | (define ##wr ##default-wr) | Global default initializer is not a per-invocation resolver |
+| generic | vendor/gambit/lib/_io.scm | (define-prim (##write-generic-to-character-port style port rt force? limit obj) | Writer dispatch includes marking/output events |
+| device | vendor/gambit/lib/_io.scm | (##wr we obj) | Device writer uses current global formatter |
+| recursive | vendor/gambit/lib/_io.scm | (define-prim (##wr-pair we obj) | Default recursive writer footprint must migrate, not just one outer call |
+| io-error | vendor/gambit/lib/_io.scm | (define-prim (##raise-io-exception port exc) | I/O callback may return, escape, capture or publish with capability |
+| gc-job | vendor/gambit/lib/_kernel.scm | (##execute-jobs! ##gc-interrupt-jobs) | Conditional callback producer; exact interleaving still unqualified |
+| table-reset | vendor/gambit/gsc/_t-c-1.scm | (set! targ-glo-vars         (make-table 'test: eq?)) | Nested compilation changes metadata entry identity |
+| demand | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-demanders-set! (cdr x) '("")) | Canonical same-entry writer |
+| supply | vendor/gambit/gsc/_t-c-1.scm | (targ-rsrc-suppliers-set! (cdr x) '("")) | Demand-preserving writer |
+| raw | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Raw writer can invalidate canonicality |
+| glo | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Second normalization remains required absent qualification |
+| igsc | vendor/gambit/gsc/igsc.scm | "_gscdebug" | Actual interactive compiler formatter registration path |
+
+** Window
+
+| key | cause | effect | reachability | gap |
+|---+---+---+---+---|
+| escape | Nonlocal exit after default installation | Restoration statement not reached | Conditional on special branch and actual escaping producer | Not demonstrated in selected scalar primitive emission |
+| replay | Capture inside conversion/write and multiple resume | Old lexical save may overwrite new writer repeatedly | Source-composable once real capture is established | Exact legal payload/callback and native PC mapping OPEN |
+| late-entry | Old formatter closure dispatched after global replacement | Entry saves current writer; may restore newer writer correctly | Requires retained callable and writeenv/port lifetime | Do not equate callable identity with current registration |
+| operator | Conversion/async registration between operand evaluations | Inner callable can differ depending on resolution cut | Both schedules modeled as alternatives | Actual selected compiler/host evaluation order OPEN |
+| aba | Restore old function object after intervening changes | Object equality hides registration history | Plain setter permits value reuse | Certificate needs generation, closure effects and producer drain |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| owned-restore | Compare ownership and generation at restore | Serialized registration and restoration; fresh operation token | Do not clobber a newer registration | C23 instruction-level handoff and Scheme nonlocal exit integration OPEN |
+| scoped-resolver | Immutable per-invocation writer policy | Every recursive dispatch and denv/writeenv path migrated | No global restoration obligation for that resolver | Defined semantic repair; not automatic equivalence to global mutation |
+| continuation | Separate continuation execution from reuse authority | Each activation/root remains owned; new operation identity on reexecution | Reject stale permit, retain Scheme continuation capability | Full multi-shot/output/root refinement OPEN |
+| second | Canonical same-entry writer closure plus current formatter policy | Drained accepted callbacks/captures and equivalent faults/events | Second value normalization may retire | Object restoration alone is insufficient |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| local-view | Two temporary global writes per special invocation; cross-session invalidation due solely to it | Owned resolver/view; migrate 20 direct recursive writer applications and continuation roots | All writer sites use context; diagnostic/registration semantics explicitly defined |
+| second | At most one second helper normalization per qualified emission; p*N over N emissions | Capability generation, callback accounting and byte/fault verification | Canonicality, same entry, valid policy and no unresolved borrowers |
+| guard-only | Prevents stale unconditional restoration from clobbering newer registration | Owner tokens, conflict settlement and possible redispatch | Semantic repair for conflicting registration; not exact legacy behavior |
+| shared | Reusable immutable stage/profile result across compiler consumers | Profile invalidation, independent contexts and root lifetime | Do not add a lock wrapper around the same global bottleneck |
+| net | Duplicate work D plus removed redundant effects W | Resolver K + owner/root S + callback audit H + validation V | Runtime subset positive only if p*N*Cn > Cq+W*Cv; architecture ledger D+W>K+S+H+V; no measured timing or macro-expansion gain |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Debug special entry | Saved writer | current identity |
+| Saved writer | Install default | global swap |
+| Install default | Conversion and write | callback window |
+| Conversion and write | Legacy restore | plain statement |
+| Captured continuation | Legacy restore | old save replay |
+| New registration | Legacy restore | overwrite risk |
+| Install default | Owned scope | generation lease |
+| Owned scope | Conflict settlement | preserve newer |
+| Accepted dispatch | Drain barrier | late borrower |
+| Capture roots | Drain barrier | multi-shot debt |
+| Drain barrier | Capability receipt | all producers closed |
+| Capability receipt | Second cut | current policy |
+| Scoped writer view | Recursive dispatch | explicit resolver |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| formatter_restore_reentry.beginScope | FormatterRestore.beginScopePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.bodyReturns | FormatterRestore.bodyReturnsPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.restoreOwned | FormatterRestore.restoreOwnedPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.escapeOwned | FormatterRestore.escapeOwnedPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.publishOther | FormatterRestore.publishOtherPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.publishSameIdentity | FormatterRestore.publishSameIdentityPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.yieldConflict | FormatterRestore.yieldConflictPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.changeEpoch | FormatterRestore.changeEpochPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.acceptTicket | FormatterRestore.acceptTicketPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.startTicket | FormatterRestore.startTicketPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.finishBorrower | FormatterRestore.finishBorrowerPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.capture | FormatterRestore.capturePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.rejectStalePermit | FormatterRestore.rejectStalePermitPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.detachCapture | FormatterRestore.detachCapturePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.closeRegistration | FormatterRestore.closeRegistrationPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.namedDemand | FormatterRestore.namedDemandPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.namedSupply | FormatterRestore.namedSupplyPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.rawMetadata | FormatterRestore.rawMetadataPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.ioFailure | FormatterRestore.ioFailurePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.qualifyProfile | FormatterRestore.qualifyProfilePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.issue | FormatterRestore.issuePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.consumeSecond | FormatterRestore.consumeSecondPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyEnter | FormatterRestore.legacyEnterPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyCapture | FormatterRestore.legacyCapturePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyEscape | FormatterRestore.legacyEscapePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyPublish | FormatterRestore.legacyPublishPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyResolve | FormatterRestore.legacyResolvePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyReturn | FormatterRestore.legacyReturnPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyRestore | FormatterRestore.legacyRestorePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyResume | FormatterRestore.legacyResumePreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+| formatter_restore_reentry.legacyLateEntry | FormatterRestore.legacyLateEntryPreserves | Alternative legacy/managed worlds; conditional atomic transitions, source fidelity external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| steps | FormatterRestore.stepPreserves |
+| reachable | FormatterRestore.reachableSafe |
+| drain | FormatterRestore.permitNeedsDrain |
+| generation | FormatterRestore.permitNeedsGeneration |
+| capture | FormatterRestore.rejectedResumeKeepsCapture |
+| aba | FormatterRestoreAlgebra.sameObjectNotSameKey |
+| overwrite | FormatterRestoreAlgebra.unconditionalRestoreOverwritesNewer |
+| conflict | FormatterRestoreAlgebra.conflictPreservesCurrent |
+| scoped | FormatterRestoreAlgebra.scopedResolverIndependent |
+| canonical | FormatterRestoreAlgebra.secondUnderNamedWriters |
+
+** Migration
+
+| key | producerAnchor | consumerAnchor | actionName | lemma |
+|---+---+---+---+---|
+| plain-swap | save | install | formatter_restore_reentry.legacyEnter | FormatterRestore.legacyEnterPreserves |
+| old-resume | restore | conversion | formatter_restore_reentry.legacyResume | FormatterRestore.legacyResumePreserves |
+| late-identity | setter | save | formatter_restore_reentry.legacyLateEntry | FormatterRestore.legacyLateEntryPreserves |
+| owned-restore | setter | restore | formatter_restore_reentry.restoreOwned | FormatterRestoreAlgebra.conflictPreservesCurrent |
+| scoped-dispatch | default | recursive | formatter_restore_reentry.qualifyProfile | FormatterRestoreAlgebra.scopedResolverIndependent |
+| canonical | demand | glo | formatter_restore_reentry.consumeSecond | FormatterRestoreAlgebra.secondUnderNamedWriters |
+| capture-debt | catcher | restore | formatter_restore_reentry.rejectStalePermit | FormatterRestore.rejectedResumeKeepsCapture |
+
+** Inventory
+
+| key | path | pattern | count | scope |
+|---+---+---+---+---|
+| recursive-writer | vendor/gambit/lib/_io.scm | \(##wr\s | 20 | Exact lexical occurrence count; zero does not close indirect runtime effects |
+| debug-setters | vendor/gambit/gsc/_gscdebug.scm | \(##wr-set!\s | 3 | Exact lexical occurrence count; zero does not close indirect runtime effects |
+| debug-capture | vendor/gambit/gsc/_gscdebug.scm | \(call-with-current-continuation\vert{}\(##continuation-capture\vert{}\(dynamic-wind | 0 | Exact lexical occurrence count; zero does not close indirect runtime effects |
+| resource-reader | vendor/gambit/gsc/_gscdebug.scm | targ-glo-vars\vert{}targ-rsrc-\vert{}targ-use-glo | 0 | Exact lexical occurrence count; zero does not close indirect runtime effects |
+
+** Policy
+
+| key | writerClass | assumptions | firstExpected | secondExpected | scope |
+|---+---+---+---+---+---|
+| current-no-qualified-closure | named-only |  | false | false | Sufficient assumptions only; not native or source qualification |
+| synthetic-qualified | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence | false | true | Sufficient assumptions only; not native or source qualification |
+| synthetic-old-generation | named-only | first-retained;same-entry;canonical-writers;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence | false | false | Sufficient assumptions only; not native or source qualification |
+| synthetic-late-callback | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;captures-retired;fault-equivalence | false | false | Sufficient assumptions only; not native or source qualification |
+| synthetic-live-capture | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;fault-equivalence | false | false | Sufficient assumptions only; not native or source qualification |
+| synthetic-raw-writer | named-only | first-retained;same-entry;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired;fault-equivalence | false | false | Sufficient assumptions only; not native or source qualification |
+| synthetic-exit-fault | named-only | first-retained;same-entry;canonical-writers;formatter-profile-current;restore-settled;registration-closed;borrowers-drained;captures-retired | false | false | Sufficient assumptions only; not native or source qualification |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| FR-history | interleaving | dev/refactoring/modern-c/models/quint/formatter_restore_reentry.qnt | 20 histories; alternative legacy restore/replay and managed admission, not one physical execution |
+| FR-induction | induction | dev/refactoring/modern-c/models/lean/FormatterRestore.lean | All projected steps preserve conditional custody and permit invariant |
+| FR-algebra | induction | dev/refactoring/modern-c/models/lean/FormatterRestoreAlgebra.lean | Generation key distinction, conflict preservation, scoped value resolver and named writer closure |
+| FR-projection | restricted-projection | dev/refactoring/modern-c/models/lean/FormatterRestoreAst.lean | Actual typed IR binding/field/expression/roster checks; extractor trusted |
+| FR-source | source-refinement | dev/refactoring/modern-c/formatter-restore-reentry-design.org | Special-branch legal caller and capture, actual operator order, complete registration and root closure OPEN |
+| FR-exceptions | exception-equivalence | dev/refactoring/modern-c/formatter-restore-reentry-design.org | Fault prefixes, unwinding/reentry and multi-shot invocation equivalence OPEN |
+| FR-platform | c23-platform-qualification | dev/refactoring/modern-c/language-baseline-design.org | Owner handoff, global slot visibility, root lifetime and target ABI qualification OPEN |
+| FR-emission | emitter-fidelity | dev/refactoring/modern-c/formatter-restore-reentry-design.org | Complete recursive writer-context migration and output event/source refinement OPEN |

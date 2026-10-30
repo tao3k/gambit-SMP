@@ -1,0 +1,99 @@
+#+TITLE: Tcl Command Custody: Source and Primary Evidence
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Tcl Command Custody: Source and Primary Evidence :ffi:
+:PROPERTIES:
+:ID: a48288e6-5784-5be7-b848-7caad5ecf3b9
+:CUSTOM_ID: tcl-command-custody-source-and-primary-evidence
+:SOURCE_PATH: docs/experimental/zig/tcl-command-custody-evidence.md
+:SOURCE_SHA256: 91bf9c62a9cae4b12a6e5e6e43922adf7bfcf891776a3a69dee61501a2f9847c
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed 2026-10-21. Research HEAD
+~1a2d8612f2065387c62858e10baf63ce369cc48c~; Gambit HEAD
+~7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882~. Exact local working bytes and
+line intervals are bound in the [[file:../../../../../docs/experimental/zig/tcl-command-custody-traceability.json][trace]].
+Remote reading identities are recorded separately in
+[[file:../../../../../docs/experimental/zig/tcl-command-external-readings.json][external readings]]: they are not installed
+library identities, downloaded raw-source hashes or native qualification.
+No implementation, expansion, native test, model or performance run.
+
+*** Local Gambit Callers
+:PROPERTIES:
+:ID: b6dd291d-61ab-501a-9fb4-e7ae12e7cbf3
+:CUSTOM_ID: local-gambit-callers
+:END:
+
+| ID | Source anchors | Observation / boundary |
+|-
+| TE01 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::124][Tcl registration and callbacks]], 124–195, 217–228, 245–345 | RC client data and still vector; native entry reads cd once before Scheme call; result transfers to custom free callback; delete releases vector then RC; final create Boolean branch has no explicit NULL disposal. No post-Scheme-return cd read in this function. |
+| TE02 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::575][Widget procedure export]], 575–618, 650–674; [[file:../../../../../vendor/gambit/examples/tcltk/fig16-10.scm::24][real bind callback]], 24–28 | Procedure-valued widget arguments become exported commands; public define/export/remove wrappers exist; double-click handler reenters tcl. This is a real native callback producer/reentry client, not a map/capture combined test. |
+| TE03 | [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::50][Interpreter setup/cleanup]], 50–122, 201–215; [[file:../../../../../vendor/gambit/examples/tcltk/tcltk.scm::347][event loop/exit]], 347–425 | Global interpreter, Tcl/Tk init, delete and eval; active Scheme thread polls DoOneEvent(DONT_WAIT), sleeps and joins. Tk_MainLoop binding is commented, alternate definition is quoted. Source does not establish creating-OS-thread affinity or arbitrary reentrant shutdown progress. |
+| TE04 | [[file:../../../../../vendor/gambit/gsc/_ptree2.scm::2902][Conversion cleanup selection]], 2902–2931, 3235–3245, 3310–3336; [[file:../../../../../vendor/gambit/include/gambit.h.in::10040][CFUN/SFUN]], 10040–10066, 10325–10405; [[file:../../../../../vendor/gambit/include/gambit.h.in::9978][TRY]], 9978–10012 | CFUN body catcher depends on argument cleanup types; zero arguments choose no parameter cleanup. Catching outside a Tcl body does not execute Tcl cleanup inside it. SFUN END and conversion-error reentry are distinct paths; no whole native effect inference is established. |
+| TE05 | [[file:../../../../../vendor/gambit/lib/c_intf.c::6511][Marker allocation]], 6511–6562; [[file:../../../../../vendor/gambit/lib/setup.c::3275][call/run]], 3275–3422; [[file:../../../../../vendor/gambit/lib/_kernel.scm::1019][return handler]], 1019–1071; [[file:../../../../../vendor/gambit/doc/gambit.txi::12208][documented capture example]], 12208–12267 | Root-before-marker TODO, logical RA/marker frame, matched/unmatched unwind and marker/processor errors. Retaining a continuation cannot revive an expired native return. No current executable was run. |
+| TE06 | [[file:../../../../../vendor/gambit/lib/mem.c::674][RC lifecycle]], 674–829; [[file:../../../../../vendor/gambit/lib/mem.c::1443][still reference counts]], 1443–1473, 1730–1741; [[file:../../../../../vendor/gambit/lib/mem.c::3969][scan]], 3969–3996; [[file:../../../../../patches/fixtures/processor-interrupt-collective-wait-cumulative.patch::3160][existing patch]], 3160–3234, 3433–3452 | Plain RC/still operations, forced cleanup and updateable data scan. Existing per-processor marking/donor transfer credited. Candidate owner/scan/retirement protocol must serialize actual users rather than assume atomic refcounts. |
+| TE07 | [[file:../../../../../vendor/gambit/lib/c_intf.c::1756][String release]], 1756–1776; [[file:../../../../../vendor/gambit/lib/c_intf.c::3199][native copy]], 3199–3310; [[file:../../../../../vendor/gambit/examples/tcltk/makefile.in::69][build recipe]], 69–98 | Result free calls release_rc; encoded strings already use native copy/allocation. Tcl_FreeProc cast and allocator pairing need ABI qualification or an exact-signature adapter. Example build inputs do not identify the currently loaded Tcl/Tk source or binary. |
+
+*** Tcl API and Source Readings
+:PROPERTIES:
+:ID: 9397d2ed-9952-5b9e-8cb8-a68612963da5
+:CUSTOM_ID: tcl-api-and-source-readings
+:END:
+
+| ID | Primary evidence and selected location | Bounded observation |
+|-
+| TX01 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/CrtCommand.htm][CreateCommand manual]], description | Creation/replacement/deletion callback contract; NULL for deleting interpreter; borrowed argv ownership. A token/Boolean is not a general transactional ownership receipt. |
+| TX02 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/CrtObjCmd.htm][CreateObjCommand/DeleteCommand manual]], deletion and command info | Delete hooks and token-based removal; renamed commands require identity-aware removal. Mixed string/object replacement has special rules, so object conversion is not a mechanical semantic substitution. |
+| TX03 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/Preserve.htm][Preserve/Release/EventuallyFree manual]], description | Storage can be held across reentrant deletion and freed at last release. Deductions: preserve/retire must use the same storage identity and matched protocol; preserving interpreter alone does not preserve extension data or Scheme roots. |
+| TX04 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclBasic.c][tclBasic.c branch reading]], browser source-line ordinals 1974–2132, 2387–2409, 2978–3139, 3348–3355, 4225–4306, 5124–5222 | Create has pre-install NULL returns; replacement may directly discard a recreated command; deleteProc precedes final command-structure cleanup; string argv is freed after callback return; normal/NRE evaluation performs post-call cleanup. These establish gaps an external longjmp can bypass. Branch/line reading only, not byte-pinned installed source. |
+| TX05 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/Thread.htm][Tcl threads manual]], introduction | One interpreter may only be used by its creating thread. A mutex does not grant permission to migrate its operations to another OS thread. |
+| TX06 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/SetResult.htm][SetResult manual]], freeProc section | Tcl owns/retains results under the specified policy; custom callback handles non-Tcl allocation; VOLATILE copies. Results may be replaced independently of command deletion. Preserve exact callback ABI and allocator. |
+| TX07 | [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclResult.c][tclResult.c branch reading]], rendered lines 3–8, 47–50 | Saved interpreter state has restore/discard obligations; FreeResult invokes its custom free callback. Result preservation does not provide general library-stack restoration. Rendered lines here are folded web text, not physical raw-file line anchors. |
+| TX08 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/CrtInterp.htm][CreateInterp/DeleteInterp manual]], memory management; [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclBasic.c][tclBasic.c]], 1279–1328 | Logical deletion and eventual storage destruction differ; active use needs an owned preserve/release discipline. Preserve does not keep further eval logically enabled after deletion. |
+| TX09 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/DoOneEvent.htm][DoOneEvent manual]], description | Event processing may recurse; DONT_WAIT avoids sleeping for absent events, not arbitrary time inside a handler. Its event-work result differs from a Tcl command completion code. |
+| TX10 | [[https://www.tcl-lang.org/man/tcl8.6/TclCmd/catch.htm][catch manual]], description | Tcl can catch exceptional command return codes and continue. Hence a return-code sentinel is not proof of an immediate, uncatchable Scheme transfer. |
+| TX11 | [[https://www.tcl-lang.org/man/tcl8.6/TclLib/DoOneEvent.htm][DoOneEvent]] and [[https://www.tcl-lang.org/man/tcl8.6/TclLib/SetResult.htm][SetResult]] | Event and command-result boundaries need separate adapters; a scope must record which interface actually delivered the callback. No new independent claim of their internals is made. |
+
+The live manuals identify themselves as Tcl/Tk 8.6.18; branch readings use
+~core-8-6-branch~. Neither establishes which Tcl/Tk the Gambit example would
+load here. No local Tcl source checkout was found in vendor. A tagged raw
+tclBasic read failed, the GitHub commit endpoint was unavailable, and shell
+retrieval failed DNS resolution. Thus no immutable remote commit or full-source
+hash is asserted. Separate DeleteCommand/DeleteInterp/SaveResult/SaveInterpState
+and cancellation-page fetches failed; claims use the successful pages/source
+above. Failed retrievals are retained as gaps, not converted into evidence.
+
+*** Papers and Language/Runtime Mechanisms
+:PROPERTIES:
+:ID: 2b5f63c0-cafa-5b86-aa23-273dd788ecb8
+:CUSTOM_ID: papers-and-languageruntime-mechanisms
+:END:
+
+| ID | Evidence | Learning and limit |
+|-
+| TL01 | [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][Retrofitting Effect Handlers onto OCaml]], §§2.3, 3.1–3.2 | Explicit C-frame capture boundary and resource-cleanup tradeoffs. Gambit's existing Scheme continuation and native-marker laws remain distinct; OCaml's one-shot choice is not imported. |
+| TL02 | [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570]], §§5.1.2.4, 7.13.2.1 | Race-free accesses, live same-thread saved environment and changed setjmp-local restrictions constrain custody ledgers. An outer saved environment cannot recreate library cleanup skipped by jumping to it. |
+| TL03 | [[https://ocaml.org/manual/5.3/intfc.html][OCaml C interface]], §§5, 7, 12; [[https://raw.githubusercontent.com/ocaml/ocaml/5.3/runtime/caml/callback.h][callback header]], 26–52 | Roots, execution permission and pending actions have separate contracts. Propagating and typed result callbacks are explicit API alternatives, not interchangeable control semantics. |
+| TL04 | [[file:../../../../refactoring/zig/studies/zig-vs-modern-c-evidence.org][Existing paired language evidence]], P01–P04; [[https://ziglang.org/documentation/0.15.1/][Zig reference]] | Tagged representations/ordinary cleanup may improve expression; foreign root lifetime, Tcl affinity and unsupported longjmp remain common obligations. Generated modern C is the comparator. |
+
+ND01. [[file:native-callback-custody-contract.org][Native callback contract]],
+[[file:native-callback-arguments.org][arguments]] and
+[[file:native-callback-benefit-matrix.org][matrix]]: root/writeback, independent native
+return capability, callback nesting and scan savings are credited once.
+
+ND02. [[file:../../execution/studies/shared-runtime-root-custody-design.org][Shared runtime root custody]],
+[[file:device-release-sync-proof.org][release synchronization]] and
+[[file:../../../../refactoring/modern-c/studies/generated-c-native-contract.org][generated native contract]]: accepted derived
+work, lifetime receipts and Scheme-generated shared policy remain the mainline.

@@ -6,14 +6,42 @@ import tempfile
 import unittest
 from gambit_smp import native_suite
 from unittest.mock import patch
+from tests.support import task_fixture
 
 from gambit_smp.native_suite import admitted_suite, selected_files, campaign_status, extra_fixture, admitted_processors, fixture_patch, partitions, runtime_view, capacity, runner_option, atomic_suite
 
 
 class NativeSuiteTests(unittest.TestCase):
-    def test_retry_preflight_denies_before_any_runtime_probe_or_suite_launch(self):
+    def test_expired_compiled_group_is_unstarted_not_a_forged_child_timeout(self):
+        import time
+        from gambit_smp.native_capabilities import run_suite_groups
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
+            copied = root / 'fixtures'
+            (copied / 'unit-tests').mkdir(parents=True)
+            (copied / 'unit-tests/case.scm').write_text('(exit 0)\n')
+            class Context:
+                directory = root / 'observations'
+                deadline = time.monotonic() - 1
+                progress_mode = False
+                def run(self, *args, **kwargs):
+                    raise AssertionError('an expired group must not launch a process')
+            Context.directory.mkdir()
+            rows = run_suite_groups(Context(), root / 'runtime', copied,
+                                    dict(mode='gsc', regime='whole-parallel'),
+                                    [Path('case.scm')], 1, 'p1')
+            self.assertEqual(1, len(rows))
+            self.assertFalse(rows[0]['started'])
+            self.assertFalse(rows[0]['accepted'])
+            self.assertFalse(rows[0]['timeout'])
+            self.assertIsNone(rows[0]['exit'])
+            self.assertTrue(rows[0]['deadlineExhausted'])
+            self.assertEqual(['case.scm'], rows[0]['files'])
+            self.assertIsNone(rows[0]['storageTransfer'])
+            self.assertFalse((Context.directory / 'shards').exists())
+
+    def test_retry_preflight_denies_before_any_runtime_probe_or_suite_launch(self):
+        with task_fixture('suite-preflight') as (root, cache):
             runtime = root / "source"
             unit = runtime / "tests/unit-tests"
             unit.mkdir(parents=True)
@@ -21,7 +49,7 @@ class NativeSuiteTests(unittest.TestCase):
             (runtime / "tests/run-unit-tests.scm").write_text("original runner")
             candidate = root / "candidate.json"
             candidate.write_text("{}")
-            out = root / "attempt"
+            out = cache / "attempt"
             argv = ["gambit_smp.native_suite.py", "--runtime", str(runtime),
                     "--toolchain-receipt", str(candidate), "--gcc", "/selected/gcc",
                     "--out", str(out), "--timeout", "30", "--mode", "gsc", "case.scm"]

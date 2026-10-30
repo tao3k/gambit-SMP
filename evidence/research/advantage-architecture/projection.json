@@ -1,0 +1,651 @@
+{
+  "owner": [
+    {
+      "module.moduleId": "semantic",
+      "module.ownerPath": "dev/architecture/compiler",
+      "module.owns": "Normalization, GVM semantic completion, effects, FrameSpec, PointId and primitive/FFI legality",
+      "module.provides": "Closed semantic plan and ordered module contract",
+      "module.excludes": "Does not choose execution scheduling or native resource ownership"
+    },
+    {
+      "module.moduleId": "native",
+      "module.ownerPath": "dev/refactoring/modern-c",
+      "module.owns": "Mechanical lowering and generated frame/root/layout/entry declarations from completed plan",
+      "module.provides": "C ABI, trampoline and exact layout adapters",
+      "module.excludes": "Does not invent a second Scheme semantic policy"
+    },
+    {
+      "module.moduleId": "execution",
+      "module.ownerPath": "dev/architecture/runtime/execution",
+      "module.owns": "Execution grants, park/reentry, participant membership, resize and exit admission",
+      "module.provides": "Stable context identity with explicit join/leave and last-user closure",
+      "module.excludes": "A descriptor or published TLS pointer is not an execution grant"
+    },
+    {
+      "module.moduleId": "roots",
+      "module.ownerPath": "dev/architecture/runtime/interfaces",
+      "module.owns": "Cross-owner root-cut, slot-update and last-reader agreement; execution/FFI remain value custodians, GC remains scanner",
+      "module.provides": "Epoch-bound root slots and scan grants with reload obligations",
+      "module.excludes": "Does not take semantic ownership away from producer and scanner modules"
+    },
+    {
+      "module.moduleId": "collector",
+      "module.ownerPath": "dev/architecture/runtime/gc",
+      "module.owns": "Heap layout, allocation budgets, copy/scan tasks, phases, promotion and reclaim decisions",
+      "module.provides": "Complete work context with parent/child/Tail custody and phase closure",
+      "module.excludes": "Worker identity does not imply processor or native-thread identity"
+    },
+    {
+      "module.moduleId": "control",
+      "module.ownerPath": "dev/architecture/runtime/control",
+      "module.owns": "Captured/current/saved frame interpretation, denv mutation, restore and supported nonlocal exits",
+      "module.provides": "Root-complete frame traversal and resumption origins",
+      "module.excludes": "Gambit continuations are not silently restricted to one-shot effect resumptions"
+    },
+    {
+      "module.moduleId": "foreign",
+      "module.ownerPath": "dev/architecture/runtime/ffi",
+      "module.owns": "Borrow scopes, root protection before marker allocation, nested callback origin and acquired-effect cleanup",
+      "module.provides": "Admitted host entry, block transition and explicit result/control boundary",
+      "module.excludes": "Raw C pointers do not survive moving GC by language interoperability alone"
+    },
+    {
+      "module.moduleId": "release",
+      "module.ownerPath": "dev/architecture/runtime/ffi",
+      "module.owns": "Classified release effects, thread-affine jobs, WaitContext, derived-task accounting and shutdown drain",
+      "module.provides": "Accepted task custody and exactly owned completion/result disposition",
+      "module.excludes": "A drained GC phase is not proof that external resources or borrowers drained"
+    },
+    {
+      "module.moduleId": "build",
+      "module.ownerPath": "dev/architecture/toolchain",
+      "module.owns": "Rule planning, dependencies, rebuild decision, CPU/memory scheduling and transactional artifact publication",
+      "module.provides": "Source/plan/generated/object/link lineage and effective multicore ABI",
+      "module.excludes": "Does not define Scheme unit semantics or count build threads as runtime processors"
+    }
+  ],
+  "decision": [
+    {
+      "decision.decisionId": "semantic",
+      "decision.owner.moduleId": "semantic",
+      "decision.replacement": "Scheme owns FrameSpec/PointId/ModuleSpec/EffectSpec/AllocationSpec; generate typed C functions/tables and explicit ABI",
+      "decision.retirement": "Retire duplicated semantic macro emission and layout decisions after all generators/runtime consumers use the schema",
+      "decision.interleaving.obligationId": "MW-SEMANTIC-Q",
+      "decision.interleaving.subjectPath": "models/gambit/ffi_gc_frame_protocol.qnt",
+      "decision.interleaving.subjectScope": "modernization-target:semantic:whole-source-composition-open",
+      "decision.induction.obligationId": "MW-SEMANTIC-L",
+      "decision.induction.subjectPath": "models/gambit/lean/SavedStackRootClosure.lean",
+      "decision.induction.subjectScope": "modernization-target:semantic:whole-source-composition-open"
+    },
+    {
+      "decision.decisionId": "domain",
+      "decision.owner.moduleId": "execution",
+      "decision.replacement": "VM owns membership/heap epochs; ExecutionContext owns Scheme state; GCParticipant freezes roots; CollectorWorkContext owns scan work independent of OS/PSTATE lifetime",
+      "decision.retirement": "Retire implicit PSTATE ownership of collector queues, allocation state and cleanup after exact producer/consumer/lifetime replacement",
+      "decision.interleaving.obligationId": "MW-DOMAIN-Q",
+      "decision.interleaving.subjectPath": "models/gambit/scheduler_gc_root_cohort_composition.qnt",
+      "decision.interleaving.subjectScope": "modernization-target:domain:whole-source-composition-open",
+      "decision.induction.obligationId": "MW-DOMAIN-L",
+      "decision.induction.subjectPath": "models/gambit/lean/WorkAccounting.lean",
+      "decision.induction.subjectScope": "modernization-target:domain:whole-source-composition-open"
+    },
+    {
+      "decision.decisionId": "heap",
+      "decision.owner.moduleId": "collector",
+      "decision.replacement": "Context-local nurseries, shared mature heap, parallel STW minor, generated remembered writes and explicit promotion budget; isolate major algorithm behind heap/phase contract",
+      "decision.retirement": "Retire full mature-graph minor scanning only after all roots, continuation/denv/FFI writers and sparse/promotion layouts close",
+      "decision.interleaving.obligationId": "MW-HEAP-Q",
+      "decision.interleaving.subjectPath": "models/gambit/generational_barrier.qnt",
+      "decision.interleaving.subjectScope": "modernization-target:heap:whole-source-composition-open",
+      "decision.induction.obligationId": "MW-HEAP-L",
+      "decision.induction.subjectPath": "models/gambit/lean/GenerationalBarrier.lean",
+      "decision.induction.subjectScope": "modernization-target:heap:whole-source-composition-open"
+    },
+    {
+      "decision.decisionId": "control",
+      "decision.owner.moduleId": "control",
+      "decision.replacement": "One precise frame/root format for running, captured and resumed computation; persistent or copy-on-write captured frames; one-shot optimization only with proven use",
+      "decision.retirement": "Retire carrier-local C control assumptions after repeated resumption, dynamic-wind, exceptions and supported FFI escapes are preserved",
+      "decision.interleaving.obligationId": "MW-CONTROL-Q",
+      "decision.interleaving.subjectPath": "models/gambit/captured_heap_frame_operations.qnt",
+      "decision.interleaving.subjectScope": "modernization-target:control:whole-source-composition-open",
+      "decision.induction.obligationId": "MW-CONTROL-L",
+      "decision.induction.subjectPath": "models/gambit/lean/SavedStackRootClosure.lean",
+      "decision.induction.subjectScope": "modernization-target:control:whole-source-composition-open"
+    },
+    {
+      "decision.decisionId": "foreign",
+      "decision.owner.moduleId": "foreign",
+      "decision.replacement": "RootRegistry before allocation; generated native entry plans; park/freeze/reload; VM-owned outcomes and effect-classified release tasks outside collector critical phase",
+      "decision.retirement": "Retire raw marker-only lifetime, ad hoc root choreography and inline arbitrary release only after whole real caller coverage",
+      "decision.interleaving.obligationId": "MW-FOREIGN-Q",
+      "decision.interleaving.subjectPath": "models/gambit/native_entry_close_cleanup.qnt",
+      "decision.interleaving.subjectScope": "modernization-target:foreign:whole-source-composition-open",
+      "decision.induction.obligationId": "MW-FOREIGN-L",
+      "decision.induction.subjectPath": "models/gambit/lean/NativeEntryCloseCleanup.lean",
+      "decision.induction.subjectScope": "modernization-target:foreign:whole-source-composition-open"
+    },
+    {
+      "decision.decisionId": "build",
+      "decision.owner.moduleId": "build",
+      "decision.replacement": "Scheme frontend/session -> semantic module artifacts -> generated C/runtime ABI artifacts; phase-ready dependency DAG, stable snapshots, incremental/parallel scheduling and reusable AOT interface programs",
+      "decision.retirement": "Retire repeated expansion and regenerated/recompiled unaffected units after clean-versus-incremental observational equivalence",
+      "decision.interleaving.obligationId": "MW-BUILD-Q",
+      "decision.interleaving.subjectPath": "models/build/incremental_build.qnt",
+      "decision.interleaving.subjectScope": "modernization-target:build:whole-source-composition-open",
+      "decision.induction.obligationId": "MW-BUILD-L",
+      "decision.induction.subjectPath": "models/build/IncrementalBuild.lean",
+      "decision.induction.subjectScope": "modernization-target:build:whole-source-composition-open"
+    }
+  ],
+  "advantage": [
+    {
+      "key": "logical-frames",
+      "paper": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
+      "section": "2,2.3",
+      "basis": "Logical implementation objects and frame slot coordinates bridge source and machine",
+      "frameDesign": "Generate stack/heap/internal-return decoders, pointer maps and ABI from one logical schema",
+      "control": "Each capture and shot uses same frame identity; mutable exposed frames retain alias semantics",
+      "gcSmp": "Precise running/saved/native root consumers and promotion interpret the same slots",
+      "build": "Cache semantic contract separately from physical layout and native compiler inputs",
+      "refutation": "Fails if duplicated layout decisions remain or frame/reflection observations change"
+    },
+    {
+      "key": "bidirectional-target",
+      "paper": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
+      "section": "2",
+      "basis": "Target descriptions carry registers, calls, closures, primitives and declarations back to frontend",
+      "frameDesign": "Separate semantic profile, layout ABI and mechanical C emission; feed legal target facts back before completion",
+      "control": "Tail/non-tail and allocating/exceptional successors retain full semantic information",
+      "gcSmp": "Checkpoint, allocation and barrier obligations are negotiated instead of rediscovered in macros",
+      "build": "Gambit supplies sealed stages; Gerbil schedules exact phase products; LLVM/MLIR consumes semantic plan at declared level",
+      "refutation": "Fails if native-only edits unnecessarily redo expansion or semantic edits incorrectly hit old cache"
+    },
+    {
+      "key": "explicit-storage",
+      "paper": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
+      "section": "2.1",
+      "basis": "Operand classes expose distinct storage; heap-memory operand remains an alias exception",
+      "frameDesign": "Logical slot kinds and declared alias escapes delimit optimization eligibility",
+      "control": "Share eligible immutable captured structure; never clone shared Scheme heap or replay effects",
+      "gcSmp": "Context nurseries, precise roots and remembered stores allow clean mature graphs to avoid minor traversal",
+      "build": "Immutable target/support descriptions may share; mutable registry, expander and context instances remain owned",
+      "refutation": "Fails on any missed mature-to-young writer, unrooted native alias, or shared mutable compiler state"
+    },
+    {
+      "key": "measurement-feedback",
+      "paper": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
+      "section": "abstract",
+      "basis": "VM usage measurements can inform representation and optimization decisions",
+      "frameDesign": "Record emitted/preprocessed bytes, descriptor size and decode work by contract cohort",
+      "control": "Count per-shot materialization and required wind/native effects separately from reusable representation",
+      "gcSmp": "Count mature bytes avoided, remembered scans, promotion, barriers, peak reserve and pause/coordination",
+      "build": "Measure executed actions and critical path for no-change, leaf, macro, layout and tool changes",
+      "refutation": "Fails when saved work does not exceed added validation, coordination, copies and retained storage"
+    }
+  ],
+  "contract": [
+    {
+      "key": "semantic-seal",
+      "seam.interfaceId": "PlanAbi",
+      "seam.producerId": "semantic",
+      "seam.consumerId": "native",
+      "actionName": "sealPlan",
+      "guardName": "s.traceClosed",
+      "lemmaName": "sealNeedsSnapshot",
+      "sourcePath": "vendor/gambit/gsc/_front.scm",
+      "sourceNeedle": "(compile-parsed-program",
+      "premise": "semantic source/target/decl/effect trace closed; result graph detached or ownership transferred",
+      "retirement": "Distributed repeated semantic inference inside C emission after exact schema migration",
+      "benefit": "One semantic completion reused by layout/backend consumers",
+      "added": "Deep sealing, origin/declaration fidelity and ABI manifest",
+      "gap": "Output-to-model encoding and full semantic completion remain unproved"
+    },
+    {
+      "key": "module-cohort",
+      "seam.interfaceId": "GeneratedCheckpoint",
+      "seam.producerId": "native",
+      "seam.consumerId": "execution",
+      "actionName": "bindModule",
+      "guardName": "s.native",
+      "lemmaName": "bindCompatible",
+      "sourcePath": "vendor/gambit/gsc/_front.scm",
+      "sourceNeedle": "(module-descr",
+      "premise": "no live old activation/root/borrow is replaced; descriptor/code/runtime cohort checked",
+      "retirement": "Implicit module/label layout assumptions after all loaders and entry consumers migrate",
+      "benefit": "Reject ABI mismatch before execution; keep old cohort pinned for active continuations",
+      "added": "Module validation and retained old code/storage",
+      "gap": "Dynamic module loading and native ABI simulation remain open"
+    },
+    {
+      "key": "captured-roots",
+      "seam.interfaceId": "ControlRoots",
+      "seam.producerId": "control",
+      "seam.consumerId": "collector",
+      "actionName": "capture",
+      "guardName": "s.roots",
+      "lemmaName": "captureRequiresRoot",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "sourceNeedle": "#define ___CONTINUATION_CAPTURE",
+      "premise": "publish all current/saved/register/denv/native roots before collecting transfer",
+      "retirement": "Separate capture/GC/restore/serialization frame interpretations after all consumers migrate",
+      "benefit": "One logical frame schema supports debugger, collector and repeatable control",
+      "added": "Root descriptor generation, root updates and materialization",
+      "gap": "Full root coverage and reflective frame identity are open"
+    },
+    {
+      "key": "remembered-store",
+      "seam.interfaceId": "ControlRoots",
+      "seam.producerId": "control",
+      "seam.consumerId": "collector",
+      "actionName": "storeYoung",
+      "guardName": "s.reserved",
+      "lemmaName": "storePreserves",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "sourceNeedle": "(define-prim (##frame-set!",
+      "premise": "every mature-to-young store covered; reserve-before-store or conservative fallback; barrier itself cannot GC",
+      "retirement": "Whole mature graph scan per minor only for proven writer-closed eligible graph",
+      "benefit": "Minor scan may depend on young live plus roots and remembered edges",
+      "added": "Barriers, logs, promotion and overflow checkpoint",
+      "gap": "Complete continuation/denv/FFI/native writer inventory and overflow proof remain open"
+    },
+    {
+      "key": "minor-root-cut",
+      "seam.interfaceId": "RootCut",
+      "seam.producerId": "roots",
+      "seam.consumerId": "collector",
+      "actionName": "beginMinor",
+      "guardName": "s.frozen==Set(0,1)",
+      "lemmaName": "minorNeedsCompleteCut",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "sourceNeedle": "mark_continuation (",
+      "premise": "VM-owned complete membership and frozen updateable root views; scanners acquire grant",
+      "retirement": "PSTATE as inseparable execution/carrier/root/collector authority after source migration",
+      "benefit": "Parked native carriers can stop blocking admitted GC; contexts outnumber carriers",
+      "added": "Epoch close, polls, frozen roots, participation and reload",
+      "gap": "Fair progress and full nonzero-processor RC closure remain open"
+    },
+    {
+      "key": "copy-publication",
+      "seam.interfaceId": "WorkClosure",
+      "seam.producerId": "execution",
+      "seam.consumerId": "collector",
+      "actionName": "publishCopy",
+      "guardName": "s.copying",
+      "lemmaName": "copyPublicationConserves",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "sourceNeedle": "___HIDDEN void end_heap_chunk",
+      "premise": "Initialization and private copy/child responsibility precede publish; no debt loss at handoff",
+      "retirement": "Per-PSTATE private work as untracked lifetime after collector context migration",
+      "benefit": "Independent worker load balance while preserving parent/child custody",
+      "added": "Copy reserve, scan queues, CAS and debt accounting",
+      "gap": "Forwarding/PAIR/Tail and weak-memory source refinement remain open"
+    },
+    {
+      "key": "collector-finish",
+      "seam.interfaceId": "WorkClosure",
+      "seam.producerId": "execution",
+      "seam.consumerId": "collector",
+      "actionName": "finishMinor",
+      "guardName": "s.debt==0",
+      "lemmaName": "finishNeedsNoPrivate",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "sourceNeedle": "Other processors are still actively scanning chunks",
+      "premise": "membership closed and all root/private/queued/derived work accounted; no in-flight copies",
+      "retirement": "Empty-queue or idle-only termination inference within new collector",
+      "benefit": "Finish based on global work closure instead of carrier lifetime",
+      "added": "Complete producer census and closure acknowledgement",
+      "gap": "Weak/finalizer phases, failure, capacity and reopening product remain open"
+    },
+    {
+      "key": "ffi-park",
+      "seam.interfaceId": "Participation",
+      "seam.producerId": "foreign",
+      "seam.consumerId": "execution",
+      "actionName": "parkNative",
+      "guardName": "s.roots",
+      "lemmaName": "unknownRetainsCustody",
+      "sourcePath": "vendor/gambit/lib/c_intf.c",
+      "sourceNeedle": "TODO: proc_or_false may have been GC'd",
+      "premise": "roots before allocation; surrender derived pointers and borrow, preserve result debt",
+      "retirement": "Per-wrapper ad hoc marker/root ownership after actual caller migration",
+      "benefit": "Share root-safe entry and park/reentry service across FFI wrappers",
+      "added": "Handles, affinity, nested activations and conservative raw mode",
+      "gap": "Arbitrary C-stack continuation escape and native cancellation remain open"
+    },
+    {
+      "key": "native-delivery",
+      "seam.interfaceId": "OutcomeLifetime",
+      "seam.producerId": "release",
+      "seam.consumerId": "execution",
+      "actionName": "settleNative",
+      "guardName": "s.result",
+      "lemmaName": "reloadMatches",
+      "sourcePath": "vendor/gambit/lib/setup.c",
+      "sourceNeedle": "___EXP_FUNC(___SCMOBJ,___call)",
+      "premise": "known rooted outcome plus exact epoch reload and execution grant; no repeated native effect caching",
+      "retirement": "Independent callback/result cleanup authorities after source closure",
+      "benefit": "One outcome custodian survives carrier exit and delivers only to admitted execution",
+      "added": "Outcome slots, roots, drain and per-shot effect execution",
+      "gap": "dynamic-wind, nested callback and exception observations remain open"
+    },
+    {
+      "key": "artifact-reuse",
+      "seam.interfaceId": "ArtifactClosure",
+      "seam.producerId": "build",
+      "seam.consumerId": "native",
+      "actionName": "cacheHit",
+      "guardName": "s.planSource==s.source",
+      "lemmaName": "backendDoesNotChangePlan",
+      "sourcePath": "../gerbil-gambit-bootstrap-audit/src/gerbil/compiler/driver.ss",
+      "sourceNeedle": "(def (compile-scm-file",
+      "premise": "complete dynamic input trace, support identity, declarations, origins and frozen dependency snapshot",
+      "retirement": "Repeated unaffected expansion/file handoff/native work after producer/consumer equivalence",
+      "benefit": "Backend/tool-only change reuses valid frontend plan; safe consumers run concurrently",
+      "added": "Validation, fresh instances, query metadata and bounded scheduling",
+      "gap": "Complete registry/eval/native-read trace and result encoding remain open"
+    },
+    {
+      "key": "resumption-grant",
+      "seam.interfaceId": "GeneratedCheckpoint",
+      "seam.producerId": "native",
+      "seam.consumerId": "execution",
+      "actionName": "resume",
+      "guardName": "s.restored==s.epoch",
+      "lemmaName": "resumeKeepsIdentity",
+      "sourcePath": "vendor/gambit/lib/_thread.scm",
+      "sourceNeedle": "(define-prim (##continuation-graft-aux",
+      "premise": "same captured computation; private execution image per shot; reload and exclusive grant",
+      "retirement": "Opaque carrier ownership and duplicate restore root choreography after alias simulation",
+      "benefit": "Sequential multi-shot semantics remain reusable; effects are reexecuted as required",
+      "added": "Per-shot restore, wind, scheduling and possible COW",
+      "gap": "Finite shots do not prove unbounded or concurrent invocation; semantic simulation open"
+    },
+    {
+      "key": "release-custody",
+      "seam.interfaceId": "ReleaseDrain",
+      "seam.producerId": "collector",
+      "seam.consumerId": "release",
+      "actionName": "loseResult",
+      "guardName": "s.nativeDebt",
+      "lemmaName": "unknownRetainsCustody",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "sourceNeedle": "free_still_objs (",
+      "premise": "all resource descendants and real native users retain VM custody after unknown result",
+      "retirement": "Inline arbitrary foreign destruction in GC critical phase after real caller replacement",
+      "benefit": "Admitted GC can finish without owner callback; release can drain separately",
+      "added": "Resource affinity queues, roots and potentially unbounded unknown retention",
+      "gap": "Device/Tcl/still destructor source closure and whole shutdown progress open"
+    }
+  ],
+  "use": [
+    {
+      "advantage.key": "logical-frames",
+      "contract.key": "semantic-seal",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "logical-frames",
+      "contract.key": "module-cohort",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "logical-frames",
+      "contract.key": "captured-roots",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "logical-frames",
+      "contract.key": "native-delivery",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "logical-frames",
+      "contract.key": "resumption-grant",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "bidirectional-target",
+      "contract.key": "module-cohort",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "bidirectional-target",
+      "contract.key": "semantic-seal",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "bidirectional-target",
+      "contract.key": "native-delivery",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "bidirectional-target",
+      "contract.key": "minor-root-cut",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "bidirectional-target",
+      "contract.key": "artifact-reuse",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "module-cohort",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "captured-roots",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "remembered-store",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "copy-publication",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "collector-finish",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "ffi-park",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "resumption-grant",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "explicit-storage",
+      "contract.key": "release-custody",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "measurement-feedback",
+      "contract.key": "remembered-store",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "measurement-feedback",
+      "contract.key": "semantic-seal",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "measurement-feedback",
+      "contract.key": "copy-publication",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "measurement-feedback",
+      "contract.key": "collector-finish",
+      "obligation": "AA-S"
+    },
+    {
+      "advantage.key": "measurement-feedback",
+      "contract.key": "artifact-reuse",
+      "obligation": "AA-S"
+    }
+  ],
+  "benefit": [
+    {
+      "key": "frame-support",
+      "avoided": "Duplicated semantic/layout decisions and repeated root choreography",
+      "added": "Schema, metadata, checked decoders and bootstrap",
+      "condition": "Actual old producer/consumer duties retire; not merely a wrapper",
+      "evidence": "Source anchors exist; full encoder/decoder/root equivalence open"
+    },
+    {
+      "key": "multishot",
+      "avoided": "Eligible repeated representation work and clean mature graph minor scans",
+      "added": "Private restore, barriers, wind, suffix effects and alias handling",
+      "condition": "Saved graph work exceeds bookkeeping; effectful suffix is never memoized",
+      "evidence": "Finite two-shot custody and conditional unbounded identity laws; not Scheme simulation"
+    },
+    {
+      "key": "gc-smp",
+      "avoided": "Mature traversal and blocked-owner-dependent collector work",
+      "added": "Remembered edges, promotion/copy reserve, synchronization and unknown retention",
+      "condition": "Avoided mature scan and eliminated waits exceed added work/space; all writers/participants close",
+      "evidence": "Existing GC is parallel copying/still, not proven generational; source refinement open"
+    },
+    {
+      "key": "incremental",
+      "avoided": "Unchanged expansion/emission/native actions and unnecessary readiness waits",
+      "added": "Trace validation, private sessions, support instances and memory budget",
+      "condition": "Delta work is exact transitive consumed projection closure; saved span min(U,B) exceeds added critical path",
+      "evidence": "Two-consumer finite protocol; no 12-core utilization or Darwin speed multiplier established"
+    },
+    {
+      "key": "shared-foundation",
+      "avoided": "Repeated per-module frame/root/FFI/build validation logic",
+      "added": "One schema and service authority plus integration proof",
+      "condition": "If old authorities remain, their cost remains; shared check is charged once per actual cohort",
+      "evidence": "No person-day or guessed speed numbers used"
+    },
+    {
+      "key": "llvm-service",
+      "avoided": "Reanalysis of semantics already present in Scheme/GVM",
+      "added": "Dialect/lowering, full effects/GC/statepoint/continuation contract and toolchain invalidation",
+      "condition": "Semantic input exported before destructive C lowering; service upgrade invalidates only affected contracts",
+      "evidence": "MLIR not required for GC/SMP correctness; Zig has no demonstrated incremental benefit"
+    }
+  ],
+  "open": [
+    {
+      "key": "frame-simulation",
+      "qualified": false,
+      "subjectPath": "dev/refactoring/modern-c/models/sysml/modernization-target.sysml",
+      "scope": "MW-SEMANTIC-Q/L",
+      "reason": "All frame kinds, roots, tail/non-tail successors, module linkage and exact encoding"
+    },
+    {
+      "key": "continuation-observations",
+      "qualified": false,
+      "subjectPath": "dev/refactoring/modern-c/models/sysml/map-multishot-composition.sysml",
+      "scope": "MM-SIM; MM-FRAME; MW-CONTROL-Q/L",
+      "reason": "Values, dynamic-wind, mutation aliases, multiple values, exceptions and unbounded shots"
+    },
+    {
+      "key": "gc-writer-capacity",
+      "qualified": false,
+      "subjectPath": "dev/refactoring/modern-c/models/sysml/modernization-target.sysml",
+      "scope": "MW-HEAP-Q/L; MM-WRITERS",
+      "reason": "Complete stores, nursery policy, promotion failure, capacity conservation and weak phases"
+    },
+    {
+      "key": "smp-progress-memory",
+      "qualified": false,
+      "subjectPath": "dev/refactoring/modern-c/models/sysml/map-multishot-composition.sysml",
+      "scope": "MW-DOMAIN-Q/L; MM-MEMORY; MM-PROGRESS",
+      "reason": "Closed membership, private work, finite polls, C11 memory order and no wait cycles"
+    },
+    {
+      "key": "foreign-cleanup",
+      "qualified": false,
+      "subjectPath": "dev/architecture/toolchain/models/sysml/marker-alias-revocation.sysml",
+      "scope": "MAR-S/E; MW-FOREIGN-Q/L",
+      "reason": "Actual native callers, nonzero roots, callback/exception/continuation last use and resource descendants"
+    },
+    {
+      "key": "build-source-reflection",
+      "qualified": false,
+      "subjectPath": "dev/architecture/toolchain/models/sysml/iter-compiler-service.sysml",
+      "scope": "IS-S/E; MW-BUILD-Q/L",
+      "reason": "Dynamic dependency and phase/support closure, independent sessions, stable snapshots and observation reflection"
+    },
+    {
+      "key": "native-performance",
+      "qualified": false,
+      "subjectPath": "dev/refactoring/modern-c/modernization-target.org",
+      "scope": "unchanged native acceptance; matched full consumer metrics",
+      "reason": "Current receipt is design/model only; installed native capability and whole matched performance unresolved"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "AA-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/advantage_architecture.qnt",
+      "subjectScope": "Finite two-participant/two-consumer/two-shot architecture custody and invalidation histories; no general semantic simulation"
+    },
+    "induction": {
+      "obligationId": "AA-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/AdvantageArchitecture.lean",
+      "subjectScope": "Typed counter/lease-independent product preservation, unbounded captured identity, cache projection and symbolic work/span laws; not all QNT actions"
+    },
+    "source": {
+      "obligationId": "AA-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/advantage-architecture-design.org",
+      "subjectScope": "All six existing replacement decisions and nine owners/interfaces; full Gambit/Gerbil source observation and model refinement OPEN"
+    },
+    "platform": {
+      "obligationId": "AA-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/advantage-architecture-design.org",
+      "subjectScope": "Modern C memory order, target ABI, Darwin/Linux native equivalence, scheduler progress and measured work/span OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "AA-S",
+      "prerequisite.obligationId": "AA-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/advantage_architecture.qnt",
+      "prerequisite.subjectScope": "Finite two-participant/two-consumer/two-shot architecture custody and invalidation histories; no general semantic simulation"
+    },
+    "1": {
+      "dependent.obligationId": "AA-S",
+      "prerequisite.obligationId": "AA-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/AdvantageArchitecture.lean",
+      "prerequisite.subjectScope": "Typed counter/lease-independent product preservation, unbounded captured identity, cache projection and symbolic work/span laws; not all QNT actions"
+    },
+    "2": {
+      "dependent.obligationId": "AA-S",
+      "prerequisite.obligationId": "AA-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/advantage-architecture-design.org",
+      "prerequisite.subjectScope": "Modern C memory order, target ABI, Darwin/Linux native equivalence, scheduler progress and measured work/span OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "AA-S",
+      "prerequisite.obligationId": "IS-S",
+      "prerequisite.subjectPath": "dev/architecture/toolchain/iter-compiler-service-design.org",
+      "prerequisite.subjectScope": "IS-S:source"
+    },
+    "4": {
+      "dependent.obligationId": "AA-S",
+      "prerequisite.obligationId": "MAR-S",
+      "prerequisite.subjectPath": "dev/architecture/toolchain/marker-alias-revocation-design.org",
+      "prerequisite.subjectScope": "marker stack slot to continuation/frame aliases and raw scheme-object FFI; generated descriptor decode, API writers and unknown opaque escapes"
+    }
+  }
+}

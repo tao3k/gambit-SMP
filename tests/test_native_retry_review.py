@@ -104,6 +104,89 @@ class TypedRetryReviewTests(unittest.TestCase):
         with manifest, evaluation:
             return review.preflight(self.ctx, self.args, self.runtime, self.candidate, self.files, self.unit)
 
+    def original_supporting_source(self):
+        from gambit_smp import workspace as w
+        from gambit_smp.source_identity import git_source
+        name='docs/original.c';path=self.root/name;path.parent.mkdir(exist_ok=True)
+        path.write_text('original source\n')
+        w.git(self.root,'init','-q');w.git(self.root,'add',name)
+        w.git(self.root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','original source')
+        identity=git_source(self.root,'.',w.git(self.root,'rev-parse','HEAD'),name)
+        reference=dict(path=name,sha256=identity['sha256'],identity=identity)
+        self.evidence['claims'][0]['references'].append(reference);self.save_review()
+        return reference,path
+
+    def test_original_supporting_source_does_not_rebind_current_runtime(self):
+        reference,path=self.original_supporting_source();path.write_text('different current source\n')
+        before=self.candidate.read_bytes();result=self.preflight()
+        self.assertEqual(result['decision'],'RETRY_ELIGIBLE')
+        self.assertEqual(result['immutableSourceReferences'],[reference])
+        self.assertEqual(self.candidate.read_bytes(),before)
+        self.assertFalse(result['runtimeAdmitted']);self.assertFalse(result['executionAuthorized'])
+        self.assertEqual(path.read_text(),'different current source\n')
+
+    def test_original_source_rejects_wrong_owner_blob_and_reference_digest(self):
+        reference,_=self.original_supporting_source();saved=copy.deepcopy(reference)
+        for replacement in [dict(saved,path='docs/other.c'),dict(saved,sha256='0'*64),
+                            dict(saved,identity=dict(saved['identity'],blob='0'*40))]:
+            with self.subTest(reference=replacement):
+                with self.assertRaisesRegex(ValueError,'owner/path|digest drift|identity mismatch'):
+                    review.review_source_bytes(self.root,replacement)
+        # One real preflight, with one immutable input generation. Rewriting a
+        # bound causal file between retries must remain a different refusal.
+        reference['identity']['blob']='0'*40;self.save_review()
+        with self.assertRaisesRegex(ValueError,'identity mismatch'):
+            self.preflight()
+
+    def test_original_source_object_loss_between_borrow_and_completion_refuses(self):
+        reference,_=self.original_supporting_source();original=review.review_source_bytes;called=[]
+        def borrow(root,ref):
+            data=original(root,ref);called.append(ref)
+            if len(called)==1:
+                blob=ref['identity']['blob'];(self.root/'.git/objects'/blob[:2]/blob[2:]).unlink()
+            return data
+        with patch.object(review,'review_source_bytes',side_effect=borrow):
+            with self.assertRaisesRegex(ValueError,'source unavailable'):
+                self.preflight()
+        self.assertEqual(len(called),1)
+
+    def test_original_source_cannot_replace_baseline_identity_or_raw_log_reader(self):
+        reference,_=self.original_supporting_source()
+        self.doc['failures'][0]['baselineIdentity']['identity']=reference['identity'];self.save_review()
+        with self.assertRaisesRegex(ValueError,'unsupported capability fields'):self.preflight()
+        with self.assertRaisesRegex(ValueError,'owner/path'):
+            review.review_source_bytes(self.root,dict(reference,path='evidence/failed.log'))
+
+    def test_review_requires_original_git_log_bytes_after_cache_cleanup(self):
+        from gambit_smp import workspace as w
+        from gambit_smp.source_identity import git_source
+        from gambit_smp.output_observations import observe, REGISTRY
+        name = 'evidence/failed.log'
+        path = self.root / name
+        data = path.read_bytes()
+        w.git(self.root, 'init', '-q')
+        w.git(self.root, 'add', '-f', name)
+        w.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+              'commit', '-qm', 'original failure log')
+        source = git_source(self.root, '.', w.git(self.root, 'rev-parse', 'HEAD'), name)
+        output = dict(observe(data), origins=[name], sources={name: source})
+        registry = self.save(REGISTRY, dict(schema='published-evidence-inputs.v1', records={},
+                                          observations={output['sha256']: output}))
+        path.unlink()
+        before = self.prior.read_bytes()
+        result = self.preflight()
+        self.assertEqual('RETRY_ELIGIBLE', result['decision'])
+        self.assertFalse(result['executionAuthorized'])
+        self.assertFalse(result['runtimeAdmitted'])
+        self.assertEqual(before, self.prior.read_bytes())
+        self.assertEqual(digest(registry), result['inputs'][REGISTRY])
+        self.assertFalse(path.exists())
+        output.pop('sources')
+        registry.write_text(json.dumps(dict(schema='published-evidence-inputs.v1', records={},
+                                           observations={output['sha256']: output})))
+        with self.assertRaisesRegex(ValueError, 'original Git output bytes unavailable'):
+            self.preflight()
+
     def test_exact_review_preserves_failure_identity_and_conditional_boundary(self):
         before = self.prior.read_bytes()
         result = self.preflight()

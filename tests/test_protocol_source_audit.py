@@ -50,6 +50,21 @@ class CorrespondenceTests(unittest.TestCase):
         self.assertEqual(rows["source_native_pending"], [("bootstrap",)])
         self.assertIn("source/setup.c", inputs)
 
+    def test_historical_unit_receipt_does_not_become_current_source_input(self):
+        self.data.pop("sourceUnitReceipt")
+        self.data.pop("sourceUnitReceiptSha256")
+        self.data["nativeGates"].append("source-unit-observation-unavailable")
+        self.save(audit.MANIFEST, self.data)
+        (self.root / "evidence/unit.json").unlink()
+        rows, inputs = audit.facts(self.root)
+        self.assertEqual(len(rows["source_review"]), 4)
+        self.assertIn(("source-unit-observation-unavailable",), rows["source_native_pending"])
+        self.assertNotIn("evidence/unit.json", inputs)
+        self.data["sourceUnitReceiptSha256"] = "a" * 64
+        self.save(audit.MANIFEST, self.data)
+        with self.assertRaisesRegex(ValueError, "fields require a current receipt"):
+            audit.facts(self.root)
+
     def historical_context(self):
         for directory in ("source/lib", "src", "patches", "evidence/source-results/history"):
             (self.root / directory).mkdir(parents=True, exist_ok=True)

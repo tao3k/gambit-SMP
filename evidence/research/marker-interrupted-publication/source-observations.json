@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "real-link-stores",
+    "sourceAnchors": "lib/mem.c:1677-1693",
+    "finding": "Generic still allocator writes next, publishes PSTATE head, then count/length/header; body is caller-filled",
+    "hazard": "There is no durable per-operation intent or ACK; current sequence is not the selected initialized-before-head profile",
+    "proposedReplacement": "Controlled allocator prepares body/intent privately, atomic controlled-domain head, adapted setup/sweep readers; raw legacy chain remains separately admitted",
+    "nativeWitness": false
+  },
+  {
+    "caller": "per-domain-and-locks",
+    "sourceAnchors": "lib/mem.c:276-306,376-384",
+    "finding": "still list/queue and RC chain are per-PSTATE; ALLOC_MEM_LOCK protects capacity",
+    "hazard": "A scalar memory lock or processor number is not stable domain/writer ownership",
+    "proposedReplacement": "VM-owned domain incarnation and writer lineage; never hold a nonrecoverable lock across interruption assumed recoverable",
+    "nativeWitness": false
+  },
+  {
+    "caller": "mark-cas-prior-art",
+    "sourceAnchors": "lib/mem.c:3625-3651;include/gambit.h.in:11004-11084",
+    "finding": "Existing still marking uses CAS; header selects compiler builtins/emulated/sequential synchronization",
+    "hazard": "Current CAS helper existence proves neither atomic object ABI nor owner-death progress for a new head/decision cell",
+    "proposedReplacement": "New native atomic profile explicitly binds all loads/stores, alignment and backend; emulate only with separately qualified stop-safe lock behavior",
+    "nativeWitness": false
+  },
+  {
+    "caller": "actual-setup-reader",
+    "sourceAnchors": "lib/mem.c:4210-4251,6775-6810,7003-7031",
+    "finding": "Setup walks raw still head/next and resets marks; barrier precedes marking",
+    "hazard": "Observer bypasses managed commit/lease cut if only allocator is changed",
+    "proposedReplacement": "Controlled-domain iterator acquires frozen complete head after publisher closure; all domains setup before any mark",
+    "nativeWitness": false
+  },
+  {
+    "caller": "sweep-mutating-reader",
+    "sourceAnchors": "lib/mem.c:4387-4427,6256-6296",
+    "finding": "Sweep reads next, relinks live objects and recomputes per-PSTATE counts",
+    "hazard": "Next cannot be rewritten by late helper after sweep starts; source head equality alone lacks ABA protection",
+    "proposedReplacement": "No-future-write closure of all lineages before sweep; controlled/legacy/pending accounting reconciled without dual authoritative counters",
+    "nativeWitness": false
+  },
+  {
+    "caller": "real-thread-start-exit",
+    "sourceAnchors": "lib/os_thread.c:427-439,579-592;lib/setup.c:763-801",
+    "finding": "POSIX starter invokes start_fn; ___thread_exit calls pthread_exit; ___run return can continue sync service loop",
+    "hazard": "Logical Scheme/processor task completion is not native thread termination",
+    "proposedReplacement": "Distinguish activation-close/cooperative operation endpoint/native termination; certificate identifies exact native incarnation and scope",
+    "nativeWitness": false
+  },
+  {
+    "caller": "join-result",
+    "sourceAnchors": "lib/os_thread.c:546-575;lib/os_base.c:1052-1077;lib/os_base.h:224",
+    "finding": "POSIX join wrapper branches on pthread_join return, converts error through errno helper; helper maps errno0 to UNKNOWN_ERR",
+    "hazard": "Original pthread error value is not retained; success/failure and target identity must remain explicit, not inferred from errno or absence",
+    "proposedReplacement": "Store exact raw join return and successful target incarnation in service receipt; no stopped certificate from ignored/failed/unknown join",
+    "nativeWitness": false
+  },
+  {
+    "caller": "resize-join-caller",
+    "sourceAnchors": "lib/setup.c:870-984",
+    "finding": "Shrinking processor cleans PSTATE then exits; P0 joins and ignores result",
+    "hazard": "Recovery after successful join is too late if PSTATE cleanup already freed operation/node/root backing",
+    "proposedReplacement": "Transfer VM-owned construction/domain duties before cleanup; consume exact join receipt after known quiescence; failed join retains removal debt",
+    "nativeWitness": false
+  },
+  {
+    "caller": "physical-teardown",
+    "sourceAnchors": "lib/setup.c:4569-4579;lib/mem.c:4432-4451,4928-4964",
+    "finding": "cleanup_os_and_mem_pstate calls memory cleanup; still/RC freed; VM teardown destroys synchronization",
+    "hazard": "Native stopped does not reconstruct freed objects or recover a destroyed domain lock",
+    "proposedReplacement": "Service backing/roots/code outlive PSTATE; never issue takeover from join alone after storage destruction",
+    "nativeWitness": false
+  },
+  {
+    "caller": "nonlocal-exit-bridge",
+    "sourceAnchors": "include/gambit.h.in:9981-10007,10043-10059;lib/setup.c:3276-3420",
+    "finding": "setjmp/longjmp TRY machinery and SFUN error loops reuse marker; ___call consumes exact matching return frame",
+    "hazard": "C stack local progress can disappear; logical unwind does not fence every native helper or foreign writer",
+    "proposedReplacement": "Off-stack operation/intent/result and explicit guarded no-future-write endpoint; native return rights still belong to original live activation",
+    "nativeWitness": false
+  },
+  {
+    "caller": "generated-and-raw-access",
+    "sourceAnchors": "gsc/_ptree2.scm:2902-3030,3145-3187;lib/_kernel.scm:149-178,1020-1072;lib/_kernel.c:10845,11745-11759",
+    "finding": "Generator emits native entry wrappers; source and generated kernel read marker slots",
+    "hazard": "Unmigrated raw producer can write after token checks; changing generation does not revoke issued stores",
+    "proposedReplacement": "Typed Scheme-generated entry/closure descriptors and complete raw-writer census; regenerate or reject old module profile",
+    "nativeWitness": false
+  },
+  {
+    "caller": "capacity-write-baseline",
+    "sourceAnchors": "lib/mem.c:1608-1674,6302-6475;lib/setup.c:479-488,1182-1200",
+    "finding": "Old allocation changes scalar occupied/deferred words; resize request combines and temporarily assumes live space",
+    "hazard": "Repeating scalar delta after lost commit can charge/refund twice; temporary requested words are not operation outcome",
+    "proposedReplacement": "One canonical allocation ticket role derived from decision; summary counters are reconciled views, never second outcome authority",
+    "nativeWitness": false
+  },
+  {
+    "caller": "rc-root-producer",
+    "sourceAnchors": "lib/c_intf.c:6509-6564;lib/os_dyn.c:744-790,1045-1058;lib/mem.c:702-825,3969-3987,6844-6851",
+    "finding": "Marker proc copy has GC TODO; dynamic closure uses global self; RC roots per PSTATE, mark_rc only P0 branch",
+    "hazard": "A stopped native writer and correct head do not establish root completeness or original closure identity",
+    "proposedReplacement": "Pre-backed actual input root, stable handle in decision, all-domain root view and legacy marker gate imported unchanged",
+    "nativeWitness": false
+  },
+  {
+    "caller": "allocator-disposition",
+    "sourceAnchors": "lib/mem.c:540-600;lib/os_base.c:335-407,445-507",
+    "finding": "Native allocation/free can use malloc or mmap backend; void release hides outcome",
+    "hazard": "Commit reconciliation cannot recover unknown native allocation or infer munmap success",
+    "proposedReplacement": "Retain exact pending/quarantine ticket; no allocation/free in reconciliation, backend-specific original evidence still required",
+    "nativeWitness": false
+  },
+  {
+    "caller": "ffi-real-producers",
+    "sourceAnchors": "examples/tcltk/tcltk.scm:124-194,221-228,269-276;tests/server.scm:15-35;tests/mem.scm:274-303",
+    "finding": "Real Tcl command/server/function-valued callbacks instantiate generated native entry and return paths",
+    "hazard": "Nested callback/delete/error can close logical activation while cleanup result persists",
+    "proposedReplacement": "Keep activation/root/native-resource duties separate from canonical commit, no foreign continuation compatibility assumed",
+    "nativeWitness": false
+  },
+  {
+    "caller": "metadata-reuse",
+    "sourceAnchors": "include/gambit.h.in:13224-13230;lib/setup.c:5894-5898,6204-6211;lib/mem.c:4432-4451",
+    "finding": "GSTATE exposes raw marker and thread functions; teardown can destroy storage independent of external handles",
+    "hazard": "Plain external pointer or reused thread id cannot validate late query; metadata reclamation is separate from heap collection",
+    "proposedReplacement": "Protected lookup/pin and nonreused operation/writer identities; stable decision/root backing until data writers/readers drain",
+    "nativeWitness": false
+  }
+]

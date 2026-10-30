@@ -1,0 +1,334 @@
+#+TITLE: Construction Escrow Publication, Result Commit and Owner Reentry
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+#+OPTIONS: toc:3
+
+* Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-decision
+:MAINLINE: modern-generated-C
+:STATUS: conditional-model-source-order-open
+:END:
+
+ConstructionEscrow requires three distinct publications: an immutable root-view
+descriptor, a collector-owned current-round trace receipt, and a rooted canonical
+result/custody commit. None implies the other two. Owner reentry consumes a
+current whole-round permission only after scanning has finished, scan leases
+have drained, relocated root values are acquired, and the original activation
+binding/marker is valid. Business completion may remain pending throughout GC.
+
+Modern generated C remains mandatory. Scheme supplies semantic/FrameSpec,
+origin, exception and conversion contracts. Modern C supplies typed admission,
+root cells, initialization/result records, release rights and explicit leases.
+The native C pointer interface remains a design requirement; its compatibility
+must be proved at the conversion/release boundaries. No incremental Zig
+runtime-work saving is established here.
+
+[[file:models/sysml/escrow-publication-reentry.sysml][GambitEscrowPublicationReentry]] owns types, needs, dependencies, source routes,
+caller/cost rows and topology. Native sysml drives [[file:escrow-publication-reentry-matrix.org][the matrix]] and [[file:diagrams/escrow-publication-reentry.d2][D2]]. Actual
+[[file:../../../modeling/ascent/escrow-publication-reentry.rules.scm][ASCENT rules]] bind exact method/artifact/digest/check/scope to [[file:../../../../models/gambit/escrow_publication_reentry.qnt][QNT]] and [[file:../../../../models/gambit/lean/EscrowPublicationReentry.lean][Lean]].
+The [[file:../../../../evidence/research/escrow-publication-reentry/checks.json][receipt]] records this extension boundary. The [[file:constructor-debt-closure-design.org][previous constructor-debt law]]
+and its failure history remain historical rather than requalified C proofs.
+
+No runtime implementation, native test, benchmark, production-path retirement,
+commit or push is included. QNT uses atomic abstract steps; its passing histories
+do not validate C weak memory. Lean supplies conditional obligations and a
+separate custody Step/Trace relation, not a complete simulation of QNT or C.
+
+* Real source boundaries that constrain the protocol
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-source
+:END:
+
+** Wrapper allocation, list admission and finalization are different
+
+[[file:../../../../vendor/gambit/lib/c_intf.c::5156][POINTER_to_SCMOBJ]] calls alloc_scmobj before writing FOREIGN tags, release_fn,
+ptr and *obj. [[file:../../../../vendor/gambit/lib/mem.c::1487][The allocation contract]] requires caller initialization before
+the next allocation; [[file:../../../../vendor/gambit/lib/mem.c::1647][the still slow path]] can call GC before a wrapper exists.
+[[file:../../../../vendor/gambit/lib/mem.c::1677][The allocator then links the still object]] and initializes its metadata before
+returning to the caller that fills the body. This current ordering is not an
+independent-worker publication protocol.
+
+[[file:../../../../vendor/gambit/lib/mem.c::4210][Still refcounts seed the current scan list]], while [[file:../../../../vendor/gambit/lib/mem.c::4023][FOREIGN scanning skips its
+payload]]. That can make an initialized opaque shell cheap to scan; it does not
+make an arbitrary half-initialized object safe to finalize. [[file:../../../../vendor/gambit/lib/mem.c::4387][Sweep]] and teardown
+may call release_foreign; [[file:../../../../vendor/gambit/lib/c_intf.c::1683][release_foreign]] reads/clears fields and invokes the
+callback. A new shell can therefore enter this protocol only with safe default
+fields and a release dispatcher that respects canonical ownership.
+
+** Callback entry allocates before the current marker protects the procedure
+
+[[file:../../../../vendor/gambit/lib/c_intf.c::6511][make_sfun_stack_marker]] allocates a still vector and only then copies the
+procedure. Its explicit TODO notes that proc_or_false may have been collected.
+[[file:../../../../vendor/gambit/include/gambit.h.in::10043][SFUN macros]] call this helper before entering Scheme; conversion-error paths
+can call a Scheme error handler again using processor temporaries. A depth
+counter, a marker allocated later, or a singleton owner result slot does not
+protect the procedure or distinguish nested results.
+
+[[file:../../../../vendor/gambit/lib/setup.c::3276][___call]] constructs a return-to-C frame and checks the exact unwind marker.
+[[file:../../../../vendor/gambit/lib/_kernel.scm::1020][The return handler]] checks processor identity and marker validity; the existing
+wrong-processor route must be preserved, not replaced by arbitrary host-thread
+migration. [[file:../../../../vendor/gambit/lib/c_intf.c::6551][Marker invalidation]] stores #f and drops its still reference. Rooting
+an invalid marker cannot make an expired C activation callable again.
+
+** Root relocation and actual external result consumers
+
+[[file:../../../../vendor/gambit/lib/mem.c::3970][mark_rc]] passes RC header data cells to mark_array; [[file:../../../../vendor/gambit/lib/mem.c::812][set_data_rc]] writes them.
+Those cells can be updated during relocation. RC links and data are not protected
+by an immutable-descriptor claim, and cleanup_rc bypasses ordinary refcounts.
+
+[[file:../../../../vendor/gambit/examples/tcltk/tcltk.scm::124][scheme_call_cmd]] obtains an RC-held vector, calls the generated tcltk_call
+entry and hands an allocated C string to Tcl with release_string as its free
+callback. [[file:../../../../vendor/gambit/examples/tcltk/tcltk.scm::184][Command deletion]] releases the still vector and RC object. This is a
+real consumer with separate Scheme-root, callback-activation, native-string and
+external-free endpoints. It does not prove Tcl exception or deletion timing
+compatible with every delayed service; those semantics remain open.
+
+The accept/client rollback identity, process error/result mapping and consumed
+MSG/RC custody gaps from the predecessor remain source blockers. This protocol
+cannot turn their unknown results into EINTR/EAGAIN or another native invocation.
+
+* Root-view freezing and C publication contract
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-freeze
+:END:
+
+#+NAME: descriptor-versus-root-value
+| Item | Mutation authority while frozen | Lifetime requirement |
+|------+---------------------------------+----------------------|
+| Descriptor identity, invocation generation, root locations/meaning | No mutation of published descriptor | Pinned view and root-cell arena |
+| Values in described root cells | Collector scan/relocation owner only | Stable locations; owner acquires relocated values before reuse |
+| Native-only result envelope | Exact qualified native producer may publish once | Per-invocation slot and bounded native/code leases |
+| Managed result/root topology | Owner publication authority withdrawn | No late managed edge after scan; park until valid reentry or use a separately proved barrier protocol |
+| Notification | May be lost/repeated | Canonical state, not notification, decides result/custody |
+
+Admission registers a backed per-invocation record, its root locations and
+native/code leases before any possible callback/collection. Gate closure prevents
+new managed producers and covers all previously admitted writers. Bounded no-GC
+writers complete, or a qualified stop transfers their initialization duty into
+a safe parked record. GC may not wait for an owner that is waiting for that GC.
+Unknown stop/writer state refuses the permission.
+
+The publisher builds descriptors privately, pins locations, then release-publishes
+a complete descriptor reference. The collector acquires that reference and a
+scan lease before reading it. It alone may update those root values. A separate
+trace receipt records collection epoch, descriptor generation and completed
+coverage. The normal phase order is not a substitute for this receipt.
+
+The retained before-trace-receipt-tests.log shows sealBeforeScanCounterexampleTest
+failing in the earlier model: the seal condition checked view identity but not
+independent trace completion. The correction adds traceEpoch and retains the
+unsafe history as a counterexample control. This is model-design evidence, not
+a native counterexample or a complete weak-memory proof.
+
+Do not use a sequence-number retry to justify racing non-atomic root reads and
+writes. Immutability applies to descriptor metadata; root values require real
+exclusive collector authority or an independently proved concurrent-root scheme.
+Readers obtain registry/record leases before dereferencing reclaimable records.
+A load followed by an unprotected late pin is insufficient. A bounded no-GC
+admission lock is a possible design baseline; it must never span allocation,
+foreign calls or callbacks. A hazard-pointer alternative needs its own ordering
+and reclamation refinement; neither is implemented here.
+
+* Canonical result slot and ownership commit
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-slot
+:END:
+
+A slot key is (invocation identity, invocation generation), independent of GC
+epoch. A valid late native response can arrive after several collections; a
+response for a retired invocation must not populate a reused slot. The service
+retains the original right/slot until producer and reader obligations drain.
+Late native-only results change no managed root location or value. A raw late
+SCMOBJ is not such a result: writing it into a slot already scanned as #f can
+lose a root. It requires existing rooted handles and valid managed authority,
+or a separately proved barrier/rescan protocol before weak/finish closure.
+
+Use one authoritative control record for result and custody. A prepared immutable
+commit record references the initialized wrapper's registered RootHandle, the
+ReleaseRight, invocation generation and completion evidence. Publishing that
+control record is the abstract commit. Result readiness and owner=Wrapper are
+projections of the same canonical state, not two unrelated atomics that may leave
+a clear-to-publish gap. Notification is a derived hint.
+
+#+NAME: result-commit-order
+#+BEGIN_EXAMPLE
+native result captured in escrow
+  -> safe wrapper storage and known initialization owner
+  -> body fields complete; result handle registered/rooted
+  -> canonical commit control: EscrowPending -> WrapperCommitted(record)
+  -> original owner/marker permission -> consumer delivery
+#+END_EXAMPLE
+
+Root coverage intentionally overlaps around commit: escrow inputs/dependencies
+remain protected while the wrapper result acquires its own root. The execution
+right has exactly one authoritative owner. After commit, query the canonical
+record on a lost response; do not repeat native production, allocation or release.
+An observer cancellation does not undo commit. An unknown commit result retains
+both known protection sets until the authoritative state can be resolved.
+
+The current FOREIGN representation exposes raw pointer/release fields. A proposed
+modern C adapter can associate a stable wrapper identity with a canonical right
+in side metadata and consult it inside release_foreign before GC/explicit release.
+The raw pointer can still be delivered to C after committed borrow admission.
+This does not prove unchanged ABI or cost: lookup, identity lifetime and direct
+field/API escape paths require refinement. Existing direct conversion rollback
+release_fn(x) paths must consume their reserved right through origin-specific
+adapters. Leaving legacy disposal independent while merely adding escrow would
+permit disposal before handoff or duplicate release and is not admitted.
+
+* Partial initialization: when a stopped shell can cross GC
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-initialization
+:END:
+
+The selected design separates storage reservation, safe-shell admission, body
+initialization and semantic commit. Before a FOREIGN shell is linked into a
+shared collector domain, its header/layout and three default fields must be
+valid: tags=#f, release_fn=null and ptr=null, or an equivalent canonical guarded
+representation with no premature native-disposal authority. Its RootHandle,
+physical accounting and initialization record are already known. The native
+payload remains in escrow.
+
+This changes the current link-before-body path; it is not obtained by wrapping
+alloc_scmobj unchanged. An ordinary no-GC fast initialization can fill fields and
+commit directly. A known stopped initialization may park with its safe shell,
+rooted inputs and exact field progress/initialization responsibility recorded.
+GC scans declared dependency/result roots and cannot invoke native disposal for
+an uncommitted shell. Owner reentry reacquires that one initialization duty and
+continues; it does not allocate a second wrapper.
+
+#+NAME: partial-initialization-admission
+| State | GC permission | Initialization/result permission |
+|-------+---------------+----------------------------------|
+| Native result known; wrapper not allocated | Frozen escrow roots can be scanned | Resume original conversion after reentry |
+| Known safe rooted shell; writer stopped; inputs rooted | Qualified parked initialization can coexist with GC | Continue exactly one initialization after reacquiring owner authority |
+| Body ready and rooted; canonical commit pending | GC sees protected object/dependencies; native right stays escrow-owned | Query/perform one canonical commit |
+| Canonical committed record; notification lost | Current result root remains live | Query and deliver once at valid owner marker |
+| Unknown allocation address, invalid header/body, uncontrolled writer, or lost input roots | Refuse this handoff/reentry permission | No arbitrary takeover, allocation replay or inferred physical refund |
+
+FOREIGN opacity avoids scanning native payload words; it does not by itself
+satisfy the header, root, sweep, disposal, initialization or physical-accounting
+contracts. The same default-shell argument cannot be copied to arbitrary Scheme
+vectors/frames without their own initialized-slot/root coverage.
+
+* Nested callbacks and owner reentry
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-nesting
+:END:
+
+Reserve/protect the procedure and a child invocation record before marker
+allocation can collect. Each child has its own result/root/error slots and marker
+identity; frozen coverage includes the full ancestor chain. Native result routing
+uses invocation identity, never the owner's current top callback alone. The
+model's parent-result-during-child history describes an admitted asynchronous
+service response, not a claim that a synchronous C call physically returns while
+its own callback is still running.
+
+Preserve C-stack return order. Parent result capture may precede child return,
+but delivery/continuation into a native activation requires the top live marker
+and the correct activation binding. Scheme execution may follow the existing
+wrong-processor return route; arbitrary migration of a suspended C frame to a
+worker is not authorized. Marker kill is irreversible for that activation.
+
+Reentry first validates full-round seal, epoch/generation, binding and completed
+scan receipts; drains scan leases; acquires relocated root values; and restores
+GVM state before granting managed writer/result permission. [[file:../../../../vendor/gambit/include/gambit.h.in::10325][Current CFUN save/
+reload paths]] are consumers to refine, not evidence that a new native worker can
+reload a different context. Error handling can reenter Scheme again or propagate
+outward. Each affected record must have a declared structured unwind/cleanup
+endpoint. Do not infer that normal END_SFUN cleanup executes on every nonlocal
+exit, or that GC-root retention makes cross-library unwinding legal.
+
+The QNT model has one owner and two invocation levels. Lean proves distinct-slot
+updates and conditional marker/reentry laws. Arbitrary recursive callback depth,
+all conversion-error paths, native unwind behavior and continuation restoration
+remain source obligations. Depth d needs d backed records and complete coverage,
+not a single boolean asserting that callbacks are protected.
+
+* Lease separation, disposal and memory bounds
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-reclaim
+:END:
+
+#+NAME: escrow-retirement-gates
+| Resource | Earliest withdrawal condition |
+|----------+-------------------------------|
+| Native payload | Exact disposal attempt owns authority; native borrowers drained; known physical disposition follows operation |
+| GC view buffer | All scanner/late-claim leases drained and current receipt consumed under the round protocol |
+| Result/escrow record | Terminal decision, no query/root/code users, no descendant or initialization debt |
+| Root cells/marker backing | Coverage transferred to a live consumer or retired; no scanner/ancestor/native callback can access old location |
+| Ticket | Its duty transferred under the same credit or terminal physical dependencies and readers/children fully settled |
+
+A query reader pins a canonical result record; it does not own a GC frozen-view
+buffer or dereference raw moving pointers without root authority. This separation
+allows GC reentry while an external result query is outstanding. Under a single
+active VM round with one builder and drained scanner leases, view storage can
+be pre-backed and reused without retaining a new epoch snapshot per observer.
+This bound depends on the imported no-late-claim/round-serialization contract;
+unknown scan ownership still blocks reuse. No extra GC wait may be introduced
+because an owner/observer is holding all available view buffers.
+
+Native borrow drain precedes destructive disposal, because device_release may
+free even when returning an error. Receipt reader drain may be later if those
+readers inspect only pinned metadata. Retired-from-registry, disposed-native,
+retired-result-root and refunded-ticket are distinct events. Unknown native or
+cleanup outcome retains exact attempt/credits, never reexecution or refund.
+
+For M live invocation records, R root cells and V pre-backed view capacity,
+control memory is bounded symbolically by M*(record+result+receipt+right metadata)
++ R*root-cell storage + V*view storage + scan/wait/allocator overhead. Default
+shell initialization adds three logical default fields before final writes,
+not a guaranteed machine-store count. Actual layouts and allocator costs remain
+unmeasured. Peak is max over simultaneous heap, actual pools, unique native/root
+backing and quarantine. Unknown outcomes or readers can increase it; no measured
+speedup or whole-round peak decrease is established.
+
+* Formal evidence and learning boundary
+:PROPERTIES:
+:CUSTOM_ID: escrow-publication-reentry-evidence
+:END:
+
+EP-FREEZE/EP-SLOT/EP-INIT/EP-NEST/EP-REENTRY/EP-RETIRE/EP-ORDER are independently
+routed needs. Seven prior CD needs keep their exact artifact/scope as open
+premises. EP-H and EP-I qualify only their own current files and digests. Five
+ASCENT cases exercise current, missing-history, wrong-scope, stale-digest and
+explicitly synthetic all-scoped control. An independent Scheme reader checks
+native needs/dependencies/artifacts/routes against actual DSL facts. A synthetic
+component closure never grants runtime admission.
+
+The repository trajectory submit/read entry failed with
+"observation does not match host source attestation" in an existing aggregated
+Evidence view. Its logs are retained; the framework rules and concurrent edits
+were not changed. Five cases were therefore evaluated in isolated native ASCENT
+EvidenceSession instances using the unchanged core study rules and an explicit
+six-field clue/four-field factor/two-field binding input adapter. Native SysML
+needs, exact artifact digests and all dependencies remain present. The adapted
+source and input rows are retained; an independent check compares rule text,
+transported facts and output relations. This is task-local formal DSL evidence,
+not a successful repository ClueExchange attestation. Repository integration is
+an additional unresolved gate and the request remains a reproducible declaration,
+not an accepted repository submission.
+
+[[https://user.it.uu.se/~tjawe125/publications/batty11mathematizing.pdf][Batty et al., POPL 2011]] motivates treating language-level memory semantics and
+hardware mappings as separate proof obligations. It is historical shared-memory
+research, not a proposal to adopt C++ or proof of current Darwin C code.
+[[https://www.cl.cam.ac.uk/~pes20/cpp/cpp0xmappings.html][The authors' mapping collection]] itself warns it is a discussion resource,
+not definitive compiler qualification. Atomic QNT steps do not establish C11
+happens-before or a correct arm64 instruction mapping.
+
+[[https://www.eecg.utoronto.ca/~amza/ece1747h/papers/hazard_pointers.pdf][Michael's hazard-pointer paper]] distinguishes logical removal from safe reuse
+when readers may retain references. It motivates explicit read leases here; its
+progress/performance results are not transferred to Gambit's root/code/native
+resource lifetimes. [[https://cs.brown.edu/people/mph/HerlihyW90/p463-herlihy.pdf][Herlihy and Wing]] supplies the operation-history criterion
+for a canonical result commit, not an implementation of that commit.
+[[https://ocaml.org/manual/5.3/intfc.html][OCaml's C-interface section 12.2]] also warns that runtime release/reacquisition
+can execute callbacks or exceptions. Gambit must refine its own marker,
+continuation and C-stack semantics at this boundary.
+
+Migration introduces backed invocation/root/result records and protected callback
+entry first; then safe-shell allocation and canonical right-aware release; then
+independent scanning, trace publication and owner reload; finally observer/borrow/
+child retirement. Existing direct clear-then-call, shared implicit result/error
+state, link-before-safe-body and unprotected marker entry can retire only after
+source/ABI/C-order and independent native acceptance. No old path retires here.

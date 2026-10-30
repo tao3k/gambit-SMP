@@ -13,6 +13,25 @@ from gambit_smp import native_capabilities, recipes
 
 
 class CompiledSuitePhaseTests(unittest.TestCase):
+    def test_review_identity_includes_the_actual_grouping_producer(self):
+        from gambit_smp.native_review import campaign
+        ctx = SimpleNamespace(root=Path('/root'), directory=Path('/out/suite'),
+            receipt={'steps':[{'id':'suite','budgetSeconds':90}], 'budgetSeconds':300,
+                     'timeoutPolicy':{'mode':'progress'}})
+        args = dict(mode='gsc', reviewRules='rules.ss', regime='whole-parallel')
+        binding = dict(source='driver.scm', sha256='a'*64, fixtureSha256='b'*64)
+        with patch('gambit_smp.native_review.digest', return_value='c'*64), \
+             patch('gambit_smp.native_review.campaign_tree_identity', return_value={}), \
+             patch('gambit_smp.framework.available_processors', return_value=12), \
+             patch('gambit_smp.compiler_phase_primitives.bind_numeric_grouping') as bound:
+            before = campaign(ctx, args, Path('/runtime'), Path('/identity'),
+                              [Path('03-number/_num.scm')], Path('/work/unit-tests'))
+            after = campaign(ctx, {**args, 'numericGrouping':binding}, Path('/runtime'),
+                             Path('/identity'), [Path('03-number/_num.scm')], Path('/work/unit-tests'))
+        self.assertNotEqual(before, after)
+        self.assertEqual(binding, after['numericGrouping'])
+        bound.assert_called_once_with(ctx, Path('/work'), binding)
+
     def test_commands_preserve_upstream_entry_and_loader(self):
         work = Path("work")
         plan = suite_phase_commands("numbers/control.scm", work)
@@ -25,6 +44,47 @@ class CompiledSuitePhaseTests(unittest.TestCase):
         for selection in ("../foreign.scm", "/foreign.scm", "control.c"):
             with self.assertRaises(ValueError):
                 suite_phase_commands(selection, work)
+
+
+    def test_grouping_requires_explicit_original_numeric_binding(self):
+        from gambit_smp.compiler_phase_primitives import validate_numeric_grouping, NUMERIC_GROUP_DRIVER, NUMERIC_FIXTURE_SHA
+        binding = dict(source=NUMERIC_GROUP_DRIVER, sha256="a"*64, fixtureSha256=NUMERIC_FIXTURE_SHA)
+        validate_numeric_grouping(binding, [NUMERIC_GROUP_DRIVER], True)
+        for value, inputs, enabled in [(binding, [], True), (binding, [NUMERIC_GROUP_DRIVER], False),
+                ({**binding, "fixtureSha256": "b"*64}, [NUMERIC_GROUP_DRIVER], True),
+                ({**binding, "sha256": True}, [NUMERIC_GROUP_DRIVER], True),
+                ({**binding, "source": "other.scm"}, ["other.scm"], True)]:
+            with self.assertRaises(ValueError):
+                validate_numeric_grouping(value, inputs, enabled)
+
+    def test_grouped_command_preserves_original_loader_and_c_driver(self):
+        ordinary = suite_phase_commands("03-number/_num.scm", Path("/owned"))
+        grouped = suite_phase_commands("03-number/_num.scm", Path("/owned"), Path("/source/driver.scm"))
+        self.assertEqual(ordinary[1:], grouped[1:])
+        self.assertIn('file-settings=lf', grouped[0][2][0])
+        self.assertIn('GAMBIT_NUMERIC_GENERATED_C', grouped[0][2][-1])
+        self.assertIn('/owned/unit-tests/03-number/_num.c', grouped[0][2][-1])
+        with self.assertRaises(ValueError):
+            suite_phase_commands("other.scm", Path("/owned"), Path("/source/driver.scm"))
+
+    def test_actual_numeric_recipes_declare_the_verified_grouping(self):
+        from gambit_smp.framework import ROOT, digest
+        names = ["evidence/research/ci/bazel-profile-numeric-host.recipe.json",
+                 "evidence/research/ci/bazel-profile-numeric.recipe.json",
+                 "evidence/research/ci/gc-ffi-numeric.recipe.json",
+                 "evidence/research/ci/three-flag-numeric-inventory.recipe.json",
+                 "evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json",
+                 "evidence/research/current-source-full-bootstrap/dynamic-modulo-compiled.recipe.json"]
+        for name in names:
+            recipe, steps = recipes.load(ROOT, ROOT / name)
+            selected = [step for step in steps if "numericGrouping" in step["arguments"]]
+            self.assertEqual(1, len(selected))
+            binding = selected[0]["arguments"]["numericGrouping"]
+            self.assertEqual(digest(ROOT/binding["source"]), binding["sha256"])
+            self.assertIn(binding["source"], recipe["inputs"])
+            if selected[0]["capability"] == "gambit.compiler-observation":
+                self.assertEqual(90, selected[0]["arguments"]["phaseBudgetSeconds"])
+                self.assertEqual("original-gsi", selected[0]["arguments"]["loader"])
 
     def run_case(self, *, failed_phase=None, missing_artifact=False, timed_out=False):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,129 @@
+#+TITLE: Data Write Closure, VM Custody, Benefits and Peak-Memory Matrix
+#+PROPERTY: header-args :eval never
+
+* Execution scope
+Repository Evidence/ASCENT queries completed for the exact selected source bundle; source and C-memory obligations remain open. No runtime admission.
+
+* Inherited native layout arithmetic
+These are aligned-wrapper requests, not backend pages, usable size or RSS.
+| Word bytes | Candidate subtype | SCMOBJ slots | Raw key bytes | Body bytes | Object bytes | Wrapper request | Delta from SMP |
+|---+---+---+---+---+---+---+---|
+| 4 | 16 | 2 | 24 | 32 | 56 | 67 | 24 |
+| 8 | 16 | 2 | 24 | 40 | 88 | 103 | 24 |
+
+* Source caller matrix
+#+NAME: root-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| generator-all-three-sfun | gsc/_ptree2.scm:2590-2670,2840-3030,3145-3235;include/gambit.h.in:10010-10026,10043-10059 | c-define and function converters emit void, SCMOBJ and typed SFUN variants; argument/result conversions and generated release wrappers surround calls; errors may retry | End of successful Scheme call is before result conversion, error retry, marker clear and propagation | Generate effect/exit descriptors and explicit off-stack close guard for every variant; close after last managed effect, not after SFUN_CALL |
+| generator-cfun-and-raw | gsc/_ptree2.scm:3239-3329;include/gambit.h.in:10325-10392 | c-lambda emits inline/out-of-line context, optional cleanup TRY, user text or function, AT_END and result publication | Arbitrary C text can return/longjmp/spawn or retain aliases; AT_END does not wrap every escape | Managed raw C effect declaration plus admitted endpoint protocol, otherwise reject controlled cohort; preserve user Scheme semantics separately |
+| marker-construction | lib/c_intf.c:6509-6545;lib/mem.c:1778-1821 | make_vector allocates/fills before marker procedure/processor body writes; proc root TODO | Publishing seal at allocation return omits later body writes; local proc may lack root across allocation | Root proc before allocating; typed safe marker shell/initialization transaction and issuer after body/result publication |
+| marker-retirement | lib/c_intf.c:6551-6564;lib/mem.c:1441-1484 | kill clears vector0 then decrements raw still refcount | Seal before kill misses both writes; repeated cleanup may decrement twice | Move physical marker retirement into canonical guarded effect; exactly-once decision not a second scalar authority |
+| scheme-and-generated-readers | lib/_kernel.scm:149-178,1020-1072;lib/_kernel.c:10845,11745-11759 | Conversion handler and return-to-C inspect marker procedure/processor; generated C retains raw access | Scheme-only generator change leaves old generated readers and raw vector alias interpretation | Regenerate admitted modules; typed marker operations and fixed subtype/profile manifest; legacy module gated out of controlled cohort |
+| call-and-run-exits | lib/setup.c:839-865,3276-3420;include/gambit.h.in:9981-10007 | ___call matching return restores frame; nonmatching throws; ___run TRY can escape before normal kill | Normal END and C local guard do not cover every nonlocal exit or nested activation | Off-stack guard owns original identity/root/initialization duty; nested guard closes itself; preserve Scheme continuation return rights |
+| still-link-and-body | lib/mem.c:1487-1500,1677-1693,1715-1739 | Allocator links next/head before count/length/header and caller-filled body; release decrements | Generic allocation end cannot certify caller initialization or helper/link stores | VM controlled domain preserves intent, shape and writer lineage; per-operation construction close distinct from whole domain scan close |
+| rc-register-and-payload | lib/mem.c:684-825,3969-3987,6844-6851;lib/os_dyn.c:744-790 | RC sentinel per PSTATE, register links four fields, set_data writes payload, release unlinks/frees; closure producer fills root | Copying sentinel pointer to VM leaves PSTATE dependency; P0-only mark_rc branch does not scan transferred nonzero roots | Canonical VM root domain with physical relink and all-domain scan admission; RC and still accounting remain distinct |
+| setup-sweep-and-finalizers | lib/mem.c:4210-4251,4387-4451;lib/c_intf.c:1683-1715 | Setup marks; sweep rewrites links/counters, free_still clears head and invokes foreign release functions | Cleanup itself writes and may call foreign producer after an earlier data seal | Phase-authorized cleanup cohort and finalizer effect profile; transfer task/root/native resource before original domain seal |
+| interrupt-cleanup-producer | lib/setup.c:143-166,365-419,4665-4672;include/gambit.h.in:13469-13477,14946-14954 | Procedural interrupt enqueue takes target mutex; cleanup invokes execute_fn(intr,false) under that mutex, then clears head/tail before mem cleanup | An unclosed enqueue producer can race cleanup; cleanup interrupt release is outside SFUN generator coverage | Close external interrupt admission; transfer callback debt under queue lock then invoke admitted callback outside locks or reject reentrant handler; pin target incarnation |
+| resize-shrink-and-rollback | lib/setup.c:924-980 | Shrink child cleanup then thread_exit; P0 join ignores return; grow setup failure cleans attempted states | Join happens after destructive cleanup; rollback is a separate cleanup caller, not evidence of initialized cohort | VM acceptance + detach/closure preflight common to shrink and partially initialized rollback; source bug speculation is outside this study |
+| shutdown-and-exported-cleanup | lib/setup.c:4569-4599,4665-4672,4834-4875,5975-5979;include/gambit.h.in:13328,14804 | cleanup disables global interrupts, shrinks and calls cleanup_pstate; cleanup exported through GSTATE | Patching resize alone leaves direct shutdown/exported cleanup capable of destroying backing | Single cleanup admission service for every call route; distinguish no-publication rollback from live-cohort handoff |
+| thread-identity-and-join | lib/os_thread.c:427-439,546-592,697-710;lib/os_base.c:1052-1077 | Starter invokes start_fn; join converts nonzero pthread return via errno; thread_set_pstate sets TLS/affinity | Failed/unknown join is no stop proof; data closure alone does not authorize reclaim of TLS/native envelope | Preserve raw return/incarnation/single join owner; retain envelope until known termination and native readers drain |
+| os-and-vm-teardown | lib/os_setup.c:3146-3152;lib/os_io.c:11808-11833;lib/mem.c:4928-4964 | PSTATE OS cleanup closes select-abort handle; VM cleanup destroys memory/scan locks then P0 memory cleanup | VM-owned pointer can still depend on OS handle, scan lock or root storage being destroyed | Audit physical dependency graph and GC view before receipt; VM shutdown must drain service before its shared infrastructure |
+| dynamic-closure-and-native-callback | lib/os_dyn.c:744-790,1045-1058;examples/tcltk/tcltk.scm:124-194,221-228,269-276;tests/server.scm:15-35 | Function-valued callbacks use RC payload and current closure self; native libraries own callback/delete timing | Helper/callback capability can outlive parent; global closure self/TLS TODO and raw aliases defeat local closure proof | Register before native publication; foreign unregister/drain receipt, explicit closure identity/root/code lease; reject unbounded raw origins |
+| helper-and-public-api-frontier | include/gambit.h.in:13224-13230,14564-14575;lib/setup.c:5894-5898,6204-6211;lib/os_thread.c:712-750 | GSTATE exposes marker/thread functions; emulated CAS takes hashed mutex; selected recovery helper is proposed, absent current source | Unregistered helper or abandoned backend lock invalidates closure; symbol search cannot prove all loaded C aliases | Typed helper admission before enqueue/effect; complete module/effect manifest; unknown holder keeps duty and blocks dependent GC domain |
+
+* Benefit and peak-memory matrix
+#+NAME: root-costs-native
+| Capability | Removed work | Quantified bound | Added cost | Condition or falsifier |
+|---+---+---+---+---|
+| Writer closure issuance | Replace ambiguous call-end or logical-death checks with one generation-scoped proof | 0 current source issuers; selected certificate iff enrollment shut + all E members closed + issued effects0 | Per-writer descriptor, effect debt and release/acquire closure | All aliases/helpers/exception endpoints manifested; escaped raw C falsifies qualification |
+| Helper enrollment | Eliminate lost registered-but-not-enqueued work | Register before parent release; close gate and register have one ordered winner | One membership slot per admitted writer/task; cancel needs no-effect proof | O(E) closure accounting; no finite E or latency bound from present source |
+| Generated endpoints | Share three SFUN return variants and CFUN guarded exits through Scheme descriptor | 3 SFUN families; cleanup after marker clear/refcount plus result custody | Generator/schema/exception edges must migrate; no universal AT_END finally | Continuation/dynamic-wind/native stack semantics remain Gambit responsibilities |
+| VM custody acceptance | Avoid reconstructing state from freed source PSTATE | 1 canonical acceptance outcome; 0 native replay or scalar refund on query | Prepare root/domain/code/ticket view and independent-backing audit | Lost response retains source duty until canonical observation; pointer copy alone invalid |
+| Cleanup independence | Permit helper completion after original PSTATE data cleanup | 0 residual source-PSTATE borrowers at cleanup; every transferred node excluded from destructive old walk | Relink/scan exclusion and root-registration receipt; native envelope lifetime separate | Closed original and VM-independent helper needed; source sentinel or TLS edge blocks cleanup |
+| Join outcomes | Avoid turning an ignored/failed join into reclaim authority | Success/failure/unknown retained distinctly; 1 join authority per target incarnation | Exact return receipt + retained thread/TLS/code envelope | Failed join does not necessarily block data GC if cooperative closure proved; never proves native termination |
+| Cleanup-generated effects | Avoid foreign destructor or interrupt enqueue reopening a sealed cohort | 0 unregistered post-seal data effects; separate counted cleanup cohort if needed | Finalizer effect/owner classification, queue backing and shutdown drain | Unclassified release_fn or raw interrupt target retains quarantine and blocks dependent domain |
+| GC integration | Separate data freeze from native thread/metadata reclamation | All contributing cohort seals before domain freeze; joinKnown not required by data seal alone | VM all-domain root view + compatible setup/sweep iterator | Unknown data effect or lost scan/root authority blocks GC; no arbitrary-death liveness claim |
+| Logical saved work | Remove repeated allocation/clear/refund after lost handoff ACK | 0 selected query replay; 0 guessed cleanup/release of unaccepted object | Stable canonical lookup/pin and two custody duties during uncertain response | Positive net requires removed duplicate effects or stalls exceed registration/retention overhead |
+| Peak memory | Transfer existing backing rather than duplicate heap payload | Inherited marker +24*M(t); metadata O(E+O+D); Peak=max_t(H+P+N+Q), unique backing once | Writer slots, custody receipts, root/code graph, unresolved native envelope retention | No fixed bytes for atomic structs; unknown joins/readers can make Q unbounded; no peak decrease proved |
+| Retirement sequence | Retire raw managed-cohort kill/list/root and ad hoc cleanup admission paths | 0 production paths retired today; legacy uncontrolled C remains separately gated | One generated endpoint/schema and VM service replaces duplicated managed logic | Only after writer manifest, source simulation, scan/sweep exclusion and native-order evidence close |
+| Modern C versus Zig | Keep Gambit Scheme semantics and portable C while making contracts explicit | 0 Zig-specific necessary-support saving shown; same root/custody/stop obligations | Modern C needs typed generated ABI/atomics/service; Zig also needs all external capability qualification | Language choice cannot create endpoint completeness or successful join; measured net benefit still open |
+
+* Obligations and imported open premises
+#+NAME: root-needs-native
+| Need | Kind | Exact scope | Premise |
+|---+---+---+---|
+| DW-H | interleaving | data_write_closure_custody:31-named-histories;admitted;original+helper;one-cohort;seed=17;each100x100 | One cohort and two registered writers; delayed application, enrollment cut, VM custody, PSTATE pins and join outcomes; ordinary/helper-entry profiles; complete manifest, closure endpoint, physical independence and atomic gate transitions are premises; not C source, weak-memory or arbitrary-death progress proof |
+| DW-I | induction | GambitSMP.DataWriteClosureCustody:enrollmentMustClose;pendingRejectsCertificate;helperMustClose;rawEscapeRejectsCertificate;incompleteManifestRejectsCertificate;enrollmentCloseDoesNotDrain;registeredChildIsDebt;acceptPreserves;sourceDropPreserves;cleanupPreserves;joinPreserves;retirePreserves;pointerCopyInsufficient;pstateBorrowBlocksCleanup;pendingOriginalBlocksCleanup;failedOrUnknownJoinKeepsEnvelope;stepPreserves;joinKnowledgeMonotone;tracePreserves;freezeDoesNotRequireJoin;successfulJoinDoesNotCloseData;lostResponseCannotDecodeCustody | 22 conditional declarations: closure requirements, registered-child debt, Custody Step/Trace preservation, no-join envelope retention, and independent data-freeze condition; not full QNT or C simulation |
+| DW-CENSUS | source-refinement | DW-CENSUS:actual-source-refinement | Scheme emits a writer-effect descriptor per SFUN/CFUN variant and raw code site, with module/code identity, operation and transitive callees; managed marker cohort rejects unmanifested arbitrary C/FFI aliases, old generated kernel and escaped callback/native write capabilities; bounded symbol search is evidence of named routes, not an exhaustive whole-program effect analysis; no source-level DataWriteClosed issuer currently exists |
+| DW-ENDPOINT | source-refinement | DW-ENDPOINT:actual-source-refinement | Original writer endpoint is after argument/result conversion, all conversion-error retry calls and generated release/conversion helpers, marker physical clear, exactly-once refcount handoff, result/root custody and final managed effect, but before a no-managed-reentry postlude; nonmatching ___call rethrow and ___run TRY escape require off-stack exceptional guard; AT_END is selected source text, not a universal finally; propagate_error/THROW and TRY catcher restoration remain effect or PSTATE-pin obligations, not assumed harmless epilogues; each nested activation closes only its own identity; borrowed stack/TLS/PSTATE pins remain separate |
+| DW-ENROLL | source-refinement | DW-ENROLL:actual-source-refinement | Every native helper, queued task and callback descendant registers its debt before parent can discharge its effect responsibility; one atomic admission cut orders helper registration against enrollment close; registered but not enqueued/dequeued helpers remain owed until completed or cancellation proves no effect; certify only after all members close and issued effects drain; helper work after certificate requires a newly counted cohort before domain freeze, never reopening an old seal |
+| DW-ESCROW | source-refinement | DW-ESCROW:actual-source-refinement | VM service prepares canonical operation/root/domain/code/ticket backing before accepting custody with one authoritative decision and stable identity; acceptance survives lost response and query does not replay; backing audit rejects pointers to PSTATE list sentinels, stack roots, current closure TLS or locks still destroyed by source cleanup; transfer ownership without copying whole heap; source duty persists until exact acceptance observed; join failure or unknown never refunds debt or drops VM roots |
+| DW-CLEANUP | source-refinement | DW-CLEANUP:actual-source-refinement | Before cleanup_pstate, transfer controlled nodes and RC payload roots to VM-owned canonical domain and scan view, unlink transferred nodes from destructive source walks under excluded scan/sweep access, close original writes and drain source PSTATE pins; native postlude/thread/TLS envelope remains until its own stop and reader proof; cleanup_interrupts and free_still release_foreign can spawn effects, so classify and transfer finalizer/interrupt work before seal or open a separately registered cleanup cohort; procedural interrupt cleanup calls external execute_fn(intr,false) while holding its queue mutex, so reentrant enqueue cannot be drained under that lock; no synchronous owner/GC wait cycle |
+| DW-JOIN | source-refinement | DW-JOIN:actual-source-refinement | Record exact native join return and target incarnation, with at most one join authority; successful native termination can support original stop but cannot certify helper closure, operation outcome, physical backing survival or whole-VM drain; failed/unknown join preserves native envelope and canonical VM custody; separately proven cooperative data closure may allow GC without native join; no blind second join on a reused identifier or destruction of TLS/code/locks still borrowed |
+| DW-ORDER | native-memory-order | DW-ORDER:actual-C-memory-refinement | One synchronization domain orders registration, membership-close and seal; producer release closure follows every last effect and coordinator acquire sees all participants; VM acceptance release follows initialized independent backing/root scan registration and cleanup acquires canonical acceptance; source unlink and target scan view commit share exclusion; no plain/atomic access mix, compiler motion or arbitrary native cancellation silently assumed safe |
+| IP-INTENT | source-refinement | IP-INTENT:actual-source-refinement | Immutable LinkIntent publishes exact operation/VM/domain/generation, fresh node not already in the well-formed old chain, old head, body proof, root and allocation tickets before first link effect; journal ACKs follow data and may lag it; helpers never trust partly prepared record or ACK absence alone; intent, root cells, domain and native code backing outlive all original/helper borrowers |
+| IP-LINK | source-refinement | IP-LINK:actual-source-refinement | Controlled cohort uses real atomic native head with all readers adapted; under stable exclusive domain authority after prior writer stop, head==old permits reconstruction of node.next from immutable intent then release publication, head==node with next==old confirms success without reinsertion, every other head/shape refuses; next remains immutable after head visibility until exclusive sweep; no mixing atomic head with old raw PSTATE stores |
+| IP-STOP | source-refinement | IP-STOP:actual-source-refinement | StopCertificate names exact operation, writer/thread incarnation, domain lease and every helper lineage; normal cooperative endpoint closes future stores, or exact successful native termination/join plus drained final effects supports native stop; logical Scheme exit, generation increment, timeout, pthread id reuse or failed/ignored join do not; known stop alone does not recover locks, freed storage or invalid structure |
+| IP-DECISION | source-refinement | IP-DECISION:actual-source-refinement | Commit publishes one pre-backed immutable DecisionEnvelope pointer by atomic compare-exchange after body/list/root installation; envelope holds stable root handles and allocation ticket, not untracked movable SCMOBJ; ticket role reserved/live and result come from same decision; no scalar increment/decrement replay; null before stop is pending observation, nonnull qualifies committed result but not writer drain |
+| IP-CUSTODY | source-refinement | IP-CUSTODY:actual-source-refinement | Unknown head/commit result retains operation, root and domain lease; after known stop helpers reconcile actual atomic head/decision, finish exact existing operation and never allocate/free or jump native frame from query; committed outcome with pending writers still refuses GC freeze; GC coordinator does not block holding a lock needed by target/helper, no join/GC barrier wait cycle |
+| IP-ORDER | native-memory-order | IP-ORDER:actual-C-memory-refinement | Actual C acquire/release and atomic object layout refine immutable-intent visibility, next-before-head publication, observed head classification and one decision CAS; all accesses use compatible types and lifetime protection; compiler/target lock-free support is not assumed, owner-death inside nonrecoverable atomic/lock backend remains unsupported; stop certificates establish no future effects before freeze/reuse |
+
+#+NAME: root-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| DW-CENSUS | DW-H |
+| DW-CENSUS | DW-I |
+| DW-CENSUS | DW-ORDER |
+| DW-ENDPOINT | DW-H |
+| DW-ENDPOINT | DW-I |
+| DW-ENDPOINT | DW-ORDER |
+| DW-ENROLL | DW-H |
+| DW-ENROLL | DW-I |
+| DW-ENROLL | DW-ORDER |
+| DW-ESCROW | DW-H |
+| DW-ESCROW | DW-I |
+| DW-ESCROW | DW-ORDER |
+| DW-CLEANUP | DW-H |
+| DW-CLEANUP | DW-I |
+| DW-CLEANUP | DW-ORDER |
+| DW-JOIN | DW-H |
+| DW-JOIN | DW-I |
+| DW-JOIN | DW-ORDER |
+| DW-ORDER | DW-H |
+| DW-ORDER | DW-I |
+| DW-ORDER | IP-ORDER |
+| DW-CENSUS | IP-INTENT |
+| DW-CENSUS | IP-LINK |
+| DW-ENDPOINT | DW-CENSUS |
+| DW-ENDPOINT | IP-STOP |
+| DW-ENROLL | DW-ENDPOINT |
+| DW-ENROLL | IP-CUSTODY |
+| DW-ESCROW | IP-DECISION |
+| DW-ESCROW | IP-CUSTODY |
+| DW-CLEANUP | DW-ESCROW |
+| DW-CLEANUP | DW-ENDPOINT |
+| DW-CLEANUP | DW-ENROLL |
+| DW-JOIN | DW-CLEANUP |
+| DW-JOIN | IP-STOP |
+| DW-JOIN | DW-ESCROW |
+
+* Scoped closure observations
+#+NAME: root-closure-observed
+| Need | Current evidence | Source/runtime boundary |
+|---+---+---|
+| DW-H | Checked task-local formal slice | Conditional model only; no C simulation |
+| DW-I | Checked task-local formal slice | Conditional model only; no C simulation |
+| DW-CENSUS | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ENDPOINT | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ENROLL | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ESCROW | Unresolved source or native-order obligation | No source-simulation root |
+| DW-CLEANUP | Unresolved source or native-order obligation | No source-simulation root |
+| DW-JOIN | Unresolved source or native-order obligation | No source-simulation root |
+| DW-ORDER | Unresolved source or native-order obligation | No C-memory/platform refinement root |
+| IP-INTENT | Unresolved source or native-order obligation | No source-simulation root |
+| IP-LINK | Unresolved source or native-order obligation | No source-simulation root |
+| IP-STOP | Unresolved source or native-order obligation | No source-simulation root |
+| IP-DECISION | Unresolved source or native-order obligation | No source-simulation root |
+| IP-CUSTODY | Unresolved source or native-order obligation | No source-simulation root |
+| IP-ORDER | Unresolved source or native-order obligation | No source-simulation root |

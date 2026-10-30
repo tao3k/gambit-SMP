@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "host-roots-refinement:98179ce9ac6057678da1692db5c4ceb48270393fe872790105d29f8af3a6b0a4" "host-roots-refinement:98179ce9ac6057678da1692db5c4ceb48270393fe872790105d29f8af3a6b0a4" "support" "dev/architecture/runtime/ffi/models/sysml/host-roots-refinement.sysml"))
+ (fact (factor "host-roots-refinement:98179ce9ac6057678da1692db5c4ceb48270393fe872790105d29f8af3a6b0a4" "target-model-bundle-sha256" "98179ce9ac6057678da1692db5c4ceb48270393fe872790105d29f8af3a6b0a4"))
+ (fact (factor "host-roots-refinement:98179ce9ac6057678da1692db5c4ceb48270393fe872790105d29f8af3a6b0a4" "native-output-sha256" "458488ed7c3aa4645b58cf0fa425b600e10f586f741f79a36042c4c1f8f5e198"))
+ (fact (factor "host-roots-refinement:98179ce9ac6057678da1692db5c4ceb48270393fe872790105d29f8af3a6b0a4" "planner-dsl-sha256" "fd0d540a2452123fbfea6a7e78b151cb2f28bdcbf6435f6745484011e92be25f"))
+)

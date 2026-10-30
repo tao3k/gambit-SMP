@@ -1,0 +1,140 @@
+#+TITLE: MC-SCOPE Source, Benefit and Patched SMP Milestone Matrix
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+
+* Fixed support budget
+| Profile | Word bytes | VM slots | Actor bits | Role bits per class combined | Owner roles | Generation bits | Maximum generation | VM record bytes |
+|---+---+---+---+---+---+---+---+---|
+| narrow | 4 | 64 | 8 | 8 | 2 | 6 | 63 | 256 |
+| wide | 8 | 64 | 8 | 8 | 2 | 38 | 274877906943 | 512 |
+
+* Packed word contract
+| Field | Encoding | Contract |
+|---+---+---|
+| gate | signed WORD accessed by backend atomic RMW/CAS | One word, all tags nonnegative; volatile alone is not synchronization |
+| closed | bit0 | No future registered permit acquisition after successful close CAS |
+| live | bits1..8 | Outstanding permit roles; only exact producer last-use may clear |
+| used | bits9..16 | Monotone per generation; prevents same-role reuse after release |
+| actor | bits17..24 | Exclusive pre-registered activation identity1..255; no processor-id inference |
+| generation | bits25..WORD_WIDTH-2 | Checked increment, never wrap; high sign bit stays zero |
+| VM-array | 64 records by default | Exclusive init before publication; pointers do not extend VM lifetime |
+
+* Actual source / future consumer distinction
+| Family | Source | Existing behavior | Change | Boundary |
+|---+---+---+---+---|
+| INITIALIZATION | vendor/gambit/lib/setup.c:setup_vmstate | Calls native_scope_init_vmstate before processor_count/publication | Implemented, no Scheme evaluation/allocation | Concurrent reset and storage lifetime not permitted |
+| GATE | vendor/gambit/lib/native_scope.c;lib/native_scope.h | One word owns generation/actor, close, used/live bits; eight roles | Implemented internal protocol; role never reused within generation | Caller must hold VM storage and exclusive actor/role ownership |
+| GENERATOR | vendor/gambit/gsc/_ptree2.scm:2902-2925,3238-3251 | Cleanup selected by conversion types | Future complete effect scope and stable journal before callback/marker | No generated activation switch in first patch |
+| CATCHER | vendor/gambit/lib/setup.c:call,run,propagate_error;include/gambit.h.in:BEGIN_TRY/END_TRY | call can rethrow past normal marker kill | Future exact-activation post-catcher last-use funnel | Exit observation is not permit-release authority |
+| THREAD | vendor/gambit/lib/setup.c:resize;lib/os_thread.c:thread_join,thread_exit | Cleanup before exit; shrink ignores join result | Future VM custody and verified stop/borrower drain | No forced release on join failure/unknown |
+| PATCHED-SFUN-ADMISSION | patches/fixtures/runtime-mutex-return-cumulative.patch:___sfun_frame_enter/leave | Existing repair already uses a full-word VM gate CAS and PSTATE frame count | New record adds per-activation actor/generation and split spent/live writer roles; it does not repair a missing CAS in that existing gate | Old VM admission cannot retire until canonical VM epoch admission covers scope creation and all old readers; no permanent double tracking |
+
+* Atomic protocol
+| Edge | Required order | Rejected shortcut / cost |
+|---+---+---|
+| ACQUIRE | Read full packed header; CAS exact word sets used and live together | No open-check/increment gap; failed CAS must retry full checks |
+| CLOSE | CAS closed in same word; earlier permits survive until real release | Close does not kill a native writer |
+| RELEASE | After last real store/borrow, CAS clears only role live bit and keeps used | Duplicate release cannot affect another role or a reused generation |
+| HANDOFF | CAS only on closed header with all live bits empty; increments checked generation and installs both owner permits | Tag includes actor, so competing candidates differ; missing reply never leaves an uncounted owner |
+| LOAD | Existing backend uses full-barrier RMW for snapshot and CAS for mutation | Snapshot/query causes cache-line traffic; no free acquire-load claim |
+
+* Refinement
+| Need | From | To | QNT | Guard | Conditional Lean law | C source |
+|---+---+---+---+---+---+---|
+| NS-CAS | OpenSnapshot | ClosedHeader | readAcquire / close / failedCas | CAS compares all header fields; stale read cannot acquire | closeRejectsAcquisition | native_scope.c:try_acquire/close |
+| NS-LAST | LiveRole | SpentRole | release | Release after actual last use; used bit remains set | releaseIsIdempotent | native_scope.c:release |
+| NS-CAS | DrainedClosed | NextOwnerAccounted | take | Full-header CAS; checked generation; both owner class bits live | newOwnerDataAccounted | native_scope.c:try_handoff |
+| NS-ID | OldTag | NewGeneration | staleRelease | Old generation/actor cannot alter new helper live bits | staleReleaseIsNoop | native_scope.c:release |
+| NS-VM | UnpublishedVm | InitializedEmptyRecords | init | Storage exclusive and initialized before first use | advanceHasCoverage | setup.c:setup_vmstate |
+
+* Four remaining 8/12 contracts
+| Need | Gate | Retained evidence | Required architectural replacement | Retirement / acceptance condition | Why MC-SCOPE is insufficient |
+|---+---+---+---+---+---|
+| NS-LIFECYCLE | lifecycle-failure-rollback | 8/12 retained audit: actual pending/sticky joins and constructor retry pass; natural error-then-success join and old unadmitted-handler quiescence open | Transactional VM/member lifecycle + explicit actor/borrower closure; retained cleanup as owned result | All root/resource owners transfer before PSTATE destruction; genuine recovery and full failure inventory pass | MC-SCOPE prevents registered late writes; it cannot prove physical stop or register unknown handlers |
+| NS-GCFFI | complete-gc-ffi | Official GC/FFI selected targets pass in retained successor; whole changed-producer inventory remains open | Precise FrameSpec roots + RootRegistry + typed construction + native GC participation, then generational barrier architecture | Switch all frame/root/FFI writers and retire old implicit ownership only after exact-source complete acceptance | Permit gate has zero GC root payload; source-adapter work is mandatory |
+| NS-GERBIL | gerbil-correctness | stage0/stage1 pass; stdlib type-field fault remains; origin not established | Source-causal object/continuation/FFI ownership diagnosis; repair proven producer rather than hide bad TYPEID read | Actual downstream stdlib/libgerbil/lang/tools and complete tests on same candidate | Not every Gerbil crash is a GC/SMP root defect; preserve alternate causes |
+| NS-PERF | release-performance | Numerical generated C about5.54MB and8008 labels recorded; compiled deadline and release gates open | Modern generated C contracts + smaller correct units/dynamic-dependency snapshots/AOT reuse; runtime work and memory counted separately | Unchanged numerical cap and matched whole-producer latency/build/test populations qualify; retire redundant expansion/compilation only when equivalent | No modeled CAS safety or language change implies compiler/whole-build speedup |
+
+* Benefit and peak matrix
+| Capability | Mechanism | Quantified boundary | Added work / memory | Falsifier or limit |
+|---+---+---+---+---|
+| Fixed record layout | One word per record, 64 VM slots | 32-bit=256 bytes;64-bit=512 bytes, excludes existing VM padding effects | No dynamic allocation/GC pointers in this support | Size is layout arithmetic and compiler syntax evidence, not measured runtime peak |
+| Permit lifecycle | Four control and four data roles; owner uses one of each | At most three delegates per class/generation; spent roles refuse reuse | Capacity refusal is explicit; future caller must reserve enough roles | Removing spent bits reintroduces duplicate-release ABA |
+| Generation | 25 low/actor bits and sign bit reserved | 32-bit max63;64-bit max274877906943; exhaustion refuses | No wrapping, no historical identity map; live VM-borrow prerequisite | Not a destroyed-VM routing or arbitrary async-death solution |
+| Atomic work | Uncontended acquire/close/release/handoff: one RMW read plus one CAS | Duplicate/stale query still performs RMW read; retry count unbounded | Full-barrier and cache-line contention costs; no starvation bound | A later C11 backend may optimize after independent memory-order proof |
+| GC/peak benefit | This primitive stores zero Scheme root words | Zero old GC/marker/catcher paths retired; added VM budget256/512 bytes | Unknown permits retain custody; frozen-root adapter still needed | No whole-round peak reduction or GC speedup established |
+| First source patch | New native_scope.c/.h, VM field/init, build and test target | Actual C code committed on modern-c; controls compiled/linked, not run | ABI rebuild required; multi-VM baseline source failure retained | Generated activation enablement awaits all source/C/native gates |
+
+* Closure
+| Component | Need | Kind | Scope | Status |
+|---+---+---+---+---|
+| host-roots | NS-H | interleaving | native_scope_gate:one-record-eight-roles-three-generations;seed17 | Conditional local model checked |
+| host-roots | NS-I | induction | GambitSMP.NativeScopeGate:conditional-tag-permit-and-drain-laws | Conditional local model checked |
+| host-roots | NS-LAST | source-refinement | NS-LAST:all-source-last-write-and-borrow-release | OPEN: source/C/native qualification |
+| host-roots | NS-ID | source-refinement | NS-ID:exclusive-resident-actor-role-and-prepared-intent | OPEN: source/C/native qualification |
+| host-roots | NS-CAS | native-memory-order | NS-CAS:packed-word-encoding-and-C-backend-refinement | OPEN: source/C/native qualification |
+| host-roots | NS-VM | source-refinement | NS-VM:exclusive-init-and-storage-borrow-before-cleanup | OPEN: source/C/native qualification |
+| host-roots | NS-ACT | source-refinement | NS-ACT:connected-managed-activation-not-enabled | OPEN: source/C/native qualification |
+| host-roots | NS-LIFECYCLE | source-refinement | NS-LIFECYCLE:patched-baseline-to-transactional-member-lifecycle | OPEN: source/C/native qualification |
+| host-roots | NS-GCFFI | source-refinement | NS-GCFFI:precise-roots-entry-construction-and-GC-participation | OPEN: source/C/native qualification |
+| host-roots | NS-GERBIL | source-refinement | NS-GERBIL:causal-invalid-structure-repair-and-whole-consumer | OPEN: source/C/native qualification |
+| host-roots | NS-PERF | source-refinement | NS-PERF:matched-whole-producer-cost-and-build-latency | OPEN: source/C/native qualification |
+| host-roots | WS-HELP | source-refinement | WS-HELP:repeated-helper-stop-and-bounded-lease-reuse | OPEN: source/C/native qualification |
+| host-roots | OB-ROOT | source-refinement | OB-ROOT:root-admission-close-cut-and-final-commit | OPEN: source/C/native qualification |
+| host-roots | WS-ORDER | native-memory-order | WS-ORDER:close-entry-drain-publish-and-acquire | OPEN: source/C/native qualification |
+| host-roots | MW-SEMANTIC-Q | interleaving | modernization-target:semantic:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-SEMANTIC-L | induction | modernization-target:semantic:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-DOMAIN-Q | interleaving | modernization-target:domain:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-DOMAIN-L | induction | modernization-target:domain:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-HEAP-Q | interleaving | modernization-target:heap:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-HEAP-L | induction | modernization-target:heap:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-CONTROL-Q | interleaving | modernization-target:control:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-CONTROL-L | induction | modernization-target:control:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-FOREIGN-Q | interleaving | modernization-target:foreign:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-FOREIGN-L | induction | modernization-target:foreign:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-BUILD-Q | interleaving | modernization-target:build:whole-source-composition-open | OPEN: source/C/native qualification |
+| host-roots | MW-BUILD-L | induction | modernization-target:build:whole-source-composition-open | OPEN: source/C/native qualification |
+
+* Dependencies
+| Dependent | Prerequisite |
+|---+---|
+| NS-LAST | NS-H |
+| NS-LAST | NS-I |
+| NS-ID | NS-H |
+| NS-ID | NS-I |
+| NS-CAS | NS-H |
+| NS-CAS | NS-I |
+| NS-VM | NS-H |
+| NS-VM | NS-I |
+| NS-ACT | NS-H |
+| NS-ACT | NS-I |
+| NS-ACT | NS-LAST |
+| NS-ACT | NS-ID |
+| NS-ACT | NS-CAS |
+| NS-ACT | NS-VM |
+| NS-ACT | WS-HELP |
+| NS-ACT | OB-ROOT |
+| NS-CAS | WS-ORDER |
+| NS-LIFECYCLE | NS-ACT |
+| NS-GCFFI | NS-ACT |
+
+* Research gates
+| Gate | Need |
+|---+---|
+| source-protocol | NS-H |
+| source-protocol | NS-I |
+| source-protocol | NS-CAS |
+| source-protocol | NS-ID |
+| source-protocol | NS-VM |
+| managed-activation | NS-LAST |
+| managed-activation | NS-ID |
+| managed-activation | NS-CAS |
+| managed-activation | NS-VM |
+| managed-activation | NS-ACT |
+| managed-activation | WS-HELP |
+| managed-activation | OB-ROOT |
+| managed-activation | WS-ORDER |
+
+* Boundary
+Only NS-H and NS-I qualify locally. The actual source primitive is committed; code-compilation evidence is separate from assurance. No generated activation/GC consumer is switched, native controls are not executed, no old path retires, and the retained qualification stays 8/12.

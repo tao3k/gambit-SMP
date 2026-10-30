@@ -1,0 +1,63 @@
+#+TITLE: Persistent Declaration Views and Specialization Caller Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Canonical native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: declaration-specialization-context-matrix
+:AUTHORITY: DeclarationSpecializationContext
+:STATUS: conditional-models-source-open
+:END:
+
+Local formal checks are separate from host registration and native/source qualification.
+
+** View
+
+| key | anchor | sharing | condition |
+|---+---+---+---|
+| construct | _env.scm:64-80,102-111,318-343 | env-frame inherits declaration head; env-declare conses one head; env-decl-set builds a new vector | Persistent spine is reusable only if declaration records and named payload lists are writer-closed |
+| batch-order | _ptree1.scm:2868-2873; _env.scm:335-343 | add-declarations visits source order and prepends each transformed record | Later textual declarations are earlier lookup candidates; do not preserve textual list without reversal |
+| scope-restore | _ptree1.scm:754-765,1557-1568 | CPS saves declaration head and restores it into the returned env | Restore declaration projection only; preserve bindings/macros/other returned environment fields |
+| shared-mutable | _env.scm:94-130 | Functional env setters share variables cell, externals, parent and other fields | Do not use persistent declaration head as proof that whole env is immutable or session-independent |
+| payload-alias | _env.scm:327-331; _ptree1.scm:543-614,2769-2873; _ptree2.scm:218,433-454; _prims.scm:3083,3211,5485 | Stock transform validates bool/integer/symbol payloads and extract-names allocates a fresh list; env-declare itself accepts arbitrary records | Include parser/optimizer/primitive derived declarations and their admitted writers; classify payload aliases, raw stores and FFI; syntactic nonuse is not closure |
+| read-view | _env.scm:335-343; _ptree1.scm:574-575; _back.scm:579-580 | first matching named/universal declaration, safe default true, arithmetic default generic | Root one related immutable/leased view across complete specialization chain; keep primitive-name identity |
+
+** Caller
+
+| key | anchor | environment | contract |
+|---+---+---+---|
+| app-helper | _ptree1.scm:333-378 | Primitive resolution can use operand node-env; specialization receives app node-env | Carry resolution and selection views separately; replacing both with current global env is unsound |
+| parser-validation | _ptree1.scm:1101,1137 | app->specialized-proc participates in parse-time checks | Diagnostics and rejected calls belong to observer; late GVM-only migration misses this user |
+| epc | _ptree2.scm:187-205,325-340 | Calls specialize-proc with operand node-env; rebuilt nodes can use app node-env | Do not normalize different caller environment choices into one unlabeled view |
+| branch-rewrite | _ptree2.scm:1116,1442,1503 | Direct specialize-app uses transformed argument nodes and app env; predicate users compare helper objects | Preserve constant/void abstraction and context-local canonical helper identities |
+| gvm-and-analysis | _front.scm:2079,3226,3839,3854 | Calls app helper for switch extraction, call emission, triviality and boolean analysis | Migrate result consumers, inline predicates and ** helper slots in the same context domain |
+| fixed-point | _ptree1.scm:367-378 | Initial arity check precedes repeated provider calls until eq? self | Transport every step and termination identity; no arbitrary one-step replacement, timeout success or invented per-step arity check |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| persistent-view | Repeated declaration-list reconstruction and whole-env copying that would otherwise occur | View fingerprint, roots/read leases and recursive payload admission | Existing persistent updates are baseline; only genuinely repeated work counts |
+| query-reuse | Repeated specialization and downstream work under identical admitted views | Keys include caller mode, resolution/selection views, private primitive graph, argument abstraction and observer | Expected saved work exceeds key/validation/materialization; raw addresses are not persistent cache keys |
+| parallel-context | Global declaration/primitive/helper serialization after ownership migration | Private bindings, helper map, pinned views and roots for full chains | Removed span exceeds new overhead; no unsafe sharing of mutable env or implicit gain from core count |
+
+** Refinement
+
+| key | qntScope | leanScope | sourceDuty |
+|---+---+---+---|
+| persistent-scope | enterScope;addBinding;restoreDecl | restoreKeepsBinding;batchOrder | Full declaration payload alias closure and actual transform-declaration semantics |
+| caller-binding | beginCall;walkStep | walkTransport;helperIdentity | Caller-specific resolution/selection env and argument abstraction refine source operations |
+| view-custody | pinView;releaseView | headOverride;otherNameStable | Root/read-lease/epoch mechanism truthfully prevents source view mutation and stale restoration |
+| termination-benefit | walkStep;finish | fixedPointTransport;costPositive | Original terminating chain relation plus source/exception/GC and actual work/span evidence |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| view-closure | False | Declaration spine and record/named payload writer closure proven |
+| caller-views | False | All real caller resolution/selection views and args preserved |
+| chain-transport | False | Full valid specialization sequence and original termination relation proven |
+| helper-domain | False | Private primitive table and ** helper comparisons share one injective identity domain |
+| observer | False | Identity, generated origin and actual parse/optimizer/emitter diagnostics preserved |
+| retirement | False | All relevant producer/caller/consumer paths migrated; SP-S remains prerequisite |
+| platform | False | Native root/GC/FFI/SMP and observed work/span/memory remain unqualified |

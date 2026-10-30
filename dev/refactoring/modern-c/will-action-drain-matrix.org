@@ -1,0 +1,199 @@
+#+TITLE: Will Creator, Restoration Custody and Retirement Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitWillActionDrain
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| public-will | vendor/gambit/lib/_nonstd.scm | (define-prim (make-will testator action) | Actual checked public constructor forwards to primitive |
+| private-ctor | vendor/gambit/lib/_kernel.scm | (define-prim (##make-final-will testator action) | Procedure body creates a will when called; definition is not a default invocation |
+| ctor-macro | vendor/gambit/include/gambit.h | #define ___MAKEWILL(testator,action) | Writes testator/action and links nonexecutable list |
+| ctor-list | vendor/gambit/include/gambit.h | ___ps->mem.nonexecutable_wills_=___TAG(___hp,0) | Raw generated allocation publication; no session admission gate |
+| ct-backend | vendor/gambit/gsc/_t-c-2.scm | (define (targ-apply-make-will) | GVM operation emitter, not compile-time action invocation |
+| ct-op | vendor/gambit/gsc/_t-c-2.scm | (targ-op "##make-will" | Registers target emission recipe |
+| ephemeron-ctor | vendor/gambit/lib/srfi/124/124.scm | (make-will key (make-ephemeron-finalizer ephemeron)) | Real library call; optional load and actual compile-session invocation not established |
+| ephemeron-action | vendor/gambit/lib/srfi/124/124.scm | (define (make-ephemeron-finalizer ephemeron) | Captures ephemeron; key formal unused in body |
+| ephemeron-clear | vendor/gambit/lib/srfi/124/124.scm | (macro-ephemeron-datum-set! ephemeron #f) | Clears ephemeron field, does not mutate datum contents |
+| macro-execute | vendor/gambit/gsc/_ptree1.scm | (apply expander (cdr (source->expression source))) | Actual compiler invokes user-defined transformer |
+| macro-eval | vendor/gambit/gsc/_ptree1.scm | (scheme-global-eval (source->expression proc) | Expander construction executes host Scheme expression |
+| host-eval | vendor/gambit/gsc/_host.scm | (define (scheme-global-eval expr err) | Actual Gambit host uses eval; direct calls are not closed-world |
+| finalize-pop | vendor/gambit/lib/_kernel.scm | ___ps->context->mem.executable_wills_ = ___WILL_NEXT_FIELD(will); | Dequeued will must remain rooted independently of list |
+| action-load | vendor/gambit/lib/_kernel.scm | (let ((testator (##will-testator will)) | Loads operands before field zapping |
+| action-zap | vendor/gambit/lib/_kernel.scm | (##will-action-set! will #f) | Does not clear lexical action or captured continuation roots |
+| action-call | vendor/gambit/lib/_kernel.scm | (action testator) | Interrupts enabled in action body; no completion guard in this source function |
+| final-drain | vendor/gambit/lib/_kernel.scm | (macro-fifo-remove-all! registry) | Detaches list but loop may retain remaining work across exception/capture |
+| strong-action | vendor/gambit/lib/memory/object-scanning.inc | mark_array (work, body+2, 1); | Strong action edge before weak testator processing |
+| weak-transition | vendor/gambit/lib/memory/wills.inc | determine_will_executability (nonexecutable_wills); | Closing creation does not prevent existing weak wills becoming executable |
+| context-list | vendor/gambit/lib/memory/configuration.inc | #define executable_wills        ___CONTEXT_MEM(executable_wills_) | Consumer list uses execution context; current producer header must be qualified separately |
+| generated-load | vendor/gambit/lib/_kernel.c | ___SET_R3(___WILLACTION(___R1)) | Concrete artifact loads action to R3 |
+| generated-poll | vendor/gambit/lib/_kernel.c | ___POLL(1) | Selected procedure polls after field clearing with action/testator live |
+| generated-call | vendor/gambit/lib/_kernel.c | ___JUMPGENNOTSAFE(___SET_NARGS(1),___R3) | Selected will execution dynamic callee |
+| generated-desc | vendor/gambit/lib/_kernel.c | ___DEF_LBL_RET(___H__23__23_will_2d_execute_21_,___IFD(___RETI,4,0,0x3f1L)) | Descriptor literal exists; actual generation/configuration correspondence open |
+| frame-scan | vendor/gambit/lib/memory/continuation-roots.inc | while (___frame_root_next_run (&cursor, &first, &past)) | Actual frame roots consumer; poll mapping not inferred from lexical liveness |
+| resource | vendor/gambit/gsc/_t-c-1.scm | (vector-set! r 1 demanders) | Raw resource authority remains possible via aliases/globals |
+| first | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_PRM") | First demand remains needed |
+| second | vendor/gambit/gsc/_t-c-1.scm | (def-mod-prm-glo "DEF_MOD_GLO") | Actual candidate retirement site |
+| will-contract | vendor/gambit/doc/gambit.txi | A remarkable feature of wills is that an action procedure can | Manual explicitly permits resurrection and creation of a new will |
+| dead-vars | vendor/gambit/doc/gambit.txi | continuations will contain the dead variables. | Lexical deadness alone is not physical-root retirement |
+
+** Creator
+
+| key | producer | captures | writes | reachability | retirement |
+|---+---+---+---+---+---|
+| gsc-core | GSC immediate source files | Primitive names, specification and emitter closures | Emission of MAKEWILL does not execute user program constructor | No direct compile-time will application found in bounded immediate-file inventory | Not evidence of a will-free session |
+| public | make-will -> ##make-will -> target MAKEWILL | Caller-provided action and weak testator; action strongly rooted | Arbitrary action, plus internal action/testator setters | Exposed API; user macro/eval/native may invoke | Must classify actual session producer and operands |
+| final-registry | ##make-final-will body | Action, testator and registry FIFO | Constructs weak will then inserts strong registry node | Definition and generated body found; no core default call established | Clear registry does not retire removed list or active action |
+| srfi124 | make-ephemeron | Finalizer captures ephemeron; datum transitively retained | Exactly will/datum fields cleared by stock closure body | Real library creator; not shown loaded/called in default GSC session | Write-footprint certificate separate from session reachability |
+| macro-eval | add-macro make-descr -> host eval; macro-expand invokes expander | User/global environment and arbitrary retained values | Can invoke constructor, mutate resource or retain raw alias | Compiler invocation located; particular effectful macro witness not run | Cannot infer closed session from core constructor census |
+| test-fixtures | gsc/tests/35-will | Identity actions, rotations and printed examples | Exercises setters/constructors | Explicit tests, not default compiler caller | Never use fixture as default-session witness |
+| native-alias | MAKEWILL, field macros, FFI and unknown loaded code | Unregistered root carriers and external references possible | Raw C write authority not revoked by language choice | No complete native producer/borrower inventory | Unresolved means keep optimization denied |
+
+** Root
+
+| key | beforeState | afterState | condition | gap |
+|---+---+---+---+---|
+| construct | Action/testator operands in GVM roots | Will strong action plus weak testator and list link | Allocation checks and generated operand roots must match actual configuration | Current header/context consumer expressions differ |
+| dequeue | Executable list root | Local will then loaded testator/action | Independent scanned carrier before old list edge removed | Raw C inline RESULT and per-point roots qualification open |
+| zap | Will fields plus lexical operands | Loaded R2/testator and R3/action; then testator moved to R1 | At POLL(1) preserve current registers and RETI frame mapping | Descriptor 0x3f1 literal is not matched Darwin generation receipt |
+| invoke | Runnable strong carrier | Active action frame, dynamic env and return continuation | GC scanner covers action body and captured caller chain | Arbitrary action and multi-shot mapping remain open |
+| return | Active activation | Possibly retained external capture and native borrower | Return retires one activation ticket, not every capability | Need last-capture receipt with stable guard, not empty queue |
+| escape | Live action and remaining detached drain list | Unknown owner guard and captured restoration state | Escaped/unknown completion retains ticket and cannot be retried blindly | No existing exception completion guard identified in will executor |
+| ephemeron | Will -> action -> ephemeron -> datum | Action clears two ephemeron fields | Referent retention differs from authority to mutate referent | If datum reaches key, that strong path must be accounted before eligibility |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| gate | Normal producer reserve under C23 owner mutex or qualified combined atomic gate | Close external admission preserves outstanding producer pins | Reservation and close must share one linearization domain; no Scheme/GC/FFI while locked | At least reserve/settle bookkeeping; cross-worker contention unmeasured |
+| roots | Register scanned carrier before possible GC or list-edge removal | GC sees operand/current action roots through admitted runtime facility | A C atomic pointer or mutex is not a GC root; moving updates need real registry | Root slot and generation metadata |
+| handoff | Parent reserves child responsibility before finishing | Final-empty check sees both parent retirement and child reservation | Same ledger critical section or equivalent release/acquire refinement; unknown commit retains ticket | No double decrement; one accounting domain |
+| reuse | Validate generation and pin immutable plan before leaving admission critical section | Output uses the borrowed plan until explicit completion | Revoke cannot race unchecked pointer use; C23 atomics alone do not revoke raw aliases | Per-borrow pin/return and epoch validation |
+| unknown | Outcome receipt records identity and owner before notifying caller | Reconcile accepted or absent outcome exactly once | No generic retry after lost acknowledgement; source guards still need implementation | Stable record retention until result known |
+| finite-fields | Checked bounded generation and ticket reservation before publication | Reject optimization admission before wrap or overflow | Unbounded QNT/Lean Int proofs do not establish C23 counter ranges or ABA safety; fallback retains custody | Range checks and generation retirement policy |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| closure | Separate external creation gate, weak eligibility, invocation and restoration authority | Already accepted producers and descendants remain accounted | Closing registration neither drains execution nor cancels legal Scheme behavior | No unconditional global termination claim |
+| capture | Action is strongly marked; zapped fields no longer own operands | Loaded root carrier and captured action/caller frames admitted | Model permits repeated resume after return and close | Actual root maps and capture enumeration incomplete |
+| rights | SRFI124 stock body touches two fields | Type/primitive identity and no forged native aliases | Holding datum/resource keeps it alive but does not itself mutate resource | Arbitrary macro action can have broader authority; session inventory open |
+| scope | Track only metadata-relevant work for optimization receipt | Disjoint complete effect closure for excluded wills | Unrelated wills need not die or be forced during compilation | Effect-disjointness is an external proof, not a name-based rule |
+| retire | Quiescent relevant obligations and immutable plan | Same entry, named-writer law, no post-cut legacy observer divergence | Second helper condition can narrow to write authority rather than global GC shutdown | Full observable equivalence still required |
+| identity-gap | Counts conserve aggregate obligations, not TicketId or capability graph identity | Each real settlement and resume needs a unique provenance-bound receipt | A wrong-ticket duplicate settlement can evade aggregate conservation | Per-ID exactly-once and capture-identity source refinement remain open |
+| self-wait | A relevant active callback cannot synchronously wait for its own active count to become zero | Reentrant normalization falls back or is deferred to the outer owner | Avoid self-deadlock without suppressing Scheme continuation semantics | Non-owning audit identity and actual scheduler/GC progress proof remain open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| helper | 0..N second helper calls; first N remain | P plan work + V qualification + A activation accounting + K capture/borrow tracking | Net positive iff sum helper costs > P+V+A+K; admitted N currently zero |
+| global-drain | Avoid waiting for unrelated live testators and scanning every will at every binding | Effect scope classification once per admitted closure/generation | Only valid for fully disjoint effects; weak-pending population may never globally drain |
+| shared-ledger | Reuse RootRegistry and completion guard design across callback/job services | Per reservation and handoff ledger transitions; unknown outcomes retained | Shared design reduces duplicate mechanisms, not proof obligations or measured cycles |
+| captures | No eager freeing or forced single-shot conversion | Retained root storage until last real capture/borrower retires | Unbounded capture lifetime means no guaranteed memory saving or drain latency |
+| parallel | Immutable plan can enable independent emission consumers | Per-session context, owner custody and snapshot validity | Requires separate incremental/session isolation proofs; no speedup measured |
+| language | No Zig-only saving established for the same contracts | Modern C23 and Zig both need roots, epochs, unknown-result ownership and GC integration | Modern C is mandatory mainline; Zig is not needed to establish this protocol |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| SysML | ASCENT | Component-specific action, source and theorem obligations |
+| ASCENT | QNT | Missing or stale source/route receipts keep actual candidate denied |
+| QNT | Lean | Restricted typed IR, exact actions and all-step preservation |
+| macro expander | will creation | Host Scheme execution can create arbitrary action; actual session evidence open |
+| will creation | weak pending | Action strongly rooted, testator weak; accepted producer obligation |
+| external gate close | weak pending | No erasure: later GC eligibility still allowed |
+| weak pending | claimed action | GC queues; executor pops before loading operands |
+| claimed action | runnable action | Load operands then zap will fields; explicit scanned carrier |
+| runnable action | active action | POLL and dynamic invocation require matched root maps |
+| active action | captured capability | Return or escape may retain multi-shot continuation authority |
+| captured capability | active action | Resume creates a fresh activation ticket after gate closure |
+| active action | child reservation | Reserve descendant obligation before parent completion |
+| active action | unknown custody | Exception or unconfirmed completion prevents empty receipt |
+| scoped closure | plan reuse receipt | No relevant weak/ready/active/unknown/capture/producer debt; admitted roots and aliases |
+| plan reuse receipt | second helper retirement | Only complete emission-equivalence admission; first demand retained |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| will_action_drain.reserveExternal | WillDrain.reserveExternalPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.reserveChild | WillDrain.reserveChildPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.commitWill | WillDrain.commitWillPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.abortReservation | WillDrain.abortReservationPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.unknownCommit | WillDrain.unknownCommitPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.closeExternal | WillDrain.closeExternalPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.makeExecutable | WillDrain.makeExecutablePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.dequeue | WillDrain.dequeuePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.loadOperands | WillDrain.loadOperandsPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.zapWillFields | WillDrain.zapWillFieldsPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.enterAction | WillDrain.enterActionPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.capture | WillDrain.capturePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.returnAction | WillDrain.returnActionPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.escapeAction | WillDrain.escapeActionPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.resumeCapture | WillDrain.resumeCapturePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.retireOneCapture | WillDrain.retireOneCapturePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.resolveUnknownDone | WillDrain.resolveUnknownDonePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.resolveUnknownReady | WillDrain.resolveUnknownReadyPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.attestRootMaps | WillDrain.attestRootMapsPreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.attestAliasClosure | WillDrain.attestAliasClosurePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.issue | WillDrain.issuePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.reuse | WillDrain.reusePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+| will_action_drain.unmanagedInterference | WillDrain.unmanagedInterferencePreserves | Abstract lifecycle; source simulation and external reconciliation/capture receipts open |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | WillDrain.stepPreserves |
+| reachableSafe | WillDrain.reachableSafe |
+| ticketConservation | WillDrain.ticketConservation |
+| issuedHasNoCaptures | WillDrain.issuedHasNoCaptures |
+| issuedHasNoUnknown | WillDrain.issuedHasNoUnknown |
+| issuedHasNoWeak | WillDrain.issuedHasNoWeak |
+| returnRetainsCaptures | WillDrain.returnRetainsCaptures |
+| zapTransfersLoaded | WillDrain.zapTransfersLoaded |
+| childReservationSurvivesReturn | WillDrain.childReservationSurvivesReturn |
+| closeDoesNotEraseWeak | WillDrain.closeDoesNotEraseWeak |
+| closeDoesNotEraseCapture | WillDrain.closeDoesNotEraseCapture |
+| replayCreatesTicket | WillDrain.replayCreatesTicket |
+| resumeNeedsCapability | WillDrain.resumeNeedsCapability |
+| noEarlyPermit | WillDrain.noEarlyPermit |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| construction | will_action_drain.reserveExternal | WillDrain.reserveExternalPreserves | public-will | WD-producers |
+| construction | will_action_drain.commitWill | WillDrain.commitWillPreserves | ctor-list | WD-producers |
+| execution | will_action_drain.dequeue | WillDrain.dequeuePreserves | finalize-pop | WD-roots |
+| execution | will_action_drain.loadOperands | WillDrain.loadOperandsPreserves | action-load | WD-roots |
+| execution | will_action_drain.zapWillFields | WillDrain.zapWillFieldsPreserves | action-zap | WD-roots |
+| execution | will_action_drain.enterAction | WillDrain.enterActionPreserves | generated-poll | WD-roots |
+| restoration | will_action_drain.capture | WillDrain.capturePreserves | action-call | WD-restoration |
+| restoration | will_action_drain.resumeCapture | WillDrain.resumeCapturePreserves | action-call | WD-restoration |
+| restoration | will_action_drain.escapeAction | WillDrain.escapeActionPreserves | final-drain | WD-restoration |
+| admission | will_action_drain.issue | WillDrain.issuePreserves | second | WD-emission |
+| execution | will_action_drain.makeExecutable | WillDrain.makeExecutablePreserves | weak-transition | WD-roots |
+| restoration | will_action_drain.reserveChild | WillDrain.reserveChildPreserves | will-contract | WD-restoration |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| WD-formal | induction | dev/refactoring/modern-c/models/lean/WillDrain.lean | unbounded abstract ticket/capability safety under restricted typed IR |
+| WD-producers | source | dev/refactoring/modern-c/will-action-drain-design.org | actual compiler session creator/alias/native inventory including macro/eval |
+| WD-roots | source | vendor/gambit/lib/_kernel.c | matched generated POLL roots and root-transfer source simulation |
+| WD-restoration | source | dev/refactoring/modern-c/will-action-drain-design.org | TicketId/outcome identity, last capture, nested/exception exits and unknown completion source refinement |
+| WD-effects | equivalence | dev/refactoring/modern-c/will-action-drain-design.org | actual metadata effect closure and old observer behavior |
+| WD-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 memory order and current header/context/generated Darwin correspondence |
+| WD-emission | equivalence | dev/refactoring/modern-c/callback-carry-closure-design.org | full previous emission/carry/failure gates still apply |

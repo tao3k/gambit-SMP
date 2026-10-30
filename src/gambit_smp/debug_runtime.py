@@ -1,3 +1,4 @@
+from gambit_smp.task_processes import check_output as _task_check_output
 #!/usr/bin/env python3
 """Isolate collector/sync debug symbols without changing candidate ABI/artifacts."""
 import argparse
@@ -137,7 +138,7 @@ def capture_command(binary, runtime, script, cwd, processors, observe, compile_f
 
 
 def make_command(directory, dependency, target):
-    output = subprocess.check_output(
+    output = _task_check_output(
         ["make", "-n", "-W", dependency, target], cwd=directory, text=True)
     lines = output.strip().splitlines()
     if len(lines) != 1:
@@ -245,6 +246,9 @@ def main():
     (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     print("DIAGNOSTIC-BUILD-OK; not a release or repaired candidate")
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('debug')(main)
 
 if __name__ == "__main__":
     main()

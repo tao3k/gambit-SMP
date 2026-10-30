@@ -1,0 +1,230 @@
+{
+  "caller": [
+    {
+      "key": "arena-setup",
+      "anchor": "mem.c:4210-4247,6775-6805",
+      "condition": "Initialize each arena once per epoch; positive still refcounts seed traversal; storage remains VM-owned after creator exit"
+    },
+    {
+      "key": "discovery-and-workers",
+      "anchor": "mem.c:3626-3647,6667-6771",
+      "condition": "Discovering worker owns its local still queue; storage owner differs from scanner; claim and queue publication must preserve outstanding work"
+    },
+    {
+      "key": "weak-and-sweep",
+      "anchor": "mem.c:4039-4080,5032-5105,6872-6930",
+      "condition": "PSTATE will-list membership needs separate handoff; retain weak/testator and GC-hash semantics; drain derived work before exactly-once arena sweep"
+    },
+    {
+      "key": "capacity-census",
+      "anchor": "mem.c:1556-1684,4387-4427,6256-6293,6367-6472",
+      "condition": "Charge deferred words once; recompute physical live and quarantine words across VM arena membership, not current processors"
+    },
+    {
+      "key": "history-consumers",
+      "anchor": "mem.c:367-370,7000-7049,7509-7522; _kernel.scm:3999-4043,4126-4130",
+      "condition": "Allocation history differs from occupancy; GC folds/unfolds baseline; archive departed contributions; process-statistics exposes distinct observables"
+    }
+  ],
+  "protocol": [
+    {
+      "key": "freeze-membership",
+      "anchor": "setup.c:918-978; mem.c:7002-7009; proposed epoch cut",
+      "condition": "StorageHandoffReceipt precedes creator exit; freeze VM arenas and worker tickets separately; no mid-epoch cleanup or ownership migration"
+    },
+    {
+      "key": "scan-work",
+      "anchor": "mem.c:3626-3647,4210-4247,6686-6690",
+      "condition": "Initialize marks once; discovered objects may queue on any authorized worker; queued, in-flight and unpublished work must all settle"
+    },
+    {
+      "key": "weak-closure",
+      "anchor": "mem.c:4039-4080,5032-5105,6896-6902",
+      "condition": "Strong quiescence precedes weak decisions; process_wills may add work; weak-derived closure precedes GC-hash cleanup and sweep"
+    },
+    {
+      "key": "sweep-authority",
+      "anchor": "mem.c:4387-4427,6910-6930; c_intf.c:1683-1710",
+      "condition": "One arena sweep authority; unreachable ordinary blocks freed; admitted asynchronous foreign shell remains charged until release settlement"
+    },
+    {
+      "key": "census-and-history",
+      "anchor": "mem.c:6256-6293,6367-6472,7000-7049; _kernel.scm:4031-4043",
+      "condition": "Census waits for all arena sweep receipts; count physical quarantine and reserves separately; signed baseline rebase and archived history survive departure"
+    }
+  ],
+  "route": [
+    {
+      "key": "registration",
+      "anchor": "setup.c:930-978; mem.c:4210-4247",
+      "qntAction": "beginGC",
+      "leanLemma": "retiredStillCounted",
+      "condition": "Epoch arena membership includes VM-retained storage independently of current processor set"
+    },
+    {
+      "key": "termination",
+      "anchor": "mem.c:6686-6690,6738-6767",
+      "qntAction": "enterWeak",
+      "leanLemma": "emptyQueueInsufficient",
+      "condition": "Queue empty is insufficient while dequeued scan or publication debt remains"
+    },
+    {
+      "key": "coverage",
+      "anchor": "mem.c:6896-6900,6928-6930",
+      "qntAction": "enterCensus",
+      "leanLemma": "sweepCoverage",
+      "condition": "All weak closure and arena sweep authorities must complete before capacity publication"
+    },
+    {
+      "key": "retirement",
+      "anchor": "mem.c:4400-4406; c_intf.c:1699-1707",
+      "qntAction": "freeReleased",
+      "leanLemma": "unknownRetains",
+      "condition": "Unsettled foreign duty retains shell and capacity; no blind callback retry"
+    },
+    {
+      "key": "statistics",
+      "anchor": "mem.c:6283-6293,7000-7049; _kernel.scm:3999-4043",
+      "qntAction": "depart",
+      "leanLemma": "archivePreserves",
+      "condition": "Archive source history once; moving physical storage is not allocating bytes again"
+    }
+  ],
+  "gain": [
+    {
+      "key": "vm-arena-authority",
+      "avoided": "Creator-affinity bookkeeping and duplicate independent list/census ownership for migrated arenas",
+      "added": "Arena registry, epoch tickets, exact setup/sweep assignment; O(N) body and edge scanning remains",
+      "condition": "Work saving requires removed affinity/copy/rebinding greater than metadata and barriers; no collector speedup inferred"
+    },
+    {
+      "key": "honest-capacity",
+      "avoided": "Dropped departed arena bytes, deferred double charge and foreign shell undercount",
+      "added": "Charged/deferred/reserve/quarantine ledger and completed sweep census; retained unknown duties cost memory",
+      "condition": "Capacity correctness is required even with zero speed gain; unbounded unresolved duties prevent bounded retention"
+    },
+    {
+      "key": "history-and-service",
+      "avoided": "Repeated source-history recovery and processor lifetime pinning solely for statistics",
+      "added": "Signed occupancy baselines or equivalent separated counters, archived history and explicit API adaptation",
+      "condition": "Compiler span improves only when processor affinity was a real critical path; modern C supports contract without demonstrated Zig-specific gain"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "membership",
+      "qntScope": "handoff;depart;beginGC",
+      "leanScope": "retiredStillCounted;transferNotAllocation;archivePreserves",
+      "sourceDuty": "Refine stable VM registry versus current PSTATE enumeration; all source/storage/root and native holder transfer prerequisites remain inherited"
+    },
+    {
+      "key": "tracing",
+      "qntScope": "dequeue;finishScan;enterWeak;processWeakKeep;enterSweep",
+      "leanScope": "emptyQueueInsufficient;weakWorkBlocksSweep",
+      "sourceDuty": "Refine real CAS winner-to-queue publication, body writeback, in-flight scan and chunk producers; no premature global termination"
+    },
+    {
+      "key": "capacity",
+      "qntScope": "sweep;enterCensus;finishGC;freeReleased",
+      "leanScope": "sweepCoverage;deferredOnce;chargeQuarantine;censusMustFollowSweep;unknownRetains",
+      "sourceDuty": "Prove exact survivor sets, foreign task ownership, reserve reconciliation and publish capacity after all sweep receipts"
+    },
+    {
+      "key": "history",
+      "qntScope": "handoff;depart;finishGC",
+      "leanScope": "rebasePreserves;foldUnfold;signedBaselineRequired;netBenefit",
+      "sourceDuty": "Define observed statistic per API/phase; signed baselines, departed history archival, F64 precision and source compatibility separately"
+    }
+  ],
+  "gate": [
+    {
+      "key": "producer-closure",
+      "qualified": false,
+      "condition": "Complete RC/still/root/weak/task/native producers and all permitted writers admitted"
+    },
+    {
+      "key": "vm-ownership",
+      "qualified": false,
+      "condition": "Actual VM arena registry and parent storage/root handoff preserve bodies, RC allocations and destructor ownership"
+    },
+    {
+      "key": "gc-seal",
+      "qualified": false,
+      "condition": "Real C CAS publication debt, dequeue/in-flight custody, termination and barrier refinement remain open"
+    },
+    {
+      "key": "scan-coverage",
+      "qualified": false,
+      "condition": "Actual mark/reset, PSTATE weak-domain handoff, strong/weak/GC-hash, sweep and census adapters cover every target arena exactly once"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "Foreign affinity, task roots, pending leases and unknown outcomes settle; arena metadata reuse waits for empty storage, retired tickets and archived history"
+    },
+    {
+      "key": "source-replacement",
+      "qualified": false,
+      "condition": "Per-PSTATE authority removed for migrated arenas only after complete producer/consumer migration"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "Statistics API equivalence, overflow/F64 behavior, C memory model, host registration and native qualification remain open"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "AC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/vm_arena_collector.qnt",
+      "subjectScope": "vm_arena_collector:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "AC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/VMArenaCollector.lean",
+      "subjectScope": "VMArenaCollector:rebasePreserves;archivePreserves;transferNotAllocation;foldUnfold;signedBaselineRequired;deferredOnce;emptyQueueInsufficient;weakWorkBlocksSweep;sweepCoverage;retiredStillCounted;unknownRetains;chargeQuarantine;censusMustFollowSweep;netBenefit",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "AC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/vm-arena-collector-design.org",
+      "subjectScope": "AC-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "AC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/vm-arena-collector-design.org",
+      "subjectScope": "AC-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "AC-H"
+    },
+    "1": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "AC-I"
+    },
+    "2": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "AC-E"
+    },
+    "3": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "SH-S"
+    }
+  }
+}

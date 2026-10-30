@@ -1,8 +1,9 @@
 """Reuse a verified completed bootstrap without rewriting historical outcomes."""
 import json
+import hashlib
 import math
 from pathlib import Path
-from gambit_smp.artifact_storage import fixture_root, fixture_name, fixture_path
+from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_path
 import shutil
 import sys
 
@@ -11,6 +12,158 @@ from gambit_smp.framework import digest, relative
 
 SCHEMA = "completed-bootstrap-reference.v1"
 FLAGS = {"--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms"}
+NATIVE_SCHEMA = "gambit-native-bootstrap-reference"
+
+
+def native_ancestry(root, run, declaration, *, context=None, expected=None):
+    """Import an observed Scheme bootstrap without inventing Recipe ancestors.
+
+    The native event, its post-build snapshot and a subsequent native-only
+    requalification are distinct immutable witnesses. This selected bridge
+    issues no arbitrary Scheme freshness or whole-runtime acceptance claim.
+    """
+    from gambit_smp.recipes import read_json, tree_identity, source_path
+    from gambit_smp.source_capabilities import validate_source_lock, source_file
+    from gambit_smp.native_capabilities import completed_configuration_proof
+    from gambit_smp.native_development import generated_inventory, generation_inputs
+    from gambit_smp.suite_primitives import check_runtime
+    from gambit_smp.build_profile import read_profile
+    root, run = root.resolve(), run.resolve(strict=True)
+    observation_root(root, run)
+    spec_path = source_path(root, declaration)
+    spec = read_json(spec_path)
+    if spec.get('schema') != 'gambit-native-bootstrap-ancestry':
+        raise ValueError('native bootstrap ancestry declaration required')
+    bound = [spec_path]
+    def witness(name):
+        row = spec['witnesses'][name]
+        path = relative(root, row['path'])
+        if digest(path) != row['sha256']:
+            raise ValueError('native bootstrap witness drift: ' + name)
+        bound.append(path)
+        return read_json(path)
+    completion = witness('completion')
+    if bound[-1] != run / 'completion.json':
+        raise ValueError('native bootstrap event cannot be relabeled')
+    request, observed = witness('request'), witness('observations')
+    native, snapshot = witness('nativeReceipt'), witness('snapshot')
+    for name, suffix in [('request','request.json'), ('observations','observations.json'),
+                         ('nativeReceipt','native/receipt.json'), ('snapshot','workspace-after.json')]:
+        if relative(root,spec['witnesses'][name]['path']) != run/suffix:
+            raise ValueError('native event witness cannot be rebound: ' + name)
+    core = witness('coreInputs')
+    qualification, proof = witness('requalification'), witness('configuration')
+    identity = witness('identity'); identity_path = bound[-1]
+    lock_path = source_path(root, spec['sourceLock']); lock = read_json(lock_path)
+    validate_source_lock(lock); bound.append(lock_path)
+    patch = source_path(root, lock['patch']); bound.append(patch)
+    if digest(patch) != lock['patchSha256']:
+        raise ValueError('native bootstrap source patch drift')
+    profile = source_path(root, request['profile']); bound.append(profile)
+    if (digest(profile) != request['profileSha256']
+            or qualification['requestIdentity']['profile'] != read_profile(profile)):
+        raise ValueError('native bootstrap profile drift')
+    source = relative(root, spec['runtime'])
+    current = tree_identity(source)
+    if expected is not None and current != expected['runtimeIdentity']:
+        raise ValueError('native producer workspace changed')
+    if context is not None:
+        context.lease_workspace(source, current)
+    phases = {f'phase{i}': 2 for i in range(1, 5)}
+    if (native.get('module') != 'gambit.smp.bootstrap.two-pass'
+            or native.get('outcome') != 'PASS'
+            or native.get('fullTwoPassBootstrapEstablished') is not True
+            or native.get('phaseCounts') != phases
+            or completion.get('fullTwoPassBootstrapEstablished') is not True
+            or not 0 < completion['wholeSeconds'] <= observed['wholeBudgetSeconds'] <= 600
+            or completion['candidateTree'] != request['candidateTree']
+            or observed['candidateTree'] != request['candidateTree']
+            or completion['sourceInode'] != source.stat().st_ino
+            or completion['nativeReceiptSha256'] != digest(run/'native/receipt.json')):
+        raise ValueError('completed bounded native two-pass bootstrap required')
+    for command in observed['commands']:
+        if command['exit'] != 0 or command['timeout'] or not command['group_quiescent']:
+            raise ValueError('quiescent native bootstrap commands required')
+    launches = [row for row in observed['commands'] if row.get('stage')=='two-pass-bootstrap']
+    if (len(launches) != 1 or not launches[0].get('argv')
+            or Path(launches[0]['argv'][-1]).resolve() != source/'tests/smp/suite.scm'):
+        raise ValueError('actual native Scheme bootstrap launch required')
+    observer = Path(launches[0]['argv'][0]); bound.append(observer)
+    if digest(observer) != request['observerSha256']:
+        raise ValueError('native bootstrap host changed')
+    for command in native['commands']:
+        log = relative(run/'native', command['output'])
+        if (command['exit'] != 0 or command['timeout']
+                or not command['parentReaped'] or not command['processGroupQuiescent']
+                or digest(log) != command['outputSha256']
+                or Path(command['cwd']).resolve() != source):
+            raise ValueError('native bootstrap command or output drift')
+        bound.append(log)
+        if command['stage'] == 'bootstrap':
+            if {f'phase{i}': log.read_text().count(f'*** making phase{i}\n')
+                    for i in range(1, 5)} != phases:
+                raise ValueError('native phase completion log differs')
+    if [row['stage'] for row in native['commands']] != ['bootclean', 'bootstrap']:
+        raise ValueError('complete native bootstrap command inventory required')
+    for name, sha in generation_inputs(source).items():
+        if snapshot.get(name, {}).get('sha256') != sha:
+            raise ValueError('bootstrap generation input changed: ' + name)
+    if not native['generatedAfter'] or native['generatedAfter'] != generated_inventory(source):
+        raise ValueError('bootstrap generated products changed')
+    for name, row in lock['files'].items():
+        if (digest(source_file(source, name)) != row['candidateSha256']
+                or snapshot.get(name, {}).get('sha256') != row['candidateSha256']):
+            raise ValueError('bootstrap source lock mismatch: ' + name)
+    if core['candidateTree'] != completion['candidateTree'] or not core['coreInputs']:
+        raise ValueError('complete native core input boundary required')
+    for row in core['coreInputs']:
+        if (digest(source_file(source, row['path'])) != row['sha256']
+                or snapshot.get(row['path'], {}).get('sha256') != row['sha256']):
+            raise ValueError('native core input changed: ' + row['path'])
+    runner = source/'tests/smp/suite.scm'
+    if digest(runner) != native['runnerSha256']:
+        raise ValueError('native bootstrap observer source changed')
+    if digest(source/'tests/smp/catalog.scm') != native['planSha256']:
+        raise ValueError('native bootstrap plan changed')
+    completed_configuration_proof(proof)
+    if not FLAGS <= set(proof['flags']):
+        raise ValueError('native bootstrap concurrency configuration required')
+    if (qualification.get('schemeInputsStable') is not True
+            or qualification.get('generatedCStable') != len(native['generatedAfter'])
+            or not {'phase3', 'phase4'} <= {row['stage'] for row in qualification['commands']}
+            or any(row['exit'] != 0 or row['timeout'] or not row['parentReaped']
+                   or not row['processGroupQuiescent'] for row in qualification['commands'])
+            or any(digest(source/name) != sha for name, sha in proof['files'].items())):
+        raise ValueError('native-only requalification differs')
+    check_runtime(source, identity)
+    gcc = proof['requestIdentity']['tools']['gcc']['sha256']
+    if next(row['sha256'] for row in native['tools'] if row['name']=='cc') != gcc:
+        raise ValueError('bootstrap and requalified GNU compiler differ')
+    reference = dict(schema=NATIVE_SCHEMA, run=fixture_name(root, run),
+        declaration=declaration, declarationSha256=digest(spec_path),
+        sourceLock=spec['sourceLock'], sourceLockSha256=digest(lock_path),
+        gccSha256=gcc, evidence={str(path.relative_to(root)):digest(path) for path in bound},
+        runtimeIdentity=current, nativeEventRetained=True, sourceCopies=0,
+        runtimeAdmitted=False, releaseAdmitted=False)
+    if expected is not None and reference != expected:
+        raise ValueError('native bootstrap reference drift')
+    return reference, source, identity_path, bound
+
+
+def discovered_reference(path, ctx, *, explicit=False):
+    """Historical observations share this store; only references grant reuse."""
+    from gambit_smp.recipes import read_json
+    try:
+        return read_json(path)
+    except json.JSONDecodeError as error:
+        # A selected or recognizable producer declaration must still fail
+        # closed. Never repair, overwrite or promote malformed observations.
+        if explicit or SCHEMA in path.read_text():
+            raise
+        ctx.receipt.setdefault("unreadableHistoricalObservations", []).append({
+            "path": str(path.relative_to(ctx.root)), "sha256": digest(path),
+            "reason": str(error), "producerAdmitted": False})
+        return None
 
 
 def recover_retained_owner_teardown(root, run, outer, child, step_id):
@@ -75,7 +228,36 @@ def recover_retained_owner_teardown(root, run, outer, child, step_id):
             "failedStagesRecovered": False, "budgetExtended": False}
 
 
-def recover_retained_evaluation(root, run, outer, child, step_id):
+def checked_owner_shutdown_failure(run, outer, child):
+    """Recognize completed work followed only by the old owner shutdown failure."""
+    from gambit_smp.recipes import read_json
+    if (outer.get("timeout") is not False or outer.get("parentReaped") is not True
+            or outer.get("processGroupQuiescent") is not True
+            or child.get("inputsStable") is not True or child.get("error")
+            or child.get("wholeBudgetExhausted") is not False
+            or not child.get("steps")
+            or any(row.get("outcome") != "PASS" for row in child["steps"])):
+        raise ValueError("only completed stable native stages can revalidate owner shutdown")
+    launch = run / "launch.log"
+    if (outer.get("artifacts", {}).get("launch.log") != digest(launch)
+            or not launch.read_text().rstrip().endswith(
+                'ValueError: evaluation owner did not complete and tear down normally')):
+        raise ValueError("exact retained owner shutdown failure required")
+    ref = child.get("evaluationOwner", {})
+    path = run / "run" / ref.get("path", "missing-owner")
+    if ref.get("sha256") != digest(path):
+        raise ValueError("retained owner receipt changed")
+    owner = read_json(path)
+    if (owner.get("forcedTermination") is not True or owner.get("exit") != -9
+            or owner.get("parentReaped") is not True or owner.get("terminalIdentityError") is not None
+            or owner.get("engineId") != outer["engineId"] or not owner.get("requests")
+            or any(row.get("requestCompleted") is not True or row.get("timeout") is not False
+                   or row.get("response", {}).get("outcome") != "PASS" for row in owner["requests"])):
+        raise ValueError("completed owner requests and checked quiescence required")
+    return {"priorOwnerReceiptSha256": ref["sha256"], "priorOwnerForcedTermination": True}
+
+
+def recover_retained_evaluation(root, run, outer, child, step_id, *, owner_shutdown=False):
     """Re-evaluate only an expired final review; never recover native failure."""
     from gambit_smp.recipes import read_json
     from gambit_smp.evidence_capabilities import facts
@@ -87,7 +269,11 @@ def recover_retained_evaluation(root, run, outer, child, step_id):
             or not rows or any(row.get("outcome") != "PASS" for row in rows[:-1])):
         raise ValueError("only completed quiescent progress-mode execution can revalidate final review")
     last = rows[-1]
-    if (last.get("capability") != "evidence.evaluate" or last.get("outcome") != "TIMEOUT"
+    owner_proof = checked_owner_shutdown_failure(run, outer, child) if owner_shutdown else {}
+    if (last.get("capability") != "evidence.evaluate"
+            or step_id not in last.get("dependsOn", [])):
+        raise ValueError("final evaluation must bind completed bootstrap")
+    if not owner_shutdown and (last.get("outcome") != "TIMEOUT"
             or last.get("reason") != "evaluation deadline exhausted" or last.get("commands")
             or step_id not in last.get("dependsOn", [])):
         raise ValueError("only an undispatched expired final evaluation can revalidate")
@@ -140,9 +326,12 @@ def recover_retained_evaluation(root, run, outer, child, step_id):
                  "originalRequestSha256": digest(path), "recordedOutcome": outer["outcome"],
                  "failedStagesRecovered": False, "budgetExtended": False,
                  "reviewWindowSeconds": window, "engineId": outer["engineId"],
+                 **owner_proof,
                  "artifacts": {name: digest(directory / name) for name in
                                ("evaluation.json", "review/answers.json", "evaluation.process.json")}}
         record_path.write_text(json.dumps(proof, sort_keys=True, indent=2) + "\n")
+    if any(proof.get(key) != value for key, value in owner_proof.items()):
+        raise ValueError("retained owner failure binding changed")
     if any(digest(directory / name) != sha for name, sha in proof["artifacts"].items()):
         raise ValueError("revalidation artifact changed")
     observed = read_json(directory / "evaluation.process.json")
@@ -183,9 +372,24 @@ def bootstrap_ancestry(root, rows, step):
     if (seed.get("outcome") != "PASS"
             or step["arguments"]["identity"]["step"] != seed["id"]):
         raise ValueError("bootstrap must bind its exact seed producer")
-    if seed["capability"] == "gambit.seed-core":
+    if seed["capability"] in {"gambit.seed-core", "gambit.bootstrap-input"}:
+        if seed['capability'] == 'gambit.bootstrap-input' and (
+                seed.get('claim') != 'qualified-host-compiler-not-target-runtime'
+                or seed['outputs']['source']['type'] != 'bootstrap-input'
+                or seed['outputs']['identity']['type'] != 'bootstrap-input-identity'):
+            raise ValueError('typed compiler-only bootstrap ancestry required')
         configured = rows[seed["arguments"]["source"]["step"]]
         materialized = rows[configured["arguments"]["source"]["step"]]
+    elif seed["capability"] == "gambit.source-core":
+        # A real completed self-source pass can precede the official two-pass
+        # bootstrap. Trace its seed ancestry; do not promote it to a completed
+        # bootstrap or accept an unrelated runtime with the same filenames.
+        parent = seed["arguments"]["runtime"]
+        if parent["step"] == seed["id"] or rows[parent["step"]]["capability"] not in {
+                "gambit.seed-core", "gambit.seed-checkpoint"}:
+            raise ValueError("self-source runtime needs its exact typed seed ancestry")
+        _, configured, materialized = bootstrap_ancestry(root, rows, {"arguments": {
+            "runtime": parent, "identity": {"step": parent["step"], "output": "identity"}}})
     elif seed["capability"] == "gambit.seed-checkpoint":
         from gambit_smp.recipes import read_json
         from gambit_smp.step_checkpoint import seed_reference
@@ -208,11 +412,47 @@ def bootstrap_ancestry(root, rows, step):
     return seed, configured, materialized
 
 
+def configure_command(root, configured):
+    """Read a real configure observation, including checked configuration reuse.
+
+    Reuse does not manufacture a new configure invocation. The original full
+    process receipt and all generated configuration hashes stay authenticated
+    by the successful configure stage and its producer envelope.
+    """
+    from gambit_smp.step_checkpoint import stage_commands
+    commands=[r for r in stage_commands(root,configured) if r['stage']=='configure']
+    if commands:
+        if len(commands)!=1:raise ValueError('unique completed configure observation required')
+        return commands[0]
+    proof=configured.get('configurationReuse',{})
+    raw=proof.get('receiptBytes','')
+    if (proof.get('schema')!='gambit-configure-reuse.v1' or not raw
+            or hashlib.sha256(raw.encode()).hexdigest()!=proof.get('receiptSha256')):
+        raise ValueError('bound original configure receipt required')
+    observed=json.loads(raw)
+    if (observed.get('stage')!='configure' or observed.get('state')!='OBSERVED'
+            or observed.get('exit')!=0 or observed.get('timeout') is not False
+            or observed.get('parentReaped') is not True or observed.get('processGroupQuiescent') is not True
+            or len(proof.get('commands',[]))!=1
+            or any(observed.get(k)!=v for k,v in proof['commands'][0].items())
+            or observed.get('argv',[])[2:]!=proof.get('invocationFlags',proof.get('flags'))):
+        raise ValueError('configure reuse lacks completed process evidence')
+    from gambit_smp.native_capabilities import completed_configuration_proof
+    completed_configuration_proof(proof)
+    from gambit_smp.native_capabilities import configuration_output_names
+    identity=configured.get('outputs',{}).get('source',{}).get('identity',{})
+    required=configuration_output_names(native_profile='native-profile.m4' in identity)
+    if (set(proof.get('files',{}))!=set(required)
+            or any(identity.get(name,{}).get('sha256')!=sha for name,sha in proof['files'].items())):
+        raise ValueError('configure reuse generated-byte identity differs')
+    return proof['commands'][0]
+
+
 def completed(root, run, step_id, *, input_archive=None, workspace_context=None):
     from gambit_smp.recipes import read_json
     from gambit_smp.research_kernel import inspect, manifest_paths
     root, run = root.resolve(), run.resolve(strict=True)
-    fixture_root(root, run)
+    observation_root(root, run)
     outer = read_json(run / "receipt.json")
     child = read_json(run / "run/receipt.json")
     if (outer.get("timeout") is not False or outer.get("parentReaped") is not True
@@ -237,7 +477,17 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
         if outer.get("childOutcome") == "STALE":
             recovery = recover_retained_completion(root, run, outer, child, step_id)
         elif all(row.get("outcome") == "PASS" for row in child.get("steps", [])):
-            recovery = recover_retained_owner_teardown(root, run, outer, child, step_id)
+            if outer.get("outcome") != "DENY" or outer.get("exit") != 1:
+                raise ValueError("exact completed quiescent owner finalization required")
+            owner_ref = child.get("evaluationOwner", {})
+            owner_path = run / "run" / owner_ref.get("path", "missing-owner")
+            if not owner_path.is_file() or owner_ref.get("sha256") != digest(owner_path):
+                raise ValueError("retained owner receipt required")
+            owner = read_json(owner_path)
+            if owner.get("forcedTermination") is True:
+                recovery = recover_retained_evaluation(root, run, outer, child, step_id, owner_shutdown=True)
+            else:
+                recovery = recover_retained_owner_teardown(root, run, outer, child, step_id)
         else:
             recovery = recover_retained_evaluation(root, run, outer, child, step_id)
     rows = {row["id"]: row for row in child["steps"]}
@@ -252,7 +502,7 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     current_runtime = artifact_path(run / "run", output, root=root)
     if tree_identity(current_runtime) != output["identity"]:
         raise ValueError("completed runtime bytes unavailable or changed")
-    command = next(row for row in configured["commands"] if row["stage"] == "configure")
+    command = configure_command(root, configured)
     if command["exit"] != 0 or command["timeout"] is not False or not FLAGS <= set(command["argv"]):
         raise ValueError("all three concurrency flags must be observed in the producer")
     manifest = manifest_paths(Path(outer["engine"]))
@@ -271,8 +521,15 @@ def completed(root, run, step_id, *, input_archive=None, workspace_context=None)
     return reference, outer, step, materialized
 
 
-def export_reference(root, run, step, out, *, input_archive=None):
-    reference, _, _, _ = completed(root, run, step, input_archive=input_archive)
+def export_reference(root, run, step, out, *, input_archive=None, ancestry=None):
+    if ancestry is not None:
+        if step != 'bootstrap' or input_archive is not None:
+            raise ValueError('native bootstrap requires its explicit ancestry declaration')
+        reference, _, _, _ = native_ancestry(root, run, ancestry)
+    else:
+        if (Path(run)/'completion.json').is_file() and not (Path(run)/'receipt.json').is_file():
+            raise ValueError('native bootstrap requires its explicit ancestry declaration')
+        reference, _, _, _ = completed(root, run, step, input_archive=input_archive)
     out = out.resolve()
     if not out.is_relative_to(root.resolve() / "evidence/research") or out.suffix != ".json":
         raise ValueError("producer reference must be a research Evidence JSON file")
@@ -327,13 +584,17 @@ def reuse_materialized_source(lock_path, ctx):
         ctx.remaining()
         if path.is_symlink():
             continue
-        proof = read_json(path)
+        proof = discovered_reference(path, ctx, explicit=bool(explicit))
         if (not isinstance(proof, dict) or proof.get("schema") != SCHEMA
                 or proof.get("sourceLockSha256") != lock_sha):
             if explicit:
                 raise ValueError("explicit completed producer does not match the source lock")
             continue
         run = fixture_path(ctx.root, proof["run"])
+        if not run.exists():
+            if explicit:
+                raise ValueError("explicit completed producer runtime is unavailable")
+            continue
         archive = proof.get("inputArchive", {}).get("path")
         actual, _, bootstrap, materialized = completed(ctx.root, run, proof["step"], input_archive=archive,
                                                       workspace_context=ctx if ctx.receipt.get("workspacePolicy") == "in-place" else None)
@@ -383,12 +644,16 @@ def prevent_duplicate_configuration(args, ctx, *, stage="configure"):
         ctx.remaining()
         if path.is_symlink():
             continue
-        proof = read_json(path)
+        proof = discovered_reference(path, ctx)
         if not isinstance(proof, dict) or proof.get("schema") != SCHEMA:
             continue
         if proof.get("sourceLockSha256") != lock_sha or proof.get("gccSha256") != gcc_sha:
             continue
         run = fixture_path(ctx.root, proof["run"])
+        # A registered reference whose tree is gone is not a completed runtime.
+        # Fresh configure stays allowed, matching missing-cache materialization.
+        if not run.exists():
+            continue
         actual, _, step, _ = completed(ctx.root, run, proof["step"],
                                       input_archive=proof.get("inputArchive", {}).get("path"))
         if actual != proof:

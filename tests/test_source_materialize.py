@@ -9,11 +9,32 @@ from unittest.mock import patch
 
 from gambit_smp import source_materialize as source
 from gambit_smp.framework import digest
+from gambit_smp.task_processes import run as task_run
 
 
 class SourceMaterializeTests(unittest.TestCase):
+    def setUp(self):
+        from gambit_smp import artifact_storage
+        original = artifact_storage.runtime_output
+        self.fixture_roots = set()
+
+        def fixture_output(root, path):
+            root, path = Path(root).resolve(), Path(path).resolve()
+            if root in self.fixture_roots:
+                # This fake repository exercises byte reproduction only. Stub
+                # its staging allocator, without claiming that the real task
+                # owns that checkout or changing real child execution policy.
+                self.assertEqual(root / ".cache/source-materialize", path)
+                return path
+            return original(root, path)
+
+        allocation = patch.object(artifact_storage, "runtime_output", side_effect=fixture_output)
+        allocation.start()
+        self.addCleanup(allocation.stop)
+
     def fixture(self, root, files=source.FILES):
-        subprocess.run(["git", "init", "--quiet", str(root)], check=True, capture_output=True)
+        self.fixture_roots.add(root.resolve())
+        task_run(["git", "init", "--quiet", str(root)], check=True, capture_output=True, timeout=10)
         (root / ".data").mkdir()
         checkout = root / "vendor/gambit"
         checkout.mkdir(parents=True)
@@ -31,6 +52,8 @@ class SourceMaterializeTests(unittest.TestCase):
                 info.size = len(data)
                 tree.addfile(info, io.BytesIO(data))
         def git(command, **kwargs):
+            if "rev-parse" in command:
+                return b'a' * 40 + b'\n'
             if "ls-tree" in command:
                 name = command[-1]
                 return (b"100644 blob " + b"a" * 40 + b"\t" + name.encode() + b"\0"
@@ -49,7 +72,7 @@ class SourceMaterializeTests(unittest.TestCase):
             lock_path, patch_path = root / "lock.json", root / "snapshot.patch"
             with patch.object(source, "ROOT", root), \
                  patch.object(source, "revision", return_value="a" * 40), \
-                 patch.object(source.subprocess, "check_output", side_effect=git):
+                 patch.object(source, "_task_check_output", side_effect=git):
                 lock = source.export(checkout, candidate, lock_path, patch_path)
                 if mode == "patch-drift":
                     patch_path.write_text("changed")
@@ -76,6 +99,38 @@ class SourceMaterializeTests(unittest.TestCase):
 
     def test_fresh_source_reproduces_exact_slice_not_runtime(self):
         self.run_fixture("pass")
+
+    def test_overlay_export_reuses_candidate_bytes_without_mutating_or_copying_its_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            checkout,candidate,git=self.fixture(root)
+            (candidate/'unselected.bin').write_bytes(b'not a source input')
+            overlay=root/'delta.patch'
+            overlay.write_text('--- a/lib/mem.c\n+++ b/lib/mem.c\n@@ -1 +1 @@\n-candidate\n+repaired\n')
+            before={name:digest(candidate/name) for name in source.FILES}
+            lock_path,patch_path=root/'lock.json',root/'snapshot.patch'
+            with patch.object(source,'ROOT',root), \
+                 patch.object(source,'revision',return_value='a'*40), \
+                 patch.object(source,'_task_check_output',side_effect=git):
+                record=source.export(checkout,candidate,lock_path,patch_path,source.FILES,overlay=overlay)
+                source.materialize(lock_path,root/'restored')
+            self.assertEqual((root/'restored/lib/mem.c').read_bytes(),b'repaired\n')
+            self.assertFalse((root/'restored/unselected.bin').exists())
+            self.assertEqual(before,{name:digest(candidate/name) for name in source.FILES})
+            self.assertFalse(record['runtimeAdmitted'])
+            self.assertEqual(set(record['files']),set(source.FILES))
+
+    def test_overlay_export_rejects_delta_outside_explicit_inventory_without_publishing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory).resolve()
+            checkout,candidate,git=self.fixture(root)
+            overlay=root/'delta.patch'
+            overlay.write_text('--- a/other.c\n+++ b/other.c\n@@ -1 +1 @@\n-before\n+after\n')
+            with patch.object(source,'ROOT',root), patch.object(source,'revision',return_value='a'*40):
+                with self.assertRaises(ValueError):
+                    source.export(checkout,candidate,root/'lock.json',root/'snapshot.patch',source.FILES,overlay=overlay)
+            self.assertFalse((root/'lock.json').exists())
+            self.assertFalse((root/'snapshot.patch').exists())
 
     def test_patch_drift_fails_before_publishing_output(self):
         self.run_fixture("patch-drift")
@@ -109,10 +164,73 @@ class SourceMaterializeTests(unittest.TestCase):
             checkout, candidate, git = self.fixture(root)
             with patch.object(source, "ROOT", root), \
                  patch.object(source, "revision", return_value="a" * 40), \
-                 patch.object(source.subprocess, "check_output", side_effect=git):
-                with self.assertRaisesRegex(ValueError, "tracked"):
+                 patch.object(source, "_task_check_output", side_effect=git):
+                with self.assertRaisesRegex(ValueError, "regular"):
                     source.export(checkout, candidate, root / "lock.json", root / "snapshot.patch",
                                   (*source.FILES, "unknown.c"))
+
+    def test_new_fragment_requires_absence_and_reproduces_exact_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            checkout, candidate, git = self.fixture(root)
+            name = 'lib/memory/roots.inc'
+            fragment = candidate / name
+            fragment.parent.mkdir(parents=True)
+            fragment.write_bytes(b'/* root registry */\nstatic int root;\n')
+            with patch.object(source, 'ROOT', root), \
+                 patch.object(source, 'revision', return_value='a' * 40), \
+                 patch.object(source, "_task_check_output", side_effect=git):
+                lock = source.export(checkout, candidate, root / 'lock.json', root / 'snapshot.patch',
+                                     (*source.FILES, name))
+                self.assertIsNone(lock['files'][name]['baseSha256'])
+                result = source.materialize(root / 'lock.json', root / 'restored', root=root)
+            self.assertEqual(fragment.read_bytes(), (root / 'restored' / name).read_bytes())
+            self.assertFalse(result['runtimeAdmitted'])
+
+    def test_lossless_fragment_preserves_inherited_whitespace_and_blank_eof(self):
+        from gambit_smp.framework import apply_untracked_patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            checkout, candidate, git = self.fixture(root)
+            name = 'include/_gambit/roots.h.in'
+            fragment = candidate / name
+            fragment.parent.mkdir(parents=True)
+            content = b'/* original bytes */  \nstatic int root;\n\n'
+            fragment.write_bytes(content)
+            lock_path, patch_path = root / 'lock.json', root / 'snapshot.patch'
+            with patch.object(source, 'ROOT', root), \
+                 patch.object(source, 'revision', return_value='a' * 40), \
+                 patch.object(source, "_task_check_output", side_effect=git):
+                source.export(checkout, candidate, lock_path, patch_path, (*source.FILES, name))
+                source.materialize(lock_path, root / 'restored', root=root)
+                lock = json.loads(lock_path.read_text())
+                lock['files'][name]['candidateSha256'] = '0' * 64
+                lock_path.write_text(json.dumps(lock))
+                with self.assertRaisesRegex(ValueError, 'differs from candidate'):
+                    source.materialize(lock_path, root / 'wrong', root=root)
+            self.assertEqual(content, (root / 'restored' / name).read_bytes())
+            self.assertFalse((root / 'wrong').exists())
+            strict = root / 'strict'
+            strict.mkdir()
+            delta = b'--- /dev/null\n+++ b/roots.h\n@@ -0,0 +1,3 @@\n+/* original bytes */  \n+static int root;\n+\n'
+            with self.assertRaises(subprocess.CalledProcessError):
+                apply_untracked_patch(strict, delta, {'roots.h'}, new_files={'roots.h'})
+            self.assertFalse((strict / 'roots.h').exists())
+
+    def test_absent_base_is_not_empty_file_or_symlink_permission(self):
+        from gambit_smp.source_capabilities import verify_source_base
+        row = dict(baseSha256=None, candidateSha256='d' * 64)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            verify_source_base(root, 'new/roots.inc', row)
+            (root / 'new').mkdir()
+            (root / 'new/roots.inc').touch()
+            with self.assertRaisesRegex(ValueError, 'absent'):
+                verify_source_base(root, 'new/roots.inc', row)
+            (root / 'new/roots.inc').unlink()
+            (root / 'alias').symlink_to(root / 'new', target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'symlink'):
+                verify_source_base(root, 'alias/roots.inc', row)
 
     def test_generic_source_inventory_reproduces_c_scheme_and_build_files(self):
         files = ("lib/runtime.c", "lib/_kernel.scm", "lib/_thread#.scm", "gsc/makefile.in")
@@ -121,7 +239,7 @@ class SourceMaterializeTests(unittest.TestCase):
             checkout, candidate, git = self.fixture(root, files)
             with patch.object(source, "ROOT", root), \
                  patch.object(source, "revision", return_value="a" * 40), \
-                 patch.object(source.subprocess, "check_output", side_effect=git):
+                 patch.object(source, "_task_check_output", side_effect=git):
                 source.export(checkout, candidate, root / "lock.json", root / "snapshot.patch", files)
                 result = source.materialize(root / "lock.json", root / "restored", root=root)
             self.assertEqual(set(files), set(result["files"]))
@@ -162,7 +280,7 @@ class SourceMaterializeTests(unittest.TestCase):
                 return result.replace(b"100644 blob", b"120000 blob") if "ls-tree" in command else result
             with patch.object(source, "ROOT", root), \
                  patch.object(source, "revision", return_value="a" * 40), \
-                 patch.object(source.subprocess, "check_output", side_effect=symlink_git):
+                 patch.object(source, "_task_check_output", side_effect=symlink_git):
                 with self.assertRaisesRegex(ValueError, "regular tracked"):
                     source.export(checkout, candidate, root / "lock.json", root / "snapshot.patch")
                 with self.assertRaisesRegex(ValueError, "unique"):
@@ -176,7 +294,7 @@ class SourceMaterializeTests(unittest.TestCase):
             checkout, candidate, git = self.fixture(root, source.COMPOSED_FILES)
             with patch.object(source, "ROOT", root), \
                  patch.object(source, "revision", return_value="a" * 40), \
-                 patch.object(source.subprocess, "check_output", side_effect=git):
+                 patch.object(source, "_task_check_output", side_effect=git):
                 source.export(checkout, candidate, root / "lock.json", root / "snapshot.patch", source.COMPOSED_FILES)
                 result = source.materialize(root / "lock.json", root / "restored", root=root)
             self.assertEqual(set(source.COMPOSED_FILES), set(result["files"]))
@@ -192,7 +310,7 @@ class SourceMaterializeTests(unittest.TestCase):
             gc_table_snapshot((tree / "lib/_system.scm").read_text())
             for name, transform in (("lib/_io.scm", shared_pipe_source_hash),
                                     ("gsc/_prims.scm", vector_increment_source_hash)):
-                base = source.subprocess.check_output(["git", "-C", str(source.ROOT / "vendor/gambit"),
+                base = source._task_check_output(["git", "-C", str(source.ROOT / "vendor/gambit"),
                                                        "show", lock["revision"] + ":" + name])
                 self.assertEqual(transform(base), digest(tree / name))
             with source.locked_source(source.ROOT, "evidence/runtime-source-029.lock.json") as (previous, _):

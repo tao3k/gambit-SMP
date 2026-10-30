@@ -1,0 +1,130 @@
+          A Portable Implementation of First-Class Continuations for Unrestri ted
+                          Interoperability with C in a Multithreaded S heme
+
+                                                    Mar Feeley
+                               Departement d'informatique et re her he operationnelle
+                                               Universite de Montreal
+                                       http://www.iro.umontreal. a/~feeley
+
+
+
+
+Abstra t                                                        return to frame G and H be ause they have been deallo ated
+                                                                from the sta k. The fa t that C frames annot be returned
+The implementation of rst- lass ontinuations in a S heme        to more than on e, i.e. that they are \one-shot", is not
+system that interfa es to a sta k-based language su h as C      a on ern in this paper. Our aim is to allow ontrol to
+is diÆ ult when S heme and C frames an be interleaved           return to C frames in an arbitrary order rather than LIFO
+(i.e. S heme and C an nest alls to ea h other arbitrar-         order. This is of parti ular interest when using S heme level
+ily). Su h a situation o urs when using a ombination of         threads implemented with all/ as explained later.
+  allba ks, higher-order fun tions, ex eption pro essing, and      The following approa hes an be used to ope with the
+a S heme level thread system built on top of rst- lass on-      in onsistent management of frames by C and S heme.
+tinuations. We show that in this ontext the use of C threads
+to implement rst- lass ontinuations allows unrestri ted in-     2   Approa h 1: Copy the C Sta k
+teroperability with C.
+                                                                This approa h makes a heap opy of the C sta k frame
+1       Introdu tion                                            portion of the ontinuation (i.e. \CDGH") when it is ap-
+                                                                tured with all/ (Bigloo [Ser00℄ essentially uses this ap-
+S heme systems that allow linking with C ode (and more          proa h ex ept that S heme frames are also allo ated on the
+generally any sta k-based language) whether they generate       C sta k). Invoking this ontinuation opies the C frames
+native ode or C ode, require spe ial treatment of ontinu-       ba k to their original lo ation whi h is needed for orre t
+ations when S heme ontinuation frames and C frames an           handling of the \&" operator. Aside from being highly C
+be interleaved. In our examples we will denote ontinuations      ompiler dependent and having non-linear spa e and time
+with a string of letters; C frames are in upper- ase, S heme    behavior, this approa h oales es the store and the ontinu-
+frames are in lower- ase, and the last frame added to the       ation, whi h means that all assignments to lo al C variables
+ ontinuation is on the right. As a running example we will      are obliterated when a ontinuation is invoked. This major
+use the ontinuation \abCDefGHi" whi h orresponds to the         departure from the S heme semanti s is only viable when
+ hain of frames shown in Figure 1 (the arrows represent a       using C pro edures written in a very spe ial style (no as-
+logi al link between frames, not ne essarily real pointers).    signments to lo al variables after a ontinuation apture),
+                                                                whi h pre ludes its use with o -the-shelf C libraries. More-
+        b                                                     over, pointers to lo al C variables annot be passed freely
+    a
+              AKA PeP fBM         i         S heme heap
+                                                                to S heme ode be ause there is no guarantee that the ap-
+                 A C  D  B G  H            C sta k
+                                                                propriate C frame is still on the sta k when the pointer is
+                                                                dereferen ed.
+
+             Figure 1: The ontinuation \abCDefGHi".             3   Approa h 2: Deallo ate C Sta k Frames Lazily
+
+    A ontext where su h interleaving is useful is when a        This approa h, whi h is used by Gambit-C 3.0 [Fee98℄, on-
+S heme pro edure is passed as a \ allba k" to a C pro edure     sists in removing frames from the C sta k (with a normal
+(e.g. qsort or a GUI event dispat her) and the allba k          return or longjmp) only when ontrol returns to a C frame.
+invokes a ontinuation.                                          In our example, if the program invokes the ontinuation
+    The fundamental problem is that S heme ontinuations         \ab" and then \abCDefGHi" and then \abCDe", the C frames
+have unlimited extent whereas C frames have dynami ex-          \CDGH" remain on the C sta k. However, if the ontinuation
+tent. To simplify, we will assume that S heme frames are        \abCD" is invoked the frames \GH" are removed. Note that
+ onsistently allo ated on a heap managed by a garbage ol-       the ontinuation \abCDefGHi" an still be invoked; it is only
+le tor and that C frames are allo ated LIFO on a sta k (te h-   when attempting to return to a deallo ated C frame that
+niques su h as [HDB90℄ whi h manage S heme ontinuation          a run-time error needs to be signaled (after all, the ode
+frames on a sta k between alls to all/ are thus viewed          atta hed to frame \i" ould de ide to invoke the ontinua-
+as optimizations).                                              tion \ab"). If not used arefully this approa h may result in
+    Consequently, in our example the C sta k only ontains       longer retention of memory and even spa e leaks (if ontrol
+\CDGH" and when ontrol returns to D there is no way to          never returns to a C frame). To avoid this the programmer
+may have to for e a leanup of the C sta k by arti ially          be ause of C thread system limitations and overheads. Lin-
+returning to an appropriate C frame.                             uxThreads for example annot reate more than 1024 si-
+    Unfortunately, the lazy deallo ation approa h does not       multaneous threads, ea h thread sta k is a large xed size
+intera t well when using S heme level thread or oroutine         (2 MBytes), and it takes 2 mse s on a 600MHz Athlon to
+systems implemented on top of rst- lass ontinuations, even        reate and join a thread so there is at most 500 C to S heme
+in a unipro essor setting where at most one thread is exe-        alls per se ond.
+ uting at a given time. To understand the problem onsider
+the ase shown in Figure 2 where there are two S heme             6   Related Work and Con lusion
+threads (T1 and T2) atta hed respe tively to the ontin-
+uations \abCDe" and \fGHi", and the C frames \GH" are            The use of native threads to implement rst- lass ontinua-
+allo ated on the C sta k after \CD".                             tions was proposed in [KBD98℄. We have shown that it an
+                             T1               T2                 be used in a S heme level thread system to allow an arbi-
+                                                                 trary nesting of alls between S heme and C, and that there
+         b AK                                                   are no restri tions to the order in whi h ontinuations with
+              A PP BM 
+    a              e   f     i                   S heme heap     interleaved S heme and C frames an be invoked. However,
+               AC D BG H                     C sta k
+                                                                 the restri tions and overheads of most C thread systems re-
+                                                                 du es the pra ti ality of this approa h at this point in time.
+
+Figure 2: Two threads with interleaved S heme and C              Referen es
+frames.
+                                                                 [Fee98℄   Mar Feeley. Gambit-C version 3.0. Available
+    If T1 is urrently exe uting and it returns to \abCD",                  at http://www.iro.umontreal. a/~gambit, May
+then the C frames \GH" will be removed from the C sta k.                   1998.
+A ontext swit h ba k to T2 followed by a return to \fGH"         [HDB90℄ Robert Hieb, R. Kent Dybvig, and Carl Brugge-
+is no longer possible. Note that if at most one thread builds            man. Representing ontrol in the presen e of rst-
+a ontinuation with interleaved S heme and C frames, then                  lass ontinuations. In ACM SIGPLAN '90 Conf.
+this problem does not arise. Of ourse we would like to lift                on Programming Language Design and Implemen-
+this restri tion and allow any number of S heme threads to                      , pages 66{77, White Plains, New York,
+                                                                           tation
+interleave S heme and C frames.                                            June 1990.
+4       C Threads Approa h                                       [KBD98℄ Sanjeev Kumar, Carl Bruggeman, and R. Kent
+                                                                         Dybvig. Threads yield ontinuations. Lisp and
+If the management of C frames ould be liberated from its                 Symboli Computation, 10(3):223{236, May 1998.
+
+stri t LIFO allo ation strategy we would be loser to a om-       [Ser00℄   Manuel Serrano.      Bigloo 2.2a.     Available at
+plete solution. But in fa t there is another way to allo ate               http://kaolin.uni e.fr/~serrano/bigloo,
+C frames: C threads! Most platforms in lude C thread li-                   July 2000.
+braries (e.g. POSIX threads, Win32 threads, SUN LWP)
+whi h allow the reation of a thread with an asso iated sta k
+(some thread systems automati ally allo ate the spa e for
+the sta k, other systems require an expli it mallo ()). The
+sta ks of di erent threads are independent and an be deal-
+lo ated in any order. Note that this use of threads is unusual
+be ause we are not trying to exploit any kind of on urrent
+exe ution; we simply want a portable way to allo ate a new
+C sta k and perform C pro edure alls within it.
+    What we propose is that ea h ontiguous segment of C
+frames in the ontinuation be assigned to one C thread. The
+ reation of a new C sta k (i.e. thread) an be done when
+S heme alls C; all ontiguous C frames added to the on-
+tinuation will be allo ated in this sta k. However, be ause
+ alls to C from S heme are likely to be more frequent than to
+S heme from C, it is probably more eÆ ient to eagerly re-
+ate a new C sta k when C alls S heme and to start adding
+C frames to it if and when S heme alls C. The deallo ation
+of the C sta ks (and asso iated threads) is the responsibil-
+ity of the garbage olle tor whi h will deallo ate all C sta ks
+that are not part of a rea hable S heme ontinuation.
+    With this approa h the C frames in a ontinuation an be
+returned to in any order, and the garbage olle tor re laims
+C frames with the same promptness as S heme frames.
+
+5       Pra ti ality
+We have not yet implemented this approa h in Gambit-C.
+It is not lear that it is worthwhile for typi al programs
+

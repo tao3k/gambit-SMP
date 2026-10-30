@@ -1,0 +1,184 @@
+{
+  "schema": "interrupt-candidate-reply-replay-audit.v1",
+  "snapshotRun": "863e886c269f4fe9828556208f9e4565",
+  "snapshotPath": ".cache/tasks/repair-9-12/processes/audit/runs/863e886c269f4fe9828556208f9e4565/outputs/interrupt-minimal-contract/current-source",
+  "sourceAndBinaryReadIdentities": {
+    "lib/_thread.scm": "481c2a0feadc4698aed3ad5a8371b4a3e340e477a30492bb771dd1096c97ba48",
+    "lib/_thread.c": "ae2f27f65b72d290a6f28a44e5dffed452361da60c06b3d71cf6620a4791e1de",
+    "lib/_thread#.scm": "40b0826dafe72eaea4adfe1f841c797312f6cbcaf700fa9222f6cdfa08ed1c60",
+    "lib/setup.c": "9d028d74abdf9efa98e9f8616ffeb6a6b66aeedd63ccbee91ed5731b1c41c2a2",
+    "lib/mem.c": "629cbef4726db02e59b442025591f252d06d4433bd61e847973f09f6b7d3edba",
+    "include/gambit.h": "15f39cfda23d945d393b10786a9b7030899de75cc98467989cd3cfe6fffd4802",
+    "gsi/gsi": "9eca674b79248987e67d458c9acce7941149f428616caf0aff5defdc93e49d78",
+    "gsi/gsi.lastq": "27bfbbc348cbedebc455d8e13fbaef8d59080792044fe533b7da43233898a619"
+  },
+  "sourceIdentityScope": "sequential read snapshots; not atomic generation or successful producer binding",
+  "candidateShape": {
+    "fragmentTopForms": 1,
+    "fragmentExtraClosings": 0,
+    "fragmentUnclosed": 0,
+    "targetBranches": [
+      {
+        "ifArgumentCount": 2,
+        "ifForm": [
+          "if",
+          [
+            "##eq?",
+            "target-thread",
+            [
+              "macro-current-thread"
+            ]
+          ],
+          [
+            "let",
+            [
+              [
+                "thunk",
+                [
+                  "macro-mutex-name",
+                  "x"
+                ]
+              ]
+            ],
+            [
+              "macro-mutex-specific-set!",
+              "x",
+              [
+                "thunk"
+              ]
+            ],
+            [
+              "macro-mutex-unlock!",
+              "x"
+            ]
+          ]
+        ],
+        "followingForms": [
+          [
+            "##thread-intr-propagate!",
+            "interrupt"
+          ]
+        ],
+        "propagateAfterIf": true
+      },
+      {
+        "ifArgumentCount": 2,
+        "ifForm": [
+          "if",
+          [
+            "##eq?",
+            "target-thread",
+            [
+              "macro-current-thread"
+            ]
+          ],
+          [
+            "let",
+            [
+              [
+                "thunk",
+                [
+                  "macro-mutex-name",
+                  "x"
+                ]
+              ]
+            ],
+            [
+              "macro-mutex-specific-set!",
+              "x",
+              [
+                "thunk"
+              ]
+            ],
+            [
+              "macro-mutex-unlock!",
+              "x"
+            ]
+          ]
+        ],
+        "followingForms": [
+          [
+            "##thread-intr-propagate!",
+            "interrupt"
+          ]
+        ],
+        "propagateAfterIf": true
+      }
+    ]
+  },
+  "originalShape": {
+    "fragmentTopForms": 1,
+    "fragmentExtraClosings": 0,
+    "fragmentUnclosed": 0,
+    "targetBranches": [
+      {
+        "ifArgumentCount": 3,
+        "ifForm": [
+          "if",
+          [
+            "##eq?",
+            "target-thread",
+            [
+              "macro-current-thread"
+            ]
+          ],
+          [
+            "let",
+            [
+              [
+                "thunk",
+                [
+                  "macro-mutex-name",
+                  "x"
+                ]
+              ]
+            ],
+            [
+              "macro-mutex-specific-set!",
+              "x",
+              [
+                "thunk"
+              ]
+            ],
+            [
+              "macro-mutex-unlock!",
+              "x"
+            ]
+          ],
+          [
+            "##thread-intr-propagate!",
+            "interrupt"
+          ]
+        ],
+        "followingForms": [],
+        "propagateAfterIf": false
+      }
+    ]
+  },
+  "schemeSnippet": "(define-prim (##other-interrupt!)\n\n  (##declare (not interrupts-enabled))\n\n  ;; This procedure is called by a processor to handle the processor's\n  ;; high-level interrupts (generated from Scheme code).\n\n  ;; A not-current send can land on the thread queue after that thread\n  ;; has started running. Resume is the only other drain, and the yield\n  ;; fast path does not resume.\n  (if (macro-current-thread)\n      (let drain ()\n        (macro-lock-current-thread!)\n        (macro-thread-interrupts-remove-from-head!\n         interrupt\n         (begin\n           (macro-unlock-current-thread!)\n           (let ((x (##vector-ref interrupt 1)))\n             (cond ((##procedure? x)\n                    (x interrupt))\n                   ((macro-mutex? x)\n                    (let ((target-thread (macro-mutex-specific x)))\n                      (if (##eq? target-thread (macro-current-thread))\n                          (let ((thunk (macro-mutex-name x)))\n                            (macro-mutex-specific-set! x (thunk))\n                            (macro-mutex-unlock! x)))\n                          (##thread-intr-propagate! interrupt)))))\n           (drain))\n         (macro-unlock-current-thread!))))\n\n  (let loop ()\n    (let ((interrupt (##get-next-high-level-interrupt)))\n      (if (##null? interrupt)\n          #f\n          (begin\n            (let ((x (##vector-ref interrupt 1)))\n\n              ;; There are two types of interrupts:\n              ;;\n              ;; - procedure: interrupt targets the processor\n              ;;\n              ;; - mutex: interrupt targets a specific thread\n\n              (cond ((##procedure? x)\n                     (x interrupt))\n\n                    ((macro-mutex? x)\n                     ;; mutex-specific is thread to interrupt and result\n                     ;; mutex-name is thunk\n                     (let ((target-thread (macro-mutex-specific x)))\n                       (if (##eq? target-thread (macro-current-thread))\n                           (let ((thunk (macro-mutex-name x)))\n                             (macro-mutex-specific-set! x (thunk))\n                             (macro-mutex-unlock! x)))\n                           (##thread-intr-propagate! interrupt)))))\n            (loop))))))\n\n",
+  "generatedEdges": [
+    {
+      "startLabel": 16,
+      "section": "___DEF_GLBL(___L16__23__23_other_2d_interrupt_21_)\n   ___SET_R1(___STK(-6))\n   ___SET_R0(___STK(-7))\n   ___ADJFP(-8)\n___DEF_GLBL(___L17__23__23_other_2d_interrupt_21_)\n   ___SET_STK(1,___R0)\n   ___SET_R0(___LBL(1))\n   ___ADJFP(4)\n   ___JUMPINT(___SET_NARGS(1),___PRC(519),___L__23__23_thread_2d_intr_2d_propagate_21_)\n",
+      "startLine": 15926
+    },
+    {
+      "startLabel": 26,
+      "section": "___DEF_GLBL(___L26__23__23_other_2d_interrupt_21_)\n   ___SET_R1(___STK(-6))\n   ___SET_R0(___LBL(7))\n   ___ADJFP(-4)\n   ___JUMPINT(___SET_NARGS(1),___PRC(519),___L__23__23_thread_2d_intr_2d_propagate_21_)\n",
+      "startLine": 16030
+    }
+  ],
+  "classification": "CONFIRMED_STATIC_CONTROL_FLOW_DEFECT_IN_RETAINED_CANDIDATE",
+  "historicalTfibCauseEstablished": false,
+  "nativeReproduced": false,
+  "proposedCorrection": "restore propagation as the else of target-current conditional in both mutex arms; regenerate and qualify exact C/binary before attributing runtime outcomes",
+  "liveReadHistory": [
+    {
+      "note": "first bounded read, before retained snapshot",
+      "schemeSha256": "6ca2d0adcbb4cb61d63a41d55d7cb64089b584872451d1ecddcbb8c34262215b",
+      "generatedCSha256": "6e17bf3192fe88860567d23b86bfa66f2e3b27f027bb0a2ccc59fb470c28fd8d",
+      "scratchGsiSha256": "ce806f648fd9de4428b01fead965ac53e3ab645119f4bce03f8d7128f4cd1374",
+      "binding": "not atomic and not asserted to match retained snapshot"
+    }
+  ]
+}

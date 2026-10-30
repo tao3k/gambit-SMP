@@ -1,0 +1,69 @@
+#+TITLE: GSC Source Chain, Delta Propagation and Phase Retirement
+#+SETUPFILE: ../../modeling/org/setup.org
+
+* Canonical source-chain projection
+:PROPERTIES:
+:CUSTOM_ID: gsc-source-chain-map
+:AUTHORITY: GambitToolchain
+:EVIDENCE_CLASS: source-and-conditional-algorithm-design
+:END:
+
+The ten-node mathematical cohort selects two real library modules. Remaining library/executable objects are fixed environment inputs only in that model; the macro case is not a full source refinement. Counts are abstract executions, not measured builds or speedups.
+
+#+BEGIN: sysml-view :kind source-chain-nodes :source architecture/toolchain/models/sysml/architecture.sysml
+#+NAME: source-chain-nodes
+| Node | Requires | Real product | Source | Ranges | QNT index | Input cut | Limit |
+|---+---+---+---+---+---+---+---|
+| genA |  | _t-c-3.scm -> _t-c-3.c | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 307-308 | 0 | Closed compilation context, generic/fixnum and include-adt inputs; frozen gsc-boot and target options | Only this implementation leaf changes; no reverse source include is inferred from library membership |
+| genB |  | _utils.scm -> _utils.c | [[file:../../../vendor/gambit/gsc/_utils.scm][vendor/gambit/gsc/_utils.scm]] | 7-12 | 1 | Fixnum and four ADT includes, same producer/profile | Representative independent unit; not a model of the remaining compiler units |
+| objA | genA | _t-c-3.c -> _t-c-3@obj@ | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 304-305;346-346 | 2 | Generated C plus gambit.h, actual compiler and flags | Can overlap other ready generation after phase-edge replacement qualifies |
+| objB | genB | _utils.c -> _utils@obj@ | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 304-305;346-346 | 3 | Same object contract for another module | No independent executor or new job budget |
+| libPlan | genA; genB | $(GAMBIT_GSC_LIB_C) | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 289-290 | 4 | All 33 library modules in declared order plus runtime link metadata; two representative inputs in QNT | Other 31 inputs are frozen only in the small model; broad macro source refinement remains open |
+| libPlanObj | libPlan | $(GAMBIT_GSC_LIB_O) | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 304-305 | 5 | Generated library metadata C and header ABI | Metadata equality can cut off this work only after a separate producer projection exists |
+| archive | objA; objB; libPlanObj | $(LIBRARY) | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 170-177;281-288 | 6 | All library objects and generated descriptor object; archive/shared mode preserved | Unchanged omitted objects do not grant permission to omit changed macro consumers |
+| exePlan | libPlan | _gsc_.c | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 295-296 | 7 | Executable-module metadata and library linkfile; ordered compiler link inputs | The executable wrapper _gsc.c is a distinct fixed input in the small model |
+| exePlanObj | exePlan | _gsc_@obj@ | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 298-299 | 8 | Executable linkfile C and configured headers | Not the _gsc@obj@ wrapper object |
+| executable | archive; exePlanObj | gsc@exe@ | [[file:../../../vendor/gambit/gsc/makefile.in][vendor/gambit/gsc/makefile.in]] | 292-293 | 9 | Full EXECUTABLE_OBJECTS and LINK_LIBS; exact configured link mode | Build product only; not a whole SMP or Gerbil correctness receipt |
+#+END:
+
+** Three source delta cases
+#+BEGIN: sysml-view :kind source-chain-deltas :source architecture/toolchain/models/sysml/architecture.sysml
+#+NAME: source-chain-deltas
+| Case | Change | Current path | Proposed work | Scoped mathematical count | Boundary | Open obligation |
+|---+---+---+---+---+---+---|
+| noChange | All semantic inputs, producer/target, headers, ordered metadata and outputs unchanged | Make may revisit phony phases/stamp; Git stamp branch preserves unchanged bytes; non-Git branch rewrites stamp.h | Validate complete cuts; zero eligible generation/compile/link work | Abstract 10-node model: 0 executions if all saved signatures match | Fresh validation/planning and live context instantiation still cost work; changed bootstrap identity is not this case | BF-BUILD-CUT |
+| leaf | Implementation-only change to _t-c-3.scm under fixed bootstrap compiler; exported link metadata assumed unchanged | Its .scm.c recipe, library metadata targets and dependent object/library/executable recipes become eligible by timestamps | Regenerate leaf, compile changed leaf C, rebuild affected library and executable; stop unchanged metadata descendants | Abstract 10-node model: nodes 0,2,6,9 = 4 executions under its declared oracle | Current targ-link-info reads generated C; metadata-only reuse needs an explicit producer/projection. Archive/executable relink generally remains necessary | BF-BUILD-CUT |
+| macro | Semantic change to include-adt in fixnum.scm | MODULES_C explicitly depends on fixnum.scm: 33 library modules plus executable module, 34 generation targets | Invalidate real semantic consumers; retain broad set until producer dependency closure proves a narrower set | Two-unit model: up to all 10 nodes; real 34-unit impact is not certified by that projection | A shared macro can genuinely invalidate almost everything. No claimed N-to-1 generation speedup; unchanged downstream bytes may still cut off work | BF-BUILD-CUT |
+#+END:
+
+** Phase split and retirement
+#+BEGIN: sysml-view :kind source-chain-phases :source architecture/toolchain/models/sysml/architecture.sysml
+#+NAME: source-chain-phases
+| Phase | Current role | Proposed cut | Admission | Keep | Retirement |
+|---+---+---+---+---+---|
+| phase1 | Generate library and executable module C | Reuse existing per-module generation tasks; replace blanket phase release only where true dependencies allow | Frozen producer and common inputs; independent compilation contexts; preserve module and bootstrap identities | Keep macro/elaboration dependencies and all source readers | Retire whole-phase generation envelope only after all actual units use explicit rules |
+| phase2 | Generate library and executable semantic linkfiles | Separate library link-plan and executable link-plan tasks from unrelated object compilation | All ordered input metadata ready; executable plan waits for its actual library metadata | Keep actual input readiness; do not reorder modules | Retire the global phase barrier, not its true producer edges |
+| phase3 | Shared mode compiles library objects; static mode builds library | Stream each ready object; archive/shared-library task waits for its exact object list | One compiler/jobserver budget; per-object header/ABI inputs closed | Keep archive dependencies and configured shared/static differences | Retire delayed object release and duplicate scheduling only after the old callers migrate |
+| phase4 | core library/executable construction | Release final archive/link tasks when their actual inputs are committed | Exact semantic/native closure and preserved failure propagation | Keep link and output-set completion, no partial publish | Retire final blanket orchestration only after native/action parity, not from graph shape alone |
+| bootstrap | from-scratch cleans/bootstrap/core and can change producer | Model each compiler-producing stage with its own identity | Source and producing compiler lineage, boot/gsc-boot setup and runtime header closure | Required self-hosting stage edges remain | No retirement of a necessary second producer stage merely because source bytes repeat |
+#+END:
+
+** Source facts
+#+BEGIN: sysml-view :kind source-chain-facts :source architecture/toolchain/models/sysml/architecture.sysml
+| Fact | Source | Observation | Limit |
+|---+---+---+---|
+| chain-make | [[file:../../../vendor/gambit/gsc/makefile.in::73][vendor/gambit/gsc/makefile.in:73-85]]; [[file:../../../vendor/gambit/gsc/makefile.in::93][vendor/gambit/gsc/makefile.in:93-111]]; [[file:../../../vendor/gambit/gsc/makefile.in::170][vendor/gambit/gsc/makefile.in:170-177]]; [[file:../../../vendor/gambit/gsc/makefile.in::268][vendor/gambit/gsc/makefile.in:268-308]]; [[file:../../../vendor/gambit/gsc/makefile.in::312][vendor/gambit/gsc/makefile.in:312-346]] | Real module/descriptor/archive/executable rules and broad shared prerequisites | Template variables are not an inspected active Darwin link configuration |
+| phase-make | [[file:../../../vendor/gambit/makefile.in::105][vendor/gambit/makefile.in:105-149]]; [[file:../../../vendor/gambit/makefile.in::193][vendor/gambit/makefile.in:193-205]]; [[file:../../../vendor/gambit/makefile.in::226][vendor/gambit/makefile.in:226-227]] | Jobserver-sensitive phases, bootstrap choice and stamp call | Recursive recipe visits are not proof that native work reruns |
+| stamp | [[file:../../../vendor/gambit/include/makefile.in::301][vendor/gambit/include/makefile.in:301-331]] | Git branch compares stamp version; non-Git branch writes empty stamp.h | No-op cannot assume every source/export profile preserves timestamps |
+| leaf-inputs | [[file:../../../vendor/gambit/gsc/_t-c-3.scm::7][vendor/gambit/gsc/_t-c-3.scm:7-12]] | Generic and four ADT includes are real source inputs | Lexical includes alone are not complete dynamic compiler read closure |
+| other-inputs | [[file:../../../vendor/gambit/gsc/_utils.scm::7][vendor/gambit/gsc/_utils.scm:7-12]] | Independent utility module includes fixnum and ADT sources | Representative control, not an independently executed control |
+| macro-implementation | [[file:../../../vendor/gambit/gsc/fixnum.scm::7][vendor/gambit/gsc/fixnum.scm:7-17]] | include-adt macro changes declarations and includes ../gsc/filename | Compiler-time state and file reads belong to the semantic cut |
+| generic-route | [[file:../../../vendor/gambit/gsc/generic.scm::7][vendor/gambit/gsc/generic.scm:7-9]] | Generic mode transitively includes fixnum | Do not treat generic.scm and fixnum.scm as independent inputs |
+| link-reader | [[file:../../../vendor/gambit/gsc/_t-c-1.scm::880][vendor/gambit/gsc/_t-c-1.scm:880-925]]; [[file:../../../vendor/gambit/gsc/_t-c-1.scm::1086][vendor/gambit/gsc/_t-c-1.scm:1086-1105]] | targ-link-info reads leading generated-C metadata and validates compiler/target; link merges ordered module info | Metadata projection is semantic and producer-specific, not arbitrary text slicing |
+| driver-model | [[file:../../../models/gambit/native_build_driver_correspondence.qnt::1][models/gambit/native_build_driver_correspondence.qnt:1-44]] | Existing model admits a scoped budget investigation | Not an incremental-build dependency or parallel scheduler proof |
+| active-read-source | [[file:../../../vendor/gambit/gsc/_source.scm::419][vendor/gambit/gsc/_source.scm:419-466]] | Active read-source uses the current readtable and optional extension search; active include passes false | Quoted tail at 1386-1642 is historical data, not this call path |
+| top-source-reader | [[file:../../../vendor/gambit/gsc/_front.scm::200][vendor/gambit/gsc/_front.scm:200-223]] | compile-source input path calls read-source with true for extension search | Literal GSC suffix recipe passes explicit .scm; extension search applies only to extensionless path inputs, not ordinary include false or in-memory input |
+| quoted-reader-history | [[file:../../../vendor/gambit/gsc/_source.scm::1384][vendor/gambit/gsc/_source.scm:1384-1396]]; [[file:../../../vendor/gambit/gsc/_source.scm::1553][vendor/gambit/gsc/_source.scm:1553-1563]] | Quoted datum starts at 1386 and contains the later same-name include definition | Do not infer active probe/reopen behavior from this historical copy |
+| extension-order | [[file:../../../vendor/gambit/lib/_io.scm::10506][vendor/gambit/lib/_io.scm:10506-10513]] | Current runtime extension list orders .sld before .scm before .six and has a setter | The host fallback table differs; actual active producer context must be bound |
+| reader-path-primitive | [[file:../../../vendor/gambit/lib/_eval.scm::1145][vendor/gambit/lib/_eval.scm:1145-1194]] | Current reader builds path settings with EOL encoding and invokes generic file open via psettings | Path/open error details and primitive read authority require their own mediation; no snapshot isolation proved |
+#+END:

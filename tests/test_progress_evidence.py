@@ -6,6 +6,7 @@ import unittest
 
 from gambit_smp import progress_evidence as evidence
 from gambit_smp.framework import digest
+from tests.support import copy_output_observations
 
 
 class ProgressEvidenceTests(unittest.TestCase):
@@ -17,6 +18,7 @@ class ProgressEvidenceTests(unittest.TestCase):
         source = evidence.ROOT / name
         self.destination = self.root / name
         shutil.copytree(source, self.destination)
+        copy_output_observations(evidence.ROOT, self.root, name)
         self.receipt = self.destination / "receipt.json"
         saved = json.loads(self.receipt.read_text())
         saved["inputs"] = {name.replace("tools/model/", "src/gambit_smp/"): sha
@@ -87,9 +89,10 @@ class ProgressEvidenceTests(unittest.TestCase):
     def test_safety_only_log_cannot_be_rehashed_into_temporal_admission(self):
         def change(saved):
             row = saved["results"][1]
-            log = self.destination / row["log"]
-            log.write_text(log.read_text().replace("Finished checking temporal properties", "Safety checks only"))
-            row["logSha256"] = digest(log)
+            from gambit_smp.output_observations import recorded
+            output = recorded(self.root, self.destination / row["log"], row["logSha256"])
+            output["tlc"]["temporalComplete"] = False
+            saved["outputs"] = {row["log"]: output}
         self.mutate(change)
         with self.assertRaisesRegex(ValueError, "temporal check"):
             evidence.checked(self.root, self.case, self.receipt)
