@@ -60,7 +60,21 @@ class SealedCheckpointRecoveryTests(unittest.TestCase):
                         _, error = parent.communicate(timeout=2)
                         self.fail("sealed owner did not start: " + error.decode())
                     time.sleep(.01)
-                worker_pid = json.loads(owner_path.read_text())["pid"]
+                owner = json.loads(owner_path.read_text())
+                worker_pid = owner["pid"]
+                # Birth custody precedes exec permission. Stopping the parent
+                # at birth can prevent it from delivering the environment to
+                # the child; that tests launch cancellation, not phase recovery.
+                planned = json.loads((original / ("process-" + owner["token"] + "-planned.json")).read_text())
+                intent_path = root / planned["spawnProtocol"]["directory"] / "exec-intent.json"
+                while not intent_path.is_file():
+                    if parent.poll() is not None or time.monotonic() >= deadline:
+                        _, error = parent.communicate(timeout=2)
+                        self.fail("sealed owner did not reach exec intent: " + error.decode())
+                    time.sleep(.01)
+                intent = json.loads(intent_path.read_text())
+                self.assertEqual(intent["token"], owner["token"])
+                self.assertEqual(intent["birth"], owner["birth"])
                 os.kill(parent.pid, signal.SIGSTOP)
                 stage = original / "run/linking.observation.json"
                 while not stage.is_file():

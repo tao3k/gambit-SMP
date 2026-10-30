@@ -145,6 +145,9 @@ class SpawnBirthRecoveryTests(unittest.TestCase):
     def test_controller_dies_after_child_birth_before_exec_permission(self):
         parent,_=self.start_parent('started');row=self.rows()[0]
         birth=row['birth'];self.assertTrue(same_birth(birth['process'],process(row['pid'])))
+        directory=self.root/row['spawnProtocol']['directory']
+        self.assertFalse((directory/'permission.json').exists())
+        self.assertFalse((directory/'exec-intent.json').exists())
         parent.kill();parent.wait(timeout=5)
         self.resume_when_absent();row=self.rows()[0]
         self.assertEqual('cancelled-before-exec',row['spawnReconciliation']['result'])
