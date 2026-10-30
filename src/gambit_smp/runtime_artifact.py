@@ -354,7 +354,16 @@ def import_steps(ctx):
         if isinstance(value, dict):
             return value == reference or any(consumes(item) for item in value.values())
         return isinstance(value, (list, tuple)) and any(consumes(item) for item in value)
-    if imports and any(step['capability'] != 'gambit.runtime-import' and consumes(step['arguments']) for step in plan):
+    def mutates_source(step):
+        args = step['arguments']
+        # The graph validator requires expectedSource to be this import's
+        # exact materialized candidate. expected_suite_inventory only reads
+        # its names; it neither projects bytes nor mutates source. Strip only
+        # that declared operand, never other aliases or unknown capabilities.
+        if step['capability'] == 'gambit.suite' and args.get('expectedSource') == reference:
+            args = {key: value for key, value in args.items() if key != 'expectedSource'}
+        return consumes(args)
+    if imports and any(step['capability'] != 'gambit.runtime-import' and mutates_source(step) for step in plan):
         raise ValueError('import source projection cannot serve a mutable source consumer')
     return imports
 

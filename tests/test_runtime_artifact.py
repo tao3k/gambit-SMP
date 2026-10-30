@@ -251,6 +251,24 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'mutable source consumer'):
             import_steps(ctx)
 
+    def test_inventory_borrow_preserves_import_but_other_source_aliases_are_denied(self):
+        from types import SimpleNamespace
+        from gambit_smp.runtime_artifact import import_steps
+        ref = {'step': 'candidate', 'output': 'source'}
+        imported = dict(id='runtime', capability='gambit.runtime-import', arguments={'source': ref})
+        suite = dict(id='suite', capability='gambit.suite', arguments={'expectedSource': ref})
+        ctx = SimpleNamespace(directory=Path('candidate'), receipt={'plannedSteps': [imported, suite]})
+        self.assertEqual([imported], import_steps(ctx))
+        for capability, arguments in (
+                ('source.project', {'expectedSource': ref}),
+                ('gambit.suite', {'expectedSource': ref, 'other': [ref]}),
+                ('gambit.suite', {'source': ref}),
+                ('gambit.suite', {'nested': {'expectedSource': ref}})):
+            with self.subTest(capability=capability, arguments=arguments):
+                suite.update(capability=capability, arguments=arguments)
+                with self.assertRaisesRegex(ValueError, 'mutable source consumer'):
+                    import_steps(ctx)
+
     def test_launch_returns_actual_observation_path_and_bound_failure_without_cache_search(self):
         from gambit_smp.research_kernel import launch_summary
         out = self.root/'.cache/tasks/repair/runs/example/outputs/diagnostic'
