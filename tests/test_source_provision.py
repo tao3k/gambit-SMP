@@ -54,6 +54,28 @@ class SourceProvisionTests(unittest.TestCase):
         provision.prepare_cache(root, root / provision.DEFAULT_CACHE, source=upstream)
         return root, record, manifest
 
+    def test_object_binding_never_admits_a_different_checkout_index(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, _ = self.fixture(directory)
+            provision.git(root, 'update-index', '--cacheinfo', '160000',
+                          record['parents'][0], record['submodule'])
+            self.assertEqual(record, provision.binding(root)[0])
+            with self.assertRaisesRegex(ValueError, 'index does not bind'):
+                provision.validate(root)
+            destination = root/'rejected-cache.git'
+            with self.assertRaisesRegex(ValueError, 'index does not bind'):
+                provision.prepare_cache(root, destination)
+            self.assertFalse(destination.exists())
+
+    def test_object_identity_retains_tree_commit_and_parent_guards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, record, _ = self.fixture(directory)
+            cache = root/provision.DEFAULT_CACHE
+            provision.verify_object_identity(cache,record)
+            for key, value in [('commitSha256','0'*64),('treeManifestSha256','0'*64),('parents',[])]:
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError,'object digest drift|parents drift'):
+                    provision.verify_object_identity(cache,{**record,key:value})
+
     def test_offline_source_without_versioned_bundle(self):
         with tempfile.TemporaryDirectory() as directory:
             root, record, _ = self.fixture(directory)

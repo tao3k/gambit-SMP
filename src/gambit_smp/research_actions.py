@@ -64,10 +64,11 @@ def _inputs(root, paths):
     result = {}
     for path in dict.fromkeys(Path(path) for path in paths):
         path = path.resolve(strict=True)
-        path.relative_to(root)
         if not path.is_file():
             raise ValueError("regular source file required")
         result[str(path)] = digest(path)
+    from gambit_smp.ascent_program import input_attestations
+    input_attestations(root, result)  # Reject every undeclared external owner.
     return result
 
 

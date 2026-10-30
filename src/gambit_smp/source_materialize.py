@@ -178,6 +178,68 @@ def _materialize(lock_path, out, *, root=None):
     return record
 
 
+def source_binding(root, lock, name):
+    """Exact regular-file binding in the locked tree; None proves absence."""
+    source_name(name)
+    checkout = relative(root, lock['submodule'])
+    entry = _task_check_output(['git', '-C', str(checkout), 'ls-tree', '-z',
+                                lock['revision'], '--', name], timeout=10)
+    if not entry:
+        return None
+    metadata, observed = entry.rstrip(b'\0').split(b'\t', 1)
+    mode, kind, _ = metadata.split()
+    if observed.decode() != name or mode not in (b'100644', b'100755') or kind != b'blob':
+        raise ValueError('locked source must be an exact regular file')
+    from gambit_smp.source_identity import git_source
+    return git_source(root, lock['submodule'], lock['revision'], name)
+
+
+def audit_slice(lock_path, *, root=None):
+    """Check only selected original bytes and the existing exact patch contract.
+
+    This is not materialization, checkout proof, bootstrap or runtime admission.
+    No whole source archive is extracted and no output source tree is published.
+    """
+    root = ROOT if root is None else Path(root).resolve()
+    from gambit_smp.recipes import read_json, source_path
+    from gambit_smp.source_identity import read_source
+    lock = read_json(lock_path); validate_source_lock(lock)
+    lock_hash = digest(lock_path); patch = source_path(root, lock['patch'])
+    patch_bytes = patch.read_bytes()
+    if hashlib.sha256(patch_bytes).hexdigest() != lock['patchSha256']:
+        raise ValueError('source revision or snapshot overlay drift')
+    bindings, absent = {}, []
+    with tempfile.TemporaryDirectory(prefix='gambit-selected-source-audit-') as temporary:
+        selected = Path(temporary)
+        for name, row in lock['files'].items():
+            identity = source_binding(root, lock, name)
+            if row['baseSha256'] is None:
+                if identity is not None:
+                    raise ValueError('new source path must be absent from pinned archive')
+                absent.append(name)
+            else:
+                if identity is None or identity['sha256'] != row['baseSha256']:
+                    raise ValueError('archived base source differs from lock')
+                bindings[lock['submodule']+'/'+name] = identity
+                target = selected/name; target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(read_source(root, identity))
+            verify_source_base(selected, name, row)
+        apply_untracked_patch(selected, patch_bytes, set(lock['files']),
+                              new_files=set(absent), preserve_whitespace=True)
+        observed = {name: digest(source_file(selected, name)) for name in lock['files']}
+        if any(observed[name] != row['candidateSha256'] for name, row in lock['files'].items()):
+            raise ValueError('materialized source differs from candidate slice')
+    if digest(lock_path) != lock_hash or patch.read_bytes() != patch_bytes:
+        raise ValueError('source inputs changed during selected audit')
+    for identity in bindings.values():
+        if hashlib.sha256(read_source(root, identity)).hexdigest() != identity['sha256']:
+            raise ValueError('locked source object drift during audit')
+    return dict(files=observed, sourceBindings=bindings, absentPaths=absent,
+                proofKind='immutable-selected-source', checkoutChecked=False,
+                fullSourceArchives=0, configuredToolchainReproduced=False,
+                runtimeAdmitted=False, releaseAdmitted=False)
+
+
 @contextmanager
 def locked_source(root, name):
     """Resolve versioned inputs into disposable source, never cache authority."""

@@ -1,5 +1,8 @@
 """Typed retry transport. Native ASCENT owns eligibility and missing premises."""
 import math
+import hashlib
+import json
+import subprocess
 import re
 import shlex
 from pathlib import Path
@@ -392,6 +395,31 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
             milliseconds(record["wholeSuiteBudgetPerMode"])])
 
 
+def review_source_bytes(root, reference):
+    """Original documentary source only, never a runtime/artifact substitution."""
+    from gambit_smp.recipes import fields
+    from gambit_smp.source_identity import read_source
+    from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
+    fields(reference, ('path','sha256','identity'))
+    path = Path(reference['path']); identity = reference['identity']
+    if (path.is_absolute() or '..' in path.parts or path.as_posix()!=reference['path']
+            or any(part in {'.cache','.data','.git','.venv'} for part in path.parts)
+            or path.suffix.casefold() in TRANSCRIPT_SUFFIXES
+            or identity.get('kind')!='git'
+            or (Path(identity['repository'])/identity['path']).as_posix()!=reference['path']):
+        raise ValueError('exact immutable review source owner/path required')
+    try:
+        from gambit_smp.source_materialize import source_binding
+        if source_binding(root,dict(submodule=identity['repository'],revision=identity['revision']),identity['path']) != identity:
+            raise ValueError('immutable review source identity mismatch')
+        data = read_source(root,identity)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('immutable review source unavailable') from error
+    if hashlib.sha256(data).hexdigest()!=reference['sha256']:
+        raise ValueError('immutable review source digest drift')
+    return data
+
+
 def project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs, *, producer_binding=False):
     from gambit_smp.recipes import fields, read_json, source_path
     fields(document, ("schema", "campaign", "failures"))
@@ -409,7 +437,7 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
     if set(indexed) - set(failures):
         raise ValueError("retry review names an unselected or unknown failure")
 
-    log_bytes = {}
+    log_bytes, source_borrows = {}, {}
 
     def log_data(reference):
         fields(reference, ("path", "sha256"))
@@ -646,10 +674,20 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
                     or type(row["domain"]) is not str or type(row["status"]) is not str):
                 raise ValueError("explicit causal reasoning, references and typed premise inventory required")
             for ref in row["references"]:
-                bound(ref)
+                if 'identity' in ref:
+                    # Only supporting source references may borrow old objects.
+                    # Baseline identities, tested changes and causal documents
+                    # themselves still pass the original physical bound().
+                    key = json.dumps(ref, sort_keys=True)
+                    if key not in source_borrows:
+                        source_borrows[key] = (ref, review_source_bytes(ctx.root,ref))
+                else:
+                    bound(ref)
             facts["claim_evidence"].append([route, claim["id"], row["domain"], row["status"], digest(evidence_path)])
             facts["claim_dependency"].extend([route, claim["id"], premise] for premise in row["premises"])
             facts["claim_change"].extend([route, claim["id"], change] for change in row["changes"])
+
+    return list(source_borrows.values())
 
 
 def historical_observation(ctx, failure, original, inputs, facts):
@@ -829,12 +867,13 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
             review_path = source_path(ctx.root, args["retryReview"])
             inputs[args["retryReview"]] = digest(review_path)
             document = read_json(review_path)
+    source_borrows = []
     if document is not None:
         distinct = {route for relation in ("budget_toolchain_distinct", "budget_watchdog_distinct")
                     for route, in facts[relation]}
         reviewable = {**document, "failures": [entry for entry in document["failures"]
                                               if entry["id"] not in distinct]}
-        project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
+        source_borrows = project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
     ctx.bind(ctx.root / name for name in inputs)
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):
@@ -862,6 +901,9 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         raise ValueError("candidate campaign or topology drift during native inference")
     if any(digest(ctx.root / name) != expected for name, expected in inputs.items()):
         raise ValueError("retry review input drift during native inference")
+    for reference, data in source_borrows:
+        if review_source_bytes(ctx.root,reference) != data:
+            raise ValueError('immutable review source drift during native inference')
     ctx.bind([candidate_receipt])
     decisions = answers["decision"]
     if len(decisions) != 1 or decisions[0][0] not in {"DENY", "REVIEW_REQUIRED", "RETRY_ELIGIBLE", "NOT_REQUIRED"}:
@@ -872,6 +914,7 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
             "knownScopeCandidates": overlaps, "disjointCampaignFailures": [row[0] for row in disjoint],
             "answers": answers, "inputs": inputs,
             "facts": facts, "budgetCompilerComparisons": comparisons,
+            "immutableSourceReferences": [reference for reference, _ in source_borrows],
             "runtimeAdmitted": False, "executionAuthorized": False,
             "policyProgram": "research-suite-review.v1",
             "scope": "Conditional investigation eligibility only. Host authorization and full native results remain independent."}

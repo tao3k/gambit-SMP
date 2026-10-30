@@ -25,7 +25,8 @@ def input_path(root, name):
     return path
 
 
-def validate(root, manifest=MANIFEST):
+def binding(root, manifest=MANIFEST):
+    """Validate the declared source epoch, without claiming index/checkout state."""
     record = json.loads(input_path(root, manifest).read_text())
     lock_path = input_path(root, record["sourceLock"])
     lock = json.loads(lock_path.read_text())
@@ -49,6 +50,12 @@ def validate(root, manifest=MANIFEST):
     if git(root, "config", "-f", ".gitmodules", "--get",
            f"submodule.{record['submodule']}.url") != transport:
         raise ValueError("canonical submodule URL drift")
+    return record, lock
+
+
+def validate(root, manifest=MANIFEST):
+    """Checkout provisioning still requires the exact locked index entry."""
+    record, lock = binding(root, manifest)
     entry = git(root, "ls-files", "--stage", "--", record["submodule"]).split()
     if entry[:3] != ["160000", record["revision"], "0"]:
         raise ValueError("submodule index does not bind the locked revision")
@@ -57,8 +64,13 @@ def validate(root, manifest=MANIFEST):
 
 def verify_objects(repository, record):
     """Cache location is transport only; the locked commit and tree are authority."""
-    revision = record["revision"]
     git(repository, "fsck", "--full", "--no-reflogs")
+    verify_object_identity(repository, record)
+
+
+def verify_object_identity(repository, record):
+    """Verify this locked commit/tree/parent set, not a current checkout."""
+    revision = record["revision"]
     for field, args in (("commitSha256", ("cat-file", "commit", revision)),
                         ("treeManifestSha256", ("ls-tree", "-r", "-z", revision))):
         value = _task_check_output(["git", "-C", str(repository), *args],

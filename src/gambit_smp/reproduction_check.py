@@ -10,8 +10,14 @@ import tempfile
 
 from gambit_smp.framework import ROOT
 from gambit_smp.paper_cache import paper_pins
-from gambit_smp.source_provision import validate as validate_source
-from gambit_smp.source_materialize import AUDIT_FILES, FILES, materialize
+from gambit_smp.source_provision import (binding as validate_source, verify_object_identity,
+                                        validate as validate_checkout)
+from gambit_smp.source_materialize import AUDIT_FILES, FILES, audit_slice, source_binding
+
+
+SOURCE_INPUT_MODULES = ("__init__", "framework", "source_materialize", "source_capabilities",
+                        "recipes", "source_provision", "reproduction_check", "paper_cache",
+                        "source_identity", "view_materialize")
 
 
 def portable(root, name):
@@ -66,46 +72,55 @@ def check_source(root, lock_name, require_committed=False):
     validate_source_lock(lock)
     inputs = {lock_name, lock["patch"], ".gitmodules", "models/gambit/cases.json",
               "evidence/runtime-source-provisioning.json", source["sourceLock"]}
-    inputs.update("src/gambit_smp/" + name + ".py" for name in
-        ("__init__", "framework", "source_materialize", "source_capabilities", "recipes",
-         "source_provision", "reproduction_check", "paper_cache"))
+    inputs.update("src/gambit_smp/" + name + ".py" for name in SOURCE_INPUT_MODULES)
     if hashlib.sha256(portable(root, lock["patch"]).read_bytes()).hexdigest() != lock["patchSha256"]:
         raise ValueError("candidate source overlay digest drift")
-    submodule = lock["submodule"]
-    if git(root / submodule, "rev-parse", "HEAD") != lock["revision"]:
-        raise ValueError("submodule HEAD differs from candidate source lock")
-    for name, row in lock["files"].items():
-        if any(not re.fullmatch(r"[0-9a-f]{64}", row.get(key, ""))
-               for key in ("baseSha256", "candidateSha256")):
-            raise ValueError("invalid candidate source file digest")
-        source = submodule + "/" + name
-        if hashlib.sha256(portable(root, source).read_bytes()).hexdigest() != row["baseSha256"]:
-            raise ValueError("submodule source differs from candidate locked base: " + name)
-        inputs.add(source)
-    for name in inputs:
-        portable(root, name)
+    submodule = lock['submodule']
+    verify_object_identity(root/submodule, source)
+    bindings = {}
+    for name, row in lock['files'].items():
+        identity = source_binding(root, lock, name)
+        if row['baseSha256'] is None:
+            if identity is not None:
+                raise ValueError('new source path must be absent from pinned archive')
+        elif identity is None or identity['sha256'] != row['baseSha256']:
+            raise ValueError('submodule source differs from candidate locked base: '+name)
+        else:
+            bindings[submodule+'/'+name] = identity
+            inputs.add(submodule+'/'+name)
+    physical = inputs - set(bindings)
+    for name in physical: portable(root, name)
     if require_committed:
-        verify_committed(root, inputs, submodule, lock["revision"])
-    snapshots = {name: hashlib.sha256(portable(root, name).read_bytes()).hexdigest() for name in inputs}
-    with tempfile.TemporaryDirectory(prefix="gambit-source-input-check-") as temporary:
-        receipt = materialize(lock_path, Path(temporary) / "source", root=root)
-    if any(hashlib.sha256(portable(root, name).read_bytes()).hexdigest() != sha
-           for name, sha in snapshots.items()):
-        raise ValueError("source inputs changed during candidate input check")
+        verify_committed(root, inputs, submodule, lock['revision'])
+        validate_checkout(root)
+    snapshots = {name: hashlib.sha256(portable(root,name).read_bytes()).hexdigest() for name in physical}
+    receipt = audit_slice(lock_path, root=root)
+    if any(hashlib.sha256(portable(root,name).read_bytes()).hexdigest()!=sha for name,sha in snapshots.items()):
+        raise ValueError('source inputs changed during candidate input check')
+    if require_committed:
+        verify_committed(root, inputs, submodule, lock['revision'])
+        validate_checkout(root)
     return {"schema": "gambit-candidate-source-input-check.v1", "sourceLock": lock_name,
             "sourceLockSha256": snapshots[lock_name], "sourceRevision": lock["revision"],
             "inputs": sorted(inputs), "candidateFiles": receipt["files"],
+            "sourceBindings": receipt['sourceBindings'], "proofKind": receipt['proofKind'],
+            "checkoutChecked": require_committed, "fullSourceArchives": 0,
             "committedInputsChecked": require_committed, "networkReproductionChecked": False,
             "configuredToolchainReproduced": False, "runtimeAdmitted": False,
             "releaseAdmitted": False}
 
 
-def manifest_inputs(root, manifest):
+def manifest_inputs(root, manifest, *, source_bindings=None):
     record = json.loads(portable(root, manifest).read_text())
     context = record["contextInputs"]
     inputs = {manifest}
     for name, expected in context.items():
-        if hashlib.sha256(portable(root, name).read_bytes()).hexdigest() != expected:
+        if source_bindings is not None and name in source_bindings:
+            from gambit_smp.source_identity import read_source
+            actual = hashlib.sha256(read_source(root, source_bindings[name])).hexdigest()
+        else:
+            actual = hashlib.sha256(portable(root, name).read_bytes()).hexdigest()
+        if actual != expected:
             raise ValueError(f"model context digest drift: {name}")
         inputs.add(name)
     for case in record.get("cases", []):
@@ -151,9 +166,7 @@ def check(root, manifest, require_committed=False):
     root = root.resolve()
     inputs = {"evidence/papers.lock.json", "evidence/runtime-source.lock.json",
               ".gitmodules", manifest}
-    inputs.update("src/gambit_smp/" + name + ".py" for name in
-                  ("reproduction_check", "paper_cache", "source_materialize",
-                   "source_provision", "framework", "__init__"))
+    inputs.update("src/gambit_smp/" + name + ".py" for name in SOURCE_INPUT_MODULES)
     inputs.add("models/gambit/cases.json")
     source, _ = validate_source(root)
     inputs.update(("evidence/runtime-source-provisioning.json", source["sourceLock"]))
@@ -166,24 +179,30 @@ def check(root, manifest, require_committed=False):
     lock = json.loads(portable(root, "evidence/runtime-source.lock.json").read_text())
     if lock.get("schema") != "gambit-runtime-source-lock.v1":
         raise ValueError("unsupported source lock")
-    submodule = lock["submodule"]
-    portable(root, submodule + "/lib/mem.c")
-    if git(root / submodule, "rev-parse", "HEAD") != lock["revision"]:
-        raise ValueError("submodule HEAD differs from source lock")
-    for name, row in lock["files"].items():
-        source = submodule + "/" + name
-        if hashlib.sha256(portable(root, source).read_bytes()).hexdigest() != row["baseSha256"]:
-            raise ValueError(f"submodule source differs from locked base: {name}")
-        inputs.add(source)
-    inputs.add(lock["patch"])
-    if hashlib.sha256(portable(root, lock["patch"]).read_bytes()).hexdigest() != lock["patchSha256"]:
-        raise ValueError("source overlay differs from source lock")
-    inputs.update(manifest_inputs(root, manifest))
-    # Gitlinks own nested source files; the parent repository owns other inputs.
+    submodule = lock['submodule']
+    verify_object_identity(root/submodule, source)
+    bindings = {}
+    context = json.loads(portable(root,manifest).read_bytes())['contextInputs']
+    names = set(lock['files']) | {name[len(submodule)+1:] for name in context if name.startswith(submodule+'/')}
+    for name in names:
+        identity = source_binding(root,lock,name)
+        if identity is None:
+            raise ValueError('locked study source is absent: '+name)
+        if name in lock['files'] and identity['sha256'] != lock['files'][name]['baseSha256']:
+            raise ValueError('submodule source differs from locked base: '+name)
+        bindings[submodule+'/'+name] = identity
+        inputs.add(submodule+'/'+name)
+    inputs.add(lock['patch'])
+    if hashlib.sha256(portable(root,lock['patch']).read_bytes()).hexdigest()!=lock['patchSha256']:
+        raise ValueError('source overlay differs from source lock')
+    inputs.update(manifest_inputs(root,manifest,source_bindings=bindings))
     if require_committed:
-        verify_committed(root, inputs, submodule, lock["revision"])
+        verify_committed(root,inputs,submodule,lock['revision'])
+        validate_checkout(root)
     return {"schema": "gambit-research-input-check.v1", "papers": len(pins),
             "sourceRevision": lock["revision"], "inputs": sorted(inputs),
+            "sourceBindings": bindings, "proofKind": "immutable-study-source",
+            "checkoutChecked": require_committed,
             "committedInputsChecked": require_committed,
             "networkReproductionChecked": False, "runtimeAdmitted": False}
 
