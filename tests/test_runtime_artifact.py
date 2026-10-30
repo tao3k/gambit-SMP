@@ -366,6 +366,30 @@ class MaintainedRuntimeImportTests(unittest.TestCase):
                     self.assertEqual([['runtime', 'same-producer-workspace', content_id(value['files']), 0]], projected)
                 ctx.workspace_leases.close(); scope.close()
 
+    def test_import_requires_explicit_in_place_policy_before_reusing_runtime(self):
+        from gambit_smp import workspace as w
+        from gambit_smp.runtime_artifact import prepare_import
+        w.start(self.root, 'repair', adopt=True)
+        with w.execution_scope(self.root, 'repair'):
+            runtime, value, compiler, _ = self.generation()
+            ctx, scope = self.context(value, compiler)
+            with patch('gambit_smp.research_kernel.manifest_paths', return_value=value['engineManifest']):
+                for policy in (None, 'isolated', 'unknown'):
+                    if policy is None:
+                        ctx.receipt.pop('workspacePolicy', None)
+                    else:
+                        ctx.receipt['workspacePolicy'] = policy
+                    with self.subTest(policy=policy):
+                        with self.assertRaisesRegex(ValueError, 'in-place maintained workspace policy'):
+                            prepare_import('evidence/input.json', ctx)
+                ctx.receipt['workspacePolicy'] = 'in-place'
+                resumed, _, _, storage = prepare_import('evidence/input.json', ctx)
+                self.assertEqual(runtime, resumed)
+                self.assertEqual('same-producer-workspace', storage['mode'])
+                self.assertEqual(0, storage['copiedFiles'])
+                self.assertEqual([], ctx.commands)
+            ctx.workspace_leases.close(); scope.close()
+
     def test_existing_producer_drift_is_not_hidden_by_an_import_or_bootstrap(self):
         from gambit_smp import workspace as w
         from gambit_smp.runtime_artifact import prepare_import
