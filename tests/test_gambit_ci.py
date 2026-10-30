@@ -86,13 +86,21 @@ class GambitCIContracts(unittest.TestCase):
         self.assertEqual({"lib/setup.c"}, set(lock["files"]))
         source = ROOT / "vendor/gambit/lib/setup.c"
         before = digest(source)
-        self.assertEqual(before, lock["files"]["lib/setup.c"]["baseSha256"])
+        # This patch belongs to its locked repair revision, not modern-c HEAD.
+        original = capture([
+            "git", "-C", str(ROOT / lock["submodule"]), "show",
+            lock["revision"] + ":lib/setup.c"], ROOT, 10, dict(os.environ))
+        self.assertEqual(0, original.exit)
+        self.assertFalse(original.timeout)
+        self.assertTrue(original.group_quiescent)
         overlay = ROOT / lock["patch"]
         self.assertEqual(digest(overlay), lock["patchSha256"])
         with tempfile.TemporaryDirectory() as name:
             copied = Path(name)
             (copied / "lib").mkdir()
-            shutil.copy2(source, copied / "lib/setup.c")
+            (copied / "lib/setup.c").write_bytes(original.stdout.encode())
+            self.assertEqual(lock["files"]["lib/setup.c"]["baseSha256"],
+                             digest(copied / "lib/setup.c"))
             apply_untracked_patch(copied, overlay.read_bytes(), {"lib/setup.c"})
             self.assertEqual(lock["files"]["lib/setup.c"]["candidateSha256"], digest(copied / "lib/setup.c"))
             self.assertIn("make_global (___MAKE_GLOBAL_PSV", (copied / "lib/setup.c").read_text())

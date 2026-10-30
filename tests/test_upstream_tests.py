@@ -25,7 +25,12 @@ class Context:
                         "steps": [{"id": "output", "budgetSeconds": budget}]}
         self.deadline = time.monotonic() + budget
     def artifact(self, ref, kind):
-        return self.root / ("identity.json" if kind == "runtime-identity" else "runtime")
+        kinds = {kind} if isinstance(kind, str) else set(kind)
+        identity = bool(kinds & {'runtime-identity', 'bootstrap-input-identity'})
+        if identity:
+            if ref['output'] != 'identity':
+                raise ValueError('identity reference required by test artifact contract')
+        return self.root / ("identity.json" if identity else "runtime")
     def bind(self, paths):
         pass
     def remaining(self):
@@ -225,7 +230,9 @@ class UpstreamTestContracts(unittest.TestCase):
         # -9; timeout and the real teardown observation are separate facts.
         self.assertNotEqual(0, row["exit"])
         self.assertEqual(ctx.commands[-1]["exit"], row["exit"])
-        self.assertIs(row["processGroupQuiescent"], True)
+        # Timeout delivery does not guarantee descendants have already exited.
+        # Retain the actual probe and refuse acceptance in every case.
+        self.assertEqual("DENY", row["outcome"])
         self.assertEqual(ctx.commands[-1]["processGroupQuiescent"], row["processGroupQuiescent"])
 
     def test_undeclared_target_and_shadowing_file_never_launch_make(self):
@@ -288,6 +295,24 @@ class UpstreamTestContracts(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'non-unit'):
             validate_target_processors({'targetProcessors':{'test1':1}},self.contract,['test1','test5'])
 
+    def test_timeout_refuses_all_three_teardown_deliveries(self):
+        from gambit_smp.process_observation import Observation
+        self.makefile("test1:\n\t@true\ntest5:\n\t@true\n")
+        for quiescent in (True, False, None):
+            with self.subTest(quiescent=quiescent):
+                ctx = Context(self.root)
+                observation = Observation("", "", -9, True, .1, 123,
+                                          "start", "end", quiescent)
+                with patch.dict(globals(), capture=lambda *a, **k: observation):
+                    with self.assertRaisesRegex(ValueError, "exit/timeout/teardown"):
+                        execute(self.args, ctx)
+                row = self.observations(ctx)
+                self.assertIs(row["timeout"], True)
+                self.assertEqual(-9, row["exit"])
+                self.assertIs(row["processGroupQuiescent"], quiescent)
+                self.assertEqual("DENY", row["outcome"])
+                shutil.rmtree(ctx.directory)
+
     def test_source_headers_and_scope_policy_are_actually_bound(self):
         self.contract_mock.stop()
         for name in POLICIES:
@@ -295,7 +320,17 @@ class UpstreamTestContracts(unittest.TestCase):
             path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, path)
         template = self.root / "runtime/tests/makefile.in"
-        shutil.copyfile(ROOT / "vendor/gambit/tests/makefile.in", template)
+        # Use the exact source named by the contract, not a moving vendor tree.
+        pin = json.loads((ROOT/CONTRACT).read_text())['template']['sha256']
+        lock = json.loads((ROOT / '.github/gambit/source.lock.json').read_text())
+        original = capture([
+            'git', '-C', str(ROOT / lock['submodule']), 'show',
+            lock['revision'] + ':tests/makefile.in'], ROOT, 10, dict(os.environ))
+        self.assertEqual(0, original.exit)
+        self.assertFalse(original.timeout)
+        self.assertTrue(original.group_quiescent)
+        template.write_bytes(original.stdout.encode())
+        self.assertEqual(pin, digest(template))
         self.makefile(template.read_text())
         ctx = Context(self.root)
         manifest = {"files": {sealed: digest(self.root / name) for name, sealed in POLICIES.items()}}
