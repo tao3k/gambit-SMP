@@ -104,6 +104,36 @@ class TypedRetryReviewTests(unittest.TestCase):
         with manifest, evaluation:
             return review.preflight(self.ctx, self.args, self.runtime, self.candidate, self.files, self.unit)
 
+    def test_review_requires_original_git_log_bytes_after_cache_cleanup(self):
+        from gambit_smp import workspace as w
+        from gambit_smp.source_identity import git_source
+        from gambit_smp.output_observations import observe, REGISTRY
+        name = 'evidence/failed.log'
+        path = self.root / name
+        data = path.read_bytes()
+        w.git(self.root, 'init', '-q')
+        w.git(self.root, 'add', '-f', name)
+        w.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+              'commit', '-qm', 'original failure log')
+        source = git_source(self.root, '.', w.git(self.root, 'rev-parse', 'HEAD'), name)
+        output = dict(observe(data), origins=[name], sources={name: source})
+        registry = self.save(REGISTRY, dict(schema='published-evidence-inputs.v1', records={},
+                                          observations={output['sha256']: output}))
+        path.unlink()
+        before = self.prior.read_bytes()
+        result = self.preflight()
+        self.assertEqual('RETRY_ELIGIBLE', result['decision'])
+        self.assertFalse(result['executionAuthorized'])
+        self.assertFalse(result['runtimeAdmitted'])
+        self.assertEqual(before, self.prior.read_bytes())
+        self.assertEqual(digest(registry), result['inputs'][REGISTRY])
+        self.assertFalse(path.exists())
+        output.pop('sources')
+        registry.write_text(json.dumps(dict(schema='published-evidence-inputs.v1', records={},
+                                           observations={output['sha256']: output})))
+        with self.assertRaisesRegex(ValueError, 'original Git output bytes unavailable'):
+            self.preflight()
+
     def test_exact_review_preserves_failure_identity_and_conditional_boundary(self):
         before = self.prior.read_bytes()
         result = self.preflight()

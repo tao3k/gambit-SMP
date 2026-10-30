@@ -329,6 +329,16 @@ def resource_plan_change(previous, current):
     return plan, hashlib.sha256(encoded).hexdigest()
 
 
+def bind_log_bytes(ctx, reference, inputs):
+    from gambit_smp.recipes import fields
+    from gambit_smp.output_observations import read_bytes
+    fields(reference, ('path',), ('sha256',))
+    data, bound = read_bytes(ctx.root, reference['path'], reference.get('sha256'))
+    inputs.update(bound)
+    ctx.bind(ctx.root / name for name in bound)
+    return data
+
+
 def environment_change(ctx, change, current, failure, previous, facts, inputs):
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.suite_primitives import capacity
@@ -359,12 +369,12 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
         if control.get("kind") != "outside-sandbox-unchanged-source-and-artifacts":
             continue
         control_path = source_path(ctx.root, control["receipt"])
-        log = source_path(ctx.root, control["log"])
+        log = bind_log_bytes(ctx, {'path': control['log']}, inputs)
         record = read_json(control_path)
-        if not log.stat().st_size:
+        if not log:
             raise ValueError("environment control requires its retained raw log")
-        inputs.update({control["receipt"]: digest(control_path), control["log"]: digest(log)})
-        ctx.bind([control_path, log])
+        inputs[control['receipt']] = digest(control_path)
+        ctx.bind([control_path])
         if record.get("schema") != "gambit-upstream-suite.v1":
             raise ValueError("typed native environment control required")
         rows = [row for row in record["results"] if row.get("mode") == current["mode"]]
@@ -399,8 +409,21 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
     if set(indexed) - set(failures):
         raise ValueError("retry review names an unselected or unknown failure")
 
+    log_bytes = {}
+
+    def log_data(reference):
+        fields(reference, ("path", "sha256"))
+        key = (reference['path'], reference['sha256'])
+        if key not in log_bytes:
+            log_bytes[key] = bind_log_bytes(ctx, reference, inputs)
+        return log_bytes[key]
+
     def bound(reference):
         fields(reference, ("path", "sha256"))
+        from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
+        if Path(reference['path']).suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            log_data(reference)
+            return relative(ctx.root, reference['path'])
         path = source_path(ctx.root, reference["path"])
         if digest(path) != reference["sha256"]:
             raise ValueError("retry review evidence identity drift")
@@ -412,8 +435,8 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
         failure, previous = failures[route]
         if entry["receiptSha256"] != inputs[failure["receipt"]]:
             raise ValueError("retry review changed the failure receipt")
-        log = bound(entry["log"])
-        if failure.get("log") != entry["log"]["path"] or not log.stat().st_size:
+        log = log_data(entry["log"])
+        if failure.get("log") != entry["log"]["path"] or not log:
             raise ValueError("archived known-failure raw log required")
         # Old execution inputs may be obsolete; the failed observation itself stays immutable.
         outcome = entry["failurePointer"]
@@ -640,13 +663,15 @@ def historical_observation(ctx, failure, original, inputs, facts):
     if version["schema"] != "historical-failure-observation.v1":
         raise ValueError("typed historical failure observation required")
     inputs[failure["observation"]] = digest(version_path)
-    for label in ("original", "archive", "log"):
+    for label in ("original", "archive"):
         reference = version[label]
         fields(reference, ("path", "sha256"))
         path = source_path(ctx.root, reference["path"])
         if digest(path) != reference["sha256"]:
             raise ValueError("historical observation reference drift: " + label)
         inputs[reference["path"]] = reference["sha256"]
+    if not bind_log_bytes(ctx, version['log'], inputs):
+        raise ValueError('historical observation requires its original log bytes')
     if version["original"] != {"path": failure["receipt"], "sha256": inputs[failure["receipt"]]}:
         raise ValueError("historical observation must retain the exact canonical failure")
     archive_path = source_path(ctx.root, version["archive"]["path"])
@@ -654,7 +679,7 @@ def historical_observation(ctx, failure, original, inputs, facts):
     # Transcript observations are represented by publication bindings in the
     # validator's input closure. Membership still belongs to the validated
     # archive inventory, not to the set of ordinary repository input paths.
-    log_path = source_path(ctx.root, version["log"]["path"])
+    log_path = relative(ctx.root, version["log"]["path"])
     try:
         log_member = log_path.relative_to(archive_path.parent).as_posix()
     except ValueError:

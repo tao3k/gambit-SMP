@@ -95,7 +95,7 @@ def validate(observation, expected=None):
               'diagnosticCodes', 'traceStateIndices', 'structured', 'terminalTags',
               'lineCount', 'endsWithNewline', 'failures', 'compilerInvocation', 'origins',
               'buildPhases', 'bootstrapBeforeCore', 'linkerSymbols', 'diagnosticNumbers',
-              'passedQuintTests'}
+              'passedQuintTests', 'sources'}
     if (not isinstance(observation, dict) or observation.get('schema') != 'gambit.output-observation.v1'
             or set(observation) - fields
             or type(observation.get('bytes')) is not int or observation['bytes'] < 0
@@ -119,7 +119,59 @@ def validate(observation, expected=None):
             or any(type(v) not in (bool, int, float) or isinstance(v, float) and not math.isfinite(v)
                    for v in structured.values())):
         raise ValueError('typed numeric output properties required')
+    sources = observation.get('sources', {})
+    if (not isinstance(sources, dict) or any(
+            not isinstance(name, str) or name not in observation.get('origins', [])
+            or not isinstance(source, dict) or source.get('kind') != 'git'
+            for name, source in sources.items())):
+        raise ValueError('typed original output source identities required')
     return observation
+
+
+def read_bytes(root, name, expected=None):
+    """Borrow actual bytes; a published observation alone cannot supply them.
+
+    A missing transcript may name its original immutable Git blob in the
+    existing publication registry. Never recreate a file or synthesize text.
+    """
+    from gambit_smp.framework import relative
+    from gambit_smp.recipes import CACHE_PARTS
+    root = Path(root).resolve()
+    path = relative(root, name)
+    if any(part.casefold() in CACHE_PARTS for part in (*Path(name).parts, *path.relative_to(root).parts)):
+        raise ValueError('historical output must not be a Cache alias')
+    if path.is_file():
+        data = path.read_bytes()
+        actual = hashlib.sha256(data).hexdigest()
+        if expected is not None and actual != expected:
+            raise ValueError('original output byte identity drift')
+        return data, {name: actual}
+    registry = root / REGISTRY
+    if not registry.is_file():
+        raise ObservationUnavailable('original output bytes unavailable: ' + name)
+    before = registry.read_bytes()
+    candidates = _origins(before).get(name, [])
+    if expected is None:
+        if len(candidates) != 1:
+            raise ObservationUnavailable('one original output identity required: ' + name)
+        expected = candidates[0]
+    observation = validate(_registry(before).get(expected), expected)
+    source = observation.get('sources', {}).get(name)
+    if (name not in observation.get('origins', []) or not isinstance(source, dict)
+            or source.get('kind') != 'git' or source.get('repository') != '.'
+            or source.get('path') != name or source.get('sha256') != expected):
+        raise ObservationUnavailable('original Git output bytes unavailable: ' + name)
+    from gambit_smp.source_identity import read_source
+    import subprocess
+    try:
+        data = read_source(root, source)
+    except subprocess.CalledProcessError as exc:
+        raise ObservationUnavailable('original Git output object unavailable: ' + name) from exc
+    if hashlib.sha256(data).hexdigest() != expected or len(data) != observation['bytes']:
+        raise ValueError('original output byte identity/count mismatch')
+    if registry.read_bytes() != before:
+        raise ValueError('output publication changed during byte read')
+    return data, {REGISTRY: hashlib.sha256(before).hexdigest()}
 
 
 def recorded(root, path, expected=None, *, outputs=None):

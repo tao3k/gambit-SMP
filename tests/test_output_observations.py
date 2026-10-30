@@ -10,6 +10,66 @@ from gambit_smp.output_observations import observe, recorded, check_model, bindi
 
 
 class OutputObservationTests(unittest.TestCase):
+    def test_original_git_bytes_survive_cleanup_but_observations_do_not_replace_them(self):
+        import copy
+        from unittest.mock import patch
+        from tests.test_workspace import WorkspaceTests
+        from gambit_smp import workspace as w, source_identity
+        from gambit_smp.output_observations import read_bytes
+        WorkspaceTests.setUp(self)
+        w.start(self.root, 'repair', adopt=True)
+        name = 'evidence/archived.log'
+        log = self.root / name
+        log.parent.mkdir(exist_ok=True)
+        data = b'original failure transcript\x00\xff\r\n'
+        log.write_bytes(data)
+        w.git(self.root, 'add', '-f', name)
+        w.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+              'commit', '-qm', 'original transcript')
+        source = source_identity.git_source(self.root, '.', w.git(self.root, 'rev-parse', 'HEAD'), name)
+        output = dict(observe(data), origins=[name], sources={name: source})
+        registry = self.root / REGISTRY
+        saved = dict(schema='published-evidence-inputs.v1', records={}, observations={output['sha256']: output})
+        def publish(value):
+            registry.write_text(json.dumps(value))
+        publish(saved)
+        log.unlink()
+        actual, inputs = read_bytes(self.root, name, output['sha256'])
+        self.assertEqual(data, actual)
+        self.assertEqual({REGISTRY: hashlib.sha256(registry.read_bytes()).hexdigest()}, inputs)
+        self.assertFalse(log.exists())
+        self.assertEqual(data, read_bytes(self.root, name)[0])
+        for change in ('summary-only', 'wrong-blob', 'wrong-path', 'wrong-repository',
+                       'missing-commit', 'wrong-byte-count', 'wrong-origin', 'cache-source'):
+            value = copy.deepcopy(saved)
+            row = value['observations'][output['sha256']]
+            source_ref = row['sources'][name]
+            if change == 'summary-only': row.pop('sources')
+            elif change == 'wrong-blob': source_ref['blob'] = '0' * 40
+            elif change == 'wrong-path': source_ref['path'] = 'different.log'
+            elif change == 'wrong-repository': source_ref['repository'] = 'vendor/gambit'
+            elif change == 'missing-commit': source_ref['revision'] = '0' * 40
+            elif change == 'wrong-byte-count': row['bytes'] += 1
+            elif change == 'wrong-origin': row['origins'] = ['different.log']
+            else: source_ref['kind'] = 'task-checkpoint'
+            publish(value)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                read_bytes(self.root, name, output['sha256'])
+        publish(saved)
+        log.write_bytes(b'corrupt physical transcript')
+        with self.assertRaisesRegex(ValueError, 'byte identity'):
+            read_bytes(self.root, name, output['sha256'])
+        log.unlink()
+        original = source_identity.read_source
+        def raced(root, identity):
+            result = original(root, identity)
+            registry.write_text(registry.read_text() + ' ')
+            return result
+        with patch.object(source_identity, 'read_source', side_effect=raced):
+            with self.assertRaisesRegex(ValueError, 'publication changed'):
+                read_bytes(self.root, name, output['sha256'])
+        self.assertFalse(log.exists())
+
     def test_source_component_uses_numeric_observations_without_raw_files(self):
         from unittest.mock import patch
         from gambit_smp.source_evidence import checked
