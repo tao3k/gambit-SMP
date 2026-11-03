@@ -319,6 +319,28 @@ def execute(args, ctx):
                 result['costBreakdownSeconds']['sourceCheckpoint'] = time.monotonic() - started
 
 
+def compile_phases(ctx, source, common):
+    """The existing native Make consumer; generation is explicitly disabled.
+
+    Callers must authenticate the complete generated cohort before this cut
+    and recheck its bytes afterwards. This is not a cold stock-core receipt.
+    """
+    source=Path(source)
+    disabled=source/'gsc-boot.native-stage-disabled'
+    if disabled.exists():
+        raise ValueError('native generation gate already has a keeper')
+    (source/'gsc-boot').rename(disabled)
+    (source/'gsc-boot').mkdir(mode=0o500)
+    try:
+        return {phase:ctx.require(phase,[*common,phase],source,ctx.remaining())
+                for phase in ('phase3','phase4')}
+    finally:
+        gate=source/'gsc-boot'
+        if not gate.is_dir() or gate.is_symlink():
+            raise ValueError('generation gate changed; pinned compiler remains in custody')
+        gate.rmdir();disabled.rename(gate)
+
+
 def execute_owned(args, ctx):
     last = time.monotonic()
     costs = {}
@@ -416,24 +438,7 @@ def execute_owned(args, ctx):
     from gambit_smp.gambit_build_primitives import build_capacity
     jobs = build_capacity(available_processors())['makeJobs']
     common = [make, '-j' + str(jobs), 'GAMBOPT=p1']
-    targets = ['phase3', 'phase4']
-    disabled = source / 'gsc-boot.native-stage-disabled'
-    if args['generationDemand'] == 'reuse-explicit-artifact':
-        # These Make templates have one Scheme generation entry: gsc-boot.
-        # An accidental prerequisite reaching it must fail, never regenerate.
-        (source / 'gsc-boot').rename(disabled)
-        (source / 'gsc-boot').mkdir(mode=0o500)
-    phase_logs = {}
-    try:
-        for phase in targets:
-            phase_logs[phase] = ctx.require(phase, [*common, phase], source, ctx.remaining())
-    finally:
-        if disabled.exists():
-            gate=source/'gsc-boot'
-            if not gate.is_dir() or gate.is_symlink():
-                raise ValueError('generation gate changed; pinned compiler remains in private custody')
-            gate.rmdir()
-            disabled.rename(source / 'gsc-boot')
+    phase_logs = compile_phases(ctx, source, common)
     mark('objectsAndMake')
     after_generated = generated_inventory(source)
     if generation_inputs(source) != generator:
