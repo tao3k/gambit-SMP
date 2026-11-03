@@ -41,9 +41,37 @@ def authenticate_predecessor(source, parent, rebuild_missing=()):
                 raise ValueError('predecessor drift: '+name)
 
 
+def runtime_delta(source, incoming, parent):
+    """Validate a complete source transition before any write or retirement.
+
+    None retires a registered source, never a generated input or completed
+    product. Absence is part of the resulting identity, not a cache miss.
+    """
+    source = Path(source)
+    protected = set(parent.get('artifacts', {})) | set(parent.get('generatedArtifacts', {}))
+    for name, raw in incoming.items():
+        path = Path(name)
+        if path.is_absolute() or '..' in path.parts or str(path) != name:
+            raise ValueError('contained runtime input required')
+        if name in protected:
+            raise ValueError('runtime delta cannot replace a product or generated input')
+        cursor = source
+        for part in path.parts:
+            cursor = cursor/part
+            if cursor.is_symlink():
+                raise ValueError('runtime inputs cannot follow aliases')
+        if raw is None:
+            if name not in parent.get('canonicalSources', {}):
+                raise ValueError('only a registered source can retire')
+        elif not isinstance(raw, bytes):
+            raise ValueError('source transition requires bytes or explicit retirement')
+    return incoming
+
+
 def consume(ctx, source, incoming, parent, *, make_jobs, rebuild_missing=()):
     source = Path(source)
     authenticate_predecessor(source, parent, rebuild_missing)
+    runtime_delta(source, incoming, parent)
     generated = generated_inventory(source)
     generation = generation_inputs(source)
     for name, raw in incoming.items():
@@ -53,6 +81,9 @@ def consume(ctx, source, incoming, parent, *, make_jobs, rebuild_missing=()):
         target = source/path
         if target.is_symlink():
             raise ValueError('runtime inputs cannot follow aliases')
+        if raw is None:
+            target.unlink()
+            continue
         target.parent.mkdir(parents=True, exist_ok=True)
         if not target.exists() or target.read_bytes() != raw:
             target.write_bytes(raw)
@@ -79,11 +110,14 @@ def consume(ctx, source, incoming, parent, *, make_jobs, rebuild_missing=()):
         if generated_inventory(source)!=generated or generation_inputs(source)!=generation:
             raise ValueError('native consumer changed its generated inputs')
         for name,raw in incoming.items():
-            if (source/name).read_bytes()!=raw:
+            if ((source/name).exists() if raw is None else (source/name).read_bytes()!=raw):
                 raise ValueError('runtime source changed during compilation: '+name)
         return dict(complete=True,producerComplete=True,qualificationKind='native-runtime',
                     canonicalSources={name:sha(source/name) for name in
-                        set(parent['canonicalSources'])|set(incoming)},
+                        (set(parent['canonicalSources'])|set(incoming))
+                        if name not in incoming or incoming[name] is not None},
+                    retiredSources={name:parent['canonicalSources'][name]
+                                    for name,raw in incoming.items() if raw is None},
                     artifacts={name:sha(source/name)for name in parent['artifacts']},
                     generatedArtifacts=generated,generatedInputsReused=True,
                     generationPhasesRequested=[],nativeOutputsInvalidated=invalidated,

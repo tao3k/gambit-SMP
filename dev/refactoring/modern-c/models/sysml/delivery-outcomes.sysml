@@ -65,6 +65,19 @@ package GambitModernCOutcomes {
   }
   part sfunNeed0:Need { ref part :>> result=sfunEntry; attribute :>> id="SFUN-OWNER"; attribute :>> condition="Complete generated-entry/span/writer/GC/frame/physical-exit source refinement and actual consumers; not whole foreign-thread/CFFI admission."; }
   part sfunNeed1:Need { ref part :>> result=sfunEntry; attribute :>> id="SFUN-COST"; attribute :>> condition="Source-matched zero/one/eight raw-input measurements and actual layout/accounting; preserve regressions and state conditional benefit."; }
+  part rootWrite:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="root-write-authority";
+    attribute :>> title="One RC-domain mutation/borrow source contract, stable ABI";
+    attribute :>> replacement="Unify ordinary primary and generated SFUN span stores plus borrow admission at the existing RC source gate; reuse accepted constructors/scanners/physical-exit owners. VM/token-table layout retirement is separate and blocked.";
+    attribute :>> validation="Actual SFUN/RC stateful and nonzero histories, owner/frozen/borrow refusal, nested/multi-shot GC and exit, current frames/layout, same-ABI old module reuse and older-ABI refusal, original full population and paired costs.";
+    attribute :>> falsifier="A primary/span mutator bypasses its source, borrowed primary identity rebinds, frozen/wrong-owner/shared-borrow spans admit writes, logical revocation releases physical ownership, ABI reuse is inferred without actual execution, or known failures are labeled passing.";
+    attribute :>> benefit="One actual RC source mutation policy instead of separately maintained primary/span/partial-borrow guards; one future native-root barrier seam without extra metadata, permits or new native namespace. Preserve native consumer ABI for implementation-only changes.";
+    attribute :>> cost="One index/borrow-mode decision and an additional source call boundary; no new root/context/VM storage or allocation. Measure full paired workloads; no universal speedup. Deferred combined proposal512-byte savings are explicitly not a benefit of this ABI-stable cut.";
+    attribute :>> deliveryStatus="PUBLISHED";
+  }
+  part rootWriteNeed0:Need { ref part :>> result=rootWrite; attribute :>> id="ROOT-WRITE-OWNER"; attribute :>> condition="Complete RC primary/span writer and borrow source contract, actual scan/exit consumers and preserved ABI; no arbitrary CFFI or independent SMP promotion."; }
+  part rootWriteNeed1:Need { ref part :>> result=rootWrite; attribute :>> id="ROOT-WRITE-COST"; attribute :>> condition="Exact unchanged role layouts and paired zero/one/eight workloads; preserve regressions, no deferred storage or whole-workflow speedup credit."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }

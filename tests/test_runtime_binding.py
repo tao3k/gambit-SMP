@@ -7,11 +7,40 @@ import unittest
 from gambit_smp.runtime_binding import (
     authenticate_predecessor, generated_accessors, prepare_consumers,
     request_observation, sha,
+    runtime_delta,
 )
 from gambit_smp.native_development import compile_phases
 
 
 class BindingEvidenceTests(unittest.TestCase):
+    def test_retirement_is_an_explicit_registered_source_transition(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'retired.c').write_bytes(b'old source')
+            parent = dict(canonicalSources={'retired.c': sha(root/'retired.c')},
+                          artifacts={'gsc-boot': 'pinned'},
+                          generatedArtifacts={'generated.c': 'generated'})
+            change = {'retired.c': None}
+            self.assertIs(runtime_delta(root, change, parent), change)
+            self.assertEqual((root/'retired.c').read_bytes(), b'old source')
+            for name in ['unknown.c', 'gsc-boot', 'generated.c', '../retired.c']:
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    runtime_delta(root, {'retired.c': None, name: None}, parent)
+            self.assertTrue((root/'retired.c').is_file())
+
+    def test_source_delta_cannot_cross_an_alias_or_replace_a_product(self):
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root/'real').mkdir()
+            (root/'alias').symlink_to(root/'real', target_is_directory=True)
+            parent = dict(canonicalSources={}, artifacts={'gsc-boot': 'pinned'},
+                          generatedArtifacts={'generated.c': 'generated'})
+            for name in ['alias/new.c', 'gsc-boot', 'generated.c']:
+                with self.subTest(name=name), self.assertRaises(ValueError):
+                    runtime_delta(root, {name: b'replacement'}, parent)
+            with self.assertRaises(ValueError):
+                runtime_delta(root, {'new.c': 'not bytes'}, parent)
+
     def test_consumer_transition_cannot_adopt_runtime_or_unknown_test_drift(self):
         with TemporaryDirectory() as temp:
             root = Path(temp)
