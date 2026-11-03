@@ -22,6 +22,10 @@ def reference_witnesses(root, document):
     from gambit_smp.source_capabilities import project_bytes
     by_id = {ref["id"]: ref for ref in document["references"]}
     checked, visiting = {}, set()
+    from gambit_smp.source_identity import read_git_sources
+    git_refs=[ref for ref in document['references'] if ref.get('identity',{}).get('kind')=='git']
+    git_bytes=dict(zip((ref['id'] for ref in git_refs),
+                       read_git_sources(root,[ref['identity'] for ref in git_refs])))
 
     def observe(identity):
         if identity in checked:
@@ -31,8 +35,12 @@ def reference_witnesses(root, document):
         visiting.add(identity)
         ref = by_id[identity]
         path = relative(Path(root).resolve(), ref["path"])
-        from gambit_smp.source_identity import reference_bytes
-        data = reference_bytes(root, ref)
+        from gambit_smp.source_identity import reference_bytes, SourceUnavailable
+        if identity in git_bytes:
+            data=git_bytes[identity]
+            if data is None:raise SourceUnavailable('immutable Git backing unavailable')
+        else:
+            data = reference_bytes(root, ref)
         if hashlib.sha256(data).hexdigest() != ref["sha256"]:
             raise ValueError("Evidence reference changed during byte observation")
         label, value, text = ref["path"], ref["sha256"], None
@@ -118,9 +126,31 @@ def load(root, name):
             or document["schema"] != "ascent.evidence-view.v1"):
         raise ValueError("typed Evidence view required")
     references, inputs, unavailable = {}, {str(path): digest(path)}, []
-    for ref in document["references"]:
+    validation = []
+    def assess(ref, data):
+        if 'validator' not in ref:
+            return
+        if ref['validator'] != 'recorded-cases' or ref['pointer'] is not None:
+            raise ValueError('explicit supported whole-record validator required')
+        from gambit_smp import branch_evidence
+        checker = Path(branch_evidence.__file__).resolve()
+        inputs[str(checker)] = digest(checker)
+        try:
+            result = branch_evidence.validate_recorded_cases(json.loads(data))
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            unavailable.append(dict(id=ref['id'], path=ref['path'], expected=ref['sha256'],
+                observed=ref['sha256'], reason='record-validation-failed', detail=str(error)))
+            return
+        validation.append(dict(referenceId=ref['id'], reference=ref['path'], assessment=result))
+    from gambit_smp.source_identity import read_git_sources
+    git_refs=[(index,ref['identity']) for index,ref in enumerate(document['references'])
+              if isinstance(ref,dict) and isinstance(ref.get('identity'),dict)
+              and ref['identity'].get('kind')=='git']
+    git_bytes=dict(zip((index for index,_ in git_refs),
+                       read_git_sources(root,[identity for _,identity in git_refs])))
+    for index,ref in enumerate(document["references"]):
         if (not {"id", "path", "sha256", "pointer"} <= set(ref)
-                or set(ref) - {"id", "path", "sha256", "pointer", "origin", "ranges", "context", "identity"}
+                or set(ref) - {"id", "path", "sha256", "pointer", "origin", "ranges", "context", "identity", "validator"}
                 or ref["id"] in references):
             raise ValueError("unique exact view reference required")
         if (not isinstance(ref["id"], str) or not ref["id"]
@@ -143,14 +173,30 @@ def load(root, name):
         else:
             raise ValueError("explicit view reference origin required")
         if 'identity' in ref:
-            from gambit_smp.source_identity import reference_bytes
-            data = reference_bytes(root, ref)
+            from gambit_smp.source_identity import reference_bytes, SourceUnavailable
+            try:
+                if index in git_bytes:
+                    if ref['identity']['sha256']!=ref['sha256']:
+                        raise ValueError('reference source identity mismatch')
+                    data=git_bytes[index]
+                    if data is None:raise SourceUnavailable('immutable Git backing unavailable')
+                else:
+                    data = reference_bytes(root, ref)
+            except SourceUnavailable as error:
+                unavailable.append(dict(id=ref['id'], path=ref['path'], expected=ref['sha256'],
+                    observed=None, reason='source-identity-unavailable', detail=str(error), identity=ref['identity']))
+                references[ref['id']] = None
+                continue
             references[ref['id']] = (ref['sha256'] if ref['pointer'] is None else
                                       pointer(json.loads(data), ref['pointer']))
+            assess(ref, data)
             continue
         if original.exists() and not original.is_file():
             raise ValueError("regular Evidence reference required")
-        actual = digest(original) if original.is_file() else None
+        # Decode pointers and validate records from these exact hashed bytes;
+        # a second read can otherwise mix different versions of a live file.
+        data = original.read_bytes() if original.is_file() else None
+        actual = hashlib.sha256(data).hexdigest() if data is not None else None
         inputs[str(original)] = actual
         if actual != ref["sha256"]:
             unavailable.append(dict(id=ref["id"], path=ref["path"],
@@ -159,7 +205,8 @@ def load(root, name):
             references[ref["id"]] = None
         else:
             references[ref["id"]] = (ref["sha256"] if ref["pointer"] is None else
-                                      pointer(json.loads(original.read_text()), ref["pointer"]))
+                                      pointer(json.loads(data), ref["pointer"]))
+            assess(ref, data)
     witnesses = reference_witnesses(root, document) if not unavailable else {}
     def cell(value):
         if isinstance(value, dict):
@@ -168,6 +215,10 @@ def load(root, name):
                 raise ValueError("exact view cell reference required")
             witness = witnesses.get(value["reference"])
             if "field" in value:
+                if value["field"] == "label":
+                    # Bind the attested source, not a separately maintained
+                    # path spelling (which can outlive a source migration).
+                    return witness["label"] if witness else None
                 if value["field"] != "text" or (witness and witness["text"] is None):
                     raise ValueError("text requires a checked source byte projection")
                 return witness["text"] if witness else None
@@ -190,12 +241,41 @@ def load(root, name):
             facts[relation] = [[cell(value) for value in row] for row in rows]
     catalog = load_component_catalog(source_path(root, document["manifest"]),
         entry=document["entry"], constructor=document["constructor"], trusted=True)
+    catalog['referenceValidation'] = validation
     inputs.update(catalog["sourceInputs"])
     if any((digest(Path(p)) if Path(p).is_file() else None) != sha for p, sha in inputs.items()):
         raise ValueError("Evidence view changed during loading")
     if unavailable:
         raise ReferenceUnavailable(document, inputs, unavailable)
     return document, facts, catalog, inputs
+
+
+def query_assurance(inputs, entry, *, source_identity, unavailable=(), validation=()):
+    """Describe verified query transport, never infer truth from an attestation.
+
+    Call only after native inference and the final input-currentness check.
+    An attested claim is still caller-declared; runtime acceptance belongs to
+    source-bound execution/contract validators such as branch_evidence.progress.
+    """
+    from gambit_smp.branch_evidence import content_digest
+    return {
+        "inference": {"status": "native-ascent-completed", "entry": entry,
+                      "sourceIdentity": source_identity},
+        "references": {"status": ("partial-reference-coverage" if unavailable
+                                  else "byte-identities-checked"),
+                       "inputIdentity": content_digest(inputs), "inputCount": len(inputs),
+                       "unavailableViews": [{"id": row["id"], "path": row["path"]}
+                                            for row in unavailable]},
+        "assertions": {"status": "caller-declared-not-semantically-validated",
+                       "scope": "input premises; derived conclusions inherit premise limitations",
+                       "attestationMeaning": "source-integrity-not-claim-truth"},
+        "nativeExecution": {"status": "not-established-by-query",
+                            "validator": "gambit_smp.branch_evidence.progress",
+                            "terminalValidator": "gambit_smp.branch_evidence.terminal_status"},
+        "evidence": list(validation),
+        "runtimeAdmitted": False,
+        "executionAuthorized": False,
+    }
 
 
 def evaluate(root, name, engine):
@@ -207,5 +287,8 @@ def evaluate(root, name, engine):
     return {"id": document["id"], "path": name, "inputs": inputs,
             "facts": facts,
             "queries": document["queries"], "answers": answers,
+            "assurance": query_assurance(inputs, "registered-evidence-view",
+                                         source_identity=explanation["sourceIdentity"],
+                                         validation=catalog['referenceValidation']),
             "explanation": explanation, "executionAuthorized": False,
             "runtimeAdmitted": False, "scope": "caller-declared recorded-only view"}

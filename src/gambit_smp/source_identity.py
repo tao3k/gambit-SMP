@@ -6,6 +6,8 @@ import base64
 import hashlib
 import json
 from pathlib import Path
+import re
+from subprocess import CalledProcessError
 
 from gambit_smp.workspace import bounded, task_output
 
@@ -14,20 +16,39 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+class SourceUnavailable(ValueError):
+    """A well-formed immutable identity has no local backing object/journal."""
+
+
 def git_source(root, repository, revision, path):
     from gambit_smp.view_materialize import git
     from gambit_smp.workspace import bounded
     if Path(repository).is_absolute():raise ValueError('relative Git repository locator required')
-    repo = (Path(root)/repository).resolve(strict=True)
+    if '..' in Path(repository).parts:
+        raise ValueError('contained Git repository locator required')
+    if not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}', revision):
+        raise ValueError('full immutable Git commit required')
+    candidate = Path(root)/repository
+    if not candidate.is_dir():
+        raise SourceUnavailable('source repository unavailable: '+repository)
+    repo = candidate.resolve(strict=True)
+    if repo != Path(root).resolve() and not (repo/'.git').exists():
+        raise SourceUnavailable('source repository is not initialized: '+repository)
     if Path(git(repo,'rev-parse','--show-toplevel').decode().strip()).resolve()!=repo:
         raise ValueError('exact source Git repository required')
     name = Path(path)
     if name.is_absolute() or '..' in name.parts or str(name) != path:
         raise ValueError('canonical Git source path required')
-    commit = git(repo, 'rev-parse', '--verify', revision+'^{commit}').decode().strip()
+    try:
+        commit = git(repo, 'rev-parse', '--verify', revision+'^{commit}').decode().strip()
+    except CalledProcessError as error:
+        raise SourceUnavailable('immutable source commit unavailable: '+revision) from error
     if commit != revision:
         raise ValueError('full immutable Git commit required')
-    blob = git(repo, 'rev-parse', revision+':'+path).decode().strip()
+    try:
+        blob = git(repo, 'rev-parse', revision+':'+path).decode().strip()
+    except CalledProcessError as error:
+        raise SourceUnavailable('immutable source path unavailable: '+revision+':'+path) from error
     if git(repo, 'cat-file', '-t', blob).strip() != b'blob':
         raise ValueError('Git source must be a blob')
     data = git(repo, 'cat-file', 'blob', blob)
@@ -74,6 +95,8 @@ def read_source(root, identity):
         raise ValueError('source checkpoint requires managed task storage')
     from gambit_smp.reasoning_history import read_execution_checkpoint
     prefix = read_execution_checkpoint(root, run)
+    if not prefix['records']:
+        raise SourceUnavailable('source checkpoint unavailable: '+identity['run'])
     if prefix['prefixIdentity'] != identity['identity'] or len(prefix['records']) != 1:
         raise ValueError('source checkpoint prefix mismatch')
     payload = prefix['records'][0]['payload']
@@ -85,6 +108,82 @@ def read_source(root, identity):
     return data
 
 
+def read_git_sources(root, identities):
+    """Batch immutable reads, preserving caller order and byte-level checks.
+
+    None denotes unavailable local Git backing, never a path/cache fallback.
+    Every present commit/path/blob and content digest must agree. There is no
+    cross-call cache: removal or replacement is observable on the next read.
+    """
+    from gambit_smp.view_materialize import git
+    root=Path(root).resolve(strict=True)
+    identities=list(identities)
+    if len(identities)>4096:raise ValueError('bounded immutable read population required')
+    groups={};results=[None]*len(identities)
+    for index,identity in enumerate(identities):
+        if (set(identity)!={'kind','repository','revision','path','blob','sha256'}
+                or identity['kind']!='git'
+                or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',identity['revision'])
+                or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',identity['blob'])
+                or not re.fullmatch(r'[0-9a-f]{64}',identity['sha256'])):
+            raise ValueError('full immutable Git identity required')
+        repository,name=identity['repository'],identity['path']
+        for value in (repository,name):
+            if (not isinstance(value,str) or not value or Path(value).is_absolute()
+                    or '..' in Path(value).parts or str(Path(value))!=value
+                    or any(ord(c)<32 for c in value)):
+                raise ValueError('contained canonical Git locator required')
+        groups.setdefault(repository,[]).append((index,identity))
+    total_bytes=0
+    for repository,rows in groups.items():
+        candidate=root/repository
+        if not candidate.is_dir():continue
+        repo=candidate.resolve(strict=True)
+        if not repo.is_relative_to(root):raise ValueError('source repository escaped root')
+        if repo!=root and not (repo/'.git').exists():continue
+        if Path(git(repo,'rev-parse','--show-toplevel').decode().strip()).resolve()!=repo:
+            raise ValueError('exact source Git repository required')
+        queries=list(dict.fromkeys(query for _,item in rows for query in
+            (item['revision']+'^{commit}',item['revision']+':'+item['path'])))
+        raw=git(repo,'cat-file','--batch-check=%(objectname) %(objecttype) %(objectsize)',
+                input=('\n'.join(queries)+'\n').encode())
+        lines=raw.splitlines()
+        if len(lines)!=len(queries):raise ValueError('incomplete Git identity response')
+        metadata={}
+        for query,line in zip(queries,lines):
+            if line==(query+' missing').encode():metadata[query]=None;continue
+            parts=line.decode().split()
+            if (len(parts)!=3 or not re.fullmatch(r'[0-9a-f]{40}|[0-9a-f]{64}',parts[0])
+                    or not parts[2].isdecimal()):raise ValueError('invalid Git identity response')
+            metadata[query]=(parts[0],parts[1],int(parts[2]))
+        blobs={};available=[]
+        for index,item in rows:
+            commit=metadata[item['revision']+'^{commit}']
+            blob=metadata[item['revision']+':'+item['path']]
+            if commit is None or blob is None:continue
+            if commit[:2]!=(item['revision'],'commit') or blob[:2]!=(item['blob'],'blob'):
+                raise ValueError('Git source identity mismatch')
+            blobs[item['blob']]=blob[2];available.append((index,item))
+        total_bytes+=sum(blobs.values())
+        if total_bytes>128*1024*1024:raise ValueError('immutable source byte budget exceeded')
+        if not blobs:continue
+        raw=git(repo,'cat-file','--batch',input=('\n'.join(blobs)+'\n').encode())
+        cursor=0;contents={}
+        for blob,size in blobs.items():
+            end=raw.find(b'\n',cursor)
+            if end<0 or raw[cursor:end]!=(blob+' blob '+str(size)).encode():
+                raise ValueError('Git byte capture header mismatch')
+            cursor=end+1;body=raw[cursor:cursor+size];cursor+=size
+            if len(body)!=size or raw[cursor:cursor+1]!=b'\n':raise ValueError('truncated Git bytes')
+            cursor+=1;contents[blob]=body
+        if cursor!=len(raw):raise ValueError('unexpected trailing Git bytes')
+        for index,item in available:
+            data=contents[item['blob']]
+            if sha(data)!=item['sha256']:raise ValueError('Git source identity mismatch')
+            results[index]=data
+    return results
+
+
 def reference_bytes(root, ref):
     if 'identity' in ref:
         data = read_source(root, ref['identity'])
@@ -93,6 +192,14 @@ def reference_bytes(root, ref):
         return data
     from gambit_smp.framework import relative
     return relative(Path(root).resolve(), ref['path']).read_bytes()
+
+
+def identity_observation(root, identity):
+    """Missing immutable storage is observable; malformed identities still fail."""
+    try:
+        return sha(read_source(root, identity))
+    except SourceUnavailable:
+        return None
 
 
 def committed_source(root, path, data):

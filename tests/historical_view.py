@@ -3,13 +3,23 @@
 This module is test-only. It never supplies inputs to review or action APIs.
 """
 import json
-import hashlib
 from pathlib import Path
 
 from gambit_smp.ascent_program import load_component_catalog
 from gambit_smp.framework import digest
 from gambit_smp.native_review import pointer
 from gambit_smp.recipes import source_path
+from gambit_smp.source_identity import read_source
+
+
+def captured_source(root, view, reference):
+    """Read a declared historical identity without substituting live bytes."""
+    captures = json.loads((Path(root) / 'tests/fixtures/historical-view-pointers.json').read_text())
+    identity = captures[view]['identities'][reference['id']]
+    logical = str(Path(identity['repository']) / identity['path'])
+    if identity['sha256'] != reference['sha256'] or logical != reference['path']:
+        raise ValueError('historical reference identity differs')
+    return read_source(root, identity)
 
 
 def projection(root, name):
@@ -35,16 +45,10 @@ def projection(root, name):
         if archive is not None:
             path = source_path(root, archive)
         declared[str(path)] = ref["sha256"]
-        identity = captured.get('identities', {}).get(ref['id'])
-        if identity is not None:
-            from gambit_smp.source_identity import read_source
-            if (identity.get('kind') != 'git'
-                    or (Path(identity['repository'])/identity['path']).as_posix() != ref['path']):
-                raise ValueError('historical source owner/path differs')
-            data = read_source(root, identity)
-            if hashlib.sha256(data).hexdigest() != ref['sha256']:
-                raise ValueError('historical reference changed: '+ref['path'])
-            value = ref['sha256'] if ref['pointer'] is None else pointer(json.loads(data),ref['pointer'])
+        if ref['id'] in captured.get('identities', {}):
+            data = captured_source(root, name, ref)
+            value = ref['sha256'] if ref['pointer'] is None else pointer(
+                json.loads(data), ref['pointer'])
         elif path.is_file():
             if digest(path) != ref["sha256"]:
                 raise ValueError("historical reference changed: " + ref["path"])

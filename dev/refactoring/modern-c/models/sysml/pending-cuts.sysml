@@ -1,14 +1,14 @@
 package GambitPendingCuts {
   private import ScalarValues::*;
   ref part plan=GambitModernCDeliveryPlan::roots;
-  attribute baseline:String="6b36b2860385e6ae086b92b64bc9aa3e03f7c838";
-  attribute submissionBatch:String="Collector result6b36b286 is published, with two of four local integration results qualified. Capability correction is scoped validation support, not another architecture result.99 residual vendor paths are classified by Cut ownership; review units remain dependency and hunk queues, not admitted commits.";
+  attribute baseline:String="bd0991ed9e348c7abc39a9db4b5a18653f6758c2";
+  attribute submissionBatch:String="Current published runtime bd0991ed and SMP audit429eb6d0:4/4 local foundation deliveries, independent SMP1/12. Exactly92 pending paths are a three-version review queue, not92 improvements or promised commits. currentPackages is the authoritative current primary ownership set; older Cut/Delivery inventories retain their historical scope.";
   attribute derivedPolicy:String="A published generated cohort supersedes only producer-derived outputs. Preserve prior HEAD/index/working blob identities as evidence; never merge handwritten edits into generated C. Remaining Scheme generators retain their unqualified source responsibility and must regenerate their own cohort after closure. A selected handwritten path retires only when every residual hunk/version has an explicit disposition.";
   attribute policy:String="Pending file assignment is a review queue, not admission. One path can contain several hunks owned by later cuts; selected tree and five gates choose each commit. Native SysML drives the exact path inventory and ASCENT rejects missing/duplicate owners and unqualified promotion. Generated C has producer disposition, not an independent code REV. UI counts, index paths, net HEAD changes and cancelled staged deletions are separate observations.";
-  attribute indexPolicy:String="Current native index has99 residual prototype paths after collector acknowledgement. Preserve all HEAD/index/working identities. A fixture-only capability correction is separate; never include these99 paths in its submission index. Snapshot evidence: evidence/research/retained/modern-c/collector-capability-publication/pending-changes.json.";
+  attribute indexPolicy:String="Capture HEAD/index/working independently. Current92 status paths include one backend Scheme file whose working bytes equal HEAD but whose index holds an obsolete layout.85 staged statuses are not85 ready changes. Exact source/model snapshots and shared-hunk review, not UI counts, choose a future REV.";
   attribute deliveryPolicy:String="The15 units are primary review/hunk owners for127 paths, not main progress or15 promised commits. GambitModernCOutcomes drives four complete integration results. Entry-root registration/write/exit hunks feed frozen roots; affine-resource effects and unknown retirement feed owned lifetime. The broad entry unit is not wholly required before roots, and early hunks do not close that whole unit. Include tests/build/ABI changes with their real consumer and preserve every other version.";
-  attribute exitPolicy:String="After every actual REV compare the new HEAD against index and working bytes again. Retire a path from the queue only when no unqualified hunk/version remains. A five-file REV need not eliminate five dirty files. Bind the actual changed paths, source/profile, tests, gates, benefits/costs and residual hunks; update this model's projections and both ledgers. Never declare a batch complete from a planned count, staged flag, native timeout or repair-line evidence.";
-  attribute nextSourceEvidence:String="collector-capability retains Linux single-processor fixture failure and macOS issue216 interruption failure independently. Runtime ownership result remains2/4 locally qualified; next complete result is owned startup/retirement/effects. No scheduler or CI prototype enters the capability correction.";
+  attribute exitPolicy:String="After every admitted REV compare all three versions and actual producer lineage again. Primary path ownership is not hunk admission: configure/header, mem.h/root-entry and tests/makefile consumers have explicit shared responsibilities. Source-only observations do not close an independent SMP family.";
+  attribute nextSourceEvidence:String="First reconcile stale backend/header/allocator/marker dialects with bd0991ed. Then admit whole header-organization or entry/root/lifecycle consumer replacements with original tests. Existing old CI failures and missing exact-head CI stay separately attributed; no old patch credit.";
   part def Cut { ref part stage:GambitModernCDeliveryPlan::Stage; attribute id:String; attribute responsibility:String; attribute tests:String; attribute blocker:String; attribute ordering:String; attribute paths:String; attribute status:String; }
   part headers:Cut {
     ref part :>> stage=GambitModernCDeliveryPlan::headerStage;
@@ -286,4 +286,188 @@ package GambitPendingCuts {
   part s14:DeliverySlice { ref part :>> owner=build; ref part :>> delivery=buildDelivery; attribute :>> patterns="*"; attribute :>> omissions="configure.ac"; }
   part s15:DeliverySlice { ref part :>> owner=generated; ref part :>> delivery=distributionDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
   part s16:DeliverySlice { ref part :>> owner=ci; ref part :>> delivery=ciDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
+
+ attribute currentPackages:String="currentHeaders;currentBuild;currentEntries;currentCollector;currentPorts;currentBackend;currentCi;currentCost;currentRootTests";
+ attribute currentRuntimeProgress:String="4/4 local foundation deliveries; no independent SMP or universal performance promotion";
+ attribute independentSmpProgress:String="1/12 checkpoint; eleven families remain open until whole source-bound manifests qualify";
+ attribute currentNetSpeedup:String="NOT_ESTABLISHED; source correctness/bounded-work benefits and measured costs must remain separate";
+ part def PendingPackage { ref part stage:GambitModernCDeliveryPlan::Stage; attribute id:String; attribute paths:String; attribute depends:String; attribute scope:String; attribute tests:String; attribute benefit:String; attribute cost:String; attribute admission:String; }
+ part currentHeaders:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::headerStage;
+  attribute :>> id="header-composition";
+  attribute :>> paths="include/_gambit/activity_log.h.in;include/_gambit/code_generation.h.in;include/_gambit/compiler.h.in;include/_gambit/configuration.h.in;include/_gambit/declarations_begin.h.in;include/_gambit/declarations_end.h.in;include/_gambit/foreign_abi.h.in;include/_gambit/foreign_conversion.h.in;include/_gambit/global_state.h.in;include/_gambit/gvm_operations.h.in;include/_gambit/gvm_registers.h.in;include/_gambit/header_begin.h.in;include/_gambit/header_end.h.in;include/_gambit/integer_representation.h.in;include/_gambit/label_types.h.in;include/_gambit/labels.h.in;include/_gambit/language.h.in;include/_gambit/math.h.in;include/_gambit/memory_state.h.in;include/_gambit/module_generation.h.in;include/_gambit/module_state.h.in;include/_gambit/native_platform.h.in;include/_gambit/native_types.h.in;include/_gambit/object_access.h.in;include/_gambit/object_tags.h.in;include/_gambit/platform.h.in;include/_gambit/processor_os.h.in;include/_gambit/processor_state.h.in;include/_gambit/runtime_forwards.h.in;include/_gambit/runtime_protocols.h.in;include/_gambit/runtime_roles.h.in;include/_gambit/setup_parameters.h.in;include/_gambit/signals.h.in;include/_gambit/stack_operations.h.in;include/_gambit/synchronization.h.in;include/_gambit/temporary_roots.h.in;include/_gambit/utilities.h.in;include/_gambit/value_types.h.in;include/_gambit/visibility.h.in;include/_gambit/vm_state.h.in;include/_gambit/write_authority.h.in;include/config.h.in;include/makefile.in";
+  attribute :>> depends="";
+  attribute :>> scope="Re-extract current public declarations and compose the same configured gambit.h. Current historical fragments are not byte-identical to bd0991ed; semantic writer/context additions stay excluded from the mechanical proof.";
+  attribute :>> tests="Token/byte recomposition, all290 layout assertions, old-module refusal, actual MSVC and unchanged-profile compiler consumers.";
+  attribute :>> benefit="One declaration owner and smaller review surface; no measured runtime speedup.";
+  attribute :>> cost="Source/dependency maintenance; no ABI or include performance saving inferred.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentBuild:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::buildGraph;
+  attribute :>> id="build-inputs";
+  attribute :>> paths="bin/makefile.in;configure.ac;gsc/igsc.scm;gsc/makefile.in;gsi/makefile.in;tests/run-unit-tests.scm";
+  attribute :>> depends="header-composition;backend-residue";
+  attribute :>> scope="Split configure header-composition hunks from C23 admission/generation invalidation and original Make resource inputs. Retain one existing cache/profile; no new environment knob or runner.";
+  attribute :>> tests="Exact input/configure/template/argv identities; no-change and C-only paths; original600/120/300/90 limits and immutable completed products.";
+  attribute :>> benefit="Avoid repeated generation/configuration when effective inputs are unchanged.";
+  attribute :>> cost="Hash/receipt work remains; cold full-build gains remain unmeasured.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentEntries:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
+  attribute :>> id="entry-write-authority";
+  attribute :>> paths="lib/native_scope.c;lib/native_scope.h;lib/write_authority.c;lib/write_authority.h;lib/c_intf.h;lib/mem.h;lib/os_dyn.c;lib/os_setup.c;lib/_system.scm;lib/_num.scm;lib/_thread.scm;tests/native-scope.c;tests/write-authority.c;tests/sfun-exit.scm";
+  attribute :>> depends="header-composition";
+  attribute :>> scope="One complete writer/borrow/root-entry/exception consumer chain. Rename pairs and marker/root/resize declarations must be reconciled with the published ABI; current pending mem.h/c_intf.h mix old declarations with new names. Startup-ready guards require real generation and completion authority.";
+  attribute :>> tests="Actual C/FFI generator, normal/throw/catcher/GC/borrow/refusal paths; existing Scheme replay/shrink and old module refusal; no parallel namespace.";
+  attribute :>> benefit="One entry writer authority and explicit root/exception custody, preserving multi-shot Scheme semantics. The next complete binding-read activation cut moves repeated identity resolution and owner proof to actual context/module entry and safe-point refresh. A VM-owned address view must preserve acquire value/presence reads, local primitive overrides, reader drain, PointId/frame roots and multi-shot restoration; never cache moving Scheme values.";
+  attribute :>> cost="Leases, root cells and cleanup debt; broad CFFI is not already accepted.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentCollector:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::workers;
+  attribute :>> id="collector-source-review";
+  attribute :>> paths="lib/_mem/aligned-allocation.inc;lib/_mem/allocation-limits.inc;lib/_mem/allocation-statistics.inc;lib/_mem/diagnostics.inc;lib/_mem/hash-table-api.inc;lib/_mem/object-allocation.inc;lib/_mem/permanent-allocation.inc;lib/_mem/still-refcount.inc;lib/_mem/symbols.inc";
+  attribute :>> depends="entry-write-authority";
+  attribute :>> scope="Separate5 coordinate-only deltas from real diagnostics, allocation/release and symbol ownership. Pending permanent allocation removes the published lock; pending symbols remove published bounds/publication checks. Reject those as a current implementation until a complete replacement owner is proven. GC-phase allocation refusal needs initialization/resource debt custody, not just an early error.";
+  attribute :>> tests="Real allocator/release/root callers, pre-reserve and unknown outcomes, debug coordinate provenance, GC/reentry and scan ownership. Rebase allocation counters across context/carrier/GC boundaries: negative request-only bytes forbid physical allocation or peak-memory claims until a complete accounting contract is refined.";
+  attribute :>> benefit="Preserve the published root/worker contract while replacing real remaining ownership gaps.";
+  attribute :>> cost="No benefit from line churn or removing synchronization; reservation and retention overhead stay explicit.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentPorts:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::scheduling;
+  attribute :>> id="shared-pipe-publication";
+  attribute :>> paths="lib/_io.scm;lib/os_thread.c;tests/ordered-sync.c";
+  attribute :>> depends="entry-write-authority";
+  attribute :>> scope="Treat each pipe pair FIFO/buffer/close/wait state as one shared mutex domain; keep lock arithmetic publication portable. Regenerate the actual Scheme producer and bind all consumers.";
+  attribute :>> tests="Official pipe/port/thread units, paired endpoints, close/error and GC stress; acquired/released ownership and real atomic fallback.";
+  attribute :>> benefit="Eliminate split peer-lock ownership; preserve public APIs and scheduling policy.";
+  attribute :>> cost="Shared synchronization and contention; throughput must be measured.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentBackend:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::buildGraph;
+  attribute :>> id="backend-residue";
+  attribute :>> paths="gsc/_t-cpu-abstract-machine.scm;gsc/_t-cpu-abstract-machine.c";
+  attribute :>> depends="";
+  attribute :>> scope="The working Scheme backend equals HEAD while the index restores obsolete carrier offsets; the lone generated C delta has no admitted producer. Preserve/review its three versions and retire or regenerate through its real producer, never commit generated bytes alone.";
+  attribute :>> tests="HEAD/index/working identity plus actual generator cohort/PointId and layout consumers if any source is retained.";
+  attribute :>> benefit="Remove a stale publication candidate that could undo execution-context storage.";
+  attribute :>> cost="No runtime gain assigned to deleting a staged prototype.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentCi:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::assurance;
+  attribute :>> id="ci-consumer";
+  attribute :>> paths=".github/workflows/smp.yml";
+  attribute :>> depends="header-composition;build-inputs;entry-write-authority;collector-source-review;root-worker-qualification;shared-pipe-publication;backend-residue;cost-fixture";
+  attribute :>> scope="Vendor Gambit only. The pending SMP workflow is not current CI and contains a custom tool variable; reconcile with standard tool inputs and the exact published source/test contract before activation. Existing official workflow names/build commands remain.";
+  attribute :>> tests="Actual exact-head GitHub jobs on required platforms; source/distribution tests, original limits and unchanged check population.";
+  attribute :>> benefit="Remote verification of the real responsibility replacement.";
+  attribute :>> cost="Runner/build cost; enabled workflow or old queued jobs do not qualify the new head.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentCost:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::qualification;
+  attribute :>> id="cost-fixture";
+  attribute :>> paths="tests/smp/scheduler/request-service-cost.scm";
+  attribute :>> depends="";
+  attribute :>> scope="The richer argument-only4096-request fixture is separately qualified and retained in evidence, while vendor HEAD has the smaller earlier fixture. Publish it only with its whole measurement/source/claim contract; do not turn it into a runtime result.";
+  attribute :>> tests="Same old/current modules,4096 requests/8192 resumes/16 GC, real topology and local-counter semantics; replay all samples and retain prior regressions. Materialize signed binary products by exact digest and fresh-inode replacement under the existing lease; preserve the kernel invalid-page counterexample.";
+  attribute :>> benefit="Auditable measurements and reproducible cost attribution.";
+  attribute :>> cost="No proven aggregate positive net speedup; p2 routing and per-processor accounting prohibit VM-total allocation claims.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ part currentRootTests:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::qualification;
+  attribute :>> id="root-worker-qualification";
+  attribute :>> paths="tests/frame-continuation-roots.scm;tests/frame-continuation.scm;tests/gc-root-task.c;tests/makefile.in;tests/rc-root-origin.scm;tests/root-task.scm;tests/runtime-roles.c;tests/smp/gc/global-storage.scm;tests/smp/gc/native-fault-adapter.c;tests/smp/gc/native-fault-calibration.c;tests/smp/gc/unknown-join-worker-domains.scm;tests/smp/gc/worker-arena.scm;tests/smp/gc/worker-root-domains.scm";
+  attribute :>> depends="entry-write-authority;collector-source-review";
+  attribute :>> scope="Tests follow their actual current source APIs: frame/RC/task roots, W<R, worker arenas, unknown join and fault calibration. Test Make hunks are shared with entry rename. Existing case names and all assertions remain; these files are not another test framework.";
+  attribute :>> tests="Current producer, real root relocation/multi-shot/exit, fault-adapter calibration, actual replay and same-signature shrink; separate source periods and no SMP credit from a focused leaf.";
+  attribute :>> benefit="Turn source assumptions into current implementation counterexamples and larger-family manifests.";
+  attribute :>> cost="Test/native product storage and execution; no source change is admitted by a fixture alone.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ }
+ attribute completeDeliveryRule:String="Nine primary review owners are not nine commits. First reconcile/retire obsolete staged or generated versions with recovery evidence. Then one lossless header responsibility, one full entry/root/lifecycle consumer replacement, and one pipe/publication consumer replacement may qualify as separate whole REVs; build/CI/cost hunks accompany their true owner. None automatically increments the already4/4 foundation axis or independent SMP numerator.";
+ attribute currentRoutes:String="route1;route2;route3;route4;route5;route6;route7;route8;route9;route10;route11;route12";
+ part def CurrentRoute { ref part family:GambitModernCDeliveryPlan::AcceptanceFamily; attribute status:String; attribute depends:String; attribute work:String; attribute evidence:String; attribute modelDuty:String; }
+ part route1:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a1;
+  attribute :>> status="CHECKPOINT_REQUIRES_EXACT_EPOCH_ATTACHMENT";
+  attribute :>> depends="";
+  attribute :>> work="Keep the existing accepted bootstrap family; attach exact publication/source-generation/artifact equivalence for bd0991ed. Cold reexecution is not silently asserted.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Source generation and artifact custody, existing frame/capacity laws; no duplicated QNT/Lean.";
+ }
+ part route2:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a2;
+  attribute :>> status="OPEN";
+  attribute :>> depends="bootstrap";
+  attribute :>> work="Run the complete current non-stress GSI manifest at its declared p1/p2 topology and dispose the retained interruption veto by same-condition source evidence; p1 timing positives alone do not close the family.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Existing thread/interruption QNT histories; actual whole native inventory.";
+ }
+ part route3:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a3;
+  attribute :>> status="OPEN";
+  attribute :>> depends="bootstrap";
+  attribute :>> work="Compile and execute every current original unit and audit natural completion under unchanged300/numeric90 budgets. Preserve fxmul failure and numeric censor; classify baseline debt separately from complete family acceptance.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Native compiler/result population, existing frame/GC laws; no timing theorem.";
+ }
+ part route4:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a4;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsi";
+  attribute :>> work="Freeze the additional PR-regression manifest from the branch source/PR ledger, then interpret every case with exact current artifacts and assertions.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Source-bound manifest and implementation regression observations.";
+ }
+ part route5:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a5;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsc";
+  attribute :>> work="Compile and execute that same complete additional PR manifest; no focused serialization/pipe subset closes it.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Actual native compilation/execution and existing control/GC contracts.";
+ }
+ part route6:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a6;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsi;registry;lifecycle";
+  attribute :>> work="Run all original interpreted stress populations and fixed parameters; retain tfib/interruption/termination failures as architecture counterexamples, with no heap or wait change.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Existing request/queue/registry temporal QNT and implementation PBT, separate Lean roots.";
+ }
+ part route7:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a7;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsc;registry;lifecycle";
+  attribute :>> work="Run the complete original compiled stress populations under the same inputs/limits; support products and repaired-line history grant no credit.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Same temporal QNT owners plus actual native stress; no duplicated Lean schedules.";
+ }
+ part route8:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a8;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsi;gsc";
+  attribute :>> work="Compose shared registry identity, concurrent resize/reuse/readers and retirement on the current producer; include refused/unknown membership outcomes and real progress.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Existing vm_registry and vm_resize_transaction QNT; separate interval/identity laws.";
+ }
+ part route9:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a9;
+  attribute :>> status="OPEN";
+  attribute :>> depends="registry";
+  attribute :>> work="Complete constructor/partial creation/rollback/retry/join-failure manifest, including healthy VM progress and retained native debt; one startup target is scoped evidence.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Existing lifecycle/resize/retained-resource QNT, actual faults and replay/shrink.";
+ }
+ part route10:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a10;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsc;lifecycle";
+  attribute :>> work="Close actual complete FFI/GC writers, conversions, blocking/nested callbacks, roots and exceptional exits. Original test7/8/9 remain fixtures within the manifest.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Existing activation/RC/cleanup temporal QNT; existing Lean frame/root/interval premises.";
+ }
+ part route11:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a11;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsi;gsc;pr-gsi;pr-gsc";
+  attribute :>> work="Retain completed326/326/740 build consumers; add the complete pinned Gerbil correctness manifest on exact current ABI/source products. Build completion does not substitute for correctness tests.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Existing incremental_build QNT and source/product receipts; actual Gerbil tests.";
+ }
+ part route12:CurrentRoute { ref part :>> family=GambitModernCDeliveryPlan::a12;
+  attribute :>> status="OPEN";
+  attribute :>> depends="gsi;gsc;pr-gsi;pr-gsc;stress-gsi;stress-gsc;registry;lifecycle;gc-ffi;gerbil";
+  attribute :>> work="Measure the whole declared release workload/topologies and peak/build populations with all regressions. Cold build was excluded only from the fourth foundation REV and remains required here; do not infer whole net speedup from the small composed fixture.";
+  attribute :>> evidence="Current branch/source/profile/manifest receipt, exact natural exits, failures and negative controls; no repair-line credit";
+  attribute :>> modelDuty="Empirical matched populations and native counter/route attribution; no formal speedup prediction.";
+ }
+ attribute snapshotBoundary:String="Git and source double-read detects observed drift, but is not an atomic filesystem snapshot or an ABA-proof writer-freeze credential. Unknown writers require reobservation or refusal. No runtime admission follows from this planning model.";
 }

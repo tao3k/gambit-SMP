@@ -10,13 +10,384 @@ from gambit_smp.framework import ROOT
 from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load, evaluate as view_query
 from gambit_smp import research_actions
-from tests.historical_view import projection
+from tests.historical_view import projection, captured_source
 
 
 VIEW = "evidence/scenarios/runtime-lifecycle/continuation-source-015.view.json"
 
 
 class EvidenceViewTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import opensysml
+        from gambit_smp.model_binding import api_binding
+        from gambit_smp.source_identity import read_source
+        captures = json.loads((ROOT / 'tests/fixtures/historical-view-pointers.json').read_text())
+        captured = captures['evidence/scenarios/modern-c/request-product.view.json']
+        record = json.loads(read_source(ROOT, captured['binding']))
+        # The service is needed only for these two projections, not while
+        # later native ASCENT/Git consumers execute their own subprocesses.
+        with opensysml.connect(
+            version=record['sdkObservation']['serverVersion'],
+            require_capabilities=['parse_sources', 'strict_conformance']) as connection:
+            cls.model_binding = api_binding(connection, ROOT, record,
+                source_identities=captured['modelSources'])
+            current = json.loads((ROOT / 'evidence/research/retained/modern-c/post-delivery/current-model-binding.json').read_text())
+            cls.current_model_binding = api_binding(connection, ROOT, current)
+
+    def test_current_plan_and_frozen_binding_have_distinct_native_source_epochs(self):
+        key = 'dev/refactoring/modern-c/models/sysml/pending-cuts.sysml'
+        self.assertNotEqual(self.model_binding['inputs'][key],
+                            self.current_model_binding['inputs'][key])
+        fields = self.current_model_binding['expressions']
+        self.assertEqual(len(fields['GambitPendingCuts::currentPackages'].split(';')), 9)
+        self.assertEqual(len(fields['GambitPendingCuts::currentRoutes'].split(';')), 12)
+        self.assertIn('1/12', fields['GambitPendingCuts::independentSmpProgress'])
+        self.assertIn('not', fields['GambitPendingCuts::snapshotBoundary'])
+
+    def test_modern_c_candidate_uses_real_library_without_branch_admission(self):
+        name = 'evidence/scenarios/modern-c/request-product.view.json'
+        with engine_api() as (engine, _):
+            result = view_query(ROOT, name, engine)
+        claims = {(row[2], row[3]) for row in result['answers']['clue']}
+        self.assertIn(('modern-c-retained-candidate-bootstrap-complete', 'support'), claims)
+        for claim in ('modern-c-current-working-tree-native-qualified',
+                      'modern-c-fourth-whole-delivery-admitted',
+                      'modern-c-retained-candidate-cold-monolithic-check-passed'):
+            self.assertIn((claim, 'counter'), claims)
+            self.assertNotIn((claim, 'support'), claims)
+        self.assertIn(('modern-c-original-profile-independently-reconstructible', 'support'), claims)
+        self.assertFalse(result['runtimeAdmitted'])
+        self.assertFalse(result['executionAuthorized'])
+        assurance = result['assurance']
+        self.assertEqual(assurance['inference']['status'], 'native-ascent-completed')
+        from gambit_smp.branch_evidence import content_digest
+        self.assertEqual(assurance['references']['inputIdentity'], content_digest(result['inputs']))
+        self.assertEqual(assurance['references']['inputCount'], len(result['inputs']))
+        self.assertEqual(assurance['assertions']['status'],
+                         'caller-declared-not-semantically-validated')
+        self.assertEqual(assurance['nativeExecution']['status'], 'not-established-by-query')
+        checked = next(row['assessment'] for row in assurance['evidence']
+                       if row['referenceId'] == 'priority-cases')
+        self.assertEqual(checked['outcomes'], dict(PASS=39, FAIL=2, UNRESOLVED=0))
+        self.assertEqual(checked['expectedCounterexamplesMatched'], 2)
+        self.assertFalse(checked['runtimeAdmitted'])
+
+    def test_modern_c_incomplete_inference_cannot_issue_query_assurance(self):
+        name = 'evidence/scenarios/modern-c/request-product.view.json'
+        with patch('gambit_smp.ascent_program.evaluate',
+                   side_effect=ValueError('native ASCENT investigation deadline incomplete')):
+            with self.assertRaisesRegex(ValueError, 'deadline incomplete'):
+                view_query(ROOT, name, None)
+
+    def test_modern_c_changed_working_reference_blocks_the_recorded_view(self):
+        from gambit_smp.framework import digest
+        from gambit_smp.evidence_views import ReferenceUnavailable
+        name = 'evidence/scenarios/modern-c/request-product.view.json'
+        document = json.loads((ROOT / name).read_text())
+        working = next(row for row in document['references']
+                       if row.get('origin') == 'observed-artifact')
+        changed = ROOT / working['path']
+        read_bytes = Path.read_bytes
+        with patch.object(Path, 'read_bytes',
+                   lambda path: b'changed input' if path == changed else read_bytes(path)):
+            with self.assertRaises(ReferenceUnavailable):
+                load(ROOT, name)
+
+    def test_modern_c_failed_record_validation_blocks_inference(self):
+        from gambit_smp.evidence_views import ReferenceUnavailable
+        with patch('gambit_smp.branch_evidence.validate_recorded_cases',
+                   side_effect=ValueError('forged passing verdict')):
+            with self.assertRaises(ReferenceUnavailable) as rejected:
+                load(ROOT, 'evidence/scenarios/modern-c/request-product.view.json')
+        self.assertTrue(any(row['reason'] == 'record-validation-failed'
+                            for row in rejected.exception.references))
+
+    def test_modern_c_profile_summary_does_not_impersonate_original_bytes(self):
+        from gambit_smp.framework import digest
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        source = json.loads((folder / 'source.json').read_text())
+        observed = json.loads((ROOT / source['profileSource']).read_text())
+        self.assertEqual(source['profileSourceKind'], 'parsed-observation-not-original-input')
+        self.assertEqual(source['profileReconstruction'], 'exact-input-from-existing-committed-fixture')
+        self.assertEqual(source['profileSha256'], observed['inputSha256'])
+        prior = observed['priorMisassociation']
+        self.assertEqual(digest(ROOT / prior['path']), prior['sha256'])
+        self.assertNotEqual(prior['sha256'], observed['inputSha256'])
+        self.assertNotEqual(digest(ROOT / source['profileSource']), observed['inputSha256'])
+        import hashlib
+        recipe = observed['reconstruction']
+        fixture_bytes = (ROOT / recipe['fixture']).read_bytes()
+        self.assertEqual(hashlib.sha256(fixture_bytes).hexdigest(), recipe['identity']['sha256'])
+        fixture = json.loads(fixture_bytes)
+        encoded = (json.dumps({**fixture, **recipe['overlay']}, indent=2) + '\n').encode()
+        self.assertEqual(hashlib.sha256(encoded).hexdigest(), observed['inputSha256'])
+
+    def test_modern_c_metrics_replay_existing_normalizer_without_speedup_credit(self):
+        from gambit_smp.framework import digest
+        from gambit_smp.revision_matrix import normalize_matrix
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        source = json.loads((folder / 'source.json').read_text())
+        raw = json.loads((folder / 'metric-observations.json').read_text())
+        for reference in raw['sourceReferences']:
+            self.assertEqual(digest(ROOT / reference['path']), reference['sha256'])
+        producer = json.loads((folder / 'current-producer.json').read_text())
+        for metric, stage in [('bootstrap', 'source-bootstrap'), ('core', 'stock-core')]:
+            observation = next(row for row in producer['checks'] if row['stage'] == stage)
+            self.assertEqual(raw[metric], observation['seconds'])
+        result = normalize_matrix(ROOT,
+            json.loads((folder / 'metric-input.json').read_text()),
+            dict(baseRevision=source['vendorBase'], tree=source['candidateTree'],
+                 profileSha256=source['profileSha256']),
+            'id,kind,metric,unit,direction,baseline,candidate,workload,method,evidence,limitation'.split(','),
+            'measurement,control,accounted-cost,structural,unmeasured'.split(','))
+        self.assertEqual(result, json.loads((folder / 'metric-audit.json').read_text()))
+        self.assertEqual([row['outcome'] for row in result['rows']],
+                         ['candidate-only-observation', 'candidate-only-observation', 'not-measured'])
+
+    def test_modern_c_navigation_requires_branch_and_source_on_same_observation(self):
+        from gambit_smp import repository_clues
+        name = 'evidence/research/retained/modern-c/request-product/source.json'
+        tree = json.loads((ROOT / name).read_text())['candidateTree']
+        with engine_api() as (engine, _):
+            for source, expected in [(tree, True), ('0' * 40, False)]:
+                result = repository_clues(ROOT, engine=engine,
+                    bindings=[('branch', 'modern-c'), ('source-tree', source)],
+                    display_bytes=24000)
+                claims = {row['claim'] for row in result['brief']['families']}
+                self.assertEqual('modern-c-unpublished-candidate-source-observed' in claims, expected)
+                self.assertFalse(result['brief']['runtimeAdmitted'])
+                self.assertFalse(result['brief']['executionAuthorized'])
+                assurance = result['brief']['assurance']
+                self.assertEqual(assurance['inference']['entry'], 'native-clue-exchange')
+                self.assertEqual(assurance['inference']['sourceIdentity'],
+                                 result['brief']['inputIdentity'])
+                self.assertFalse(assurance['runtimeAdmitted'])
+                if not expected:
+                    self.assertEqual(assurance['evidence'], [])
+                self.assertEqual(assurance['references']['status'],
+                    'partial-reference-coverage' if assurance['references']['unavailableViews']
+                    else 'byte-identities-checked')
+
+    def test_modern_c_python_entry_exposes_only_selected_case_validation(self):
+        from gambit_smp import repository_clues
+        from gambit_smp.branch_evidence import validate_recorded_cases
+        packet = json.loads((ROOT / 'evidence/research/retained/modern-c/request-product/priority-native-cases.json').read_text())
+        with engine_api() as (engine, _):
+            result = repository_clues(ROOT, engine=engine,
+                bindings=[('branch', 'modern-c'), ('source-tree', packet['sourceTree'])],
+                display_bytes=24000)
+        checked = result['brief']['assurance']['evidence']
+        row = next(item for item in checked if item['referenceId'] == 'priority-cases')
+        self.assertEqual(row['assessment'], validate_recorded_cases(packet))
+        self.assertFalse(result['brief']['assurance']['runtimeAdmitted'])
+
+    def test_modern_c_native_sysml_bindings_resolve_actual_evidence_obligations(self):
+        from gambit_smp.framework import digest
+        name = 'evidence/scenarios/modern-c/request-product.view.json'
+        view = json.loads((ROOT / name).read_text())
+        from gambit_smp.source_identity import read_git_sources
+        record = self.model_binding
+        captured = json.loads((ROOT / 'tests/fixtures/historical-view-pointers.json').read_text())[name]
+        import hashlib
+        for path, data in zip(record['inputs'], read_git_sources(ROOT,
+                [captured['modelSources'][path] for path in record['inputs']])):
+            self.assertEqual(hashlib.sha256(data).hexdigest(), record['inputs'][path])
+        observations = {row[0] for row in view['facts']['observation']}
+        for component in ('priorityEvidence', 'resourceEvidence', 'propagationEvidence'):
+            prefix = 'GambitRequestProduct::' + component + '.'
+            self.assertEqual(record['expressions'][prefix + 'evidenceView'], name)
+            self.assertLessEqual(set(record['expressions'][prefix + 'observation'].split(';')),
+                                 observations)
+            self.assertTrue(record['expressions'][prefix + 'component.path'].startswith('vendor/gambit/'))
+        history = 'GambitRequestProduct::ownerPropagationHistory.'
+        model = json.loads((ROOT / 'evidence/research/retained/modern-c/request-product/owner-closure-model.json').read_text())
+        self.assertEqual(record['expressions'][history + 'source'], model['model'])
+        self.assertEqual(digest(ROOT / model['model']), model['modelSha256'])
+        self.assertIn('initCyclic', record['expressions'][history + 'obligation'])
+        self.assertIn('Existing spatial/frame', record['expressions'][history + 'leanBoundary'])
+
+    def test_modern_c_terminal_cases_refine_ascent_without_whole_admission(self):
+        from gambit_smp.branch_evidence import terminal_status
+        from gambit_smp.ascent_program import load_catalog
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        native = json.loads((folder / 'priority-native-cases.json').read_text())
+        record = json.loads((folder / 'priority-acceptance.json').read_text())
+        self.assertEqual(native['sourceTree'], record['sourceTree'])
+        for case in native['cases']:
+            complete = case['role'] != 'historical-counterexample' and all(case['markers'].values())
+            self.assertEqual(terminal_status(case['process'], contract_complete=complete),
+                             case['terminalStatus'])
+            if case['role'] == 'historical-counterexample':
+                self.assertNotEqual(case['terminalStatus'], 'PASS')
+                self.assertTrue(case['acceptedByScenario'])
+            self.assertTrue(case['streamIdentitiesChecked'])
+        self.assertFalse(native['branchQualified'])
+        self.assertFalse(native['runtimeAdmitted'])
+        catalog = load_catalog(ROOT / record['policy'])
+        queries = dict(closed='acceptanceClosed', open='acceptanceOpen', ready='deliveryReady', blocked='deliveryBlocked', gap='gap')
+        with engine_api() as (engine, _):
+            answers, _ = evaluate(engine, record['facts'], catalog, queries)
+            self.assertEqual(len(answers['closed']), len(native['cases']))
+            self.assertFalse(answers['ready'])
+            declared = json.loads(json.dumps(record['facts']))
+            declared['deliveryGate'] = [[record['facts']['deliveryRequiresAcceptance'][0][0], gate,
+                                         record['sourceTree'], record['profileSha256']]
+                                       for gate in ('tests', 'learning', 'process', 'models', 'questions')]
+            still_blocked, _ = evaluate(engine, declared, catalog, queries)
+            self.assertFalse(still_blocked['ready'])
+            self.assertEqual({row[1] for row in still_blocked['blocked']},
+                             set(record['requiredFamilies']))
+            wrong = json.loads(json.dumps(record['facts']))
+            wrong['acceptanceObservation'][0][2] = '0' * 40
+            case_id = wrong['acceptanceObservation'][0][0]
+            changed, _ = evaluate(engine, wrong, catalog, queries)
+            self.assertNotIn((case_id,), changed['closed'])
+            self.assertIn((case_id,), changed['open'])
+
+    def test_modern_c_owner_cycle_failure_blocks_the_whole_candidate(self):
+        from gambit_smp.ascent_program import load_catalog
+        from gambit_smp.framework import digest
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        record = json.loads((folder / 'owner-plan-acceptance.json').read_text())
+        self.assertEqual(digest(ROOT / record['policy']), record['policySha256'])
+        self.assertEqual(digest(folder / 'owner-plan-model-binding.json'), record['modelBindingSha256'])
+        with engine_api() as (engine, _):
+            result = view_query(ROOT, 'evidence/scenarios/modern-c/request-product.view.json', engine)
+            checked = {x['referenceId']: x['assessment'] for x in result['assurance']['evidence']}
+            self.assertEqual(checked['owner-plan-cases']['positiveScenarioPasses'], 39)
+            self.assertEqual(checked['owner-cycle']['outcomes'], dict(PASS=0, FAIL=1, UNRESOLVED=0))
+            self.assertFalse(checked['owner-cycle']['allExpectedOutcomes'])
+            from gambit_smp import repository_clues
+            selected = repository_clues(ROOT, engine=engine,
+                bindings=[('branch', 'modern-c'), ('source-tree', record['sourceTree'])],
+                display_bytes=24000)
+            selected_records = {x['referenceId']: x['assessment']
+                                for x in selected['brief']['assurance']['evidence']}
+            self.assertEqual(selected_records['owner-cycle']['outcomes']['FAIL'], 1)
+            self.assertFalse(selected['brief']['assurance']['runtimeAdmitted'])
+            facts = json.loads(json.dumps(record['facts']))
+            unit = facts['deliveryRequiresAcceptance'][0][0]
+            facts['deliveryGate'] = [[unit, gate, record['sourceTree'], record['profileSha256']]
+                for gate in ('tests', 'learning', 'process', 'models', 'questions')]
+            answers, _ = evaluate(engine, facts, load_catalog(ROOT / record['policy']),
+                dict(closed='acceptanceClosed', open='acceptanceOpen', ready='deliveryReady'))
+        self.assertEqual(len(answers['closed']), 41)
+        self.assertIn(('cyclic-owner-gc-progress',), answers['open'])
+        self.assertIn(('PRIORITY-PROPAGATION-EXIT',), answers['open'])
+        self.assertFalse(answers['ready'])
+        self.assertFalse(result['runtimeAdmitted'])
+
+    def test_modern_c_owner_matrix_retains_the_failed_gc_control(self):
+        from gambit_smp.revision_matrix import normalize_matrix
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        proof = json.loads((folder / 'owner-plan.json').read_text())
+        binding = self.model_binding['expressions']
+        result = normalize_matrix(ROOT,
+            json.loads((folder / 'owner-plan-matrix-input.json').read_text()),
+            dict(baseRevision=proof['baseRevision'], tree=proof['sourceTree'],
+                 profileSha256=proof['profileSha256']),
+            binding['GambitCommitGates::revisionAudit.matrixFields'].split(','),
+            binding['GambitCommitGates::revisionAudit.matrixKinds'].split(','))
+        self.assertEqual(result, json.loads((folder / 'owner-plan-matrix.json').read_text()))
+        control = next(row for row in result['rows'] if row['id'] == 'gc-cycle')
+        self.assertEqual((control['baseline_value'], control['candidate_value']), ('1', '0'))
+        self.assertFalse(control['generalized_performance_claim'])
+
+    def test_modern_c_least_closure_keeps_historical_failure_and_whole_gates_separate(self):
+        from gambit_smp.ascent_program import load_catalog
+        from gambit_smp.framework import digest
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        record = json.loads((folder / 'owner-closure-acceptance.json').read_text())
+        historical = json.loads((folder / 'owner-plan-acceptance.json').read_text())
+        self.assertNotEqual(record['sourceTree'], historical['sourceTree'])
+        self.assertEqual(digest(folder / 'model-binding.json'), record['modelBindingSha256'])
+        with engine_api() as (engine, _):
+            result = view_query(ROOT, 'evidence/scenarios/modern-c/request-product.view.json', engine)
+            checked = {x['referenceId']: x['assessment'] for x in result['assurance']['evidence']}
+            self.assertEqual(checked['owner-closure-cases']['outcomes'], dict(PASS=41, FAIL=2, UNRESOLVED=0))
+            self.assertEqual(checked['owner-cycle']['outcomes']['FAIL'], 1)
+            facts = json.loads(json.dumps(record['facts']))
+            unit = facts['deliveryUnit'][0][0]
+            facts['deliveryGate'] = [[unit, gate, record['sourceTree'], record['profileSha256']]
+                for gate in ('tests', 'learning', 'process', 'models', 'questions')]
+            answers, _ = evaluate(engine, facts, load_catalog(ROOT / record['policy']),
+                dict(closed='acceptanceClosed', open='acceptanceOpen', ready='deliveryReady'))
+            self.assertIn(('PRIORITY-PROPAGATION-EXIT',), answers['closed'])
+            # The published epoch has subsequently closed these two scoped
+            # families. Remove their premises to retain the original refusal
+            # obligation, rather than relabeling old facts as current gaps.
+            self.assertIn(('WHOLE-PRODUCT',), answers['closed'])
+            self.assertIn(('MATCHED-RELEASE',), answers['closed'])
+            withheld = {'WHOLE-PRODUCT', 'MATCHED-RELEASE'}
+            facts['acceptanceObservation'] = [row for row in facts['acceptanceObservation']
+                if row[0] not in withheld]
+            refused, _ = evaluate(engine, facts, load_catalog(ROOT / record['policy']),
+                dict(closed='acceptanceClosed', open='acceptanceOpen', ready='deliveryReady'))
+            self.assertEqual(set(refused['open']), {(name,) for name in withheld})
+            self.assertFalse(refused['ready'])
+            facts = json.loads(json.dumps(record['facts']))
+            facts['deliveryGate'] = [[unit, gate, record['sourceTree'], record['profileSha256']]
+                for gate in ('tests', 'learning', 'process', 'models')]
+            incomplete, _ = evaluate(engine, facts, load_catalog(ROOT / record['policy']),
+                dict(ready='deliveryReady'))
+            self.assertFalse(incomplete['ready'])
+        self.assertEqual(answers['ready'], [('request-product',)])
+        self.assertFalse(result['runtimeAdmitted'])
+        control = json.loads((folder / 'owner-closure-control.json').read_text())
+        self.assertEqual({x['caseSha256'] for x in control['observations']}, {control['sameCaseSha256']})
+        self.assertEqual([(x['setterReturned'], x['gcDone']) for x in control['observations']],
+                         [(False, True), (False, False), (True, True)])
+        self.assertTrue(control['observations'][-1]['joined'])
+        self.assertFalse(control['observations'][-1]['timeout'])
+
+    def test_modern_c_closure_matrix_is_not_a_general_speedup(self):
+        from gambit_smp.revision_matrix import normalize_matrix
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        proof = json.loads((folder / 'owner-closure.json').read_text())
+        binding = self.model_binding['expressions']
+        result = normalize_matrix(ROOT,
+            json.loads((folder / 'owner-closure-matrix-input.json').read_text()),
+            dict(baseRevision=proof['baseRevision'], tree=proof['sourceTree'], profileSha256=proof['profileSha256']),
+            binding['GambitCommitGates::revisionAudit.matrixFields'].split(','),
+            binding['GambitCommitGates::revisionAudit.matrixKinds'].split(','))
+        self.assertEqual(result, json.loads((folder / 'owner-closure-matrix.json').read_text()))
+        control = next(row for row in result['rows'] if row['id'] == 'setter-cycle')
+        self.assertEqual((control['baseline_value'], control['candidate_value']), ('0', '1'))
+        self.assertFalse(control['generalized_performance_claim'])
+        peak = next(row for row in result['rows'] if row['id'] == 'whole-performance')
+        self.assertEqual(peak['kind'], 'unmeasured')
+
+    def test_modern_c_product_scope_and_matched_statistics_do_not_admit_whole_delivery(self):
+        import statistics
+        folder = ROOT / 'evidence/research/retained/modern-c/request-product'
+        coverage = json.loads((folder / 'compiled-coverage.json').read_text())
+        self.assertEqual(coverage['counts'], dict(PASS=407, FAIL=1))
+        self.assertEqual(len(coverage['fixturePropertyCoverage']), 408)
+        self.assertFalse(coverage['fullColdInvocationPassed'])
+        self.assertFalse(coverage['ordinaryNumericWhole90Passed'])
+        matched = json.loads((folder / 'release-matched.json').read_text())
+        for name, quantity in matched['summaryMeasurements'].items():
+            rows = [matched['samples'][i] for i in quantity['sampleIndices']]
+            self.assertEqual(len(rows), quantity['samples'])
+            self.assertEqual(len(rows), 4)
+            self.assertTrue(all(row['accepted'] and row['process']['exit'] == 0
+                                and not row['process']['timeout'] for row in rows))
+            key = name.split('-', 2)[2]
+            self.assertEqual(quantity['value'], statistics.median(row['metrics'][key] for row in rows))
+        control = json.loads((folder / 'release-observations.json').read_text())
+        self.assertNotEqual(matched['workloadSha256'], control['workloadSha256'])
+        self.assertTrue(any(row['role'] == 'baseline' and row['processors'] == 2
+                            and not row['accepted'] for row in control['samples']))
+        self.assertFalse(matched['runtimeAdmitted'])
+        binding = self.model_binding['expressions']
+        view = json.loads((ROOT / 'evidence/scenarios/modern-c/request-product.view.json').read_text())
+        observations = {row[0] for row in view['facts']['observation']}
+        for component in ['productEvidence', 'releaseEvidence']:
+            prefix = 'GambitRequestProduct::' + component + '.'
+            self.assertLessEqual(set(binding[prefix + 'observation'].split(';')), observations)
+            self.assertEqual(binding[prefix + 'evidenceView'], 'evidence/scenarios/modern-c/request-product.view.json')
+
     def test_current_execution_blocks_do_not_requalify_historical_summaries(self):
         name = 'evidence/scenarios/tool-reasoning/framework-execution.view.json'
         with engine_api() as (engine, _):
@@ -84,7 +455,8 @@ class EvidenceViewTests(unittest.TestCase):
                 path = ROOT / references[reference]["path"]
                 if path.suffix != ".json":
                     continue
-                observation = json.loads(path.read_text())
+                from gambit_smp.source_identity import reference_bytes
+                observation = json.loads(reference_bytes(ROOT, references[reference]))
                 if observation.get("schema") != "gambit.native-stress-observation.v1":
                     continue
                 checked += 1
@@ -133,10 +505,15 @@ class EvidenceViewTests(unittest.TestCase):
                         "references": [{"id": "record", "path": "evidence/record.json",
                                         "sha256": digest(record), "pointer": None}]}
             path = folder / "view.json"
-            path.write_text(json.dumps(document))
-            with engine_api() as (engine, _):
-                result = view_query(root, "evidence/view.json", engine)
-            self.assertEqual(result["answers"]["origins"], [("record", "evidence/record.json", digest(record))])
+            for origins in ({"references": True},
+                            [["record", {"reference": "record", "field": "label"},
+                              {"reference": "record"}]]):
+                document["facts"]["origin"] = origins
+                path.write_text(json.dumps(document))
+                with engine_api() as (engine, _):
+                    result = view_query(root, "evidence/view.json", engine)
+                self.assertEqual(result["answers"]["origins"],
+                                 [("record", "evidence/record.json", digest(record))])
             record.write_text('{"observation":"changed"}')
             with self.assertRaisesRegex(ValueError, "reference changed"):
                 load(root, "evidence/view.json")
@@ -204,10 +581,14 @@ class EvidenceViewTests(unittest.TestCase):
     def test_historical_view_and_missing_sources_remain_denied(self):
         from gambit_smp.framework import digest
         history = json.loads((ROOT / "evidence/scenarios/runtime-lifecycle/history-015.json").read_text())
-        self.assertEqual(digest(ROOT / history["priorView"]), history["priorViewSha256"])
+        document = json.loads((ROOT / VIEW).read_text())
+        prior = next(row for row in document['references'] if row['id'] == 'historical-view-bytes')
+        import hashlib
+        self.assertEqual(hashlib.sha256(captured_source(ROOT, VIEW, prior)).hexdigest(),
+                         history["priorViewSha256"])
         self.assertEqual(history["outcome"], "DENY")
         self.assertEqual(len(history["missingReferences"]), 6)
-        with self.assertRaisesRegex(ValueError, "regular observed artifact required|Evidence view reference changed"):
+        with self.assertRaisesRegex(ValueError, "regular observed artifact required|Evidence view reference changed|view references must not be Cache aliases"):
             load(ROOT, history["priorView"])
         with self.assertRaisesRegex(ValueError, "historical Evidence view"):
             load(ROOT, VIEW)
@@ -324,6 +705,30 @@ class EvidenceViewTests(unittest.TestCase):
             file.flush()
             with self.assertRaisesRegex(ValueError, "reference changed"):
                 load(ROOT, str(Path(file.name).relative_to(ROOT)))
+
+
+    def test_modern_c_native_ledger_recomputes_hits_and_preserves_parent_failure(self):
+        import copy
+        from gambit_smp.branch_evidence import validate_recorded_cases
+        document=json.loads((ROOT/'evidence/research/retained/modern-c/request-product/gerbil-compiler-completion.json').read_text())
+        result=validate_recorded_cases(document)
+        self.assertEqual(result['compilerProducts']['admitted'],88)
+        self.assertEqual(result['compilerProducts']['reused'],10)
+        self.assertEqual(result['compilerProducts']['inputChanges'],78)
+        self.assertFalse(result['compilerProducts']['wholeProducerPassed'])
+        self.assertFalse(result['runtimeAdmitted'])
+        self.assertFalse(result['allExpectedOutcomes'])
+        continuation=document['compilerProductContract']['continuation']
+        for mutation in ('hits','misses','producer','frontend','parent'):
+            changed=copy.deepcopy(document)
+            history=next(h for h in changed['histories'] if h['id']==continuation)
+            if mutation=='hits':history['nativeProducts']['reused']=88
+            elif mutation=='misses':changed['reuseReasons']['counts']['source-changed']=77
+            elif mutation=='producer':history['nativeProducts']['stageComplete']=True
+            elif mutation=='frontend':changed['warmAdmission']['frontendReuse']=True
+            else:history['commands'][0]['process']['processGroupQuiescent']=False
+            with self.subTest(mutation=mutation),self.assertRaises(ValueError):
+                validate_recorded_cases(changed)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,70 @@ from gambit_smp.branch_evidence import (archive_sources, source_manifest,
 
 
 class BranchEvidenceTests(unittest.TestCase):
+    def test_terminal_evidence_does_not_trust_a_complete_flag(self):
+        from gambit_smp.branch_evidence import terminal_status
+        process = dict(exit=0, timeout=False, parentReaped=True,
+                       processGroupQuiescent=True, complete=True)
+        self.assertEqual(terminal_status(process, contract_complete=True), 'PASS')
+        for key in ('timeout', 'parentReaped', 'processGroupQuiescent'):
+            changed = dict(process)
+            changed.pop(key)
+            self.assertNotEqual(terminal_status(changed, contract_complete=True), 'PASS')
+        self.assertNotEqual(terminal_status(process, contract_complete=False), 'PASS')
+        self.assertEqual(terminal_status(dict(process, exit=False), contract_complete=True), 'UNRESOLVED')
+
+    def test_recorded_case_validation_distinguishes_reliability_from_success(self):
+        from copy import deepcopy
+        from gambit_smp.branch_evidence import validate_recorded_cases
+        record = dict(schema='gambit-smp.recorded-cases.v1', sourceTree='a' * 40,
+            profileSha256='b' * 64, runtimeAdmitted=False, branchQualified=False,
+            positiveExecutions=1, compilations=0, historicalCounterexamples=0,
+            cases=[dict(id='actual-failure', role='execution', terminalStatus='FAIL',
+                process=dict(exit=70, timeout=False, parentReaped=True,
+                             processGroupQuiescent=True),
+                markers={'DONE': False}, streamIdentitiesChecked=True)])
+        checked = validate_recorded_cases(record)
+        self.assertEqual(checked['outcomes'], dict(PASS=0, FAIL=1, UNRESOLVED=0))
+        self.assertFalse(checked['allExpectedOutcomes'])
+        self.assertFalse(checked['runtimeAdmitted'])
+        for mutation in ('verdict', 'admission', 'BooleanExit', 'missingFlag'):
+            bad = deepcopy(record)
+            if mutation == 'verdict':
+                bad['cases'][0]['terminalStatus'] = 'PASS'
+            elif mutation == 'admission':
+                bad['runtimeAdmitted'] = True
+            elif mutation == 'BooleanExit':
+                bad['cases'][0]['process']['exit'] = False
+            else:
+                bad['cases'][0]['process'].pop('parentReaped')
+            with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                validate_recorded_cases(bad)
+
+    def test_generated_closure_keeps_allocation_witnesses_and_unknown_jumps(self):
+        from gambit_smp.branch_evidence import inspect_generated_c
+        source = b"""#define ___PH_PROC ___Hroot
+___BEGIN_P_COD
+___JUMPINT(___SET_NARGS(1),___PRC(1),___Lchild)
+___JUMPRET(___R0)
+___END_P_COD
+#define ___PH_PROC ___Hchild
+___BEGIN_P_COD
+___SET_R1(___F64BOX(___F64V1))
+___CHECK_HEAP_FLO(1,4096)
+___JUMPPRM(___R1)
+___END_P_COD
+"""
+        result = inspect_generated_c(source, ['___Hroot'])
+        self.assertEqual(result['helperCount'], 2)
+        self.assertEqual(result['witnessCount'], 2)
+        self.assertEqual(result['unknownSchemeJumpCount'], 1)
+        self.assertFalse(result['runtimeAdmitted'])
+        for changed, roots in [(source, ['___Hmissing']),
+                               (source + source, ['___Hroot']),
+                               (source.replace(b'___END_P_COD', b'', 1), ['___Hroot'])]:
+            with self.assertRaises(ValueError):
+                inspect_generated_c(changed, roots)
+
     def setUp(self):
         self.plan = dict(branch="modern-c", revision="commit-a", tree="tree-a",
                          sourceManifestSha256="source-a", profileSha256="profile-a",
