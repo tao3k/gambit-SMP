@@ -120,7 +120,7 @@ package GambitModernCDeliveryPlan {
     attribute :>> ordinal=5;
     ref part :>> owner=GambitRevisionDelivery::publication;
     attribute :>> id="scheduling"; attribute :>> title="Request ownership, wait state and service activation";
-    attribute :>> status="DEFERRED_FOR_FOUNDATION";
+    attribute :>> status="IN_PROGRESS_UNQUALIFIED";
     attribute :>> scope="One request ownership chain through publish/claim/execute/result/abandonment; durable runnable/park handoff; waiting state and service activation retain distinct roots and outcomes";
     attribute :>> retire="Processor routing treated as semantic request ownership; wake treated as completion; repeated state rebuilding only where actual source/cost evidence permits";
     attribute :>> validation="Real mailbox/migration/block/GC and exception/multi-shot histories, PBT replay/shrink, native wait failure and original pressure; per-target progress and actual allocation/materialization attribution";
