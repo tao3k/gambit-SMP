@@ -214,7 +214,8 @@ class RevisionSubmission:
         self.gitdir = Path(self.git("rev-parse", "--absolute-git-dir").decode().strip())
         self.index_digest = digest(self.gitdir / "index")
         self.staged = self.git("ls-files", "--stage", "-z")
-        self.working = hashlib.sha256(self.git("diff", "HEAD", "--binary")).hexdigest()
+        self.working_paths = list(paths) if self.framework_support else []
+        self.working = hashlib.sha256(self.git("diff", "HEAD", "--binary", "--", *self.working_paths)).hexdigest()
         self.index = self.storage / "submission.index"
         if self.index.exists():
             raise ValueError("fresh alternate submission index required")
@@ -249,8 +250,18 @@ class RevisionSubmission:
                      environment=self.index_environment)
         # Generated products are accepted byte-for-byte from their qualified
         # producer. Their emitted whitespace must not be edited by hand.
+        preserved_fragments = set()
+        if self.native.get("qualificationKind") == "header-organization":
+            from gambit_smp.header_organization import validate, manifest
+            validate(self.workspace, self.git("show", self.base + ":include/gambit.h.in"))
+            preserved_fragments = {"include/" + name for name in manifest(
+                (self.workspace / "include/gambit.h.in").read_bytes())}
+        # A verified byte-for-byte move retains existing whitespace, including
+        # blank lines at new fragment boundaries. All edited consumers still
+        # undergo the ordinary handwritten diff check.
         handwritten = [name for name in self.paths
-                       if name not in self.native.get("generatedArtifacts", {})]
+                       if name not in self.native.get("generatedArtifacts", {})
+                       and name not in preserved_fragments]
         if handwritten:
             comparison = []
             if self.merge_parent:
@@ -404,7 +415,7 @@ class RevisionSubmission:
         if p.get("comment.commitUnitRequired") is not True or any(k not in p for k in required):
             raise ValueError("explicit SysML submission unit required; five gates alone are insufficient")
         kind, target, progress = (p["unit." + k] for k in ("kind", "result", "progressDelta"))
-        if kind not in {"integration", "support"} or type(progress) is not int:
+        if kind not in {"integration", "support", "organization"} or type(progress) is not int:
             raise ValueError("invalid SysML submission unit")
         if self.framework_support and kind != "support":
             raise ValueError("framework-support qualification cannot authorize runtime integration")
@@ -435,6 +446,12 @@ class RevisionSubmission:
         if self.framework_support:
             contract["testConsumers"] = tests
             contract["testReceipt"] = dict(path=receipt, sha256=self.native["artifacts"][receipt])
+        if kind == "organization":
+            if self.framework_support or target != "header-organization" or progress != 0 or p["unit.supportPaths"]:
+                raise ValueError("organization has one exact representation result and zero runtime progress")
+            from gambit_smp.header_organization import submission_contract
+            contract["refinement"] = submission_contract(self, changed)
+            return contract
         if kind == "support":
             if target != "" or progress != 0:
                 raise ValueError("support correction cannot claim an integration result or progress")
@@ -590,7 +607,7 @@ class RevisionSubmission:
             raise ValueError("branch changed after source freeze")
         if digest(self.gitdir / "index") != self.index_digest or self.git("ls-files", "--stage", "-z") != self.staged:
             raise ValueError("concurrent staging changed; preserve it")
-        if hashlib.sha256(self.git("diff", "HEAD", "--binary")).hexdigest() != self.working:
+        if hashlib.sha256(self.git("diff", "HEAD", "--binary", "--", *self.working_paths)).hexdigest() != self.working:
             raise ValueError("concurrent working changes; preserve them")
         for name, expected in self.model_inputs.items():
             if digest(self.root / name) != expected:
@@ -639,7 +656,8 @@ class RevisionSubmission:
                      "missing-matrix", "stale-matrix", "missing-matrix-row", "missing-matrix-evidence",
                      "missing-submission-unit", "support-progress", "unapproved-support-path",
                      "fragment-integration", *["missing-delivery:" + x for x in unit["requirements"]],
-                     *(["stale-delivery-tree"] if unit["kind"] == "integration" else []))
+                     *(["stale-delivery-tree"] if unit["kind"] == "integration" else []),
+                     *(["missing-source-refinement", "stale-source-refinement"] if unit["kind"] == "organization" else []))
         rows = dict(
             commitStudyFact=[[case]], commitPolicyFact=[[digest(policy)]],
             commitGateFact=[[p["gate." + name + ".id"], p["gate." + name + ".purpose"]]
@@ -657,11 +675,13 @@ class RevisionSubmission:
             commitMatrixPacketFact=[], commitMatrixRowFact=[], commitMatrixFieldFact=[],
             commitMatrixRefFact=[], commitMatrixValueValidFact=[],
             commitUnitFact=[], commitUnitNeedFact=[[unit["result"], x] for x in unit["requirements"]],
-            commitUnitEvidenceFact=[], commitUnitPathViolationFact=[], commitUnitRuntimeFact=[],
+            commitUnitEvidenceFact=[], commitUnitPathViolationFact=[], commitUnitRuntimeFact=[], commitUnitRefinementFact=[],
             controlExpectReadyFact=[["current"]],
             controlExpectBlockedFact=[[name] for name in scenarios[1:]],
         )
         for scenario in scenarios:
+            if unit["kind"] == "organization" and scenario != "missing-source-refinement":
+                rows["commitUnitRefinementFact"].append([scenario, head, "different" if scenario == "stale-source-refinement" else tree, manifest, profile])
             if scenario != "missing-submission-unit":
                 kind, target, progress = unit["kind"], unit["result"], unit["progressDelta"]
                 if scenario == "support-progress":

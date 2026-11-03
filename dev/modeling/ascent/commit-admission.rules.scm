@@ -11,6 +11,8 @@
 (relation commitUnitEvidenceFact (scenario head tree manifest profile target obligation artifact digest))
 (relation commitUnitPathViolationFact (scenario path))
 (relation commitUnitRuntimeFact (scenario path))
+(relation commitUnitRefinementFact (scenario head tree manifest profile))
+(relation commitUnitOrganizationValid (scenario))
 (relation commitUnitCovered (scenario target obligation))
 (relation commitUnitGap (scenario reason))
 (relation commitUnitReady (scenario))
@@ -19,6 +21,12 @@
 (relation commitUnitSupportValid (scenario))
 (relation commitUnitIntegrationValid (scenario))
 ((commitUnitClassified S) <-- (commitUnitFact S (lit "support") _ _))
+((commitUnitClassified S) <-- (commitUnitFact S (lit "organization") _ _))
+((commitUnitOrganizationValid S) <--
+ (commitUnitFact S (lit "organization") (lit "header-organization") (lit "0"))
+ (commitBoundCandidate S H T M P) (commitUnitRefinementFact S H T M P))
+((commitUnitGap S (lit "missing-or-stale-source-refinement")) <--
+ (commitUnitFact S (lit "organization") _ _) (not (commitUnitOrganizationValid S)))
 ((commitUnitClassified S) <-- (commitUnitFact S (lit "integration") _ _))
 ((commitUnitSupportValid S) <-- (commitUnitFact S (lit "support") (lit "") (lit "0")))
 ((commitUnitIntegrationValid S) <-- (commitUnitFact S (lit "integration") _ (lit "1")))

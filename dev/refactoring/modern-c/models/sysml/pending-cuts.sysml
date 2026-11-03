@@ -1,8 +1,8 @@
 package GambitPendingCuts {
   private import ScalarValues::*;
   ref part plan=GambitModernCDeliveryPlan::roots;
-  attribute baseline:String="bd0991ed9e348c7abc39a9db4b5a18653f6758c2";
-  attribute submissionBatch:String="Current published runtime bd0991ed and SMP audit429eb6d0:4/4 local foundation deliveries, independent SMP1/12. Exactly92 pending paths are a three-version review queue, not92 improvements or promised commits. currentPackages is the authoritative current primary ownership set; older Cut/Delivery inventories retain their historical scope.";
+  attribute baseline:String="b39f694498c5dec23dcbffd21ffaeb58e57a49ce";
+  attribute submissionBatch:String="Header organization b39f6944 closes nine structural obligations with zero runtime/SMP progress. After delivered-index reconciliation,68 vendor paths remain:31 entry/schema,8 build,9 collector,13 root-worker tests,3 pipe,2 backend,1 CI and1 cost fixture. Nine model owners include the empty qualified header owner; eight have pending paths. Three versions remain review evidence, not admitted improvements.";
   attribute derivedPolicy:String="A published generated cohort supersedes only producer-derived outputs. Preserve prior HEAD/index/working blob identities as evidence; never merge handwritten edits into generated C. Remaining Scheme generators retain their unqualified source responsibility and must regenerate their own cohort after closure. A selected handwritten path retires only when every residual hunk/version has an explicit disposition.";
   attribute policy:String="Pending file assignment is a review queue, not admission. One path can contain several hunks owned by later cuts; selected tree and five gates choose each commit. Native SysML drives the exact path inventory and ASCENT rejects missing/duplicate owners and unqualified promotion. Generated C has producer disposition, not an independent code REV. UI counts, index paths, net HEAD changes and cancelled staged deletions are separate observations.";
   attribute indexPolicy:String="Capture HEAD/index/working independently. Current92 status paths include one backend Scheme file whose working bytes equal HEAD but whose index holds an obsolete layout.85 staged statuses are not85 ready changes. Exact source/model snapshots and shared-hunk review, not UI counts, choose a future REV.";
@@ -294,9 +294,9 @@ package GambitPendingCuts {
  part def PendingPackage { ref part stage:GambitModernCDeliveryPlan::Stage; attribute id:String; attribute paths:String; attribute depends:String; attribute scope:String; attribute tests:String; attribute benefit:String; attribute cost:String; attribute admission:String; }
  part currentHeaders:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::headerStage;
   attribute :>> id="header-composition";
-  attribute :>> paths="include/_gambit/activity_log.h.in;include/_gambit/code_generation.h.in;include/_gambit/compiler.h.in;include/_gambit/configuration.h.in;include/_gambit/declarations_begin.h.in;include/_gambit/declarations_end.h.in;include/_gambit/foreign_abi.h.in;include/_gambit/foreign_conversion.h.in;include/_gambit/global_state.h.in;include/_gambit/gvm_operations.h.in;include/_gambit/gvm_registers.h.in;include/_gambit/header_begin.h.in;include/_gambit/header_end.h.in;include/_gambit/integer_representation.h.in;include/_gambit/label_types.h.in;include/_gambit/labels.h.in;include/_gambit/language.h.in;include/_gambit/math.h.in;include/_gambit/memory_state.h.in;include/_gambit/module_generation.h.in;include/_gambit/module_state.h.in;include/_gambit/native_platform.h.in;include/_gambit/native_types.h.in;include/_gambit/object_access.h.in;include/_gambit/object_tags.h.in;include/_gambit/platform.h.in;include/_gambit/processor_os.h.in;include/_gambit/processor_state.h.in;include/_gambit/runtime_forwards.h.in;include/_gambit/runtime_protocols.h.in;include/_gambit/runtime_roles.h.in;include/_gambit/setup_parameters.h.in;include/_gambit/signals.h.in;include/_gambit/stack_operations.h.in;include/_gambit/synchronization.h.in;include/_gambit/temporary_roots.h.in;include/_gambit/utilities.h.in;include/_gambit/value_types.h.in;include/_gambit/visibility.h.in;include/_gambit/vm_state.h.in;include/_gambit/write_authority.h.in;include/config.h.in;include/makefile.in";
+  attribute :>> paths="";
   attribute :>> depends="";
-  attribute :>> scope="Re-extract current public declarations and compose the same configured gambit.h. Current historical fragments are not byte-identical to bd0991ed; semantic writer/context additions stay excluded from the mechanical proof.";
+  attribute :>> scope="CLOSED header organization b39f6944: forty canonical payload modules, exact baseline bytes, all consumers and five gates. Remaining semantic header edits belong to the complete entry/root consumer chain, not another split.";
   attribute :>> tests="Token/byte recomposition, all290 layout assertions, old-module refusal, actual MSVC and unchanged-profile compiler consumers.";
   attribute :>> benefit="One declaration owner and smaller review surface; no measured runtime speedup.";
   attribute :>> cost="Source/dependency maintenance; no ABI or include performance saving inferred.";
@@ -304,7 +304,7 @@ package GambitPendingCuts {
  }
  part currentBuild:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::buildGraph;
   attribute :>> id="build-inputs";
-  attribute :>> paths="bin/makefile.in;configure.ac;gsc/igsc.scm;gsc/makefile.in;gsi/makefile.in;tests/run-unit-tests.scm";
+  attribute :>> paths="bin/makefile.in;configure.ac;gsc/igsc.scm;gsc/makefile.in;gsi/makefile.in;include/config.h.in;include/makefile.in;tests/run-unit-tests.scm";
   attribute :>> depends="header-composition;backend-residue";
   attribute :>> scope="Split configure header-composition hunks from C23 admission/generation invalidation and original Make resource inputs. Retain one existing cache/profile; no new environment knob or runner.";
   attribute :>> tests="Exact input/configure/template/argv identities; no-change and C-only paths; original600/120/300/90 limits and immutable completed products.";
@@ -314,7 +314,7 @@ package GambitPendingCuts {
  }
  part currentEntries:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
   attribute :>> id="entry-write-authority";
-  attribute :>> paths="lib/native_scope.c;lib/native_scope.h;lib/write_authority.c;lib/write_authority.h;lib/c_intf.h;lib/mem.h;lib/os_dyn.c;lib/os_setup.c;lib/_system.scm;lib/_num.scm;lib/_thread.scm;tests/native-scope.c;tests/write-authority.c;tests/sfun-exit.scm";
+  attribute :>> paths="include/_gambit/global_state.h.in;include/_gambit/module_generation.h.in;include/_gambit/module_state.h.in;include/_gambit/native_platform.h.in;include/_gambit/processor_state.h.in;include/_gambit/runtime_protocols.h.in;include/_gambit/stack_operations.h.in;include/_gambit/vm_state.h.in;lib/_mem/binding-views.inc;lib/_mem/memory-lifecycle.inc;lib/_mem/rc-allocation.inc;lib/_mem/root-tasks.inc;lib/_num.scm;lib/_setup/vm-lifecycle.inc;lib/_setup/vm-registry.inc;lib/_system.scm;lib/_thread.scm;lib/c_intf.h;lib/makefile.in;lib/mem.c;lib/mem.h;lib/native_scope.c;lib/native_scope.h;lib/os_dyn.c;lib/os_setup.c;lib/setup.c;lib/write_authority.c;lib/write_authority.h;tests/native-scope.c;tests/sfun-exit.scm;tests/write-authority.c";
   attribute :>> depends="header-composition";
   attribute :>> scope="One complete writer/borrow/root-entry/exception consumer chain. Rename pairs and marker/root/resize declarations must be reconciled with the published ABI; current pending mem.h/c_intf.h mix old declarations with new names. Startup-ready guards require real generation and completion authority.";
   attribute :>> tests="Actual C/FFI generator, normal/throw/catcher/GC/borrow/refusal paths; existing Scheme replay/shrink and old module refusal; no parallel namespace.";
@@ -344,7 +344,7 @@ package GambitPendingCuts {
  }
  part currentBackend:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::buildGraph;
   attribute :>> id="backend-residue";
-  attribute :>> paths="gsc/_t-cpu-abstract-machine.scm;gsc/_t-cpu-abstract-machine.c";
+  attribute :>> paths="gsc/_t-cpu-abstract-machine.c;gsc/_t-cpu-abstract-machine.scm";
   attribute :>> depends="";
   attribute :>> scope="The working Scheme backend equals HEAD while the index restores obsolete carrier offsets; the lone generated C delta has no admitted producer. Preserve/review its three versions and retire or regenerate through its real producer, never commit generated bytes alone.";
   attribute :>> tests="HEAD/index/working identity plus actual generator cohort/PointId and layout consumers if any source is retained.";
