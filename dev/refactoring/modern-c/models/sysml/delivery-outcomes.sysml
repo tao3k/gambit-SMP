@@ -52,6 +52,19 @@ package GambitModernCOutcomes {
   }
   part bindingNeed0:Need { ref part :>> result=bindingActivation; attribute :>> id="BINDING-OWNER"; attribute :>> condition="Complete caller/read/publication/freeze/drain refinement and source-selected native evidence; no full CFFI or scheduler promotion."; }
   part bindingNeed1:Need { ref part :>> result=bindingActivation; attribute :>> id="BINDING-COST"; attribute :>> condition="Actual source-bound full populations and added memory, including rejected designs and no universal speedup claim."; }
+  part sfunEntry:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="generated-sfun-activation";
+    attribute :>> title="Generated SFUN physical activation and root span";
+    attribute :>> replacement="Replace per-raw-argument RC blocks and separate marker cleanup with one activation-owned span, aligned census/scan, final frame handoff and last-use/terminal cleanup.";
+    attribute :>> validation="Production replay/shrink, bank/marker callout failures, moving GC before marker, all SFUN result forms, actual processor1, map multi-shot restoration and original ABI/layout/population controls.";
+    attribute :>> falsifier="Logical handler restoration frees a still-live physical C bank, an argument escapes census/scan, stale raw C locals overwrite moved roots, or baseline failure is relabeled passing.";
+    attribute :>> benefit="One lifetime owner for entry, raw/conversion writes, scanner coverage and physical exit; eliminate repeated root-node allocations for many raw inputs.";
+    attribute :>> cost="Known-PERM zero arguments use no bank; moving zero procedures retain one. RC header+8 bytes, activation+8, this-profile GSTATE+40. Final4096-call medians zero -1.325%, one +10.370%, eight -29.618%; small noisy samples, no universal speedup.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part sfunNeed0:Need { ref part :>> result=sfunEntry; attribute :>> id="SFUN-OWNER"; attribute :>> condition="Complete generated-entry/span/writer/GC/frame/physical-exit source refinement and actual consumers; not whole foreign-thread/CFFI admission."; }
+  part sfunNeed1:Need { ref part :>> result=sfunEntry; attribute :>> id="SFUN-COST"; attribute :>> condition="Source-matched zero/one/eight raw-input measurements and actual layout/accounting; preserve regressions and state conditional benefit."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }
