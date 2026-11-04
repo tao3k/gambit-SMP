@@ -117,6 +117,19 @@ package GambitModernCOutcomes {
   }
   part retireNeed0:Need { ref part :>> result=authorityRetirement; attribute :>> id="RETIRE-OWNER-RESULT"; attribute :>> condition="Whole old service caller/build/private-API retirement and actual authority consumers; no alias or merely renamed owner."; }
   part retireNeed1:Need { ref part :>> result=authorityRetirement; attribute :>> id="RETIRE-COST-RESULT"; attribute :>> condition="Measured source/code/storage bounds and paired/frozen1-arg regression evidence; no untested512-byte or universal timing claim."; }
+  part orderedFallback:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="ordered-word-fallback";
+    attribute :>> title="Defined POSIX emulated word and fence service";
+    attribute :>> replacement="Word mutex service owns RMW/modular bit-pattern semantics; C23 standalone fence replaces empty implementation. Actual constructor/users/drain and isolated emulated ABI tested together.";
+    attribute :>> validation="Strict parent overflow negative, real native/emulated ticket/fence Make consumers, emitted barrier, SFUN/PBT and exact A/A cost; production profile unchanged.";
+    attribute :>> falsifier="Only builtin path is tested, old signed overflow survives, fence remains empty, mixed ABI executable or irrelevant timing claim is admitted.";
+    attribute :>> benefit="Remove hidden signed-overflow compiler-option dependency and empty-fence authority; retire two existing queued paths without new storage or API.";
+    attribute :>> cost="One real fence in emulated service and C23 atomic capability requirement. Native builtin executable unchanged; no runtime speedup or whole emulated VM claim.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part wordNeed0:Need { ref part :>> result=orderedFallback; attribute :>> id="WORD-OWNER-RESULT"; attribute :>> condition="Complete actual word-service/lifecycle/fence and test ABI boundary, not a copied slot protocol or builtin-only fixture."; }
+  part wordNeed1:Need { ref part :>> result=orderedFallback; attribute :>> id="WORD-COST-RESULT"; attribute :>> condition="Unchanged primary executable and exact A/A measurements, explicit emulated fence cost and no speedup inference."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }

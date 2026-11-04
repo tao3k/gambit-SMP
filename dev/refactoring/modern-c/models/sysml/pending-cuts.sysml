@@ -354,13 +354,13 @@ package GambitPendingCuts {
  }
  part currentWords:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::scheduling;
   attribute :>> id="ordered-word-fallback";
-  attribute :>> paths="lib/os_thread.c;tests/ordered-sync.c";
+  attribute :>> paths="";
   attribute :>> depends="header-composition";
-  attribute :>> scope="Remaining portable word-fetch-add arithmetic and real lock/sync service tests. Peer-pipe ownership is separately qualified in4b9ac843; thread create/join formatting is not an architectural benefit.";
-  attribute :>> tests="Actual public word/ticket/sync operations including wrap and real fallback compiler cohort; exercising only GCC builtins cannot qualify unused fallback code.";
-  attribute :>> benefit="Defined modulo arithmetic in the existing fallback interface, independently of pipe-domain ownership.";
-  attribute :>> cost="No measured speedup; synchronization and compiler-portability proof remain required.";
-  attribute :>> admission="REVIEW_QUEUE_ONLY; complete atomic fallback responsibility and five gates before publication. Do not merge these two paths into the already qualified Scheme pipe owner.";
+  attribute :>> scope="Published169b5705: complete POSIX emulated RMW/wrap/fence and actual constructor/user/drain. Prior name/format churn and nonexistent slot-fixture proposal retired with recovery evidence.";
+  attribute :>> tests="Strict parent overflow/candidate pass; native and isolated real emulated16384 lock updates/4096 litmus rounds, emitted0→1 dmb, actual SFUN/PBT and existing root QNT4 cases/1000 traces. No mixed conditional ABI.";
+  attribute :>> benefit="Service owns wrap and meaningful ordering without new storage/API. Two original queued paths close43→41; original nine groups retain eight nonempty owners.";
+  attribute :>> cost="C23 atomic support and one real emulated fence; unchanged primary GSI/GSC/seed. Same-executable1-arg A/A labels differ16.126%, not a speedup.";
+  attribute :>> admission="PUBLISHED169b5705; scoped POSIX primitive service only, no full emulated VM/CAS-less host/whole-SMP or stable performance admission";
  }
  part currentBackend:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::buildGraph;
   attribute :>> id="backend-residue";
