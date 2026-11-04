@@ -513,12 +513,12 @@ package GambitPendingCuts {
  }
  part currentVmLayout:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
  attribute :>> id="vm-layout-retirement";
- attribute :>> paths="include/_gambit/vm_state.h.in;include/_gambit/write_authority.h.in";
+ attribute :>> paths="";
  attribute :>> depends="authority-service-retirement";
- attribute :>> scope="Only two public layout-template deletions remain after code-service retirement5c0ff489. Current measured512-byte dormant storage is retained. Changed-ABI experiment and prior combined division failure remain separately unattributed.";
- attribute :>> tests="Code service: actual old-API witness/refusal, archive member/symbol absence and real current authority/root/exit consumers with exact header/layout and old modules. Layout deletion separately requires exact baseline/candidate full original populations and changed-ABI consumers.";
- attribute :>> benefit="Potential unused table removal is NOT credited to RC mutation contract.";
- attribute :>> cost="ABI/code-object consumers and unresolved combined failure.";
- attribute :>> admission="BLOCKED_NEW_FAILURE for the two layout deltas only; code-service owner5c0ff489 is already independently published. Preserve old failure, no512-byte or changed-ABI admission.";
+ attribute :>> scope="Only two public layout-template deletions remain after code-service retirement5c0ff489. The final two dormant table templates now have qualified p1 changed-ABI native consumers; measured module VM/GSTATE each lose512 bytes (embedded VM0 counted once). Historical combined failure and unmanaged default compiler failures remain separately open.";
+ attribute :>> tests="Actual native rebuild; old module baseline success/candidate refusal/new module success; same fixed-path Make ut408 per role with original p1 profile; frame multi-shot/RC/SFUN PBT and paired4096-call costs.";
+ attribute :>> benefit="Remove unused64-word table/type/capacity with no replacement storage; actual RC/activation authority unchanged. Two paths retire only after complete scoped admission.";
+ attribute :>> cost="Changed ABI invalidates native objects/downstream modules. Stable speedup, unmanaged default modes and full GSC/Gerbil are not inferred; framework historical bindings separate.";
+ attribute :>> admission="PUBLISHED 3a6aa3453d4145152d82c3ec2f082354bc009c5b under the existing p1 C target only. Current observed512-byte VM saving and old-module refusal are native measured; default failures/historical combined cause remain open, no broad SMP or stable timing admission.";
  }
 }

@@ -130,6 +130,19 @@ package GambitModernCOutcomes {
   }
   part wordNeed0:Need { ref part :>> result=orderedFallback; attribute :>> id="WORD-OWNER-RESULT"; attribute :>> condition="Complete actual word-service/lifecycle/fence and test ABI boundary, not a copied slot protocol or builtin-only fixture."; }
   part wordNeed1:Need { ref part :>> result=orderedFallback; attribute :>> id="WORD-COST-RESULT"; attribute :>> condition="Unchanged primary executable and exact A/A measurements, explicit emulated fence cost and no speedup inference."; }
+  part vmLayoutRetirement:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="vm-layout-retirement";
+    attribute :>> title="Retire dormant VM authority representation";
+    attribute :>> replacement="Existing lifecycle/RC authority replaces the retired service and its final type/capacity/VM storage; no padding, registry or namespace replacement.";
+    attribute :>> validation="Same-cache changed-ABI native rebuild, old module parent success/candidate refusal and new module success; actual frame multi-shot GC/SFUN/RC PBT; original Make ut408 per role under existing p1 profile; paired fixed4096-call costs.";
+    attribute :>> falsifier="Remaining field users or hidden old objects; observer equates different compiler contexts; parent runner forks candidate children; unmanaged default failures hidden; RSS/speed gains invented.";
+    attribute :>> benefit="512 fewer VM bytes in qualified64-bit compiler context; source/activation/root formats unchanged; two residual queue paths retire.";
+    attribute :>> cost="ABI change requires real native object/downstream module rebuild. Existing default-mode failures and three historical CI producer bindings remain separately open; no stable latency or full SMP claim.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part vmLayoutNeed0:Need { ref part :>> result=vmLayoutRetirement; attribute :>> id="VM-LAYOUT-OWNER-RESULT"; attribute :>> condition="Complete source/ABI/native-consumer layout retirement; old module refuses and rebuilt module runs, no unchanged-object reuse across layout change."; }
+  part vmLayoutNeed1:Need { ref part :>> result=vmLayoutRetirement; attribute :>> id="VM-LAYOUT-COST-RESULT"; attribute :>> condition="Actual same-context VM/GSTATE bytes, matched original408 and fixed4096-call costs; no double counting VM0 or unsupported speedup/default-mode admission."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }
