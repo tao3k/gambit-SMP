@@ -143,6 +143,19 @@ package GambitModernCOutcomes {
   }
   part vmLayoutNeed0:Need { ref part :>> result=vmLayoutRetirement; attribute :>> id="VM-LAYOUT-OWNER-RESULT"; attribute :>> condition="Complete source/ABI/native-consumer layout retirement; old module refuses and rebuilt module runs, no unchanged-object reuse across layout change."; }
   part vmLayoutNeed1:Need { ref part :>> result=vmLayoutRetirement; attribute :>> id="VM-LAYOUT-COST-RESULT"; attribute :>> condition="Actual same-context VM/GSTATE bytes, matched original408 and fixed4096-call costs; no double counting VM0 or unsupported speedup/default-mode admission."; }
+  part collectorDiagnostics:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="collector-diagnostics";
+    attribute :>> title="Explicit collector diagnostic authority";
+    attribute :>> replacement="Actual copy worker owns complete validation/error/report chain and round destination; root/RC diagnostic tags use same selected worker. Preserve physical carrier guards and actual source locks/bounds.";
+    attribute :>> validation="Same-flags parent DEBUG compilation fails/candidate passes; actual private C definitions with decoy carrier/round offset and controlled output/fatal sinks; fresh frame/SFUN/RC PBT and original Make408. Three real historical ASCENT producer replays/114 references and wrong-period/missing/content refusals.";
+    attribute :>> falsifier="Only add a carrier alias; select wrong worker or stale carrier offset; remove locks/checks; link mixed debug ABI; call rejected proposals SMP progress or historical gaps current runtime passes.";
+    attribute :>> benefit="One explicit diagnostic authority; correct VM round source classification and true worker report. Eight original pending paths settle, seven are rejected proposals, one real diagnostic owner; no independent SMP increase.";
+    attribute :>> cost="Debug-only arguments/report work, source/native qualification and preserved failure evidence. Final archive rebuilt/different; stable throughput, whole debug VM, production fatal cleanup and full CI not inferred.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part diagNeed0:Need { ref part :>> result=collectorDiagnostics; attribute :>> id="DIAG-OWNER-RESULT"; attribute :>> condition="Complete diagnostic producer/copy/report source closure, same worker and accepted VM round, controlled fixture sinks explicit and published locks/guards preserved."; }
+  part diagNeed1:Need { ref part :>> result=collectorDiagnostics; attribute :>> id="DIAG-COST-RESULT"; attribute :>> condition="Actual release identities/rebuilt archive and fixed prior GC counters; eight settled original paths split seven rejections/one responsibility, not fabricated speed or SMP gain."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }

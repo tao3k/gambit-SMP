@@ -334,13 +334,13 @@ package GambitPendingCuts {
  }
  part currentCollector:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::workers;
   attribute :>> id="collector-source-review";
-  attribute :>> paths="lib/_mem/aligned-allocation.inc;lib/_mem/allocation-limits.inc;lib/_mem/allocation-statistics.inc;lib/_mem/diagnostics.inc;lib/_mem/hash-table-api.inc;lib/_mem/object-allocation.inc;lib/_mem/permanent-allocation.inc;lib/_mem/still-refcount.inc;lib/_mem/symbols.inc";
+  attribute :>> paths="lib/_mem/object-allocation.inc";
   attribute :>> depends="entry-write-authority";
-  attribute :>> scope="Separate5 coordinate-only deltas from real diagnostics, allocation/release and symbol ownership. Pending permanent allocation removes the published lock; pending symbols remove published bounds/publication checks. Reject those as a current implementation until a complete replacement owner is proven. GC-phase allocation refusal needs initialization/resource debt custody, not just an early error.";
+  attribute :>> scope="Complete nine-source review: reject five coordinate-only proposals and two unsafe lock/bound/publication reversions. One full explicit-worker diagnostic producer/copy/validator/report cut includes its real root/RC and reflection consumers. GC-phase allocation refusal remains unqualified pending initialization/resource-debt custody.";
   attribute :>> tests="Real allocator/release/root callers, pre-reserve and unknown outcomes, debug coordinate provenance, GC/reentry and scan ownership. Rebase allocation counters across context/carrier/GC boundaries: negative request-only bytes forbid physical allocation or peak-memory claims until a complete accounting contract is refined.";
   attribute :>> benefit="Preserve the published root/worker contract while replacing real remaining ownership gaps.";
   attribute :>> cost="No benefit from line churn or removing synchronization; reservation and retention overhead stay explicit.";
-  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+  attribute :>> admission="PUBLISHED c438df5cc193ea1a17102b3d0c72e4285cfea96c complete diagnostic source owner plus seven reviewed proposal withdrawals; old physical guards preserved. DEBUG fixture/source ABI isolated, release artifacts rebuilt and independently bound, seed/generated inputs retained; full debug VM and whole SMP remain separate.";
  }
  part currentPipe:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::scheduling;
   attribute :>> id="pipe-domain-owner";
