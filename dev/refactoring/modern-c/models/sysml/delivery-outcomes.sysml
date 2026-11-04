@@ -104,6 +104,19 @@ package GambitModernCOutcomes {
   }
   part entryNeed0:Need { ref part :>> result=entryAdmission; attribute :>> id="ENTRY-OWNER-RESULT"; attribute :>> condition="Complete actual source/activation/borrow/scan/physical-exit consumers, not a single setter."; }
   part entryNeed1:Need { ref part :>> result=entryAdmission; attribute :>> id="ENTRY-COST-RESULT"; attribute :>> condition="Exact linked call structure and paired workloads; preserve negative timing and no whole-mode promotion."; }
+  part authorityRetirement:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="authority-service-retirement";
+    attribute :>> title="Retire obsolete parallel authority service";
+    attribute :>> replacement="Actual lifecycle/RC source authority replaces the old actor/tag/role service; retire code, initializer, archive/private header/distribution and synthetic self-test together.";
+    attribute :>> validation="Exact old API witness and candidate refusal; archive member/symbol removal; full native current authority/root/exception/multi-shot consumers, unchanged layout and paired/frozen-binary costs.";
+    attribute :>> falsifier="Old service still has real production callers or appears in the archive; current writer/borrow semantics are weakened; ABI layout savings or stable speedup are fabricated.";
+    attribute :>> benefit="One actual authority owner, five fewer queued paths, one fewer native compilation/archive unit and no competing private protocol API.";
+    attribute :>> cost="Dormant public representation remains deferred debt; no512-byte savings. Whole-SMP/default/compiler attribution and stable net timing remain separate.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part retireNeed0:Need { ref part :>> result=authorityRetirement; attribute :>> id="RETIRE-OWNER-RESULT"; attribute :>> condition="Whole old service caller/build/private-API retirement and actual authority consumers; no alias or merely renamed owner."; }
+  part retireNeed1:Need { ref part :>> result=authorityRetirement; attribute :>> id="RETIRE-COST-RESULT"; attribute :>> condition="Measured source/code/storage bounds and paired/frozen1-arg regression evidence; no untested512-byte or universal timing claim."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }

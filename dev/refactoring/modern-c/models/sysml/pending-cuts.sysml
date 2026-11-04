@@ -287,7 +287,7 @@ package GambitPendingCuts {
   part s15:DeliverySlice { ref part :>> owner=generated; ref part :>> delivery=distributionDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
   part s16:DeliverySlice { ref part :>> owner=ci; ref part :>> delivery=ciDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
 
- attribute currentPackages:String="currentHeaders;currentBuild;currentEntryAdmission;currentEntries;currentCollector;currentPipe;currentWords;currentBackend;currentCi;currentCost;currentRootTests;currentRootWrite;currentVmLayout";
+ attribute currentPackages:String="currentHeaders;currentBuild;currentEntryAdmission;currentEntries;currentCollector;currentPipe;currentWords;currentBackend;currentCi;currentCost;currentRootTests;currentRootWrite;currentAuthorityService;currentVmLayout";
  attribute currentRuntimeProgress:String="4/4 local foundation deliveries; no independent SMP or universal performance promotion";
  attribute independentSmpProgress:String="1/12 checkpoint; eleven families remain open until whole source-bound manifests qualify";
  attribute currentNetSpeedup:String="NOT_ESTABLISHED; source correctness/bounded-work benefits and measured costs must remain separate";
@@ -501,14 +501,24 @@ package GambitPendingCuts {
  attribute :>> cost="Index/borrow branch and source call; timing may regress, no universal speedup.";
  attribute :>> admission="PUBLISHED b299e267, five gates and46 rejection controls; source contract complete. tests/makefile.in retains separately owned future hunks.";
  }
+ part currentAuthorityService:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
+ attribute :>> id="authority-service-retirement";
+ attribute :>> paths="";
+ attribute :>> depends="rc-entry-admission";
+ attribute :>> scope="Published5c0ff489 retires whole obsolete role-service code, initializer, object/header/distribution and synthetic test. Exact VM representation unchanged.";
+ attribute :>> tests="Old API success/candidate refusal, archive26→25 and10→0 symbols;20 native consumers, actual PBT/GC/p2/map multi-shot/old modules, focused division and existing QNT;48 matched/frozen samples.";
+ attribute :>> benefit="Five original queue paths retired; one fewer actual competing implementation and native compilation unit. Archive -2944 bytes, selected program -672 in current profile.";
+ attribute :>> cost="Dormant512-byte measured representation remains. Mixed noisy timing and frozen-sign reversal forbid universal speedup. No changed-ABI admission.";
+ attribute :>> admission="PUBLISHED5c0ff489; scoped full code-service retirement only. No independent SMP or old layout-failure attribution.";
+ }
  part currentVmLayout:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
  attribute :>> id="vm-layout-retirement";
- attribute :>> paths="include/_gambit/vm_state.h.in;include/_gambit/write_authority.h.in;lib/setup.c;lib/makefile.in;lib/native_scope.c;lib/native_scope.h;tests/native-scope.c";
- attribute :>> depends="";
- attribute :>> scope="Separate VM layout/object retirement experiment; combined division failure remains unattributed.";
- attribute :>> tests="Exact baseline/candidate full original populations and changed-ABI consumers before any future admission.";
+ attribute :>> paths="include/_gambit/vm_state.h.in;include/_gambit/write_authority.h.in";
+ attribute :>> depends="authority-service-retirement";
+ attribute :>> scope="Only two public layout-template deletions remain after code-service retirement5c0ff489. Current measured512-byte dormant storage is retained. Changed-ABI experiment and prior combined division failure remain separately unattributed.";
+ attribute :>> tests="Code service: actual old-API witness/refusal, archive member/symbol absence and real current authority/root/exit consumers with exact header/layout and old modules. Layout deletion separately requires exact baseline/candidate full original populations and changed-ABI consumers.";
  attribute :>> benefit="Potential unused table removal is NOT credited to RC mutation contract.";
  attribute :>> cost="ABI/code-object consumers and unresolved combined failure.";
- attribute :>> admission="BLOCKED_NEW_FAILURE; preserve uncommitted source and historical observations, no runtime acceptance.";
+ attribute :>> admission="BLOCKED_NEW_FAILURE for the two layout deltas only; code-service owner5c0ff489 is already independently published. Preserve old failure, no512-byte or changed-ABI admission.";
  }
 }
