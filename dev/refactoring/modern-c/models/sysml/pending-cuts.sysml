@@ -287,7 +287,7 @@ package GambitPendingCuts {
   part s15:DeliverySlice { ref part :>> owner=generated; ref part :>> delivery=distributionDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
   part s16:DeliverySlice { ref part :>> owner=ci; ref part :>> delivery=ciDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
 
- attribute currentPackages:String="currentHeaders;currentBuild;currentEntries;currentCollector;currentPorts;currentBackend;currentCi;currentCost;currentRootTests;currentRootWrite;currentVmLayout";
+ attribute currentPackages:String="currentHeaders;currentBuild;currentEntries;currentCollector;currentPipe;currentWords;currentBackend;currentCi;currentCost;currentRootTests;currentRootWrite;currentVmLayout";
  attribute currentRuntimeProgress:String="4/4 local foundation deliveries; no independent SMP or universal performance promotion";
  attribute independentSmpProgress:String="1/12 checkpoint; eleven families remain open until whole source-bound manifests qualify";
  attribute currentNetSpeedup:String="NOT_ESTABLISHED; source correctness/bounded-work benefits and measured costs must remain separate";
@@ -332,15 +332,25 @@ package GambitPendingCuts {
   attribute :>> cost="No benefit from line churn or removing synchronization; reservation and retention overhead stay explicit.";
   attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
  }
- part currentPorts:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::scheduling;
-  attribute :>> id="shared-pipe-publication";
-  attribute :>> paths="lib/_io.scm;lib/os_thread.c;tests/ordered-sync.c";
-  attribute :>> depends="entry-write-authority";
-  attribute :>> scope="Treat each pipe pair FIFO/buffer/close/wait state as one shared mutex domain; keep lock arithmetic publication portable. Regenerate the actual Scheme producer and bind all consumers.";
-  attribute :>> tests="Official pipe/port/thread units, paired endpoints, close/error and GC stress; acquired/released ownership and real atomic fallback.";
-  attribute :>> benefit="Eliminate split peer-lock ownership; preserve public APIs and scheduling policy.";
-  attribute :>> cost="Shared synchronization and contention; throughput must be measured.";
-  attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
+ part currentPipe:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::scheduling;
+  attribute :>> id="pipe-domain-owner";
+  attribute :>> paths="";
+  attribute :>> depends="header-composition";
+  attribute :>> scope="Published4b9ac843: one managed guard per aliased vector/string/u8 pipe pair across construction, wait, close and exception exit.";
+  attribute :>> tests="Existing production p1 profile34 official IO cases, native stateful replay/shrink, p2 exchange, six hook exits, frame/root consumers and finite Quint owner model.";
+  attribute :>> benefit="Retire independent locks over shared FIFO/cursor state and remove one mutex record per pair.";
+  attribute :>> cost="Shared-domain contention remains; no universal wall or peak gain. Original default GSC and whole-suite negatives remain unresolved.";
+  attribute :>> admission="PUBLISHED4b9ac843; qualified C target only; no whole-SMP or default compiler admission";
+ }
+ part currentWords:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::scheduling;
+  attribute :>> id="ordered-word-fallback";
+  attribute :>> paths="lib/os_thread.c;tests/ordered-sync.c";
+  attribute :>> depends="header-composition";
+  attribute :>> scope="Remaining portable word-fetch-add arithmetic and real lock/sync service tests. Peer-pipe ownership is separately qualified in4b9ac843; thread create/join formatting is not an architectural benefit.";
+  attribute :>> tests="Actual public word/ticket/sync operations including wrap and real fallback compiler cohort; exercising only GCC builtins cannot qualify unused fallback code.";
+  attribute :>> benefit="Defined modulo arithmetic in the existing fallback interface, independently of pipe-domain ownership.";
+  attribute :>> cost="No measured speedup; synchronization and compiler-portability proof remain required.";
+  attribute :>> admission="REVIEW_QUEUE_ONLY; complete atomic fallback responsibility and five gates before publication. Do not merge these two paths into the already qualified Scheme pipe owner.";
  }
  part currentBackend:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::buildGraph;
   attribute :>> id="backend-residue";
@@ -355,7 +365,7 @@ package GambitPendingCuts {
  part currentCi:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::assurance;
   attribute :>> id="ci-consumer";
   attribute :>> paths=".github/workflows/smp.yml";
-  attribute :>> depends="header-composition;build-inputs;entry-write-authority;collector-source-review;root-worker-qualification;shared-pipe-publication;backend-residue;cost-fixture";
+  attribute :>> depends="header-composition;build-inputs;entry-write-authority;collector-source-review;root-worker-qualification;pipe-domain-owner;ordered-word-fallback;backend-residue;cost-fixture";
   attribute :>> scope="Vendor Gambit only. The pending SMP workflow is not current CI and contains a custom tool variable; reconcile with standard tool inputs and the exact published source/test contract before activation. Existing official workflow names/build commands remain.";
   attribute :>> tests="Actual exact-head GitHub jobs on required platforms; source/distribution tests, original limits and unchanged check population.";
   attribute :>> benefit="Remote verification of the real responsibility replacement.";

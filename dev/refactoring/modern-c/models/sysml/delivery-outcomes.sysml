@@ -78,6 +78,19 @@ package GambitModernCOutcomes {
   }
   part rootWriteNeed0:Need { ref part :>> result=rootWrite; attribute :>> id="ROOT-WRITE-OWNER"; attribute :>> condition="Complete RC primary/span writer and borrow source contract, actual scan/exit consumers and preserved ABI; no arbitrary CFFI or independent SMP promotion."; }
   part rootWriteNeed1:Need { ref part :>> result=rootWrite; attribute :>> id="ROOT-WRITE-COST"; attribute :>> condition="Exact unchanged role layouts and paired zero/one/eight workloads; preserve regressions, no deferred storage or whole-workflow speedup credit."; }
+  part pipeDomain:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="pipe-domain-owner";
+    attribute :>> title="One shared pipe domain across endpoint construction, I/O, wait and close";
+    attribute :>> replacement="Replace endpoint-local mutex creation for peer-shared FIFO/cursors/close state with one constructor-published Scheme mutex for vector/string/u8 pipe pairs; reuse existing methods and public names.";
+    attribute :>> validation="Actual endpoint identities,12 histories408 actions,3 timeout exits, pinned processor1 with768 values, replay/shrink, original I/O and multi-shot/root consumers, explicit generation closure and matched costs.";
+    attribute :>> falsifier="Peer endpoints have distinct guards, any aliased writer uses another lock, waiting retains ownership, timeout exit leaks ownership, close loses wake, or native/model evidence promotes whole SMP.";
+    attribute :>> benefit="One mutex allocation per pair instead of two; a single real source domain excludes concurrent peer mutation without introducing permit tables or address caches.";
+    attribute :>> cost="Peer directions now contend on their actual shared state. Optional internal constructor argument and generation/consumer proof maintenance remain; throughput/peak claims require actual paired measurements.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part pipeNeed0:Need { ref part :>> result=pipeDomain; attribute :>> id="PIPE-OWNER-RESULT"; attribute :>> condition="Complete source construction/write/wait/close/exit owner and actual native consumers, not only an identity assertion or one setter."; }
+  part pipeNeed1:Need { ref part :>> result=pipeDomain; attribute :>> id="PIPE-COST-RESULT"; attribute :>> condition="Matched4096-pair cost and explicit predecessor SFUN mechanism/noise attribution. No universal runtime speedup or peak-memory credit."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }
