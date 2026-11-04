@@ -106,3 +106,27 @@ class RevisionMatrixTests(unittest.TestCase):
             (self.root/'raw.json').write_text(json.dumps(raw))
             with self.subTest(field=field),self.assertRaisesRegex(ValueError,'raw evidence'):
                 self.normalize()
+
+    def test_regression_blocks_publication_even_beside_a_positive_row(self):
+        from gambit_smp.revision_matrix import benefit_admission
+        good = self.normalize()['rows'][0]
+        self.data['after']['value'] = 25
+        self.save()
+        bad = self.normalize()['rows'][0]
+        bad['id'] = 'adverse'
+        decision = benefit_admission({'rows': [good, bad]}, integration=True)
+        self.assertFalse(decision['admitted'])
+        self.assertEqual(decision['regressionRows'], ['adverse'])
+        self.assertEqual(decision['positiveRows'], ['compile'])
+
+    def test_runtime_requires_measured_positive_benefit(self):
+        from gambit_smp.revision_matrix import benefit_admission
+        self.assertTrue(benefit_admission(self.normalize(), integration=True)['admitted'])
+        for kind in ['control', 'unmeasured', 'structural']:
+            row = dict(self.normalize()['rows'][0], kind=kind,
+                       outcome={'control': 'control-only', 'unmeasured': 'not-measured',
+                                'structural': 'structural-only'}[kind])
+            with self.subTest(kind=kind):
+                result = benefit_admission({'rows': [row]}, integration=True)
+                self.assertFalse(result['admitted'])
+                self.assertIn('positive-benefit-unproven', result['reasons'])

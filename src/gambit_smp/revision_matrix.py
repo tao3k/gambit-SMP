@@ -169,6 +169,25 @@ def normalize_matrix(root, matrix, source, fields, kinds):
                 input=matrix, rows=result, evidence=evidence)
 
 
+def benefit_admission(matrix, *, integration=False):
+    """A favorable row never offsets a measured regression in another row.
+
+    Input is the source-verified normalized matrix, not a caller's narrative.
+    This conservative publication gate establishes neither causality nor a
+    statistically stable speedup. Unmeasured/control/structural rows cannot
+    supply positive measured benefit for a runtime integration.
+    """
+    positive = [row['id'] for row in matrix['rows']
+                if row['outcome'] == 'observed-improvement']
+    regressions = [row['id'] for row in matrix['rows']
+                   if row['outcome'] == 'observed-regression']
+    reasons = (['measured-regression'] if regressions else [])
+    if integration and not positive:
+        reasons.append('positive-benefit-unproven')
+    return dict(admitted=not reasons, positiveRows=positive,
+                regressionRows=regressions, reasons=reasons)
+
+
 def render_matrix(matrix):
     def cell(value):
         if value is None:

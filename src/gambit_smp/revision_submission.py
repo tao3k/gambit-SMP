@@ -655,6 +655,8 @@ class RevisionSubmission:
                      "missing-audit-packet", "stale-audit-tree", *missing_audit,
                      "missing-matrix", "stale-matrix", "missing-matrix-row", "missing-matrix-evidence",
                      "missing-submission-unit", "support-progress", "unapproved-support-path",
+                     "regressed-matrix", "missing-benefit-classification",
+                     *(["nonpositive-matrix"] if unit["kind"] == "integration" else []),
                      "fragment-integration", *["missing-delivery:" + x for x in unit["requirements"]],
                      *(["stale-delivery-tree"] if unit["kind"] == "integration" else []),
                      *(["missing-source-refinement", "stale-source-refinement"] if unit["kind"] == "organization" else []))
@@ -673,7 +675,7 @@ class RevisionSubmission:
             commitMatrixRequiredFact=[["matrix"]],
             commitMatrixFieldRequiredFact=[[field] for field in self.values["comment.matrixFields"].split(",")],
             commitMatrixPacketFact=[], commitMatrixRowFact=[], commitMatrixFieldFact=[],
-            commitMatrixRefFact=[], commitMatrixValueValidFact=[],
+            commitMatrixRefFact=[], commitMatrixValueValidFact=[], commitMatrixOutcomeFact=[],
             commitUnitFact=[], commitUnitNeedFact=[[unit["result"], x] for x in unit["requirements"]],
             commitUnitEvidenceFact=[], commitUnitPathViolationFact=[], commitUnitRuntimeFact=[], commitUnitRefinementFact=[],
             controlExpectReadyFact=[["current"]],
@@ -725,6 +727,15 @@ class RevisionSubmission:
                     mid = metric["id"]
                     rows["commitMatrixRowFact"].append([mh, mid, metric["kind"], metric["unit"]])
                     rows["commitMatrixValueValidFact"].append([mh, mid])
+                    if scenario != "missing-benefit-classification":
+                        outcome = ("observed-regression" if scenario == "regressed-matrix"
+                                   else "no-observed-change" if scenario == "nonpositive-matrix"
+                                   else metric["outcome"])
+                        rows["commitMatrixOutcomeFact"].append([mh, mid, outcome])
+                        if scenario == "regressed-matrix":
+                            # A typed measurement adversary is a policy control,
+                            # never a new empirical observation or a performance claim.
+                            rows["commitMatrixRowFact"].append([mh, mid, "measurement", metric["unit"]])
                     for field in self.values["comment.matrixFields"].split(","):
                         rows["commitMatrixFieldFact"].append([mh, mid, field, content_digest(metric[field])])
                     for path, expected in ([] if scenario == "missing-matrix-evidence" else metric["evidenceSha256"].items()):
@@ -765,6 +776,12 @@ class RevisionSubmission:
                 or len(covered) != len(needs)
                 or [row for row in answers["commitUnitReady"] if row[0] == "current"] != [["current"]]
                 or answers["commitProgressReady"] != ([["current", unit["result"]]] if unit["kind"] == "integration" else [])):
+            write_json(self.evidence / "admission.json", dict(
+                tree=tree, baseRevision=head, artifacts=artifacts,
+                answers=answers, status="DENY", commitAdmitted=False,
+                matrixSha256=content_digest(matrix),
+                auditSha256=audit_digest, wholeSmpAdmitted=False,
+                progressDelta=0))
             raise ValueError("selected REV or rejection controls failed shared ASCENT policy")
         self.check_custody()
         self.audit_comment(audit_digest)
@@ -784,6 +801,12 @@ class RevisionSubmission:
                 or admission.get("commitAdmitted") is not True or admission.get("tree") != self.tree):
             raise ValueError("matching ASCENT admission required")
         comment = self.audit_comment(admission.get("auditSha256"))
+        from gambit_smp.revision_matrix import benefit_admission
+        reviewed = json.loads(self.audit_path.read_text())
+        benefit = benefit_admission(reviewed["matrix"],
+            integration=reviewed["delivery"]["kind"] == "integration")
+        if not benefit["admitted"]:
+            raise ValueError("REV net benefit DENY: " + ", ".join(benefit["reasons"]))
         self.check_custody()
         for name, expected in admission["artifacts"].items():
             if digest(self.root / name) != expected:

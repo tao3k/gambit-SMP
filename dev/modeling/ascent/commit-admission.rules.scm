@@ -245,9 +245,24 @@
 (relation commitMatrixFieldFact (matrix row field value))
 (relation commitMatrixRefFact (matrix row artifact digest))
 (relation commitMatrixValueValidFact (matrix row))
+(relation commitMatrixOutcomeFact (matrix row outcome))
+(relation commitMatrixPositive (matrix))
 (relation commitMatrixBound (scenario matrix))
 (relation commitMatrixMissing (scenario row reason))
 ((commitMatrixBound S M) <-- (commitAuditBound S A) (commitMatrixPacketFact S A M))
+;; Publication requires benefit, not merely a complete, attractive report.
+;; Keep adverse observations locally; no favorable row cancels a regression.
+((commitMatrixPositive M) <-- (commitMatrixRowFact M R (lit "measurement") _)
+ (commitMatrixOutcomeFact M R (lit "observed-improvement")))
+((commitMatrixMissing S R (lit "measured-regression")) <--
+ (commitMatrixBound S M) (commitMatrixRowFact M R (lit "measurement") _)
+ (commitMatrixOutcomeFact M R (lit "observed-regression")))
+((commitMatrixMissing S (lit "matrix") (lit "positive-benefit-unproven")) <--
+ (commitMatrixBound S M) (commitUnitFact S (lit "integration") _ _)
+ (not (commitMatrixPositive M)))
+((commitMatrixMissing S R (lit "missing-benefit-classification")) <--
+ (commitMatrixBound S M) (commitMatrixRowFact M R _ _)
+ (not (commitMatrixOutcomeFact M R _)))
 ((commitMatrixMissing S (lit "matrix") (lit "missing-or-stale")) <--
  (commitScenario S) (commitMatrixRequiredFact _) (not (commitMatrixBound S _)))
 ((commitMatrixMissing S (lit "matrix") (lit "no-rows")) <--

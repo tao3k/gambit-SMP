@@ -239,7 +239,7 @@ class RevisionSubmissionTests(RevisionSubmissionFixture):
 
         with patch("gambit_smp.ascent_program.query", side_effect=observe):
             admission = submission.admit()
-        self.assertEqual(admission["negativeControls"], 26)
+        self.assertEqual(admission["negativeControls"], 28)
         self.assertFalse((submission.evidence / "query.ss").exists())
         (directory / "commit-context.rules.scm").write_text("changed policy schema")
         with self.assertRaisesRegex(ValueError, "admission artifact changed"):
@@ -304,14 +304,16 @@ class RevisionSubmissionTests(RevisionSubmissionFixture):
         # The native policy is exercised separately; this is actual Git transport.
         submission.admission = dict(commitAdmitted=True, tree=source["tree"],
                                     artifacts={}, auditSha256=audit_digest)
-        revision = submission.commit("audit matrix transport\n", submission.admission)
-        message = self.git("show", "-s", "--format=%B", revision["revision"]).decode()
+        before = self.git("rev-parse", "HEAD")
+        with self.assertRaisesRegex(ValueError, "net benefit DENY"):
+            submission.commit("audit matrix transport\n", submission.admission)
+        self.assertEqual(self.git("rev-parse", "HEAD"), before)
         from gambit_smp.revision_matrix import render_matrix
         reviewed = json.loads(submission.audit_path.read_text())["matrix"]
-        self.assertIn(render_matrix(reviewed), message)
-        self.assertIn("observed-regression", message)
-        self.assertIn("| 20 | 25 | s | 1/1 | 25.00 |", message)
-        self.assertIn("Matrix-SHA256:", message)
+        # Adverse data remains readable locally; it cannot cross Git publication.
+        local = render_matrix(reviewed)
+        self.assertIn("observed-regression", local)
+        self.assertIn("| 20 | 25 | s | 1/1 | 25.00 |", local)
 
     def test_missing_or_empty_comment_field_blocks_every_size_of_rev(self):
         submission = self.submission()
@@ -485,6 +487,21 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
         (self.root / 'delivery.json').write_text(json.dumps(packet))
         sub.native['deliveryEvidence'] = 'delivery.json'
         sub.model_inputs = {}
+        # Synthetic positive metric keeps this a delivery-policy control.
+        # An unmeasured integration must now be denied before publication.
+        quantities = dict(baseRevision=sub.base, sourceTree=sub.tree,
+                          profileSha256=sub.source['profileSha256'])
+        raw = dict(quantities, before=dict(value=20, unit='s', samples=1),
+                   after=dict(value=10, unit='s', samples=1))
+        (self.root / 'raw.json').write_text(json.dumps(raw))
+        for role in ['before', 'after']:
+            quantities[role] = dict(raw[role], origin=dict(path='raw.json', pointer='/'+role))
+        (self.root / 'quantities.json').write_text(json.dumps(quantities))
+        report['matrix']['rows'][0].update(kind='measurement', unit='s', direction='lower',
+            baseline=dict(path='quantities.json', pointer='/before'),
+            candidate=dict(path='quantities.json', pointer='/after'),
+            method='Synthetic policy-control quantities, not runtime performance',
+            evidence=['quantities.json'])
         return sub, report
 
     def real_policy(self, sub):
@@ -577,7 +594,7 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
             self.assertEqual(sum(row[0] == scenario for row in admitted['answers']['commitGateReady']), 5)
             self.assertIn([scenario, requirement], admitted['answers']['commitUnitGap'])
             self.assertNotIn([scenario], admitted['answers']['commitReady'])
-        self.assertEqual(admitted['negativeControls'], 41)
+        self.assertEqual(admitted['negativeControls'], 44)
 
     def test_real_support_admission_never_advances_result(self):
         sub = self.submission()
@@ -591,7 +608,7 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
         admitted = sub.admit()
         self.assertEqual(admitted['answers']['commitProgressReady'], [])
         self.assertEqual(admitted['progressDelta'], 0)
-        self.assertEqual(admitted['negativeControls'], 29)
+        self.assertEqual(admitted['negativeControls'], 31)
 
     def test_delivery_drift_after_admission_refuses_git_commit(self):
         sub, report = self.integration()

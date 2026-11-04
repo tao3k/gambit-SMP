@@ -156,6 +156,32 @@ package GambitModernCOutcomes {
   }
   part diagNeed0:Need { ref part :>> result=collectorDiagnostics; attribute :>> id="DIAG-OWNER-RESULT"; attribute :>> condition="Complete diagnostic producer/copy/report source closure, same worker and accepted VM round, controlled fixture sinks explicit and published locks/guards preserved."; }
   part diagNeed1:Need { ref part :>> result=collectorDiagnostics; attribute :>> id="DIAG-COST-RESULT"; attribute :>> condition="Actual release identities/rebuilt archive and fixed prior GC counters; eight settled original paths split seven rejections/one responsibility, not fabricated speed or SMP gain."; }
+  part rootScanWorker:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="root-scan-worker";
+    attribute :>> title="Explicit six-source scan execution authority";
+    attribute :>> replacement="Collective-selected worker passes directly through every RootTask scan and private/census consumer. Old implicit per-adapter worker selection is retired; claims and completion retain current executor/source gates.";
+    attribute :>> validation="Actual six-source PBT/replay/shrink and wrong-worker refusal with unchanged task, moving root/map multi-shot/RC/SFUN and original population; same profile/cache, no new GC phase or storage.";
+    attribute :>> falsifier="Silently substitute carrier.collector, accept an alien worker, mutate a refused task, weaken epoch/lease/source checks, drop multi-shot semantics or transfer scoped tests to whole SMP.";
+    attribute :>> benefit="Explicit end-to-end scan authority and auditable source/worker split; no duplicate implicit scan overload.";
+    attribute :>> cost="One explicit worker argument and binding/VM/carrier validation at adapters. No stable speed claim, reclamation permit or arbitrary migration authority.";
+    attribute :>> deliveryStatus="DENIED_NET_BENEFIT";
+  }
+  part scanNeed0:Need { ref part :>> result=rootScanWorker; attribute :>> id="SCAN-OWNER-RESULT"; attribute :>> condition="All six scan sources, actual collective and census callers share explicit work; source/claim/finish synchronization and null standalone premise retained."; }
+  part scanNeed1:Need { ref part :>> result=rootScanWorker; attribute :>> id="SCAN-COST-RESULT"; attribute :>> condition="Fresh real consumers and unchanged limits, exact artifact reuse/rebuild and matched request cost with added validation accounted; no universal speedup or SMP-family promotion."; }
+  part activationStorage:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="activation-storage";
+    attribute :>> title="RC-domain physical activation storage ownership";
+    attribute :>> replacement="Retire unconditional native record malloc/free on each request. One admitted source owns a clean idle slot; known physical exit returns roots before reuse; domain closure drains native storage. Unknown/live records never enter idle.";
+    attribute :>> validation="Actual storage/nested/GC/live-cleanup/detached-domain controls; existing SFUN/RC/frame/VM and original408; same source/profile and complete24-row fixed4096-call ABBA with RSS observations.";
+    attribute :>> falsifier="Reuse revoked or unknown physical extent, keep Scheme references in idle storage, publish entry0 before final metadata write, weaken source gates, omit adverse samples or claim full SMP.";
+    attribute :>> benefit="Owner-bounded storage reuse eliminates steady flat-entry record allocator traffic; current0/1/8 matched medians improve19.809/12.071/9.270 percent. Single cohort, not universal speedup.";
+    attribute :>> cost="8 private bytes per RC domain and up to one40-byte idle record per retained owner, plus validation branches. Scheme heap/public layouts/profile unchanged; native physical/RSS bounds remain explicitly scoped.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part storageNeed0:Need { ref part :>> result=activationStorage; attribute :>> id="STORAGE-OWNER-RESULT"; attribute :>> condition="Complete admission, native storage, root return, physical exit and domain teardown with no new GC root or unknown-result permission."; }
+  part storageNeed1:Need { ref part :>> result=activationStorage; attribute :>> id="STORAGE-COST-RESULT"; attribute :>> condition="All24 request observations retained;0/1/8 medians favorable in current declared cohort, complete RSS and native retained cost reported; rejected earlier root-routing cohort remains denied, no resampling or performance generalization."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }

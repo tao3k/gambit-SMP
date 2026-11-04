@@ -56,25 +56,34 @@ class RevisionCommentPolicyTests(unittest.TestCase):
             commitArtifactFact=[[model_name, model_hash]],
             commitEvidenceFact=[["policy-control", model_hash, "synthetic-policy-control"]],
             commitSourceFact=[source], commitScenarioClassFact=[],
-            commitUnitFact=[],
+            commitUnitFact=[], commitUnitNeedFact=[["policy-runtime", "benefit"]],
+            commitUnitRuntimeFact=[], commitUnitEvidenceFact=[],
             commitCandidateFact=[], commitObservationFact=[],
             commitAuditRequiredFact=[[field] for field in fields],
             commitAuditPacketFact=[], commitAuditFieldFact=[],
             commitMatrixRequiredFact=[["matrix"]],
             commitMatrixFieldRequiredFact=[[x] for x in matrix_fields],
             commitMatrixPacketFact=[],commitMatrixRowFact=[],commitMatrixFieldFact=[],
-            commitMatrixRefFact=[],commitMatrixValueValidFact=[],
-            controlExpectReadyFact=[["complete-comment"]], controlExpectBlockedFact=[])
+            commitMatrixRefFact=[],commitMatrixValueValidFact=[],commitMatrixOutcomeFact=[],
+            controlExpectReadyFact=[["complete-comment"], ["runtime-positive"]], controlExpectBlockedFact=[])
         scenarios = ["complete-comment", "absent-unit", "absent-comment", "stale-comment",
                      *["omit-" + field for field in fields], "absent-matrix", "stale-matrix",
-                     "empty-matrix", "missing-matrix-field", "missing-matrix-evidence", "wrong-matrix-evidence", "invalid-matrix-value"]
+                     "empty-matrix", "missing-matrix-field", "missing-matrix-evidence", "wrong-matrix-evidence", "invalid-matrix-value",
+                     "regressed-matrix", "mixed-benefit-matrix", "absent-benefit-classification",
+                     "runtime-positive", "runtime-unmeasured"]
         for scenario in scenarios:
             # This is an audit-policy control, not a runtime integration.
             if scenario != "absent-unit":
-                facts["commitUnitFact"].append([scenario, "support", "", "0"])
+                if scenario.startswith("runtime-"):
+                    facts["commitUnitFact"].append([scenario, "integration", "policy-runtime", "1"])
+                    facts["commitUnitRuntimeFact"].append([scenario, "lib/synthetic-control.c"])
+                    facts["commitUnitEvidenceFact"].append([
+                        scenario, *source, "policy-runtime", "benefit", model_name, model_hash])
+                else:
+                    facts["commitUnitFact"].append([scenario, "support", "", "0"])
             facts["commitCandidateFact"].append([scenario, *source])
             facts["commitScenarioClassFact"].append([scenario, "synthetic-policy-control"])
-            if scenario != "complete-comment":
+            if scenario not in {"complete-comment", "runtime-positive"}:
                 facts["controlExpectBlockedFact"].append([scenario])
             for gate in gates:
                 facts["commitObservationFact"].append([
@@ -93,7 +102,12 @@ class RevisionCommentPolicyTests(unittest.TestCase):
                 matrix_hash = content_digest([scenario,"matrix"])
                 facts["commitMatrixPacketFact"].append([scenario, "wrong" if scenario=="stale-matrix" else packet_hash, matrix_hash])
                 if scenario != "empty-matrix":
-                    facts["commitMatrixRowFact"].append([matrix_hash,"runtime","unmeasured","ops/s"])
+                    measured = scenario in {"regressed-matrix", "mixed-benefit-matrix", "runtime-positive"}
+                    facts["commitMatrixRowFact"].append([matrix_hash,"runtime","measurement" if measured else "unmeasured","ops/s"])
+                    if scenario != "absent-benefit-classification":
+                        outcome = ("observed-regression" if scenario in {"regressed-matrix", "mixed-benefit-matrix"}
+                                   else "observed-improvement" if scenario == "runtime-positive" else "not-measured")
+                        facts["commitMatrixOutcomeFact"].append([matrix_hash,"runtime",outcome])
                     for field in matrix_fields:
                         if scenario != "missing-matrix-field" or field != "limitation":
                             facts["commitMatrixFieldFact"].append([matrix_hash,"runtime",field,"explicit-control"])
@@ -101,6 +115,13 @@ class RevisionCommentPolicyTests(unittest.TestCase):
                         facts["commitMatrixRefFact"].append([matrix_hash,"runtime",model_name,"wrong" if scenario=="wrong-matrix-evidence" else model_hash])
                     if scenario != "invalid-matrix-value":
                         facts["commitMatrixValueValidFact"].append([matrix_hash,"runtime"])
+                    if scenario == "mixed-benefit-matrix":
+                        facts["commitMatrixRowFact"].append([matrix_hash,"benefit","measurement","ops/s"])
+                        facts["commitMatrixOutcomeFact"].append([matrix_hash,"benefit","observed-improvement"])
+                        facts["commitMatrixValueValidFact"].append([matrix_hash,"benefit"])
+                        facts["commitMatrixRefFact"].append([matrix_hash,"benefit",model_name,model_hash])
+                        for field in matrix_fields:
+                            facts["commitMatrixFieldFact"].append([matrix_hash,"benefit",field,"explicit-control"])
             for field, text in payload.items():
                 row = [packet_hash, field, text]
                 if row not in facts["commitAuditFieldFact"]:
@@ -109,10 +130,13 @@ class RevisionCommentPolicyTests(unittest.TestCase):
                  "commitUnitGap", "commitProgressReady")
         answers = {name: [list(row) for row in rows] for name, rows in
                    query(facts, catalog, {name: name for name in names}).items()}
-        self.assertEqual(answers["commitReady"], [["complete-comment"]])
+        self.assertEqual(answers["commitReady"], [["complete-comment"], ["runtime-positive"]])
         self.assertEqual(answers["commitMissing"], [])  # underlying gates all pass
         self.assertEqual(answers["controlFailure"], [])
-        self.assertEqual(answers["commitProgressReady"], [])
+        self.assertEqual(answers["commitProgressReady"], [["runtime-positive", "policy-runtime"]])
+        self.assertIn(["regressed-matrix", "runtime", "measured-regression"], answers["commitMatrixMissing"])
+        self.assertIn(["mixed-benefit-matrix", "runtime", "measured-regression"], answers["commitMatrixMissing"])
+        self.assertIn(["runtime-unmeasured", "matrix", "positive-benefit-unproven"], answers["commitMatrixMissing"])
         self.assertIn(["absent-unit", "missing-submission-unit"], answers["commitUnitGap"])
         self.assertTrue(answers["commitMatrixMissing"])
         for field in fields:
