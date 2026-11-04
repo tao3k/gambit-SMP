@@ -91,6 +91,19 @@ package GambitModernCOutcomes {
   }
   part pipeNeed0:Need { ref part :>> result=pipeDomain; attribute :>> id="PIPE-OWNER-RESULT"; attribute :>> condition="Complete source construction/write/wait/close/exit owner and actual native consumers, not only an identity assertion or one setter."; }
   part pipeNeed1:Need { ref part :>> result=pipeDomain; attribute :>> id="PIPE-COST-RESULT"; attribute :>> condition="Matched4096-pair cost and explicit predecessor SFUN mechanism/noise attribution. No universal runtime speedup or peak-memory credit."; }
+  part entryAdmission:Result {
+    attribute :>> countAxis="post-foundation";
+    attribute :>> id="rc-entry-admission";
+    attribute :>> title="RC source and activation-owned argument admission";
+    attribute :>> replacement="One source gate covers registration/write/borrow; positive SFUN span mutation requires a live prepared/active record rather than a borrow count. Logical revoke retains physical roots without mutation permission.";
+    attribute :>> validation="Exact retained-scope baseline negative, native replay/shrink/GC/exception/nonzero consumers, source-matched0/1/8 cost and actual linked code.";
+    attribute :>> falsifier="Raw span writes or revoked records can mutate; registration bypasses freeze; roots leave before physical end; arbitrary positive speedup is inferred from fewer calls.";
+    attribute :>> benefit="Close actual activation/source ownership bypasses without a new permit table or metadata layout; shared policy colocation can remove a forwarding call.";
+    attribute :>> cost="Extra kind/identity checks; native net timing remains conditional and must be measured. No general CFFI or whole-SMP claim.";
+    attribute :>> deliveryStatus="QUALIFIED_C_TARGET";
+  }
+  part entryNeed0:Need { ref part :>> result=entryAdmission; attribute :>> id="ENTRY-OWNER-RESULT"; attribute :>> condition="Complete actual source/activation/borrow/scan/physical-exit consumers, not a single setter."; }
+  part entryNeed1:Need { ref part :>> result=entryAdmission; attribute :>> id="ENTRY-COST-RESULT"; attribute :>> condition="Exact linked call structure and paired workloads; preserve negative timing and no whole-mode promotion."; }
   part def Route { ref part unit:GambitPendingCuts::Delivery; attribute target:String; attribute disposition:String; }
   part route0:Route { ref part :>> unit=GambitPendingCuts::headerDelivery; attribute :>> target="support"; attribute :>> disposition="Only ABI/layout hunks transitively required by each result;46 primary paths are not46 approved files."; }
   part route1:Route { ref part :>> unit=GambitPendingCuts::borrowDelivery; attribute :>> target="frozen-roots"; attribute :>> disposition="Complete admitted native root borrow/callback responsibilities feed result1."; }

@@ -287,7 +287,7 @@ package GambitPendingCuts {
   part s15:DeliverySlice { ref part :>> owner=generated; ref part :>> delivery=distributionDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
   part s16:DeliverySlice { ref part :>> owner=ci; ref part :>> delivery=ciDelivery; attribute :>> patterns="*"; attribute :>> omissions=""; }
 
- attribute currentPackages:String="currentHeaders;currentBuild;currentEntries;currentCollector;currentPipe;currentWords;currentBackend;currentCi;currentCost;currentRootTests;currentRootWrite;currentVmLayout";
+ attribute currentPackages:String="currentHeaders;currentBuild;currentEntryAdmission;currentEntries;currentCollector;currentPipe;currentWords;currentBackend;currentCi;currentCost;currentRootTests;currentRootWrite;currentVmLayout";
  attribute currentRuntimeProgress:String="4/4 local foundation deliveries; no independent SMP or universal performance promotion";
  attribute independentSmpProgress:String="1/12 checkpoint; eleven families remain open until whole source-bound manifests qualify";
  attribute currentNetSpeedup:String="NOT_ESTABLISHED; source correctness/bounded-work benefits and measured costs must remain separate";
@@ -312,11 +312,21 @@ package GambitPendingCuts {
   attribute :>> cost="Hash/receipt work remains; cold full-build gains remain unmeasured.";
   attribute :>> admission="REVIEW_QUEUE_ONLY; one full responsibility/consumer contract plus five gates; no file-count or support progress";
  }
+ part currentEntryAdmission:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
+  attribute :>> id="rc-entry-admission";
+  attribute :>> paths="";
+  attribute :>> depends="header-composition";
+  attribute :>> scope="Published3ab1444b: actual source registration/write/borrow and live SFUN record authorizes positive span stores; logical revoke retains physical roots but denies mutation.";
+  attribute :>> tests="Exact parent revoked-write witness,17 native consumer checks including RC/SFUN p2,204 PBT actions, map multi-shot and old public modules; existing QNT13+13 cases and1000 entry traces.";
+  attribute :>> benefit="Close real duplicate-registration and activation-authority bypasses without new metadata; remove actual linked argument forwarding call.";
+  attribute :>> cost="Extra kind/identity guards; mixed0/1/8 timings -3.063%/+2.129%/-4.160%; no stable whole speedup or peak claim.";
+  attribute :>> admission="PUBLISHED3ab1444b; complete declared RC/SFUN owner only, not general FFI/startup/resize or whole SMP";
+ }
  part currentEntries:PendingPackage { ref part :>> stage=GambitModernCDeliveryPlan::entries;
   attribute :>> id="entry-write-authority";
   attribute :>> paths="lib/_num.scm;lib/_system.scm;lib/_thread.scm;lib/mem.h;lib/os_setup.c";
-  attribute :>> depends="header-composition";
-  attribute :>> scope="One complete writer/borrow/root-entry/exception consumer chain. Rename pairs and marker/root/resize declarations must be reconciled with the published ABI; remaining mem.h declarations require separate resize/global ownership. Startup-ready guards require real generation and completion authority.";
+  attribute :>> depends="header-composition;rc-entry-admission";
+  attribute :>> scope="Remaining context/startup/resize/interrupt sources after the complete RC/SFUN admission owner3ab1444b. This five-file queue does not inherit its runtime acceptance. One complete writer/borrow/root-entry/exception consumer chain. Rename pairs and marker/root/resize declarations must be reconciled with the published ABI; remaining mem.h declarations require separate resize/global ownership. Startup-ready guards require real generation and completion authority.";
   attribute :>> tests="Actual C/FFI generator, normal/throw/catcher/GC/borrow/refusal paths; existing Scheme replay/shrink and old module refusal; no parallel namespace.";
   attribute :>> benefit="One entry writer authority and explicit root/exception custody, preserving multi-shot Scheme semantics. Complete SFUN owner13104c8a now owns one root span through physical C exit; VM layout retirement is separately blocked and general raw native APIs remain separate. The admitted binding-read activation a9b896c4 moves owner proof to lifecycle entry and module executable publication, with no per-host admission/cache or repeated permit/epoch metadata. A context-owned logical VM capability must preserve current-directory and value/presence acquire reads, local primitive overrides, reader drain, PointId/frame roots and multi-shot restoration; never cache moving Scheme values.";
   attribute :>> cost="Leases, root cells and cleanup debt; broad CFFI is not already accepted.";
