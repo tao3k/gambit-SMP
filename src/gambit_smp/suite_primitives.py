@@ -326,6 +326,28 @@ def runner_option(option):
     return ",".join("p1" if part.startswith("p") and part[1:].isdigit() else part for part in option.split(","))
 
 
+def thread_interrupt_lifetime_fixture(original):
+    """Retain every old test form; make the target lifetime explicit.
+
+    A finite amount of computation cannot keep a thread alive until another
+    thread submits an interrupt. The receive prevents early termination; the
+    driver sends only after the existing observation loop and joins before
+    the unchanged final value assertion. Missing delivery remains a failure.
+    """
+    before = b"       (waste-time 200)\n       (set! var (+ var 10))"
+    after = (b"       (waste-time 200)\n"
+             b"       ;; Computation ratios do not guarantee that this thread remains active.\n"
+             b"       ;; The driver releases it after observing the requested interrupt.\n"
+             b"       (test-eq 'finish (thread-receive))\n"
+             b"       (set! var (+ var 10))")
+    driver = b"(let loop () (if (<= var save) (loop)))\n\n(test-equal 11 var)"
+    joined = (b"(let loop () (if (<= var save) (loop)))\n\n"
+              b"(thread-send t2 'finish)\n(thread-join! t2)\n\n(test-equal 11 var)")
+    if original.count(before) != 1 or original.count(driver) != 1:
+        raise ValueError("original interrupt lifetime test anchors changed")
+    return original.replace(before, after).replace(driver, joined)
+
+
 def thread_request_fixture(original, header):
     """Refine the old private request constructor; retain every assertion.
 

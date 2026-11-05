@@ -117,13 +117,59 @@ def _load_smp_evidence(root, path, expected=None):
     return json.loads(raw), dict(path=path.as_posix(), sha256=identity)
 
 
+def _published_pr_source(root, source_binding, name, expected):
+    """Read an exact published source period, never an orphaned subject tree."""
+    import hashlib
+    from gambit_smp.task_processes import check_output
+
+    _, record = _load_smp_evidence(root, source_binding)
+    revision = check_output(["git", "-C", root, "log", "-1", "--format=%H", "--",
+                             str(source_binding)], timeout=10).decode().strip()
+    if not revision:
+        raise ValueError("PR historical source record has no published commit")
+    committed = check_output(["git", "-C", root, "show",
+                              revision + ":" + str(source_binding)], timeout=10)
+    if hashlib.sha256(committed).hexdigest() != record["sha256"]:
+        raise ValueError("PR historical source record differs from its published epoch")
+    original = check_output(["git", "-C", root, "show", revision + ":" + name], timeout=10)
+    if hashlib.sha256(original).hexdigest() != expected:
+        raise ValueError("PR historical source differs from its published epoch")
+    return original
+
+
+def _fixture_projection_source(root, proof, function, *, source_binding=None):
+    """Keep a historical pure projection bound across unrelated module edits.
+
+    The full historical blob must still have its recorded digest. Only the
+    identical function syntax may be reused; this does not accept a changed
+    implementation or reinterpret an old native result as current execution.
+    """
+    import ast
+    import hashlib
+    path = root / proof["projectionSource"]
+    if digest(path) == proof["projectionSha256"]:
+        return True
+    original = _published_pr_source(root, proof.get(
+        "sourceBinding", source_binding or "evidence/research/retained/modern-c/pr-gsi/submission/source.json"),
+        proof["projectionSource"], proof["projectionSha256"])
+    def body(raw):
+        definitions = [node for node in ast.parse(raw).body
+                       if isinstance(node, ast.FunctionDef) and node.name == function]
+        return ast.dump(definitions[0], include_attributes=False) if len(definitions) == 1 else None
+    old, current = body(original), body(path.read_bytes())
+    return old is not None and old == current
+
+
 def require_pr_smp_evidence(root, receipt):
     """Revalidate the model-bound whole PR population, never a focused PASS."""
     import hashlib
-    from gambit_smp.suite_primitives import thread_request_fixture
+    from gambit_smp.suite_primitives import thread_request_fixture, thread_interrupt_lifetime_fixture
     from gambit_smp.task_processes import check_output
 
-    folder = Path("evidence/research/retained/modern-c/pr-gsi")
+    mode = receipt.get("mode")
+    if mode not in {"gsi", "gsc"} or receipt.get("family") != "pr-" + mode:
+        raise ValueError("PR family must match its actual interpreted or compiled mode")
+    folder = Path("evidence/research/retained/modern-c") / ("pr-" + mode)
     reference = receipt["nativeReference"]
     raw, _ = _load_smp_evidence(root, reference["path"], reference["sha256"])
     if raw.get("complete") is not True or any(receipt.get(k) != v for k, v in raw.items()):
@@ -138,6 +184,11 @@ def require_pr_smp_evidence(root, receipt):
             or bootstrap["producerSha256"] != receipt["producerSha256"]):
         raise ValueError("PR immutable source-reader base lacks its exact producer")
     read_base = bootstrap["baseRevision"]
+    if mode == "gsc":
+        runner = check_output(["git", "-C", root / "vendor/gambit", "show",
+                               read_base + ":tests/run-unit-tests.scm"], timeout=10)
+        if receipt["testInputFiles"].get("run-unit-tests.scm") != hashlib.sha256(runner).hexdigest():
+            raise ValueError("compiled PR acceptance requires the original compile/load runner")
     if (binding.get("complete") is not True or binding.get("diagnostics") != []
             or binding.get("manifestMatched") is not True or binding["cases"] != cases
             or any(binding["spec"].get(k) != v for k, v in spec.items())
@@ -145,12 +196,15 @@ def require_pr_smp_evidence(root, receipt):
         raise ValueError("PR population needs its diagnostic-free native SDK binding")
     for name, expected in binding["modelInputs"].items():
         if digest(root / name) != expected:
-            raise ValueError("PR model source changed")
+            # An accepted earlier family retains its own model epoch. A later
+            # support-policy edit must not relabel that historical receipt as
+            # a current-model run or discard its exact original model bytes.
+            _published_pr_source(root, folder / "submission/source.json", name, expected)
     originals = {}
     for name, expected in manifest["originalReferences"].items():
         originals[name], _ = _load_smp_evidence(root, name, expected)
     suite = next(s for s in originals[spec["originalSuite"]]["steps"]
-                 if s["id"] == "native-gsi")
+                 if s["id"] == "native-" + mode)
     selection = next(s["arguments"] for s in originals[spec["originalSelection"]]["steps"]
                      if s["id"] == "pr-regressions-gsi")
     additional = suite["arguments"]["additionalFixtures"]
@@ -165,11 +219,36 @@ def require_pr_smp_evidence(root, receipt):
                 raise ValueError("PR fixture differs from the original pinned source")
             if digest(root / row["source"]) != row["sha256"]:
                 raise ValueError("PR original fixture source changed")
-        elif row["kind"] != "original-control" or row["target"] not in controls:
+        elif row["kind"] not in {"original-control", "source-refined-control"} or row["target"] not in controls:
             raise ValueError("PR control is outside the original selection")
         else:
             data = check_output(["git", "-C", root / "vendor/gambit", "show",
                                  read_base + ":tests/unit-tests/" + row["target"]], timeout=10)
+            if row["kind"] == "source-refined-control":
+                if mode != "gsc" or "controlRefinementEvidence" not in spec:
+                    raise ValueError("undeclared PR control refinement")
+                proof = originals[spec["controlRefinementEvidence"]]
+                projected = thread_interrupt_lifetime_fixture(data)
+                published = receipt.get("publicationSource")
+                if published is None:
+                    delivered = (root / row["source"]).read_bytes()
+                else:
+                    import re
+                    if (published.get("repository") != "vendor/gambit"
+                            or "vendor/gambit/" + published.get("path", "") != row["source"]
+                            or not re.fullmatch("[0-9a-f]{40}", published.get("revision", ""))):
+                        raise ValueError("PR fixture publication needs its exact vendor source identity")
+                    delivered = check_output(["git", "-C", root / "vendor/gambit", "show",
+                                              published["revision"] + ":" + published["path"]], timeout=10)
+                if (receipt.get("controlRefinement") != proof or row["target"] != proof["target"]
+                        or row["source"] != proof["source"]
+                        or hashlib.sha256(data).hexdigest() != proof["originalSha256"]
+                        or hashlib.sha256(projected).hexdigest() != proof["projectedSha256"]
+                        or not _fixture_projection_source(root, proof, "thread_interrupt_lifetime_fixture",
+                                                          source_binding=folder / "submission/source.json")
+                        or delivered != projected):
+                    raise ValueError("PR control lifetime refinement differs from its original source")
+                data = projected
             if hashlib.sha256(data).hexdigest() != row["sha256"]:
                 raise ValueError("PR original control differs from the published source")
     if (receipt["sourceTree"] != spec["canonicalTree"]
@@ -193,9 +272,30 @@ def require_pr_smp_evidence(root, receipt):
     projected = thread_request_fixture(original, header)
     if (hashlib.sha256(header).hexdigest() != proof["producerHeaderSha256"]
             or hashlib.sha256(projected).hexdigest() != proof["projectedSha256"]
-            or digest(root / proof["projectionSource"]) != proof["projectionSha256"]):
+            or not _fixture_projection_source(root, proof, "thread_request_fixture")):
         raise ValueError("PR constructor does not match the producer-bound source projection")
     limits = {row["target"]: row["seconds"] for row in cases if row["seconds"]}
+    original_limits = {name: seconds for name, seconds in
+                       suite["arguments"].get("fileBudgetSeconds", {}).items()
+                       if name in expected}
+    groups = None
+    if mode == "gsc":
+        legacy = next(s for s in originals[spec["legacySuite"]]["steps"]
+                      if s["id"] == "native-gsi")
+        if legacy["arguments"]["additionalFixtures"] != additional:
+            raise ValueError("compiled PR population differs from its interpreted source")
+        for name, seconds in legacy["arguments"].get("fileBudgetSeconds", {}).items():
+            if name in expected:
+                original_limits[name] = min(seconds, original_limits.get(name, seconds))
+        original_group = suite["arguments"]["groupBudgetSeconds"]["thread-completion"]
+        members = [name for name in original_group["files"] if name in expected]
+        if (spec["threadCompletionFiles"].split(";") != members
+                or spec["threadCompletionSeconds"] != original_group["budgetSeconds"]):
+            raise ValueError("compiled PR thread-completion guard differs from the original")
+        groups = {"thread-completion": dict(files=members,
+                                            budgetSeconds=original_group["budgetSeconds"])}
+    if limits != original_limits:
+        raise ValueError("PR fixture guard differs from its original source budgets")
     for row in cases:
         expected_hash = proof["projectedSha256"] if row["target"] == "06-thread/thread_interrupt_ended.scm" else row["sha256"]
         if receipt["testInputFiles"].get("unit-tests/" + row["target"]) != expected_hash:
@@ -207,10 +307,12 @@ def require_pr_smp_evidence(root, receipt):
     for run in receipt["topologies"]:
         request = run["request"]
         if (run.get("complete") is not True or run["jobs"] != jobs[run["processors"]]
-                or request["mode"] != "gsi" or request["processors"] != run["processors"]
+                or request["mode"] != mode or request["processors"] != run["processors"]
                 or request["jobs"] != run["jobs"] or request["fileBudgetSeconds"] != limits
                 or request["expectedFiles"] != sorted(expected)):
             raise ValueError("PR topology or unchanged fixture budget is incomplete")
+        if groups is not None and request.get("groupBudgetSeconds") != groups:
+            raise ValueError("compiled PR group guard is missing or changed")
         if ([p["role"] for p in run["probes"]] != ["runner", "fixture"]
                 or any(p.get("complete") is not True or p.get("exit") != 0
                        or p.get("timeout") is not False or p.get("expected") != n
@@ -224,6 +326,32 @@ def require_pr_smp_evidence(root, receipt):
                        or row.get("timeout") is not False
                        or sorted(row["observedFiles"]) != sorted(row["files"]) for row in rows)):
             raise ValueError("PR needs every original case to complete in each topology")
+        if mode == "gsc":
+            for row in rows:
+                stage = "suite-" + str(row["batch"]) + "-" + str(row["shard"])
+                commands = [p for p in receipt["processes"]
+                            if p.get("topology") == run["processors"] and p.get("stage") == stage]
+                if len(commands) != 1:
+                    raise ValueError("compiled PR group lacks its unique actual command")
+                command = commands[0]
+                argv = command.get("argv", [])
+                cap = spec["innerSeconds"]
+                if len(row["files"]) == 1:
+                    cap = min(cap, limits.get(row["files"][0], cap))
+                for group in groups.values():
+                    if group["files"] == row["files"]:
+                        cap = min(cap, group["budgetSeconds"])
+                actual_cap = command.get("effectiveBudgetSeconds")
+                expected_arguments = ["run-unit-tests.scm", "-gsc",
+                                      *["unit-tests/" + name for name in row["files"]]]
+                if (len(argv) < 4 or argv[3:] != expected_arguments
+                        or Path(argv[0]).name != "gsi" or argv[2] != "-f"
+                        or command.get("exit") != 0 or command.get("timeout") is not False
+                        or command.get("parentReaped") is not True
+                        or command.get("processGroupQuiescent") is not True
+                        or type(actual_cap) not in {int, float} or not 0 < actual_cap <= cap
+                        or not 0 < command.get("seconds", 0) <= actual_cap):
+                    raise ValueError("compiled PR group did not execute its original GSC runner")
 
 
 def accepted_smp_status(root):
@@ -369,7 +497,9 @@ def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
             if any(sorted(group.get("observedFiles", [])) != sorted(group["files"])
                    for group in groups if group["files"] != ["03-number/_num.scm"]):
                 raise ValueError("accepted GSC requires per-file runner completion")
-        if family == "pr-gsi":
+        if family in {"pr-gsi", "pr-gsc"}:
+            if receipt.get("family") != family:
+                raise ValueError("accepted PR receipt belongs to another family")
             require_pr_smp_evidence(root, receipt)
         references[family] = identity
 

@@ -84,11 +84,11 @@ class CompiledSuitePhaseTests(unittest.TestCase):
 
     def test_actual_numeric_recipes_declare_the_verified_grouping(self):
         from gambit_smp.framework import ROOT, digest
-        names = ["tests/recipes/ci/bazel-profile-numeric-host.recipe.json",
-                 "tests/recipes/ci/bazel-profile-numeric.recipe.json",
-                 "tests/recipes/ci/gc-ffi-numeric.recipe.json",
-                 "tests/recipes/ci/three-flag-numeric-inventory.recipe.json",
-                 "tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json"]
+        names = ["evidence/research/ci/bazel-profile-numeric-host.recipe.json",
+                 "evidence/research/ci/bazel-profile-numeric.recipe.json",
+                 "evidence/research/ci/gc-ffi-numeric.recipe.json",
+                 "evidence/research/ci/three-flag-numeric-inventory.recipe.json",
+                 "evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json"]
         for name in names:
             recipe, steps = recipes.load(ROOT, ROOT / name)
             selected = [step for step in steps if "numericGrouping" in step["arguments"]]

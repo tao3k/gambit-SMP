@@ -17,9 +17,9 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         path = SMP_LEDGER_FOLDER / "accepted-smp-progress.json"
         recorded = accepted_smp_status(ROOT)
         self.assertEqual((recorded["originPassed"], recorded["passed"], recorded["remaining"]),
-                         (1, 4, 8))
+                         (1, 5, 7))
         self.assertTrue(recorded["sourceTree"].startswith("65a4a2e2"))
-        self.assertEqual(recorded["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi"])
+        self.assertEqual(recorded["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi", "pr-gsc"])
         with TemporaryDirectory() as directory:
             root = Path(directory)
             refs = [recorded[key]["path"] for key in ("origin", "accepted", "originalInventory")]
@@ -68,8 +68,8 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         historical = "evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-acceptance.json"
         diagnostic = "evidence/research/retained/modern-c/frozen-568e0276-smp/env-index-acceptance.json"
         result = accepted_smp_status(ROOT)
-        self.assertEqual((result["originPassed"], result["passed"], result["remaining"]), (1, 4, 8))
-        self.assertEqual(result["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi"])
+        self.assertEqual((result["originPassed"], result["passed"], result["remaining"]), (1, 5, 7))
+        self.assertEqual(result["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi", "pr-gsc"])
         accepted = result["accepted"]["path"]
         self.assertFalse(result["wholeSmpAdmitted"])
         with self.assertRaisesRegex(ValueError, "cannot replace the accepted prefix"):
@@ -77,7 +77,7 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot regress"):
             accepted_smp_progress(ROOT, origin, historical, result)
         with self.assertRaisesRegex(ValueError, "cannot regress"):
-            accepted_smp_progress(ROOT, origin, accepted, dict(result, passed=5))
+            accepted_smp_progress(ROOT, origin, accepted, dict(result, passed=6))
         packet = json.loads((ROOT / accepted).read_text())
         if all(digest(ROOT / name) == expected for name, expected in packet["modelInputs"].items()):
             self.assertEqual(accepted_smp_progress(ROOT, origin, accepted, result), result)
@@ -140,18 +140,28 @@ class PrSmpEvidenceTests(unittest.TestCase):
 
     def test_remainder_correction_preserves_every_native_and_model_fact(self):
         from gambit_smp.suite_coverage import accepted_smp_progress, accepted_smp_status
-        current = accepted_smp_status(ROOT)
+        current = json.loads((ROOT / "evidence/research/retained/modern-c/pr-gsc/previous-accepted-smp-progress.json").read_text())
         packet = json.loads((ROOT / current["accepted"]["path"]).read_text())
         previous = dict(current, accepted=packet["metadataCorrectionOf"])
-        result = accepted_smp_progress(
-            ROOT, "evidence/research/retained/modern-c/delivery-plan/current/smp-acceptance.json",
-            current["accepted"]["path"], previous)
-        self.assertEqual(result, current)
+        # The historical correction preserves facts; admission under a later
+        # model epoch must still fail instead of rewriting old credentials.
+        before = json.loads((ROOT / packet["metadataCorrectionOf"]["path"]).read_text())
+        self.assertEqual({k:v for k,v in before.items() if k != "currentRemaining"},
+                         {k:v for k,v in packet.items() if k not in {"currentRemaining", "metadataCorrectionOf"}})
+        from gambit_smp.framework import digest
+        if any(digest(ROOT / name) != expected for name,expected in packet["modelInputs"].items()):
+            with self.assertRaisesRegex(ValueError, "SMP model input changed"):
+                accepted_smp_progress(ROOT, "evidence/research/retained/modern-c/delivery-plan/current/smp-acceptance.json",
+                                     current["accepted"]["path"], previous)
+        else:
+            self.assertEqual(accepted_smp_progress(ROOT,
+                "evidence/research/retained/modern-c/delivery-plan/current/smp-acceptance.json",
+                current["accepted"]["path"], previous), current)
 
     def test_metadata_correction_cannot_replace_native_facts(self):
         from unittest.mock import patch
         from gambit_smp.suite_coverage import accepted_smp_progress, accepted_smp_status
-        current = accepted_smp_status(ROOT)
+        current = json.loads((ROOT / "evidence/research/retained/modern-c/pr-gsc/previous-accepted-smp-progress.json").read_text())
         packet = json.loads((ROOT / current["accepted"]["path"]).read_text())
         previous = dict(current, accepted=packet["metadataCorrectionOf"])
         packet["receipts"]["pr-gsi"]["sha256"] = "0" * 64
@@ -166,14 +176,95 @@ class PrSmpEvidenceTests(unittest.TestCase):
                     "synthetic-correction.json", previous)
 
 
+class CompiledPrSmpEvidenceTests(unittest.TestCase):
+    """The same PR invariants, with independent compiled-command controls."""
+    def setUp(self):
+        from gambit_smp.suite_coverage import _load_smp_evidence
+        self.load = _load_smp_evidence
+        self.receipt = json.loads((ROOT / "evidence/research/retained/modern-c/pr-gsc/qualified-published-native.json").read_text())
+
+    test_whole_declared_pr_population_has_both_actual_topologies = PrSmpEvidenceTests.test_whole_declared_pr_population_has_both_actual_topologies
+    test_tampered_complete_raw_campaign_cannot_hide_missing_obligations = PrSmpEvidenceTests.test_tampered_complete_raw_campaign_cannot_hide_missing_obligations
+    test_relabeling_the_failed_legacy_campaign_cannot_grant_credit = PrSmpEvidenceTests.test_relabeling_the_failed_legacy_campaign_cannot_grant_credit
+
+    def test_historical_source_uses_published_commit_and_rejects_record_drift(self):
+        from unittest.mock import patch
+        from gambit_smp.suite_coverage import _published_pr_source
+        import hashlib
+        path = "evidence/research/retained/modern-c/pr-gsi/submission/source.json"
+        proof = json.loads((ROOT / "evidence/research/retained/modern-c/pr-gsi/request-constructor-refinement.json").read_text())
+        original = _published_pr_source(ROOT, path, proof["projectionSource"], proof["projectionSha256"])
+        self.assertEqual(hashlib.sha256(original).hexdigest(), proof["projectionSha256"])
+        def stale_record(root, name, expected=None):
+            value, identity = self.load(root, name, expected)
+            return (value, dict(identity, sha256="0" * 64)) if str(name) == path else (value, identity)
+        with patch("gambit_smp.suite_coverage._load_smp_evidence", side_effect=stale_record):
+            with self.assertRaisesRegex(ValueError, "published epoch"):
+                _published_pr_source(ROOT, path, proof["projectionSource"], proof["projectionSha256"])
+
+    def test_compilation_commands_group_guard_and_lifetime_proof_are_mandatory(self):
+        from unittest.mock import patch
+        from gambit_smp.suite_coverage import require_pr_smp_evidence
+        def interpreted_command(value):
+            next(p for p in value["processes"] if p["stage"].startswith("suite-"))["argv"][4] = "-gsi"
+        def missing_command(value):
+            value["processes"].remove(next(p for p in value["processes"] if p["stage"].startswith("suite-")))
+        def duplicate_command(value):
+            value["processes"].append(copy.deepcopy(next(p for p in value["processes"] if p["stage"].startswith("suite-"))))
+        def missing_group(value):
+            value["topologies"][0]["request"].pop("groupBudgetSeconds")
+        def longer_group(value):
+            value["topologies"][0]["request"]["groupBudgetSeconds"]["thread-completion"]["budgetSeconds"] = 121
+        def lost_lifetime_proof(value):
+            value.pop("controlRefinement")
+        def wrong_mode(value):
+            value["mode"] = "gsi"
+        def wrong_publication(value):
+            value["publicationSource"] = dict(repository="vendor/gambit",
+                revision=value["baselineRevision"], path="tests/unit-tests/06-thread/thread_interrupt.scm")
+        def longer_command(value):
+            next(p for p in value["processes"] if p["stage"].startswith("suite-"))["effectiveBudgetSeconds"] = 301
+        for mutate in [interpreted_command, missing_command, duplicate_command,
+                       missing_group, longer_group, lost_lifetime_proof, wrong_mode, wrong_publication,
+                       longer_command]:
+            receipt = copy.deepcopy(self.receipt)
+            mutate(receipt)
+            raw = {k:v for k,v in receipt.items() if k != "nativeReference"}
+            def load(root, path, expected=None):
+                if str(path) == receipt["nativeReference"]["path"]:
+                    return raw, receipt["nativeReference"]
+                return self.load(root, path, expected)
+            with self.subTest(mutation=mutate.__name__), \
+                    patch("gambit_smp.suite_coverage._load_smp_evidence", side_effect=load):
+                with self.assertRaises(ValueError):
+                    require_pr_smp_evidence(ROOT, receipt)
+
+    def test_lifetime_projection_retains_the_source_and_refuses_reapplication(self):
+        from gambit_smp.suite_primitives import thread_interrupt_lifetime_fixture
+        from gambit_smp.task_processes import check_output
+        proof = self.receipt["controlRefinement"]
+        original = check_output(["git", "-C", ROOT / "vendor/gambit", "show",
+                                 proof["originalRevision"] + ":tests/unit-tests/" + proof["target"]], timeout=10)
+        projected = thread_interrupt_lifetime_fixture(original)
+        publication = self.receipt.get("publicationSource")
+        delivered = (check_output(["git", "-C", ROOT / "vendor/gambit", "show",
+                                  publication["revision"] + ":" + publication["path"]], timeout=10)
+                     if publication else (ROOT / proof["source"]).read_bytes())
+        self.assertEqual(projected, delivered)
+        for invalid in [projected, original + original,
+                        original.replace(b"(test-equal 11 var)", b"(test-equal 12 var)")]:
+            with self.subTest(invalid=hash(invalid)), self.assertRaises(ValueError):
+                thread_interrupt_lifetime_fixture(invalid)
+
+
 class SuiteCoverageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        recipe = json.loads((ROOT/".cache/research/legacy-evidence/evidence/research/current-source-full-bootstrap/dynamic-modulo-interpreted.recipe.json").read_text())
+        recipe = json.loads((ROOT/"evidence/research/retained/modern-c/pr-gsc/framework-fixtures/dynamic-modulo-interpreted.recipe.json").read_text())
         cls.fixtures = next(row for row in recipe["steps"] if row["capability"]=="gambit.suite")["arguments"]["additionalFixtures"]
         cls.catalog = load_catalog(
-            ROOT/".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/compiled-coverage-rules.ss",
-            ROOT/".cache/research/legacy-evidence/evidence/research/smp-threaded-vm-native-grid/pr-regression-requirements.ss")
+            ROOT/"evidence/research/retained/modern-c/pr-gsc/framework-fixtures/compiled-coverage-rules.ss",
+            ROOT/"evidence/research/retained/modern-c/pr-gsc/framework-fixtures/pr-regression-requirements.ss")
 
     def receipt(self):
         files = sorted(self.fixtures)
