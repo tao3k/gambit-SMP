@@ -36,11 +36,22 @@ jobs:
             sleep "$attempt"
           done
           "$HOME/.elan/bin/elan" run "$toolchain" lean --version
+      - name: Restore the immutable formal tool archive
+        uses: actions/cache@v4
+        with:
+          path: .cache/tasks/repair-9-12/ci/formal/apalache.tgz
+          key: apalache-0.62.1-93fef2f381d30465eff906a2d6afa3358cb2c9adf6a8aad3bec0ded4f45432bb
       - name: Install fixed formal verification tools into local cache
         run: |
           mkdir -p .cache/tasks/repair-9-12/ci/formal/apalache
           npm install --prefix .cache/tasks/repair-9-12/ci/formal/quint @informalsystems/quint@0.33.0
-          curl --fail --location --connect-timeout 10 --max-time 15 https://github.com/apalache-mc/apalache/releases/download/v0.62.1/apalache-0.62.1.tgz --output .cache/tasks/repair-9-12/ci/formal/apalache.tgz
+          archive=.cache/tasks/repair-9-12/ci/formal/apalache.tgz
+          if ! echo "93fef2f381d30465eff906a2d6afa3358cb2c9adf6a8aad3bec0ded4f45432bb  $archive" | sha256sum --check --status; then
+            rm -f "$archive"
+            curl --fail --location --connect-timeout 10 --max-time 15 https://github.com/apalache-mc/apalache/releases/download/v0.62.1/apalache-0.62.1.tgz --output "$archive.pending"
+            echo "93fef2f381d30465eff906a2d6afa3358cb2c9adf6a8aad3bec0ded4f45432bb  $archive.pending" | sha256sum --check
+            mv "$archive.pending" "$archive"
+          fi
           echo '93fef2f381d30465eff906a2d6afa3358cb2c9adf6a8aad3bec0ded4f45432bb  .cache/tasks/repair-9-12/ci/formal/apalache.tgz' | sha256sum --check
           tar -xzf .cache/tasks/repair-9-12/ci/formal/apalache.tgz --strip-components=1 -C .cache/tasks/repair-9-12/ci/formal/apalache
           echo '880c0b2b72354816f12e9a9755829f2907071e9a181ffea1937954c23d54739d  .cache/tasks/repair-9-12/ci/formal/apalache/lib/apalache.jar' | sha256sum --check

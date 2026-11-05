@@ -33,7 +33,7 @@ package GambitCommitGates {
     attribute commitUnitRequired : Boolean = true;
     attribute deliveryRegistry : String = "dev/refactoring/modern-c/models/sysml/delivery-outcomes.sysml";
     attribute supportSurfaces : String = "tests/;.github/;dev/;docs/;evidence/;src/gambit_smp/;tools/";
-    attribute supportFiles : String = "configure;configure.ac;aclocal.m4;makefile.in;gsc/makefile.in;gsi/makefile.in;lib/makefile.in;bin/makefile.in;pyproject.toml;uv.lock";
+    attribute supportFiles : String = ".gitignore;configure;configure.ac;aclocal.m4;makefile.in;include/makefile.in;gsc/makefile.in;gsi/makefile.in;lib/makefile.in;bin/makefile.in;pyproject.toml;uv.lock";
     attribute derivedAuditFiles : String = "source.json;source-manifest.json;model-contract.json;comment.json;admission.json";
     attribute publicationPolicy : String = "dev/modeling/models/sysml/research-storage.sysml";
     attribute deliveryRule : String = "Every submission declares one integration result or an explicit support correction. Runtime integration requires every result obligation, transitive predecessor obligation and component source/native case on the exact tested tree/profile, with durable reviewed evidence; five audit gates alone never permit a fragment. Support corrections declare exact non-runtime paths, no integration target and zero progress. Header/runtime/generator semantic work cannot disguise itself as support. Missing classification, omitted case, stale receipt, unrelated runtime path or claimed support progress blocks. Historical admissions remain immutable; future models must adopt this contract. Raw Git remains a human/external boundary, not an authority enforced by this framework.";

@@ -37,6 +37,31 @@ def reconstruct(root):
     return names, b''.join(payload)
 
 
+def build_contract(root):
+    """Refine the publication owner separately from the historical byte move."""
+    root = Path(root)
+    names, raw = reconstruct(root)
+    configure = (root / 'configure.ac').read_text()
+    make = (root / 'include/makefile.in').read_text()
+    if 'AC_CONFIG_COMMANDS([include/gambit.h]' not in configure:
+        raise ValueError('configure must delegate public header publication')
+    if re.search(r'include/gambit\.h:include/', configure):
+        raise ValueError('configure retains a second module inventory')
+    if any(name in make for name in names):
+        raise ValueError('Make retains a second module inventory')
+    for contract in ('HEADER_TEMPLATES := $(shell $(AWK)',
+                     '$(srcdirpfx)gambit.h.in',
+                     'RCFILES = makefile.in gambit.h.in config.h.in stamp-release.h $(HEADER_TEMPLATES)',
+                     'gambit.h: | stamp-gambit', 'cmp -s "$$tmp" gambit.h',
+                     'touch stamp-gambit'):
+        if contract not in make:
+            raise ValueError('missing publication/dependency contract: ' + contract)
+    return dict(complete=True, fragments=len(names), payloadSha256=digest(raw),
+                maintainedInventories=1, publicHeaders=1,
+                configurationOwner='config.status', publicationOwner='include/makefile',
+                runtimeSemanticsChanged=False)
+
+
 def validate(root, baseline):
     root = Path(root)
     names, actual = reconstruct(root)
