@@ -54,6 +54,21 @@ class RevisionSubmission:
             raise ValueError((result.stderr or result.stdout).decode(errors="replace"))
         return result.stdout
 
+    def index_identity(self):
+        """Git proposal state, excluding refreshable filesystem stat metadata.
+
+        Preserve stages/blobs/modes, assume/skip flags, intent-to-add behavior
+        and resolve-undo entries. Git parses its own index representation.
+        """
+        commands = {
+            'entriesAndFlags': ('ls-files', '--stage', '-v', '-z'),
+            'intent': ('diff', '--cached', '--raw', '-z', '--ita-invisible-in-index', self.base),
+            'resolveUndo': ('ls-files', '--resolve-undo', '-z'),
+        }
+        return content_digest({key: hashlib.sha256(self.git(*argv)).hexdigest()
+                               for key, argv in commands.items()})
+
+
     def check_native(self):
         if self.native.get("qualificationKind") == "independent-smp-first-three":
             from gambit_smp.smp_completion import validate_mvp_completion
@@ -218,6 +233,7 @@ class RevisionSubmission:
         self.gitdir = Path(self.git("rev-parse", "--absolute-git-dir").decode().strip())
         self.index_digest = digest(self.gitdir / "index")
         self.staged = self.git("ls-files", "--stage", "-z")
+        self.index_state = self.index_identity()
         self.working_paths = list(paths) if self.framework_support else []
         self.working = hashlib.sha256(self.git("diff", "HEAD", "--binary", "--", *self.working_paths)).hexdigest()
         self.index = self.storage / "submission.index"
@@ -306,6 +322,7 @@ class RevisionSubmission:
                            canonicalInputEquivalence=not self.framework_support,
                            qualificationScope="framework-support" if self.framework_support else "complete-native-source",
                            realIndexSha256=self.index_digest,
+                           realIndexStateSha256=self.index_state,
                            stagedSha256=hashlib.sha256(self.staged).hexdigest(),
                            workingDiffSha256=self.working, sourceCopies=0,
                            wholeSmpAdmitted=False)
@@ -315,6 +332,7 @@ class RevisionSubmission:
             self.source["mergeParent"] = self.merge_parent
         write_json(self.evidence / "source.json", self.source)
         return self.source
+
 
     def source_archive(self, revision):
         if not self.framework_support:
@@ -622,13 +640,14 @@ class RevisionSubmission:
             raise ValueError("branch advanced after source freeze")
         if self.git("symbolic-ref", "--short", "HEAD").decode().strip() != self.branch:
             raise ValueError("branch changed after source freeze")
-        if digest(self.gitdir / "index") != self.index_digest or self.git("ls-files", "--stage", "-z") != self.staged:
+        if self.index_identity() != self.index_state or self.git("ls-files", "--stage", "-z") != self.staged:
             raise ValueError("concurrent staging changed; preserve it")
         if hashlib.sha256(self.git("diff", "HEAD", "--binary", "--", *self.working_paths)).hexdigest() != self.working:
             raise ValueError("concurrent working changes; preserve them")
         for name, expected in self.model_inputs.items():
             if digest(self.root / name) != expected:
                 raise ValueError("model changed after projection")
+
 
     def admit(self):
         """Evaluate the shared policy; absence/staleness controls use real rules."""
@@ -897,11 +916,12 @@ class RevisionSubmission:
         revision = self.git("rev-parse", "HEAD").decode().strip()
         if self.git("rev-parse", "HEAD^{tree}").decode().strip() != publication_tree:
             raise ValueError("committed tree differs from admission")
-        if digest(self.gitdir / "index") != self.index_digest:
+        if self.index_identity() != self.index_state:
             raise ValueError("commit changed unrelated index custody")
         result = dict(repository=str(self.repository.relative_to(self.root)),
                       branch=self.branch, revision=revision, parent=self.base,
                       tree=publication_tree, testedSourceTree=self.tree, paths=self.paths, realIndexUnchanged=True,
+                      realIndexBytesUnchanged=digest(self.gitdir / "index") == self.index_digest,
                       sourceCopies=0, pushed=False, wholeSmpAdmitted=False)
         unit = self.delivery_contract()
         result.update(submissionKind=unit["kind"], integrationResult=unit["result"],

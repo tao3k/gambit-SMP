@@ -246,6 +246,11 @@ def fixture_root(root, path):
         if offset == 3:
             identifier(parts[2])
         tail = parts[offset:]
+        if tail == ('build', 'suite-tests'):
+            from gambit_smp.workspace import task_output
+            if task_output(root, path) != path:
+                raise ValueError('suite pool belongs to another task')
+            return store / Path(*parts[:offset])
         if (len(tail) >= 4 and tail[0] == 'build' and tail[3] == 'source'
                 and len(tail[2]) == 64 and all(c in '0123456789abcdef' for c in tail[2])):
             identifier(tail[1])

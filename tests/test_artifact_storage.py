@@ -14,6 +14,28 @@ from gambit_smp.artifact_storage import fixture_root, observation_root
 
 
 class ArtifactStorageTests(unittest.TestCase):
+    def test_fixed_suite_pool_has_real_lease_custody_without_authorizing_children(self):
+        from tests.support import task_fixture
+        from gambit_smp.artifact_storage import workspace_lease
+        with task_fixture('suite-pool-custody') as (root, cache):
+            pool = cache / 'build/suite-tests'
+            pool.mkdir(parents=True)
+            self.assertEqual(cache, fixture_root(root, pool))
+            foreign = root / '.cache/tasks/other/build/suite-tests'
+            with self.assertRaisesRegex(ValueError, 'another task'):
+                fixture_root(root, foreign)
+            identity = lambda p: [p.stat().st_dev, p.stat().st_ino]
+            with workspace_lease(root, pool, identity(pool), identity_reader=identity):
+                with self.assertRaisesRegex(ValueError, 'already leased'):
+                    with workspace_lease(root, pool, identity(pool), identity_reader=identity):
+                        self.fail('second owner entered the same suite pool')
+            for tail in ('build/suite-tests/worker-0', 'build/suite-tests-extra',
+                         'build/other', 'runs/suite-tests'):
+                path = cache / tail
+                path.mkdir(parents=True, exist_ok=True)
+                with self.subTest(tail=tail), self.assertRaises(ValueError):
+                    fixture_root(root, path)
+
     def repository(self, directory):
         root = Path(directory).resolve()
         subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)

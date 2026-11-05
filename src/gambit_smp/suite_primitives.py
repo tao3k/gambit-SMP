@@ -83,8 +83,8 @@ def suite_workers(root, run, jobs):
     if run.is_relative_to(tasks):
         parts = run.relative_to(tasks).parts
         offset = 3 if len(parts) > 2 and parts[1] == 'processes' else 1
-        if len(parts) <= offset or parts[offset] != 'runs':
-            raise ValueError('suite observations require a task run')
+        if len(parts) <= offset or task_output(root, run) != run:
+            raise ValueError('suite observations require their owning task store')
         pool = tasks.joinpath(*parts[:offset], 'build', 'suite-tests')
     else:
         # Existing unscoped fixture consumers, including isolated unit controls.

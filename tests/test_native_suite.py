@@ -45,6 +45,21 @@ class ThreadRequestFixtureTests(unittest.TestCase):
 
 
 class NativeSuiteTests(unittest.TestCase):
+    def test_recipe_and_run_receipts_share_one_owned_pool(self):
+        from gambit_smp.suite_primitives import suite_workers
+        with task_fixture('suite-receipt-owners') as (root, cache):
+            observed = set()
+            for tail in ('runs/one', 'fixtures/ci-threads/run/gsi',
+                         'fixtures/ci-threads/run/gsc'):
+                with suite_workers(root, cache / tail, 1) as slots:
+                    observed.add(slots.get())
+            self.assertEqual({cache / 'build/suite-tests/worker-0'}, observed)
+            foreign = root / '.cache/tasks/other/runs/one'
+            with self.assertRaisesRegex(ValueError, 'another task'):
+                with suite_workers(root, foreign, 1):
+                    self.fail('foreign task acquired this pool')
+            self.assertFalse((root / '.cache/tasks/other/build').exists())
+
     def test_fixed_task_slots_reuse_bytes_and_cwd_across_runs(self):
         from gambit_smp.suite_primitives import digest, suite_workers, prepare_suite_worker
         with task_fixture('suite-slots') as (root, cache):
@@ -392,7 +407,7 @@ class NativeSuiteTests(unittest.TestCase):
     def test_completion_patch_is_exact_tested_fixture_and_original_source(self):
         root = Path(__file__).resolve().parents[1]
         relative = Path("tests/unit-tests/06-thread/thread_interrupt.scm")
-        receipt = json.loads((root / ".cache/research/legacy-evidence/evidence/model-results/native-thread-completion-019.json").read_text())
+        receipt = json.loads((root / "evidence/model-results/native-thread-completion-019.json").read_text())
         fixture = root / "models/gambit/native/pr988/thread_interrupt_completion.scm"
         patch = root / "patches/candidates/test-thread-interrupt-completion.patch"
         self.assertEqual(receipt["extraFixtures"]["diagnostic/thread_interrupt_completion.scm"]["sha256"],

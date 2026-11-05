@@ -85,6 +85,45 @@ class RevisionSubmissionFixture(unittest.TestCase):
                     open="Whole-runtime correctness remains outside this transport fixture.")
 
 class RevisionSubmissionTests(RevisionSubmissionFixture):
+    def test_stat_refresh_preserves_the_same_staging_proposal(self):
+        import os
+        submission = self.submission()
+        submission.prepare(['a.c'], self.profile)
+        submission.model_inputs = {}
+        path = self.repo / 'a.c'
+        stamp = path.stat().st_mtime_ns + 3_000_000_000
+        os.utime(path, ns=(stamp, stamp))
+        self.git('update-index', '--refresh', '--', 'a.c')
+        self.assertNotEqual(submission.index_digest, self.sha(submission.gitdir / 'index'))
+        self.assertEqual(submission.staged, self.git('ls-files', '--stage', '-z'))
+        submission.check_custody()
+
+    def test_index_flags_are_still_a_custody_change(self):
+        submission = self.submission()
+        submission.prepare(['a.c'], self.profile)
+        submission.model_inputs = {}
+        self.git('update-index', '--assume-unchanged', '--', 'a.c')
+        self.assertEqual(submission.staged, self.git('ls-files', '--stage', '-z'))
+        with self.assertRaisesRegex(ValueError, 'concurrent staging changed'):
+            submission.check_custody()
+        self.git('update-index', '--no-assume-unchanged', '--', 'a.c')
+        submission.check_custody()
+        self.git('update-index', '--skip-worktree', '--', 'a.c')
+        with self.assertRaisesRegex(ValueError, 'concurrent staging changed'):
+            submission.check_custody()
+
+    def test_intent_to_add_is_not_equivalent_to_a_staged_empty_blob(self):
+        path = self.repo / 'pending.c'
+        path.write_bytes(b'')
+        self.git('add', '-N', 'pending.c')
+        submission = self.submission()
+        submission.prepare(['a.c'], self.profile)
+        submission.model_inputs = {}
+        self.git('add', 'pending.c')
+        self.assertEqual(submission.staged, self.git('ls-files', '--stage', '-z'))
+        with self.assertRaisesRegex(ValueError, 'concurrent staging changed'):
+            submission.check_custody()
+
 
     def test_cumulative_cut_does_not_trust_last_sync_path_list(self):
         import os

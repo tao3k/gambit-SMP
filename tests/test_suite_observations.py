@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from gambit_smp import suite_observations as observations
 from gambit_smp import recipes, native_capabilities
+from tests.support import quiescent_execute_fixture
 
 
 class SuiteObservationsTests(unittest.TestCase):
@@ -15,6 +16,8 @@ class SuiteObservationsTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
+        from gambit_smp.workspace import git
+        git(self.root, 'init', '-q')
         self.work = self.root / "shard"
         self.work.mkdir()
         self.declared = {"diagnostic.scm": "observations/cost.json"}
@@ -90,6 +93,7 @@ class SuiteObservationsTests(unittest.TestCase):
         directory.mkdir()
         ctx = recipes.ExecutionContext(self.root, directory, directory, {},
             time.monotonic() + 10, {}, {}, {})
+        @quiescent_execute_fixture
         def executed(argv, cwd, cap, **kwargs):
             (cwd / "observations/cost.json").write_text('{"seconds":0.1}')
             return code, "PASSED ALL 1 UNIT TESTS\n", timeout, 0.1
