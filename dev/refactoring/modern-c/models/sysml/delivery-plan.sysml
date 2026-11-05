@@ -2,7 +2,7 @@ package GambitModernCDeliveryPlan {
   private import ScalarValues::*;
   attribute base:String="043a9341168645caa1fc8f13cb586ef63a352dcc";
   attribute policy:String="The13 stages are a responsibility catalogue, not a completed-progress denominator. GambitModernCOutcomes owns four complete integration results; internal source leaves and15 review units are not delivered SMP outcomes. Preserve historical scoped evidence without promoting it into a complete result.";
-  attribute immediate:String="Three local managed C-target results are qualified. Next deliver explicit request/message ownership and stable service activation with full original/native/Gerbil products and matched performance populations. Independent SMP remains1/12, not3/12 or9/12.";
+  attribute immediate:String="Three local managed C-target results are qualified. Next deliver explicit request/message ownership and stable service activation with full original/native/Gerbil products and matched performance populations. Read independent SMP progress from the accepted ledger and its exact-source receipts.";
   attribute commitRule:String="A bounded REV needs exact source/ABI consumers, actual required tests, learning/benefit/cost, process and model/question closure under shared five ASCENT gates. Missing tests or unexplained affected failures block it. Broader failures must have explicit applicability/disposition; scoped gate readiness never means whole branch admission.";
   attribute nextSource:String="GambitModernCOutcomes::execution owns the fourth whole result. Replace waiting/service-activation and shared FIFO lifetime responsibilities; retain the qualified root, physical copy/restore and lifecycle contracts. Do not turn tfib or every CFFI feature into another stopgap batch.";
   attribute nextAcceptance:String="On the final source run complete interpreted/compiled, PR/stress and Gerbil manifests under fixed resource limits. Trace actual request/FIFO ownership and repeated service continuation work; collect matched performance populations. Keep all root/collector/lifecycle regressions and explicit baseline failures. Three predecessor results grant no SMP family credit.";
@@ -242,12 +242,222 @@ package GambitModernCDeliveryPlan {
   part a11:AcceptanceFamily { attribute :>> ordinal=11; attribute :>> id="gerbil"; attribute :>> evidenceKind="complete-gerbil-correctness"; attribute :>> criterion="Complete Gerbil build and correctness manifest consuming the exact current native producer"; }
   part a12:AcceptanceFamily { attribute :>> ordinal=12; attribute :>> id="release"; attribute :>> evidenceKind="complete-release-cost"; attribute :>> criterion="Matched full latency/throughput/peak and downstream build populations on one source with unchanged negative controls and resource gates"; }
   part def AcceptanceHold { ref part family:AcceptanceFamily; attribute tree:String; attribute profile:String; attribute reason:String; attribute evidence:String; }
+  part def AcceptanceRun {
+    attribute tree:String; attribute profile:String;
+    attribute bootstrapEvidence:String; attribute gsiEvidence:String; attribute gscEvidence:String;
+  }
+  part cfgPlacementRun:AcceptanceRun {
+    attribute :>> tree="8490662c5f312bf6df0bbffda085401ee0687e49";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/cfg-placement-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/cfg-placement-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/cfg-placement-gsc.json";
+  }
+  part dominantHostRun:AcceptanceRun {
+    attribute :>> tree="106d9cc24c7f9f9f9194014970da24d27706fad2";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsc.json";
+  }
+  part dominantHostCapacityWindow:AcceptanceRun {
+    attribute :>> tree="106d9cc24c7f9f9f9194014970da24d27706fad2";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsc-capacity-window.json";
+  }
+  part dominantHostFamilyWindow:AcceptanceRun {
+    attribute :>> tree="106d9cc24c7f9f9f9194014970da24d27706fad2";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsc-family-window.json";
+  }
+  part dominantHostWeightedWindow:AcceptanceRun {
+    attribute :>> tree="106d9cc24c7f9f9f9194014970da24d27706fad2";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/dominant-host-gsc-weighted-window.json";
+  }
+  part sharedProcedureDispatchRun:AcceptanceRun {
+    attribute :>> tree="65a4a2e265ef337239b09088486a2684bafa7362";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsc.json";
+  }
+  part sharedProcedureDispatchRebalancedRun:AcceptanceRun {
+    attribute :>> tree="65a4a2e265ef337239b09088486a2684bafa7362";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-rebalanced-gsc.json";
+  }
+  part sharedProcedureDispatchPackedRun:AcceptanceRun {
+    attribute :>> tree="65a4a2e265ef337239b09088486a2684bafa7362";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-packed-gsc.json";
+    attribute numericSupplyEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-numeric-supply-comparison.json";
+  }
+  part sharedProcedureDispatchWindowRun:AcceptanceRun {
+    attribute :>> tree="65a4a2e265ef337239b09088486a2684bafa7362";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-window-gsc.json";
+    attribute ordinaryTailEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-window-tail-census.json";
+    attribute assertionHelperEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-assertion-helper-native-comparison.json";
+    attribute assertionHelperUnresolvedPairs:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-assertion-helper-unresolved-pairs.json";
+    attribute assertionRuntimeEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-sharing.json";
+    attribute assertionRuntimeCompositionEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-composition.json";
+    attribute assertionRuntimeCampaignEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-gsc.json";
+    attribute assertionRuntimePolicy:String="Fixture owns failure state, exit installation and late tested-procs access. The provider owns shared code and creates a fresh captured exit closure when each fixture calls its installer. Preserve the continuation-creator identity in call-thunk. Retain the failed direct-global access probe. The original numeric harness remains outside this provider overlay. Five-slot AB/BA costs permit one original campaign with build and actual loads charged, preserving the earlier timing variability. Only complete natural exits of all 408 cases close GSC.";
+    attribute assertionHelperBudgetPolicy:String="Charge the one-time build and each real provider load. Scoped semantic parity or a scoped net gain cannot supply a complete GSC receipt. Require a credible fit under the original whole deadline before scheduling the full campaign.";
+    attribute assertionBuildCompositionEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-assertion-gambuild-composition.json";
+    attribute safepointTailEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-safepoint-tail-composition.json";
+    attribute generatedHostIpaEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/generated-host-ipa-attribution.json";
+    attribute originalEmissionCensusEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/original-gsc-emission-census.json";
+  }
+  part sharedAssertionRuntimeRun:AcceptanceRun {
+    attribute :>> tree="65a4a2e265ef337239b09088486a2684bafa7362";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-framework-gsc.json";
+    attribute firstCompleteCampaign:String="evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-gsc.json";
+    attribute acceptedModelSnapshot:String="evidence/research/retained/modern-c/frozen-568e0276-smp/assertion-runtime-model-inputs.json";
+    attribute implementation:String="src/gambit_smp/assertion_runtime.py";
+    attribute policy:String="Original fixture assertions, original numeric harness and file cap90, shared whole deadline295, five fixed workers, one provider build and actual per-fixture loads. Typed request declares the numeric driver input and disjoint group/file budgets. Numeric may run after the ordinary group that releases its slot. Source views restore only after actual process settlement.";
+  }
+  part indexedProcedureLabelsRun:AcceptanceRun {
+    attribute :>> tree="bb19c9c696f6b50b709483646ce19357a0312f4b";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-gsc.json";
+  }
+  part indexedProcedureLabelsCapacityRun:AcceptanceRun {
+    attribute :>> tree="bb19c9c696f6b50b709483646ce19357a0312f4b";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-gsc-capacity.json";
+  }
+  part indexedProcedureLabelsRecoveryRun:AcceptanceRun {
+    attribute :>> tree="bb19c9c696f6b50b709483646ce19357a0312f4b";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> bootstrapEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-bootstrap.json";
+    attribute :>> gsiEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-gsi.json";
+    attribute :>> gscEvidence="evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-procedure-labels-gsc-recovery-window.json";
+    attribute capacityReplayEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/gsc-recovery-window-capacity-replay.json";
+    attribute predecessorActivationEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-same-cache-activation.json";
+  }
+  part restoredOpaqueGscHold:AcceptanceHold {
+    ref part :>> family=a3;
+    attribute :>> tree="d1466a0d341853df6c2d3556a1e31c265539e811";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="Exact producer restored. The shared-input campaign selected all408 original cases. The numeric group passed within90 seconds. Five ordinary groups timed out within the original300-second campaign, leaving169 cases unresolved after239 observed passes. Opt-in indexed placement reduced native compilation cost in scoped controls. The ca_dr assertions remain unexecuted in its scoped30-second indexed attempt. The scoped controls supply no additional family credit.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/opaque-gsc-shared-campaign.json";
+  }
   part originalThreadHold:AcceptanceHold {
     ref part :>> family=a2;
     attribute :>> tree="626c9f19d86060d4ad7e48785c50c4a59c9cdd2b";
     attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
     attribute :>> reason="Carried through043a9341 despite the latest paired baseline/candidate408/408 passes. Earlier baseline and candidate thread_interrupt.scm:41 HI70/LO0 failures remain failed. The thirteen-field source-disjoint baseline boundary qualifies only3.5.2.4; it neither retires scheduler/interrupt ownership nor changes whole-family acceptance. New/related or unclassified failures still block source admission.";
     attribute :>> evidence="evidence/research/retained/modern-c/tcl-callback/scoped-receipt.json";
+  }
+  part frozenIssue216Hold:AcceptanceHold {
+    ref part :>> family=a2;
+    attribute :>> tree="30ce83fcd546febe6eb425e04697c9339c59bf29";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="Matched historical test11 completed the 408-case inventory with 407 passes and one failure: issue_216.scm line 37, inactive target, HI=70 LO=0. The older thread_interrupt.scm failure did not recur in this observation.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/gsi-blocker.json";
+  }
+  part frozenCompiledHold:AcceptanceHold {
+    ref part :>> family=a3;
+    attribute :>> tree="30ce83fcd546febe6eb425e04697c9339c59bf29";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="Matched original compiled suite reproduces the historical fxmul.scm line 30 assertion failure. The isolated numeric group is censored under its unchanged 90-second cap.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/gsc-blockers.json";
+  }
+  part plannerBootstrapHold:AcceptanceHold {
+    ref part :>> family=a1;
+    attribute :>> tree="55f594055f012e7385e7b78448da1f9b612324e0";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="The exact candidate's 600-second run stopped in second-pass phase three. Supervisor teardown reaped the registered groups. No terminal native producer receipt or stock core invocation exists.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/block-owner-planner-bootstrap-timeout.json";
+  }
+  part interPassNativeObject {
+    ref part acceptanceFamily=a1;
+    attribute producer:String="Both original Scheme-to-C passes remain mandatory. Only a completed native action may supply an object to the next pass.";
+    attribute identity:String="Bind object bytes, exact argv, cwd, compiler and subordinate tools, effective profile, resolved input contents and volatile preprocessor or assembler inputs. GCC dependency discovery supplies include evidence; it does not certify every possible tool read.";
+    attribute failure:String="An invoked compiler may leave a zero-length or partial object. No natural success receipt, input drift or unknown termination refuses handoff. Rebuild only through the original Make owner.";
+    attribute evidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/block-owner-planner-native-object-census.json";
+    attribute handoffEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/block-owner-planner-native-object-handoff.json";
+    attribute handoffStatus:String="A leased single-object control reached the actual Make archive consumer with 25 identical ordered object members. The same Make target also treated the interrupted empty object as up to date. Completion custody is separate from Make freshness; integration before second-pass native compilation is open.";
+    attribute pilotEvidence:String="evidence/research/retained/modern-c/frozen-568e0276-smp/block-owner-planner-interpass-timeout.json";
+    attribute pilotStatus:String="The phased pilot restored the numeric object before second-pass native compilation. It exhausted the whole 600-second budget with second-pass phase three still unobserved. The stricter before/after input check is locally tested; exact native admission remains open.";
+    attribute nativeReuseAdmitted:Boolean=false;
+  }
+  part plannerGsiHold:AcceptanceHold {
+    ref part :>> family=a2;
+    attribute :>> tree="55f594055f012e7385e7b78448da1f9b612324e0";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="The original GSI family did not start because the exact candidate producer did not complete.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/block-owner-planner-bootstrap-timeout.json";
+  }
+  part plannerNumericHold:AcceptanceHold {
+    ref part :>> family=a3;
+    attribute :>> tree="55f594055f012e7385e7b78448da1f9b612324e0";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="A sequential numeric control generated identical C and identical ordered original-form manifests. The candidate native phase reached the shared 90-second deadline before the original assertion execution. No whole GSC result or positive cost claim follows.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/block-owner-planner-numeric-pair.json";
+  }
+  part charsetBootstrapHold:AcceptanceHold {
+    ref part :>> family=a1;
+    attribute :>> tree="70a0bf1b3e86cb8b5cbd9b6dd49765a6dba16a58";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="The char-set type split emits byte-identical _system C and installs all eight character module inputs. The bounded _std control reached Parsing and exhausted its deadline before Compiling. The complete two-pass and stock-core producer remains open.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/system-charset-std-install.json";
+  }
+  part charsetGsiHold:AcceptanceHold {
+    ref part :>> family=a2;
+    attribute :>> tree="70a0bf1b3e86cb8b5cbd9b6dd49765a6dba16a58";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="The full original GSI inventory has no exact producer for this candidate.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/system-charset-generation.json";
+  }
+  part charsetGscHold:AcceptanceHold {
+    ref part :>> family=a3;
+    attribute :>> tree="70a0bf1b3e86cb8b5cbd9b6dd49765a6dba16a58";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="The _system generation control grants no numeric or original GSC family admission for this candidate.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/system-charset-generation.json";
+  }
+  part indexedEnvBootstrapHold:AcceptanceHold {
+    ref part :>> family=a1;
+    attribute :>> tree="9d96c8791cfdb3e511a49a92df21374be45181a5";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="Bounded diagnostic generation timed out in parsing. The observed Unicode expander consumed CPU before any stock-core binding; the probe supplies no two-pass producer.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/std-phase-observation.json";
+  }
+  part indexedEnvGsiHold:AcceptanceHold {
+    ref part :>> family=a2;
+    attribute :>> tree="9d96c8791cfdb3e511a49a92df21374be45181a5";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="No original 408-case GSI result is bound to an admitted producer of this tree.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/env-index-control.json";
+  }
+  part indexedEnvGscHold:AcceptanceHold {
+    ref part :>> family=a3;
+    attribute :>> tree="9d96c8791cfdb3e511a49a92df21374be45181a5";
+    attribute :>> profile="884fa4a48e7550e2e9e1ddc62ec575927b37a5d81716d45d4a5684731d6b7f69";
+    attribute :>> reason="The compiler relink and standard-library generation controls do not exercise the full original GSC inventory or its numeric execution.";
+    attribute :>> evidence="evidence/research/retained/modern-c/frozen-568e0276-smp/env-index-control.json";
   }
   part def Dependency { ref part predecessor:Stage; ref part successor:Stage; attribute kind:String; }
   part def Closure {

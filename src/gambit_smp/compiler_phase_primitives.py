@@ -2,6 +2,7 @@
 from pathlib import Path
 import json
 import re
+import time
 from collections import Counter, defaultdict
 
 
@@ -61,6 +62,121 @@ def generated_host_census(lines):
                 row['globalCalls'].update(re.findall(r',(___G_\w+)\)',line))
     if row is not None:raise ValueError('incomplete generated C body')
     return dict(functions=functions,scope='generated constructs, not GCC blocks or runtime call counts')
+
+
+def host_block_constraints(lines, *, include_components=False):
+    """Census co-placement constraints in one emitted procedure switch.
+
+    Keep explicit GOTO edges and all possible fallthrough together.
+    Separately count exact poll/check fallthrough candidates, which a
+    producer may split only after proving the live-state handoff.
+    """
+    entries = {}
+    blocks = [[]]
+    entry_slots = [None]
+    for line in lines:
+        text = line.strip()
+        match = re.fullmatch(r"___DEF_(?:SLBL\((\d+),([^,)]+)\)|GLBL\(([^,)]+)\))", text)
+        if match:
+            slot, value, private = match.groups()
+            point = value or private
+            if point in entries:
+                raise ValueError("duplicate C label in procedure")
+            entries[point] = len(blocks)
+            blocks.append([])
+            entry_slots.append(int(slot) if slot is not None else None)
+        elif text and not text.startswith("#"):
+            blocks[-1].append(text)
+
+    local_edges = []
+    fallthrough = []
+    safepoints = []
+    terminal = re.compile(r"^___(?:GOTO|JUMPGLOSAFE|JUMPGLONOTSAFE|JUMPRET|JUMPPRM|JUMPGENSAFE|JUMPGENNOTSAFE|JUMPEXTPRM|JUMPEXT)\(")
+    checks = re.compile(r"^___(?:POLL|CHECK_HEAP(?:_FLO)?)\((\d+)(?:,|\))")
+    conditional_depth = 0
+    for index, block in enumerate(blocks):
+        for line in block:
+            if line.startswith("___IF("):
+                conditional_depth += 1
+            elif line == "___END_IF":
+                conditional_depth -= 1
+                if conditional_depth < 0:
+                    raise ValueError("unbalanced conditional scope")
+            for target in re.findall(r"___GOTO\(([^,)]+)\)", line):
+                if target not in entries:
+                    raise ValueError("unresolved local C goto")
+                local_edges.append((index, entries[target]))
+        if index + 1 == len(blocks):
+            continue
+        last = block[-1] if block else ""
+        # END_IF following a conditional jump is not a terminator.
+        if not conditional_depth and terminal.match(last):
+            continue
+        edge = (index, index + 1)
+        fallthrough.append(edge)
+        match = checks.match(last)
+        if not conditional_depth and match and int(match[1]) == entry_slots[index + 1]:
+            safepoints.append(edge)
+
+    if conditional_depth:
+        raise ValueError("unbalanced conditional scope")
+
+    weights = [sum(len(line.encode()) for line in block) for block in blocks]
+
+    def components(edges):
+        parent = list(range(len(blocks)))
+
+        def find(index):
+            while parent[index] != index:
+                parent[index] = parent[parent[index]]
+                index = parent[index]
+            return index
+
+        for left, right in edges:
+            parent[find(left)] = find(right)
+        groups = defaultdict(list)
+        for index in range(len(blocks)):
+            groups[find(index)].append(index)
+        return sorted(groups.values(), key=lambda group: sum(weights[i] for i in group),
+                      reverse=True)
+
+    candidates = set(safepoints)
+    strict = components(local_edges + fallthrough)
+    proposed = components(local_edges + [edge for edge in fallthrough if edge not in candidates])
+    result = dict(blocks=len(blocks), localGotos=len(local_edges), fallthrough=len(fallthrough),
+                  candidateSafepoints=len(safepoints), strictLargest=sum(weights[i] for i in strict[0]),
+                  strictGroups=len(strict), candidateLargest=sum(weights[i] for i in proposed[0]),
+                  candidateGroups=len(proposed), bodyBytes=sum(weights))
+    if include_components:
+        result["strictComponents"] = strict
+    return result
+
+
+def verify_host_entry_map(original_labels, emitted_labels, host_entries, entry_map):
+    """Check the logical label projection and physical entry bijection.
+
+    Label rows are (PointId, kind, descriptor), including INTRO rows.
+    Each host table lists its entry PointIds after the reserved slot.
+    This checks emitted identities, not control flow or frame liveness.
+    """
+    emitted_labels = list(emitted_labels)
+    if list(original_labels) != emitted_labels:
+        raise ValueError("logical label order or descriptor changed")
+
+    points = [point for point, kind, _ in emitted_labels if kind != "intro"]
+    expected = set(points)
+    if len(expected) != len(points):
+        raise ValueError("duplicate logical entry point")
+
+    physical = {}
+    for host, entries in host_entries.items():
+        for index, point in enumerate(entries, start=1):
+            if point in physical:
+                raise ValueError("duplicate physical entry for logical point")
+            physical[point] = (host, index)
+
+    if set(physical) != expected or physical != entry_map:
+        raise ValueError("physical host entry map does not match emitted tables")
 
 
 def owned_cc1(parent, child):
@@ -365,17 +481,36 @@ def suite_phase_commands(selection, work, grouping=None):
     return plan
 
 
-def run_suite_phases(ctx, runtime, work, selection, prefix, idle_window, grouping=None):
+def run_suite_phases(ctx, runtime, work, selection, prefix, idle_window, grouping=None, *, deadline=None, indexed_numeric=False):
     """Record real phase exits; never synthesize an upstream suite PASS marker."""
     driver = bind_numeric_grouping(ctx, work, grouping) if grouping is not None else None
     plan = suite_phase_commands(selection, work, driver)
+    if indexed_numeric:
+        if driver is None or deadline is None:
+            raise ValueError("indexed numeric admission requires original grouping and a shared deadline")
+        emit = plan[0][2]
+        emit[-1] = "(parameterize ((c#targ-indexed-host-layout? #t)) " + emit[-1] + ")"
     if any(artifact is not None and artifact.exists() for _, _, _, artifact in plan):
         raise ValueError("compiled phase output must not reuse an existing artifact")
     results = []
     for name, executable, options, artifact in plan:
+        cap = idle_window if deadline is None else min(idle_window, deadline - time.monotonic())
+        if cap <= 0:
+            break
+        require_witness = deadline is not None and grouping is not None and name == "compiled-execution"
+        if require_witness:
+            options = [*options[:2], "-e", numeric_execution_expression("NUMERIC-ORIGINAL-ASSERTIONS-PASS")]
+        if deadline is not None:
+            aliases = "".join(",~~" + part + "=" + str(runtime / part) for part in ("bin", "lib", "include"))
+            options = [options[0] + aliases, *options[1:]]
         code, output, timeout, seconds = ctx.run(prefix + "-" + name,
-            [runtime / executable, *options], work, idle_window)
+            [runtime / executable, *options], work, cap)
         accepted = stage_accepted(code, timeout, output, artifact)
+        witnessed = "NUMERIC-ORIGINAL-ASSERTIONS-PASS" in output.splitlines() if require_witness else None
+        if require_witness:
+            accepted = accepted and witnessed
+        if indexed_numeric and name == "scheme-to-c" and accepted:
+            accepted = b"#define ___INDEXED_HOST_ENTRIES 1" in artifact.read_bytes()
         # A successful subprocess is necessary but cannot stand in for its output.
         if accepted and artifact is not None:
             from gambit_smp.framework import digest
@@ -383,7 +518,9 @@ def run_suite_phases(ctx, runtime, work, selection, prefix, idle_window, groupin
         else:
             artifact_sha = None
         grouped = numeric_group_observation(work) if accepted and grouping is not None and name == "scheme-to-c" else None
-        results.append({**({"sourceGrouping": grouped} if grouped is not None else {}), "phase": name, "exit": code, "timeout": timeout,
+        results.append({**({"sourceGrouping": grouped} if grouped is not None else {}),
+                        **({"originalAssertionsWitness": witnessed} if require_witness else {}),
+                        "phase": name, "exit": code, "timeout": timeout,
                         "seconds": seconds, "accepted": accepted,
                         "artifactSha256": artifact_sha})
         if not accepted:

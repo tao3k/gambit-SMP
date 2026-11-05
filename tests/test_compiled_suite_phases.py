@@ -13,6 +13,21 @@ from gambit_smp import native_capabilities, recipes
 
 
 class CompiledSuitePhaseTests(unittest.TestCase):
+    def test_indexed_numeric_request_reaches_the_group_worker(self):
+        ctx = SimpleNamespace(root=Path("/root"), directory=Path("/run"),
+                              deadline=time.monotonic() + 90, env={}, tools={})
+        with patch("gambit_smp.suite_primitives.suite_workers") as workers, \
+             patch("gambit_smp.suite_primitives.suite_worker_inputs") as inputs, \
+             patch.object(native_capabilities, "_run_suite_groups") as run:
+            slots = workers.return_value.__enter__.return_value
+            request = (ctx, Path("/runtime"), Path("/tests"), {"mode": "gsc"}, [], 1, "p1")
+            native_capabilities.run_suite_groups(*request, indexed_numeric=True)
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args, (*request, slots))
+            self.assertTrue(run.call_args.kwargs['indexed_numeric'])
+            self.assertEqual(run.call_args.kwargs['prepare_slot'], inputs.return_value.__enter__.return_value)
+            self.assertGreaterEqual(run.call_args.kwargs['shared_input_seconds'], 0)
+
     def test_review_identity_includes_the_actual_grouping_producer(self):
         from gambit_smp.native_review import campaign
         ctx = SimpleNamespace(root=Path('/root'), directory=Path('/out/suite'),
@@ -69,12 +84,11 @@ class CompiledSuitePhaseTests(unittest.TestCase):
 
     def test_actual_numeric_recipes_declare_the_verified_grouping(self):
         from gambit_smp.framework import ROOT, digest
-        names = ["evidence/research/ci/bazel-profile-numeric-host.recipe.json",
-                 "evidence/research/ci/bazel-profile-numeric.recipe.json",
-                 "evidence/research/ci/gc-ffi-numeric.recipe.json",
-                 "evidence/research/ci/three-flag-numeric-inventory.recipe.json",
-                 "evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json",
-                 "evidence/research/current-source-full-bootstrap/dynamic-modulo-compiled.recipe.json"]
+        names = ["tests/recipes/ci/bazel-profile-numeric-host.recipe.json",
+                 "tests/recipes/ci/bazel-profile-numeric.recipe.json",
+                 "tests/recipes/ci/gc-ffi-numeric.recipe.json",
+                 "tests/recipes/ci/three-flag-numeric-inventory.recipe.json",
+                 "tests/recipes/ci/bazel-profile-gc-ffi-inventory.recipe.json"]
         for name in names:
             recipe, steps = recipes.load(ROOT, ROOT / name)
             selected = [step for step in steps if "numericGrouping" in step["arguments"]]
@@ -85,6 +99,14 @@ class CompiledSuitePhaseTests(unittest.TestCase):
             if selected[0]["capability"] == "gambit.compiler-observation":
                 self.assertEqual(90, selected[0]["arguments"]["phaseBudgetSeconds"])
                 self.assertEqual("original-gsi", selected[0]["arguments"]["loader"])
+
+    def test_historical_numeric_recipe_is_not_a_current_recipe_input(self):
+        from gambit_smp.framework import ROOT
+
+        archived = (ROOT / ".cache/research/legacy-evidence/evidence/research"
+                    / "current-source-full-bootstrap/dynamic-modulo-compiled.recipe.json")
+        with self.assertRaisesRegex(ValueError, "recipe inputs must be repository files"):
+            recipes.load(ROOT, archived)
 
     def run_case(self, *, failed_phase=None, missing_artifact=False, timed_out=False):
         with tempfile.TemporaryDirectory() as directory:
@@ -118,6 +140,24 @@ class CompiledSuitePhaseTests(unittest.TestCase):
         self.assertEqual(3,len(calls))
         self.assertEqual(2,rows[-1]["exit"])
         self.assertFalse(rows[-1]["accepted"])
+
+    def test_fixed_deadline_charges_prior_phases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            (work/"unit-tests").mkdir()
+            caps = []
+
+            def execute(name, argv, cwd, cap):
+                caps.append(cap)
+                (work/"unit-tests/control.c" if len(caps) == 1 else work/"_test.o1").touch()
+                return 0, "", False, 1
+
+            with patch("gambit_smp.compiler_phase_primitives.time.monotonic", side_effect=[10, 74, 101]):
+                rows = run_suite_phases(SimpleNamespace(run=execute), work/"runtime", work,
+                                        "control.scm", "case", 90, deadline=100)
+
+            self.assertEqual([90, 26], caps)
+            self.assertEqual(["scheme-to-c", "c-to-dynamic-module"], [row["phase"] for row in rows])
 
     def test_missing_artifact_or_timeout_stops_before_loader(self):
         rows, calls = self.run_case(missing_artifact=True)
@@ -161,6 +201,8 @@ class CompiledSuitePhaseTests(unittest.TestCase):
     def test_suite_selects_only_declared_phase_file_and_retains_full_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
+            from gambit_smp.workspace import git
+            git(root, 'init', '-q')
             runtime = root/"runtime"
             for name in ("gsi","gsc","lib","include","bin"):
                 (runtime/name).mkdir(parents=True)
@@ -179,6 +221,7 @@ class CompiledSuitePhaseTests(unittest.TestCase):
             def execute(argv,cwd,cap,**kwargs):
                 self.assertIn("unit-tests/ordinary.scm",argv)
                 self.assertNotIn("unit-tests/control.scm",argv)
+                kwargs["metadata"].update(parentReaped=True, processGroupQuiescent=True)
                 return 0,"PASSED ALL 1 UNIT TESTS\n",False,.01
             with patch("gambit_smp.compiler_phase_primitives.run_suite_phases",return_value=phases) as selected, \
                  patch.object(recipes,"execute",side_effect=execute):

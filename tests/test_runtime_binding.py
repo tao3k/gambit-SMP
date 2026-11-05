@@ -1,4 +1,5 @@
 """Evidence admission controls; these tests do not qualify the C runtime."""
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -98,6 +99,94 @@ class BindingEvidenceTests(unittest.TestCase):
             for name in ('gsc-boot', 'generated.c'):
                 with self.subTest(name=name), self.assertRaises(ValueError):
                     authenticate_predecessor(root, parent, (name,))
+
+    def test_distribution_producer_does_not_admit_incomplete_suite(self):
+        from gambit_smp.runtime_binding import authenticate_distribution_predecessor
+
+        with TemporaryDirectory() as temp:
+            root = Path(temp)
+            artifact_names = ("gsi/gsi", "gsc/gsc", "gsc-boot", "lib/libgambit.a")
+            for name in (*artifact_names, "runtime.c", "generated.c"):
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(name)
+            stages = ("install-real-seed", "source-bootstrap", "clean-objects", "dummy-seed", "stock-core")
+            receipt = dict(complete=False, producerComplete=True, heapRaised=False, waitExtended=False,
+                           phaseCounts={f"phase{i}": 2 for i in range(1, 5)},
+                           checks=[dict(stage=stage, complete=True, exit=0, timeout=False) for stage in stages],
+                           commands=[dict(stage=stage, exit=0, timeout=False, parentReaped=True,
+                                          processGroupQuiescent=True) for stage in stages],
+                           canonicalSources={"runtime.c": sha(root / "runtime.c")},
+                           generatedArtifacts={"generated.c": sha(root / "generated.c")},
+                           artifacts={name: sha(root / name) for name in artifact_names})
+            authenticate_distribution_predecessor(root, receipt)
+            self.assertFalse(receipt["complete"])
+            with self.assertRaisesRegex(ValueError, "complete exact predecessor"):
+                authenticate_predecessor(root, receipt)
+            commands = receipt["commands"]
+            seed = sha(root / "gsc/gsc")
+            handoff = dict(source="failed predecessor preserved input gsc/gsc",
+                           sha256=seed, currentOutputRestored=False)
+            recovered = dict(receipt, checks=receipt["checks"][1:], commands=commands[1:],
+                             bootstrapInputHandoff=handoff, bootstrapSeedSha256=seed,
+                             sourcePredecessor=dict(completedStagesReused=False,
+                                                    nativeAdmissionInherited=False))
+            authenticate_distribution_predecessor(root, recovered)
+            controls = [
+                dict(recovered, bootstrapInputHandoff=dict(handoff, sha256="wrong")),
+                dict(recovered, bootstrapInputHandoff=dict(handoff, currentOutputRestored=True)),
+                dict(recovered, sourcePredecessor=dict(completedStagesReused=True,
+                                                       nativeAdmissionInherited=False)),
+                dict(recovered, commands=commands),
+                dict(receipt, phaseCountsInherited=True),
+                dict(receipt, checks=receipt["checks"][:-1]),
+                dict(receipt, commands=commands[:-1] + [dict(commands[-1], processGroupQuiescent=False)]),
+                dict(receipt, artifacts={"gsc-boot": sha(root / "gsc-boot")}),
+            ]
+            for rejected in controls:
+                with self.assertRaises(ValueError):
+                    authenticate_distribution_predecessor(root, rejected)
+
+            checkpoint = root / "generation-checkpoint.json"
+            headers = {}
+            (root / "include").mkdir()
+            for name in ("include/gambit.h", "include/config.h"):
+                (root / name).write_text(name)
+                headers[name] = sha(root / name)
+            identity = dict(baseRevision="base", targetTree="candidate",
+                            bootstrapSeedSha256=seed, configurationFlags=[],
+                            priorArtifacts=receipt["artifacts"], wholeLimitSeconds=600)
+            generation_checks = [dict(row, seconds=40) for row in receipt["checks"][:2]]
+            generation_commands = []
+            for command in commands[:2]:
+                stage = command["stage"]
+                stdout = root / (stage + ".stdout")
+                stdout.write_text("".join(f"*** making phase{i}\n" for i in (1, 2, 3, 4) * 2)
+                                  if stage == "source-bootstrap" else "")
+                stderr = root / (stage + ".stderr")
+                stderr.touch()
+                generation_commands.append(dict(command, stdoutSha256=sha(stdout), stderrSha256=sha(stderr)))
+            generation = dict(receipt, **identity, generationCheckpoint=True,
+                              generatedSnapshot="generated-c", generatedSnapshotHeaders=headers,
+                              checks=generation_checks, commands=generation_commands)
+            checkpoint.write_text(json.dumps(generation))
+            binding = checkpoint, sha(checkpoint)
+            replayed = dict(generation_checks[-1], executed=False, seconds=0, priorSeconds=40)
+            core_checks = [dict(row, seconds=20) for row in receipt["checks"][2:]]
+            resumed = dict(receipt, **identity, composedStages=True, phaseCountsInherited=True,
+                           resumedFromTree="candidate", commands=commands[2:],
+                           checks=[replayed, *core_checks])
+            authenticate_distribution_predecessor(root, resumed, generation_checkpoint=binding)
+            for rejected in (dict(resumed, resumedFromTree="other"),
+                             dict(resumed, checks=[replayed, *core_checks[:-1], dict(core_checks[-1], seconds=560)])):
+                with self.assertRaises(ValueError):
+                    authenticate_distribution_predecessor(root, rejected, generation_checkpoint=binding)
+            (root / "source-bootstrap.stdout").write_text("drift")
+            with self.assertRaisesRegex(ValueError, "stream identity changed"):
+                authenticate_distribution_predecessor(root, resumed, generation_checkpoint=binding)
+            (root / "gsc/gsc").write_text("drift")
+            with self.assertRaisesRegex(ValueError, "predecessor drift"):
+                authenticate_distribution_predecessor(root, receipt)
 
     def test_short_or_nonfinite_workload_cannot_supply_a_cost_sample(self):
         for output in ('(result . 4095) (real-time . 0.01)',

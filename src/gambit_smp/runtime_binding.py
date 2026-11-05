@@ -6,6 +6,7 @@ module supplies source/artifact admission; it creates no runner or build profile
 from pathlib import Path
 import os
 import hashlib
+import json
 from gambit_smp.native_development import (
     compile_phases, generated_inventory, generation_inputs,
     invalidate_native_outputs,
@@ -24,9 +25,109 @@ def authenticate_predecessor(source, parent, rebuild_missing=()):
     caller retains the failed-step receipt authorizing this recovery set.
     Existing products must still match, even on a recovery path.
     """
-    source = Path(source)
     if parent.get('complete') is not True:
         raise ValueError('complete exact predecessor required')
+    _authenticate_products(Path(source), parent, rebuild_missing)
+
+
+def authenticate_distribution_predecessor(source, parent, *, generation_checkpoint=None):
+    """Authenticate a two-pass producer and stock core without suite admission."""
+    if (parent.get("producerComplete") is not True
+            or parent.get("phaseCounts") != {f"phase{i}": 2 for i in range(1, 5)}
+            or parent.get("phaseCountsInherited", False) is not (generation_checkpoint is not None)
+            or parent.get("heapRaised") is not False
+            or parent.get("waitExtended") is not False
+            or parent.get("error")):
+        raise ValueError("executed two-pass distribution producer required")
+
+    required = ("source-bootstrap", "clean-objects", "dummy-seed", "stock-core")
+    handoff = parent.get("bootstrapInputHandoff")
+    if handoff is None:
+        required = ("install-real-seed", *required)
+    else:
+        predecessor = parent.get("sourcePredecessor", {})
+        if (handoff.get("source") != "failed predecessor preserved input gsc/gsc"
+                or handoff.get("currentOutputRestored") is not False
+                or not parent.get("bootstrapSeedSha256")
+                or handoff.get("sha256") != parent["bootstrapSeedSha256"]
+                or predecessor.get("completedStagesReused") is not False
+                or predecessor.get("nativeAdmissionInherited") is not False
+                or any(row.get("stage") == "install-real-seed"
+                       for row in (*parent.get("checks", ()), *parent.get("commands", ())))):
+            raise ValueError("exact preserved bootstrap input handoff required")
+    checks = [row for row in parent.get("checks", ()) if row.get("stage") in required]
+    commands = [row for row in parent.get("commands", ()) if row.get("stage") in required]
+    if generation_checkpoint is not None:
+        checks, commands = _bind_resumed_generation(source, parent, generation_checkpoint)
+    if (tuple(row["stage"] for row in checks) != required
+            or tuple(row["stage"] for row in commands) != required
+            or any(row.get("complete") is not True or row.get("exit") != 0
+                   or row.get("timeout") is not False for row in checks)
+            or any(row.get("exit") != 0 or row.get("timeout") is not False
+                   or row.get("parentReaped") is not True
+                   or row.get("processGroupQuiescent") is not True for row in commands)):
+        raise ValueError("complete ordered and quiescent producer stages required")
+
+    artifacts = parent.get("artifacts", {})
+    if not {"gsi/gsi", "gsc/gsc", "gsc-boot", "lib/libgambit.a"} <= set(artifacts):
+        raise ValueError("complete distribution artifact inventory required")
+    _authenticate_products(Path(source), parent, ())
+
+
+def _bind_resumed_generation(source, parent, binding):
+    from gambit_smp.native_capabilities import bootstrap_phase_counts
+
+    path, expected_sha = binding
+    path = Path(path)
+    raw = path.read_bytes()
+    if path.is_symlink() or hashlib.sha256(raw).hexdigest() != expected_sha:
+        raise ValueError("generation checkpoint identity changed")
+    generation = json.loads(raw)
+    headers = generation.get("generatedSnapshotHeaders", {})
+    identity = ("baseRevision", "targetTree", "phaseCounts", "bootstrapSeedSha256",
+                "configurationFlags", "generatedArtifacts", "priorArtifacts")
+    if (parent.get("composedStages") is not True
+            or parent.get("resumedFromTree") != parent.get("targetTree")
+            or generation.get("generationCheckpoint") is not True
+            or generation.get("generatedSnapshot") != "generated-c"
+            or generation.get("phaseCountsInherited") or generation.get("error")
+            or generation.get("heapRaised") is not False or generation.get("waitExtended") is not False
+            or generation.get("wholeLimitSeconds") != 600 or parent.get("wholeLimitSeconds") != 600
+            or any(name not in generation or generation[name] != parent.get(name) for name in identity)
+            or generation["bootstrapSeedSha256"] != generation["priorArtifacts"].get("gsc/gsc")
+            or set(headers) != {"include/gambit.h", "include/config.h"}
+            or any(sha(Path(source) / name) != expected for name, expected in headers.items())):
+        raise ValueError("resume does not bind the same generated source and configuration")
+
+    generation_checks = generation["checks"]
+    generation_commands = generation["commands"]
+    stock_stages = ("clean-objects", "dummy-seed", "stock-core")
+    if (tuple(row["stage"] for row in generation_commands) != ("install-real-seed", "source-bootstrap")
+            or tuple(row["stage"] for row in generation_checks) != ("install-real-seed", "source-bootstrap")
+            or tuple(row["stage"] for row in parent["commands"]) != stock_stages
+            or tuple(row["stage"] for row in parent["checks"]) != ("source-bootstrap", *stock_stages)
+            or parent["checks"][0].get("executed") is not False
+            or parent["checks"][0].get("priorSeconds") != generation_checks[-1]["seconds"]):
+        raise ValueError("resume requires separately executed generation and stock core")
+    bootstrap_stdout = None
+    for command in generation_commands:
+        for stream in ("stdout", "stderr"):
+            log = path.with_name(command["stage"] + "." + stream)
+            raw_log = log.read_bytes()
+            if log.is_symlink() or hashlib.sha256(raw_log).hexdigest() != command[stream + "Sha256"]:
+                raise ValueError("generation process stream identity changed")
+            if command["stage"] == "source-bootstrap" and stream == "stdout":
+                bootstrap_stdout = raw_log
+    if bootstrap_phase_counts(bootstrap_stdout.decode(errors="replace")) != parent["phaseCounts"]:
+        raise ValueError("resumed bootstrap phase counts differ from executed output")
+    checks = generation_checks + parent["checks"][1:]
+    seconds = [row["seconds"] for row in checks]
+    if not all(0 < value <= 600 for value in seconds) or sum(seconds) > 600:
+        raise ValueError("resumed distribution exceeds the original stage budget")
+    return checks, generation_commands + parent["commands"]
+
+
+def _authenticate_products(source, parent, rebuild_missing):
     missing = set(rebuild_missing)
     if (not missing <= set(parent.get('artifacts', {}))
             or 'gsc-boot' in missing):
@@ -35,6 +136,9 @@ def authenticate_predecessor(source, parent, rebuild_missing=()):
         if not parent.get(group):
             raise ValueError('complete predecessor source and product identities required')
         for name, expected in parent[group].items():
+            path = Path(name)
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("workspace-relative predecessor identity required")
             if group == 'artifacts' and name in missing and not (source/name).exists():
                 continue
             if sha(source/name) != expected:

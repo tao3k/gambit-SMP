@@ -9,6 +9,9 @@ from gambit_smp.artifact_storage import observation_root, fixture_name, fixture_
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.recipes import read_json
 
+SMP_LEDGER_FOLDER = Path("evidence/research/retained/modern-c/delivery-plan/current")
+SMP_ORIGINAL_INVENTORY = "evidence/research/retained/modern-c/tcl-callback/scoped-receipt.json"
+
 
 def _sha(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
@@ -70,6 +73,189 @@ def project_suite_files(receipt):
     return result
 
 
+def require_numeric_smp_evidence(groups, processes):
+    """Check that the original numeric case passed inside one 90-second window."""
+    numeric = [group for group in groups if group["files"] == ["03-number/_num.scm"]]
+    if len(numeric) != 1:
+        raise ValueError("one original numeric group required")
+    group = numeric[0]
+    stages = ("scheme-to-c", "c-to-dynamic-module", "compiled-execution")
+    phases = group.get("compilerPhases", [])
+    if (group.get("sharedPhaseBudgetSeconds") != 90
+            or group.get("assertionProtocol") != "original-gsi-loader-and-assertion-witness"
+            or [row.get("phase") for row in phases] != list(stages)
+            or any(row.get("accepted") is not True or row.get("exit") != 0
+                   or row.get("timeout") is not False for row in phases)
+            or not all(_sha(row.get("artifactSha256")) for row in phases[:2])
+            or phases[-1].get("originalAssertionsWitness") is not True):
+        raise ValueError("complete original numeric phases and assertion witness required")
+    prefix = f'suite-{group["batch"]}-{group["shard"]}-'
+    commands = [row for row in processes if row.get("stage", "").startswith(prefix)]
+    if [row["stage"] for row in commands] != [prefix + name for name in stages]:
+        raise ValueError("exact numeric phase process records required")
+    caps = [row.get("effectiveBudgetSeconds") for row in commands]
+    seconds = [row.get("seconds") for row in commands]
+    if (not all(type(n) in (int, float) and 0 < n <= 90 for n in caps + seconds)
+            or any(next_cap > cap - used
+                   for cap, used, next_cap in zip(caps, seconds, caps[1:]))
+            or sum(seconds) > 90):
+        raise ValueError("original shared numeric budget exceeded")
+
+
+def _load_smp_evidence(root, path, expected=None):
+    path = Path(path)
+    if path.is_absolute() or ".." in path.parts or not path.parts:
+        raise ValueError("repository-relative SMP evidence required")
+    absolute = (root / path).resolve(strict=True)
+    if not absolute.is_relative_to(root):
+        raise ValueError("SMP evidence escapes repository")
+    raw = absolute.read_bytes()
+    from hashlib import sha256
+    identity = sha256(raw).hexdigest()
+    if expected is not None and identity != expected:
+        raise ValueError("SMP evidence identity changed")
+    return json.loads(raw), dict(path=path.as_posix(), sha256=identity)
+
+
+def accepted_smp_status(root):
+    """Report the recorded milestone from its own bound evidence period."""
+    root = Path(root).resolve()
+    ledger, _ = _load_smp_evidence(root, SMP_LEDGER_FOLDER / "accepted-smp-progress.json")
+
+    def bound(ref):
+        if not _sha(ref["sha256"]):
+            raise ValueError("SMP ledger requires a receipt digest")
+        return _load_smp_evidence(root, ref["path"], ref["sha256"])[0]
+
+    origin = bound(ledger["origin"])
+    packet = bound(ledger["accepted"])
+    ids = [row["id"] for row in origin["families"]]
+    closed = [row[0] for row in packet["answers"]["closed"]]
+    passed = len(closed)
+    if (ledger["origin"]["path"] != str(SMP_LEDGER_FOLDER / "smp-acceptance.json")
+            or len(ids) != 12 or len(set(ids)) != 12 or set(ids[:passed]) != set(closed)
+            or passed < origin["passed"]
+            or ledger["originPassed"] != origin["passed"]
+            or ledger["passed"] != packet["currentPassed"] or ledger["passed"] != passed
+            or ledger["remaining"] != len(ids) - passed or ledger["closed"] != ids[:passed]
+            or ledger["sourceTree"] != packet["sourceTree"]
+            or ledger["profileSha256"] != packet["profileSha256"]
+            or ledger["profileSha256"] != origin["profileSha256"]
+            or ledger["wholeSmpAdmitted"] is not (passed == len(ids))
+            or ledger["originalInventory"]["path"] != SMP_ORIGINAL_INVENTORY
+            or set(ledger["receipts"]) != set(closed)):
+        raise ValueError("SMP ledger disagrees with its bound acceptance evidence")
+    bound(ledger["originalInventory"])
+    for family, ref in ledger["receipts"].items():
+        row = packet["receipts"][family]
+        receipt = bound(ref)
+        if (row["qualified"] is not True or row["path"] != ref["path"] or row["sha256"] != ref["sha256"]
+                or receipt["sourceTree"] != ledger["sourceTree"]
+                or receipt["profileSha256"] != ledger["profileSha256"]):
+            raise ValueError("SMP ledger has a mismatched family receipt")
+    return ledger
+
+
+def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
+    """Project an immutable acceptance packet into the rolling SMP ledger."""
+    from gambit_smp.ascent_program import load_catalog, query
+
+    root = Path(root).resolve()
+    baseline, origin = _load_smp_evidence(root, baseline_path)
+    packet, accepted = _load_smp_evidence(root, candidate_path)
+    families = [[row["id"], row["evidenceKind"]] for row in baseline["families"]]
+    facts = packet["facts"]
+    tree, profile = packet["sourceTree"], packet["profileSha256"]
+    if (len(families) != 12 or facts["acceptanceFamily"] != families
+            or facts["acceptanceSource"] != [[tree, profile]]
+            or profile != baseline["profileSha256"]):
+        raise ValueError("SMP candidate differs from the declared checklist or profile")
+    claimed = packet["currentPassed"]
+    if type(claimed) is not int or not baseline["passed"] <= claimed <= len(families):
+        raise ValueError("SMP candidate cannot replace the accepted prefix")
+    if previous is not None and (previous["origin"] != origin or claimed < previous["passed"]
+                                 or (claimed == previous["passed"] and previous["accepted"] != accepted)):
+        raise ValueError("SMP history cannot regress or replace an equal milestone")
+
+    policy = "dev/modeling/ascent/delivery-plan.rules.scm"
+    if digest(root / policy) != packet["policySha256"]:
+        raise ValueError("SMP acceptance policy changed")
+    for name, expected in packet["modelInputs"].items():
+        path = Path(name)
+        if path.is_absolute() or ".." in path.parts or digest(root / path) != expected:
+            raise ValueError("SMP model input changed")
+    answers = query(facts, load_catalog(root / policy),
+                    dict(closed="acceptanceClosed", open="acceptanceOpen", veto="acceptanceVeto"))
+    closed = {row[0] for row in answers["closed"]}
+    if (set(answers) != set(packet["answers"])
+            or any(sorted(map(tuple, rows)) != sorted(map(tuple, packet["answers"][key]))
+                   for key, rows in answers.items())
+            or len(closed) != packet["currentPassed"]):
+        raise ValueError("SMP inference differs from candidate evidence")
+
+    ids = [row[0] for row in families]
+    prefix = ids[:len(closed)]
+    if set(prefix) != closed or len(prefix) < baseline["passed"]:
+        raise ValueError("accepted SMP history requires a contiguous advancing prefix")
+
+    inventory, inventory_binding = _load_smp_evidence(root, SMP_ORIGINAL_INVENTORY)
+    expected = sorted(name.removeprefix("tests/unit-tests/")
+                      for name in inventory["original"]["unitInventory"])
+    if len(expected) != 408 or len(set(expected)) != len(expected):
+        raise ValueError("exact original SMP unit inventory required")
+
+    def quiescent_success(rows):
+        return bool(rows) and all(
+            row.get("exit") == 0 and row.get("timeout") is False
+            and row.get("parentReaped") is True and row.get("processGroupQuiescent") is True
+            for row in rows)
+
+    references = {}
+    producer = None
+    for family in prefix:
+        row = packet["receipts"][family]
+        receipt, identity = _load_smp_evidence(root, row["path"], row["sha256"])
+        if row["qualified"] is not True or (receipt["sourceTree"], receipt["profileSha256"]) != (tree, profile):
+            raise ValueError("accepted SMP family lacks exact same-source evidence")
+        if not quiescent_success(receipt.get("processes", [])):
+            raise ValueError("accepted SMP family lacks successful quiescent processes")
+        if family == "bootstrap":
+            producer = receipt["producerSha256"]
+            artifacts = receipt["artifacts"]
+            if receipt["phaseCounts"] != {f"phase{i}": 2 for i in range(1, 5)}:
+                raise ValueError("two actual bootstrap phases required")
+        elif (receipt.get("complete") is not True or receipt.get("producerSha256") != producer
+              or receipt.get("runtimeArtifacts") != artifacts):
+            raise ValueError("accepted SMP consumer lacks its producer binding")
+        if family in {"gsi", "gsc"}:
+            if (receipt.get("mode") != family or sorted(receipt.get("selectedFiles", [])) != expected
+                    or receipt.get("manifestDifference") != {"extra": [], "missing": []}):
+                raise ValueError("accepted SMP consumer requires the exact original inventory")
+        if family == "gsi":
+            original = receipt["original"]
+            if (original.get("marker") is not True or original.get("exit") != 0
+                    or original.get("timeout") is not False or not 0 < original["seconds"] <= 300
+                    or sorted(receipt.get("observedFiles", [])) != expected):
+                raise ValueError("accepted GSI requires observed complete original execution")
+        if family == "gsc":
+            groups = receipt.get("observations", [])
+            if (sorted(name for group in groups for name in group["files"]) != expected
+                    or any(group.get("accepted") is not True or group.get("exit") != 0
+                           or group.get("timeout") is not False for group in groups)):
+                raise ValueError("accepted GSC requires all original groups to complete")
+            require_numeric_smp_evidence(groups, receipt["processes"])
+            if any(sorted(group.get("observedFiles", [])) != sorted(group["files"])
+                   for group in groups if group["files"] != ["03-number/_num.scm"]):
+                raise ValueError("accepted GSC requires per-file runner completion")
+        references[family] = identity
+
+    return dict(origin=origin, originPassed=baseline["passed"], accepted=accepted,
+                sourceTree=tree, profileSha256=profile, passed=len(prefix),
+                remaining=len(families)-len(prefix), closed=prefix, receipts=references,
+                originalInventory=inventory_binding,
+                wholeSmpAdmitted=len(prefix)==len(families))
+
+
 def checked_suite_coverage(run):
     """Require current sealed receipt custody before projecting observed coverage."""
     from gambit_smp.research_kernel import inspect
@@ -94,16 +280,41 @@ def checked_suite_coverage(run):
             "runtimeAdmitted": False, "sourceRefinementAdmitted": False, "performanceAdmitted": False}
 
 
+def execution_policy(argv):
+    return "read" if argv == ["--smp-status"] else "execute"
+
+
 def main():
     from gambit_smp.framework import execute
     from gambit_smp.research_kernel import manifest_paths
     from gambit_smp.recipes import fields, source_path
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--run", required=True, type=Path)
-    parser.add_argument("--contract", required=True)
+    smp = parser.add_mutually_exclusive_group()
+    smp.add_argument("--advance-smp-history", type=Path)
+    smp.add_argument("--smp-status", action="store_true", help="report the evidence-bound SMP milestone")
+    parser.add_argument("--run", type=Path)
+    parser.add_argument("--contract")
     from gambit_smp.artifact_storage import runtime_argument
-    parser.add_argument("--out", required=True, type=runtime_argument)
+    parser.add_argument("--out", type=runtime_argument)
     args = parser.parse_args()
+    if args.smp_status or args.advance_smp_history:
+        if args.run or args.contract or args.out:
+            parser.error("SMP ledger operations are separate from suite coverage")
+        if args.smp_status:
+            print(json.dumps(accepted_smp_status(ROOT), indent=2))
+            return 0
+        from gambit_smp.workspace import write
+
+        output = ROOT / SMP_LEDGER_FOLDER / "accepted-smp-progress.json"
+        previous = accepted_smp_status(ROOT) if output.exists() else None
+        result = accepted_smp_progress(ROOT, SMP_LEDGER_FOLDER / "smp-acceptance.json",
+                                       args.advance_smp_history, previous)
+        write(output, result)
+        print(json.dumps(dict(passed=result["passed"], remaining=result["remaining"],
+                              tree=result["sourceTree"])))
+        return 0
+    if not (args.run and args.contract and args.out):
+        parser.error("--run, --contract and --out are required for suite coverage")
     contract_path = source_path(ROOT, args.contract)
     contract_sha = digest(contract_path)
     contract = read_json(contract_path)

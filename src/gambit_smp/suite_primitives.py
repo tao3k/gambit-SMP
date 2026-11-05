@@ -2,6 +2,12 @@
 from math import isqrt
 from pathlib import Path
 import re
+from contextlib import contextmanager
+import json
+import hashlib
+import os
+import shutil
+from queue import Queue
 
 from gambit_smp.framework import digest, relative
 
@@ -61,9 +67,179 @@ def runtime_view(runtime, mirror):
     return tests
 
 
+@contextmanager
+def suite_workers(root, run, jobs):
+    """Lease one bounded task-local pool; run directories contain receipts only.
+
+    Slots retain bytes, never test success. Every requested execution still runs.
+    The existing workspace lease also follows children after supervisor failure.
+    """
+    from gambit_smp.artifact_storage import workspace_lease
+    from gambit_smp.workspace import bounded, task_output
+    root, run = Path(root).resolve(), Path(run).resolve()
+    if type(jobs) is not int or jobs < 1:
+        raise ValueError('positive suite worker capacity required')
+    tasks = root / '.cache/tasks'
+    if run.is_relative_to(tasks):
+        parts = run.relative_to(tasks).parts
+        offset = 3 if len(parts) > 2 and parts[1] == 'processes' else 1
+        if len(parts) <= offset or parts[offset] != 'runs':
+            raise ValueError('suite observations require a task run')
+        pool = tasks.joinpath(*parts[:offset], 'build', 'suite-tests')
+    else:
+        # Existing unscoped fixture consumers, including isolated unit controls.
+        pool = root / '.cache/fixtures/suite-tests'
+    pool = bounded(root, pool.relative_to(root))
+    if task_output(root, pool) != pool:
+        raise ValueError('suite workspace belongs to another task')
+    pool.mkdir(parents=True, exist_ok=True)
+    def identity(path):
+        return [path.stat().st_dev, path.stat().st_ino]
+    with workspace_lease(root, pool, identity(pool), identity_reader=identity):
+        allowed = {'worker-' + str(index) for index in range(jobs)}
+        # A reduced parallel budget must not allocate another generation. Old
+        # inactive slots remain bounded by the largest admitted worker count.
+        for path in pool.iterdir():
+            if path.is_symlink() or not path.is_dir() or not re.fullmatch(r'worker-[0-9]+', path.name):
+                raise ValueError('foreign entry in fixed suite workspace')
+        slots = Queue()
+        for name in sorted(allowed):
+            slots.put(pool / name)
+        yield slots
+
+
+def _suite_worker_binding(runtime, copied, context):
+    inputs = {}
+    directories = set()
+    for path in copied.rglob('*'):
+        if path.is_symlink():
+            raise ValueError('suite input aliases require explicit materialization')
+        if path.is_file():
+            inputs[path.relative_to(copied).as_posix()] = digest(path)
+        elif path.is_dir():
+            directories.add(path.relative_to(copied).as_posix())
+    binding = dict(runtime=str(runtime), inputs=inputs,
+                   artifacts={name: digest(runtime / name) for name in
+                              ('gsi/gsi', 'gsc/gsc', 'lib/libgambit.a', 'include/gambit.h')
+                              if (runtime / name).is_file()},
+                   contextSha256=hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest())
+    return binding, directories
+
+
+@contextmanager
+def suite_worker_inputs(runtime, copied, context):
+    """Share one donor snapshot across workers and recheck before returning results."""
+    runtime = Path(runtime).resolve(strict=True)
+    binding, directories = _suite_worker_binding(runtime, copied, context)
+
+    def prepare(slot):
+        return _prepare_suite_worker(runtime, copied, slot, binding, directories, recheck_donor=False)
+
+    yield prepare
+    if _suite_worker_binding(runtime, copied, context) != (binding, directories):
+        raise ValueError('suite inputs changed during the campaign')
+
+
+def prepare_suite_worker(runtime, copied, slot, *, context=None):
+    """Reuse a slot in place; reset only owned test data when its inputs change."""
+    runtime = Path(runtime).resolve(strict=True)
+    binding, directories = _suite_worker_binding(runtime, copied, context)
+    return _prepare_suite_worker(runtime, copied, slot, binding, directories, recheck_donor=True)
+
+
+def _prepare_suite_worker(runtime, copied, slot, binding, directories, *, recheck_donor):
+    from gambit_smp.artifact_storage import transfer_tree
+    inputs = binding['inputs']
+    manifest = slot / 'inputs.json'
+    reused = False
+    outputs_invalidated = False
+    if slot.exists():
+        if slot.is_symlink() or not manifest.is_file() or manifest.is_symlink():
+            raise ValueError('unowned suite slot requires explicit cleanup')
+        if set(p.name for p in slot.iterdir()) != {'gsi','gsc','lib','include','bin','tests','inputs.json'}:
+            raise ValueError('foreign entry in suite slot')
+        previous = json.loads(manifest.read_text())
+        if previous.get('quiescenceUnknown'):
+            raise ValueError('suite slot retains an unresolved child; cleanup requires quiescence')
+        for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+            if (not (slot / name).is_symlink() or
+                    os.readlink(slot / name) != str(Path(previous['runtime']) / name)):
+                raise ValueError('suite runtime view is not an owned alias')
+        work = slot / 'tests'
+        if work.is_symlink() or not work.is_dir():
+            raise ValueError('suite test data contains an escaping alias')
+        paths = list(work.rglob('*'))
+        if any(p.is_symlink() for p in paths):
+            raise ValueError('suite test data contains an escaping alias')
+        reused = (all(previous.get(key) == binding[key] for key in ('runtime', 'inputs', 'artifacts'))
+                  and all((work / name).is_dir() for name in directories)
+                  and all((work / name).is_file() and digest(work / name) == sha
+                          for name, sha in inputs.items()))
+        if reused and previous != binding:
+            # A new execution context invalidates derived runner output.
+            # Byte-verified original inputs stay at their exact cwd.
+            expected = set(inputs) | directories
+            for path in sorted(paths, key=lambda p: len(p.parts), reverse=True):
+                if path.relative_to(work).as_posix() not in expected:
+                    if path.is_dir():
+                        path.rmdir()
+                    else:
+                        path.unlink()
+            outputs_invalidated = True
+        if not reused:
+            # Tests have no Make target. Never clean the leased bootstrap tree
+            # to reset disposable runner data or instrumentation in this slot.
+            manifest.unlink()
+            shutil.rmtree(work)
+            work.mkdir()
+        for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+            if os.readlink(slot / name) != str(runtime / name):
+                (slot / name).unlink()
+                (slot / name).symlink_to(runtime / name, target_is_directory=True)
+    else:
+        work = runtime_view(runtime, slot)
+    storage = (dict(method='verified-in-place', filesCopied=0) if reused else
+               transfer_tree(copied, work, dirs_exist_ok=True))
+    if any((not reused and (not (work / name).is_file() or digest(work / name) != sha))
+           or (recheck_donor and digest(copied / name) != sha) for name, sha in inputs.items()):
+        raise ValueError('suite inputs changed during workspace preparation')
+    pending = manifest.with_suffix('.pending')
+    pending.write_text(json.dumps(binding, sort_keys=True) + '\n')
+    os.replace(pending, manifest)
+    return work, dict(storage, workspaceReused=reused, workspace=str(slot),
+                      runnerOutputsInvalidated=outputs_invalidated,
+                      compiledResultReused=False)
+
+
+def retain_unquiesced_suite_worker(slot, commands):
+    """Never reuse a timed-out slot while a prior child may still write it."""
+    if any(row.get('processGroupQuiescent') is not True or row.get('parentReaped') is not True
+           for row in commands):
+        manifest = slot / 'inputs.json'
+        record = json.loads(manifest.read_text())
+        record['quiescenceUnknown'] = True
+        pending = manifest.with_suffix('.pending')
+        pending.write_text(json.dumps(record, sort_keys=True) + '\n')
+        os.replace(pending, manifest)
+        raise ValueError('suite child quiescence unresolved; fixed slot retained')
+
+
 def admitted_suite(code, output, timed_out, expected):
     marker = f"PASSED ALL {expected} UNIT TESTS"
     return code == 0 and not timed_out and output.splitlines().count(marker) == 1 and "*** FAILED" not in output
+
+
+def completed_suite_files(output, expected):
+    """Bind each printed fixture to the next successful runner counter."""
+    rows = re.findall(r"^\[\s*(\d+)\|\s*(\d+)\]\s+\d+%\s+[.#]+\s+"
+                      r"[0-9.]+s(?: ([^\r\n]+\.scm))?\s*$", output, re.MULTILINE)
+    if (len(rows) != len(expected) + 1
+            or any(int(good) != i or int(failed) != 0
+                   for i, (good, failed, _) in enumerate(rows))
+            or rows[-1][2]):
+        return []
+    files = [file for _, _, file in rows[:-1]]
+    return files if sorted(files) == sorted(map(str, expected)) else []
 
 
 class SuiteCompletionProgress:
@@ -81,6 +257,37 @@ class SuiteCompletionProgress:
                 self.witness = dict(kind='upstream-suite-counter', reportedGood=int(good),
                                     reportedFailed=int(failed), completed=count, expected=self.expected)
         return self.completed
+
+
+def completed_unit_cases(files, output):
+    """Decode one-mode upstream counters; unfinished cases stay unresolved.
+
+    run-unit-tests.scm prints a filename before executing that case, then
+    advances exactly one good/failed counter. A printed filename alone is
+    never success. Process exit/quiescence and input authenticity are separate.
+    """
+    names = [str(file) for file in files]
+    if not names or len(set(names)) != len(names):
+        raise ValueError('unique nonempty selected unit inventory required')
+    rows = [dict(file=name, status='UNRESOLVED') for name in names]
+    bars = list(re.finditer(r'^\[\s*(\d+)\|\s*(\d+)\]\s+\d+%[^\n]*$', output, re.M))
+    if not bars:
+        return rows
+    good = failed = 0
+    for index, bar in enumerate(bars):
+        g, f = int(bar[1]), int(bar[2])
+        count = g + f
+        if index == 0:
+            if (g, f) != (0, 0):
+                raise ValueError('initial upstream counter missing')
+        else:
+            if (g - good, f - failed) not in ((1, 0), (0, 1)) or count > len(names):
+                raise ValueError('one selected completion per upstream transition required')
+            rows[count - 1]['status'] = 'PASS' if g > good else 'FAIL'
+        if count < len(names) and not bar[0].endswith(' ' + names[count]):
+            raise ValueError('upstream filename does not match selected order')
+        good, failed = g, f
+    return rows
 
 
 def campaign_status(results, modes, atomic=False):

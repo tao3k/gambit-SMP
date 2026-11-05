@@ -10,6 +10,7 @@ import sys
 import tarfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 
 from gambit_smp.framework import available_processors, digest, gnu_build_driver, relative
 
@@ -59,6 +60,10 @@ def graph(step, by_id, registry):
         "native.test": {"executable": {"native-executable"}},
     }
     requirements = dict(contracts.get(step["capability"], {}))
+    if step['capability']=='gerbil.build' and step['arguments'].get('producer')=='bazel-ci':
+        requirements = {}  # This pinned producer constructs its runtime itself.
+    if step['capability']=='gerbil.test' and 'sourceLock' in step['arguments']:
+        requirements = {}  # Installed control, never a target build receipt.
     if step['capability'] == 'gambit.executable-test' and 'compilation' in step['arguments']:
         requirements['compilation'] = {'compiled-scheme-fixture'}
     if step['capability'] in {'gambit.executable-test', 'native.test'} and 'interpose' in step['arguments']:
@@ -261,8 +266,12 @@ def fixture_parameters(args):
 
 def validate_suite(args, inputs):
     fields(args, ("runtime", "identity", "mode", "regime", "selection"),
-           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles", "numericGrouping", "childProgress"))
+           ("expectedFiles", "expectedSource", "processors", "jobs", "batchBudgetSeconds", "fileBudgetSeconds", "groupBudgetSeconds", "additionalFixtures", "failures", "reviewRules", "retryReview", "environmentProbe", "inventory", "observationFiles", "parameters", "compilerPhaseFiles", "numericGrouping", "childProgress", "sharedAssertions"))
     fixture_parameters(args)
+    if "sharedAssertions" in args and (
+            type(args["sharedAssertions"]) is not bool or args["mode"] != "gsc"
+            or args.get("inventory", "unit") != "unit" or "childProgress" in args):
+        raise ValueError("shared assertions require the original compiled unit load path")
     if "childProgress" in args:
         from gambit_smp.suite_progress import validate
         validate(args["childProgress"], inputs)
@@ -484,7 +493,7 @@ def configure_tool_bindings(bindings):
 
 def host_tools(gcc, steps, environment, *, configure_bindings=None):
     tools = {"gcc": gcc.resolve(strict=True)}
-    if (any(step["capability"] == "gambit.executable-test" and
+    if (any(step["capability"] in {"gambit.executable-test","gerbil.test"} and
            "stackSampleAfterSeconds" in step["arguments"] for step in steps)
             or (sys.platform == 'darwin' and any(
                 step['capability'] == 'gambit.native-development' for step in steps))):
@@ -492,6 +501,7 @@ def host_tools(gcc, steps, environment, *, configure_bindings=None):
         if sys.platform != "darwin" or not sample.is_file():
             raise ValueError("Darwin sampling requested but native tool unavailable")
         tools["darwinSample"] = sample.resolve(strict=True)
+        tools["darwinOpenFiles"] = Path("/usr/sbin/lsof").resolve(strict=True)
     kinds = {step["capability"] for step in steps}
     required = {"as", "ld"}
     if any(kind.startswith("gambit.") for kind in kinds) or kinds & {'source.overlay', 'gerbil.build', 'gerbil.test'}:
@@ -536,6 +546,13 @@ def host_tools(gcc, steps, environment, *, configure_bindings=None):
         if path is None:
             raise ValueError("required native tool missing: " + name)
         tools[name] = Path(path).resolve(strict=True)
+        if name == 'm4':
+            # M4 is an explicit Autoconf input, and PATH lookups must agree
+            # with that same executable. Do not leave Apple's older m4 ahead
+            # of a selected GNU m4 while merely recording the latter.
+            parent = str(tools[name].parent)
+            directories = [directory for directory in directories if directory != parent]
+            directories.insert(0, parent)
         if name in {"aclocal", "autoconf", "m4"}:
             directories.append(str(Path(path).absolute().parent))
     env.update(PATH=os.pathsep.join(dict.fromkeys(directories)), CC=str(tools["gcc"]))
@@ -837,7 +854,9 @@ def configure(args, ctx):
         flags = ["--enable-smp", "--enable-multiple-vms", "--enable-multiple-threaded-vms",
                  "--enable-c-opt=-O" + str(args["cOptimization"]),
                  "--enable-c-opt-rts=-O" + str(args["rtsOptimization"])]
-    reused = configure_owned_source(ctx, source, flags, managed=managed)
+    from gambit_smp.native_development import configuration_request
+    request = configuration_request(source, dict(flags=flags), ctx.tools, ctx.env) if managed else None
+    reused = configure_owned_source(ctx, source, flags, managed=managed, request_identity=request)
     effective = effective_configuration(ctx, source, gcc)
     return {"outputs": ctx.publish("source", "configured-tree", source), "claim": "configuration-only",
             "buildProfile": profile, **effective,
@@ -856,24 +875,25 @@ def configuration_probe_identity(request):
                                if not n.endswith('.in')}}
 
 
+def _completed_configuration_command(item,stage):
+    raw=item.get('receiptBytes','')
+    observed=json.loads(raw) if raw else {}
+    commands=item.get('commands',[])
+    if (hashlib.sha256(raw.encode()).hexdigest()!=item.get('receiptSha256')
+            or observed.get('state')!='OBSERVED' or observed.get('stage')!=stage
+            or observed.get('exit')!=0 or observed.get('timeout') is not False
+            or observed.get('parentReaped') is not True
+            or observed.get('processGroupQuiescent') is not True
+            or len(commands)!=1
+            or any(observed.get(k)!=v for k,v in commands[0].items())):
+        raise ValueError('actual completed configure receipt required for reuse')
+    return observed
+
 def completed_configuration_proof(proof):
     """Authenticate the probe receipt and any standard config.status refresh."""
-    def receipt(item,stage):
-        raw=item.get('receiptBytes','')
-        observed=json.loads(raw) if raw else {}
-        commands=item.get('commands',[])
-        if (hashlib.sha256(raw.encode()).hexdigest()!=item.get('receiptSha256')
-                or observed.get('state')!='OBSERVED' or observed.get('stage')!=stage
-                or observed.get('exit')!=0 or observed.get('timeout') is not False
-                or observed.get('parentReaped') is not True
-                or observed.get('processGroupQuiescent') is not True
-                or len(commands)!=1
-                or any(observed.get(k)!=v for k,v in commands[0].items())):
-            raise ValueError('actual completed configure receipt required for reuse')
-        return observed
     if proof.get('schema')!='gambit-configure-reuse.v1':
         raise ValueError('actual completed configure receipt required for reuse')
-    observed=receipt(proof,'configure')
+    observed=_completed_configuration_command(proof,'configure')
     flags=proof.get('flags')
     invoked=proof.get('invocationFlags',flags)
     cache=proof.get('probeCache')
@@ -889,7 +909,7 @@ def completed_configuration_proof(proof):
     if observed.get('argv',[])[2:]!=invoked:
         raise ValueError('configure command differs from its actual process observation')
     if 'templateEmission' in proof:
-        emitted=receipt(proof['templateEmission'],'config-status')
+        emitted=_completed_configuration_command(proof['templateEmission'],'config-status')
         if (emitted.get('argv',[])[1:]!=['./config.status']
                 or emitted.get('argv',[])[:1]!=observed.get('argv',[])[:1]
                 or emitted.get('cwd')!=observed.get('cwd')
@@ -900,7 +920,38 @@ def completed_configuration_proof(proof):
     return observed
 
 
-def configure_owned_source(ctx, source, flags, *, managed, request_identity=None):
+def macro_generation_identity(request):
+    """Autoconf generates scripts from macro inputs, tools and environment.
+
+    Configure flags and output templates belong to later consumers. This is a
+    selected-task identity, not a claim about arbitrary Autoconf read effects.
+    """
+    probes=configuration_probe_identity(request)
+    if probes is None:
+        return None
+    return dict(inputs=probes['inputs'], environment=probes.get('environment'),
+                tools={k:v for k,v in probes.get('tools',{}).items()
+                       if k in {'aclocal','autoconf','m4'}})
+
+
+def reusable_macro_generation(proof, request, source, tools):
+    item=(proof or {}).get('macroGeneration')
+    identity=macro_generation_identity(request)
+    if not item or identity is None or item.get('identity')!=identity:
+        return False
+    if set(item.get('outputs',{}))!={'configure','aclocal.m4'}:
+        return False
+    if any(not (source/n).is_file() or digest(source/n)!=h for n,h in item['outputs'].items()):
+        return False
+    for stage,argv in (('aclocal',[str(tools['aclocal'])]),
+                       ('autoconf',[str(tools['autoconf']),'-v','-o','configure','configure.ac'])):
+        observed=_completed_configuration_command(item[stage],stage)
+        if observed.get('argv')!=argv or observed.get('cwd')!=str(source):
+            raise ValueError('macro generation command differs from selected tools/workspace')
+    return True
+
+
+def configure_owned_source(ctx, source, flags, *, managed, request_identity=None, broken_links=None):
     """Shared configure owner for an already leased tree; no clone or clean.
 
     The caller owns source admission and dependency projection. Managed reuse
@@ -933,14 +984,26 @@ def configure_owned_source(ctx, source, flags, *, managed, request_identity=None
         ctx.require('config-status',[ctx.tools['sh'],'./config.status'],source,
                     min(90,ctx.remaining()))
     else:
-        ctx.require('aclocal', [ctx.tools['aclocal']], source, min(30, ctx.remaining()))
-        diagnostic = {}
-        if 'darwinSample' in ctx.tools:
-            tool=Path(ctx.tools['darwinSample'])
-            diagnostic['diagnostic']=dict(tool=str(tool), toolSha256=digest(tool),
-                directory=str(ctx.directory), afterSeconds=5)
-        ctx.require('autoconf', [ctx.tools['autoconf'], '-v', '-o', 'configure', 'configure.ac'],
-                    source, min(30,ctx.remaining()), **diagnostic)
+        macro_reused=reusable_macro_generation(proof,request_identity,source,ctx.tools)
+        macro_generation=proof['macroGeneration'] if macro_reused else None
+        if not macro_reused:
+            ctx.require('aclocal', [ctx.tools['aclocal']], source, min(30, ctx.remaining()))
+            diagnostic = {}
+            if 'darwinSample' in ctx.tools:
+                tool=Path(ctx.tools['darwinSample'])
+                diagnostic['diagnostic']=dict(tool=str(tool), toolSha256=digest(tool),
+                    directory=str(ctx.directory), afterSeconds=5)
+            ctx.require('autoconf', [ctx.tools['autoconf'], '-v', '-o', 'configure', 'configure.ac'],
+                        source, min(30,ctx.remaining()), **diagnostic)
+            if macro_generation_identity(request_identity) is not None:
+                macro_generation=dict(identity=macro_generation_identity(request_identity),
+                    outputs={name:digest(source/name) for name in ('configure','aclocal.m4')})
+                for stage in ('aclocal','autoconf'):
+                    raw=(ctx.directory/(stage+'.process.json')).read_text()
+                    item=dict(receiptBytes=raw,receiptSha256=hashlib.sha256(raw.encode()).hexdigest(),
+                              commands=[row for row in ctx.commands if row['stage']==stage])
+                    _completed_configuration_command(item,stage)
+                    macro_generation[stage]=item
         invocation=list(flags)
         cache=None
         if managed and request_identity is not None:
@@ -970,11 +1033,12 @@ def configure_owned_source(ctx, source, flags, *, managed, request_identity=None
                          receiptBytes=raw, receiptSha256=hashlib.sha256(raw.encode()).hexdigest(),
                          commands=[row for row in ctx.commands if row['stage'] == 'configure'])
             if request_identity is not None: proof['requestIdentity'] = request_identity
+            if macro_generation is not None: proof['macroGeneration'] = macro_generation
             if cache is not None:
                 cache['writtenSha256']=digest(Path(cache['path'])) if Path(cache['path']).is_file() else None
                 proof.update(probeCache=cache,invocationFlags=invocation)
             write(proof_path, proof)
-        checkpoint_build_source(source)
+        checkpoint_build_source(source, broken_links=broken_links)
     return proof if reusable or templates else None
 
 
@@ -997,12 +1061,17 @@ def effective_configuration(ctx, source, gcc):
 
 class Stages:
     """Use only stable build primitives; historical experiment CLIs are absent."""
-    def __init__(self, ctx):
+    def __init__(self, ctx, *, memory_reservation=None):
         self.ctx, self.out = ctx, ctx.directory
+        self.memory_reservation = dict(memory_reservation or {})
 
     def run(self, name, argv, cwd, cap, *, progress=None):
         return self.ctx.run(name, argv, cwd, cap,
                             **({"progress": progress} if progress is not None else {}))
+
+    @property
+    def env(self):
+        return self.ctx.env
 
     @property
     def progress_mode(self):
@@ -1141,10 +1210,11 @@ def source_core(args, ctx):
 
 
 def bootstrap_phase_counts(log):
-    counts = {f"phase{phase}": log.splitlines().count(f"*** making phase{phase}") for phase in range(1, 5)}
-    if any(count != 2 for count in counts.values()):
-        raise ValueError("complete two-pass bootstrap phase inventory was not established")
-    return counts
+    phases = re.findall(r"^\*\*\* making (phase[1-4])$", log, re.MULTILINE)
+    expected = ["phase1", "phase2", "phase3", "phase4"]
+    if phases != expected * 2:
+        raise ValueError("complete ordered two-pass bootstrap phases were not established")
+    return dict.fromkeys(expected, 2)
 
 
 def bootstrap(args, ctx):
@@ -1512,8 +1582,6 @@ def suite(args, ctx):
     from gambit_smp.native_review import preflight
     from gambit_smp.suite_primitives import check_runtime as check
     from gambit_smp.recipes import read_json
-    if args.get("compilerPhaseFiles") and not getattr(ctx, "progress_mode", False):
-        raise ValueError("compiled phase execution requires completed-work inactivity timing")
     if args.get("childProgress") and not getattr(ctx, "progress_mode", False):
         raise ValueError("child work observation requires inactivity timing")
     runtime = ctx.artifact(args["runtime"], {"seed-runtime", "source-runtime"})
@@ -1526,9 +1594,15 @@ def suite(args, ctx):
     check(runtime, candidate)
     gcc = compiler(ctx)
     driver = gnu_build_driver(runtime, gcc)
-    copied = runtime_view(runtime, ctx.directory / "runtime")
-    storage = transfer_tree(runtime / "tests", copied, dirs_exist_ok=True)
-    additional_fixtures(args, ctx, copied / "unit-tests")
+    if args.get('additionalFixtures'):
+        # Explicit derived fixtures need their own input view. Ordinary suites
+        # read upstream bytes directly and execute only in the fixed slots.
+        copied = runtime_view(runtime, ctx.directory / "runtime")
+        storage = transfer_tree(runtime / "tests", copied, dirs_exist_ok=True)
+        additional_fixtures(args, ctx, copied / "unit-tests")
+    else:
+        copied = runtime / 'tests'
+        storage = dict(method='read-only-upstream-inputs', filesCopied=0)
     files = selected_files(copied / "unit-tests", args["selection"], inventory=args.get("inventory", "unit"))
     if sorted(str(path) for path in files) != sorted(expected_suite_inventory(args, ctx)):
         raise ValueError("suite selected inventory differs from exact declared files")
@@ -1574,9 +1648,32 @@ def suite(args, ctx):
                      else "bounded-whole-step-suite-not-performance", "performanceAdmitted": False}
 
 
-def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
-    from gambit_smp.artifact_storage import transfer_tree
-    from gambit_smp.suite_primitives import admitted_suite, partitions, runner_option, runtime_view, SuiteCompletionProgress
+def run_suite_groups(ctx, runtime, copied, args, files, jobs, option, *, indexed_numeric=False):
+    from gambit_smp.suite_primitives import suite_worker_inputs, suite_workers
+    support = None
+    if args.get("sharedAssertions") and ctx.deadline > time.monotonic():
+        from gambit_smp.assertion_runtime import SharedAssertionRuntime
+        support = SharedAssertionRuntime(ctx, runtime, copied, option)
+    if ctx.deadline <= time.monotonic():
+        return _run_suite_groups(ctx, runtime, copied, args, files, jobs, option, None,
+                                 indexed_numeric=indexed_numeric)
+    with suite_workers(ctx.root, ctx.directory, jobs) as slots:
+        if not indexed_numeric:
+            return _run_suite_groups(ctx, runtime, copied, args, files, jobs, option, slots,
+                                     **({"assertion_runtime": support} if support else {}))
+        context = dict(environment=ctx.env, tools=ctx.tools, mode=args['mode'], option=option)
+        started = time.monotonic()
+        with suite_worker_inputs(runtime, copied, context) as prepare_slot:
+            return _run_suite_groups(ctx, runtime, copied, args, files, jobs, option, slots,
+                                     indexed_numeric=True, prepare_slot=prepare_slot,
+                                     shared_input_seconds=time.monotonic() - started,
+                                     **({"assertion_runtime": support} if support else {}))
+
+
+def _run_suite_groups(ctx, runtime, copied, args, files, jobs, option, slots, *, indexed_numeric=False,
+                      prepare_slot=None, shared_input_seconds=0, assertion_runtime=None):
+    from gambit_smp.suite_primitives import (admitted_suite, completed_suite_files, partitions,
+        runner_option, prepare_suite_worker, SuiteCompletionProgress)
     atomic = args["regime"] == "atomic-coverage"
     progress_timed = getattr(ctx, "progress_mode", False)
     file_caps = args.get("fileBudgetSeconds", {})
@@ -1619,10 +1716,12 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
         snapshot("suite-plan.json", {"schema": "gambit-suite-execution-plan.v1",
             "selectedFiles": [str(file) for file in files], "mode": args["mode"],
             "regime": args["regime"], "jobs": jobs, "groups": planned,
+            **({"sharedInputSecondsChargedToBoundedGroups": shared_input_seconds}
+               if prepare_slot is not None else {}),
             **({"compilerPhaseFiles": args["compilerPhaseFiles"]} if args.get("compilerPhaseFiles") else {}),
             "runtimeAdmitted": False})
 
-        def worker(item):
+        def worker_in_slot(item, slot):
             from gambit_smp.suite_observations import prepare, capture
             index, group = item
             name = f"suite-{batch_index}-{index}"
@@ -1630,7 +1729,10 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
             group_binding = next(((key, value["budgetSeconds"]) for key, value in group_caps.items()
                                   if value["files"] == [str(file) for file in group]), None)
             local_cap = group_binding[1] if group_binding is not None else file_cap
-            child_deadline = min(deadline, time.monotonic() + local_cap) if local_cap is not None else deadline
+            # Charge the shared input check to every bounded group that uses
+            # it, as preparation used to run inside the group's deadline.
+            child_deadline = (min(deadline, time.monotonic() + local_cap - shared_input_seconds)
+                              if local_cap is not None else deadline)
             def unstarted(storage=None):
                 # There was no child process and therefore no child timeout.
                 # Keep the unexecuted inventory in the terminal observation
@@ -1647,23 +1749,39 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
             cap = idle_cap if progress_timed else child_deadline - time.monotonic()
             if cap <= 0:
                 return unstarted()
-            work = runtime_view(runtime, ctx.directory / "shards" / name)
-            storage = transfer_tree(copied, work, dirs_exist_ok=True)
+            if prepare_slot is None:
+                work, storage = prepare_suite_worker(runtime, copied, slot, context={
+                    'environment': ctx.env, 'tools': ctx.tools, 'mode': args['mode'], 'option': option})
+            else:
+                work, storage = prepare_slot(slot)
             selected_observations = prepare(work, args.get("observationFiles", {}), group)
             cap = idle_cap if progress_timed else child_deadline - time.monotonic()
             if cap <= 0:
                 return unstarted(storage)
             phases = None
+            observed_files = None
             child_progress = None
             if len(group) == 1 and str(group[0]) in args.get("compilerPhaseFiles", []):
-                if not progress_timed or args["mode"] != "gsc":
-                    raise ValueError("compiled phases require GSC inactivity semantics")
-                from gambit_smp.compiler_phase_primitives import run_suite_phases
+                if args["mode"] != "gsc":
+                    raise ValueError("compiled phases require GSC")
+                from gambit_smp.compiler_phase_primitives import run_suite_phases, suite_phase_commands
+                # A phase-cost observation requires a real fresh compilation.
+                # Retire only its named outputs in this leased slot, never a
+                # new workspace or an unchanged upstream input file.
+                for _, _, _, artifact in suite_phase_commands(group[0], work):
+                    if artifact is not None and artifact.exists():
+                        source_input = copied / artifact.relative_to(work)
+                        if source_input.exists() or artifact.is_symlink() or not artifact.is_file():
+                            raise ValueError('compiler phase output overlaps an input or alias')
+                        artifact.unlink()
                 phase_started = time.monotonic()
                 grouping = args.get("numericGrouping") if str(group[0]) == "03-number/_num.scm" else None
                 phases = run_suite_phases(ctx, runtime, work, group[0], name, cap,
-                                          **({"grouping": grouping} if grouping is not None else {}))
-                code, timeout = phases[-1]["exit"], any(row["timeout"] for row in phases)
+                                          **({"deadline": child_deadline} if not progress_timed else {}),
+                                          **({"grouping": grouping, "indexed_numeric": indexed_numeric}
+                                             if grouping is not None else {}))
+                code = phases[-1]["exit"] if phases else None
+                timeout = any(row["timeout"] for row in phases)
                 seconds = time.monotonic() - phase_started
                 command_accepted = len(phases) == 3 and all(row["accepted"] for row in phases)
             else:
@@ -1679,15 +1797,19 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
                     ctx.bind([ctx.root / config["manifest"], ctx.root / config["forwarder"], runtime / "lib/_nonstd.scm"])
                     ctx.bind(Path(path) for path in child_progress.inputs)
                 try:
-                    code, output, timeout, seconds = ctx.run(name, [runtime / "gsi/gsi", "-:" + runner_option(option), "-f",
-                        "run-unit-tests.scm", "-" + args["mode"],
-                        *(["-stress"] if args.get("inventory", "unit") == "stress" else []),
-                        *[str(Path("unit-tests") / file) for file in group]], work, cap,
-                        **({"progress": child_progress or SuiteCompletionProgress(len(group))} if progress_timed else {}))
+                    with assertion_runtime.fixture_sources(work, name) if assertion_runtime else nullcontext():
+                        code, output, timeout, seconds = ctx.run(name, [runtime / "gsi/gsi", "-:" + runner_option(option), "-f",
+                            "run-unit-tests.scm", "-" + args["mode"],
+                            *(["-stress"] if args.get("inventory", "unit") == "stress" else []),
+                            *[str(Path("unit-tests") / file) for file in group]], work, cap,
+                            **({"progress": child_progress or SuiteCompletionProgress(len(group))} if progress_timed else {}))
                 finally:
                     if child_progress is not None:
                         child_progress.close()
                 command_accepted = admitted_suite(code, output, timeout, len(group))
+                if indexed_numeric:
+                    observed_files = completed_suite_files(output, group)
+                    command_accepted = command_accepted and bool(observed_files)
                 if child_progress is not None:
                     command_accepted = command_accepted and not child_progress.errors
             stable = all(digest(work / path.relative_to(copied)) == (
@@ -1703,13 +1825,31 @@ def run_suite_groups(ctx, runtime, copied, args, files, jobs, option):
                     "exit": code, "timeout": timeout, "seconds": seconds, "fileBudgetSeconds": file_cap,
                     "storageTransfer": storage,
                     "observations": captured,
+                    **({"observedFiles": observed_files} if observed_files is not None else {}),
                     "groupBudget": group_binding[0] if group_binding is not None else None,
                     "groupBudgetSeconds": group_binding[1] if group_binding is not None else None,
                     **({"childProgress": child_progress.observation()} if child_progress is not None else {}),
                     **({"compilerPhases": phases,
-                        "phaseInactivitySeconds": cap,
-                        "assertionProtocol": "original-gsi-loader-and-unit-test-exit"} if phases is not None else {}),
+                        **({"phaseInactivitySeconds": cap} if progress_timed else
+                           {"sharedPhaseBudgetSeconds": local_cap}),
+                        "assertionProtocol": ("original-gsi-loader-and-assertion-witness"
+                                              if grouping is not None and not progress_timed else
+                                              "original-gsi-loader-and-unit-test-exit")} if phases is not None else {}),
                     "accepted": accepted}
+
+        def worker(item):
+            if slots is None:
+                return worker_in_slot(item, None)
+            slot = slots.get()
+            try:
+                return worker_in_slot(item, slot)
+            finally:
+                from gambit_smp.suite_primitives import retain_unquiesced_suite_worker
+                try:
+                    retain_unquiesced_suite_worker(slot, [row for row in ctx.commands
+                        if row.get('cwd') == str(slot / 'tests')])
+                finally:
+                    slots.put(slot)
 
         with ThreadPoolExecutor(max_workers=jobs) as pool:
             futures = [pool.submit(worker, item) for item in enumerate(groups)]

@@ -5,13 +5,175 @@ import subprocess
 import tempfile
 import unittest
 from gambit_smp import native_suite
-from unittest.mock import patch
+from unittest.mock import call, patch
 from tests.support import task_fixture
 
 from gambit_smp.native_suite import admitted_suite, selected_files, campaign_status, extra_fixture, admitted_processors, fixture_patch, partitions, runtime_view, capacity, runner_option, atomic_suite
 
 
 class NativeSuiteTests(unittest.TestCase):
+    def test_fixed_task_slots_reuse_bytes_and_cwd_across_runs(self):
+        from gambit_smp.suite_primitives import digest, suite_workers, prepare_suite_worker
+        with task_fixture('suite-slots') as (root, cache):
+            runtime = root / 'runtime'
+            for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+                (runtime / name).mkdir(parents=True)
+            copied = root / 'inputs'
+            copied.mkdir()
+            (copied / 'case.scm').write_text('(exit 0)')
+            directories = set()
+            for run in ('first', 'second', 'third'):
+                with suite_workers(root, cache / 'runs' / run, 2) as slots:
+                    for index in range(12):
+                        slot = slots.get()
+                        with patch("gambit_smp.suite_primitives.digest", wraps=digest) as observed:
+                            work, storage = prepare_suite_worker(runtime, copied, slot)
+                        self.assertEqual(1, sum(call.args == (work / 'case.scm',)
+                                                for call in observed.call_args_list))
+                        self.assertEqual(2, sum(call.args == (copied / 'case.scm',)
+                                                for call in observed.call_args_list))
+                        directories.add(work)
+                        if run == 'first' and index < 2:
+                            (work / 'retained.o1').write_text('completed bytes')
+                        else:
+                            self.assertTrue(storage['workspaceReused'])
+                            self.assertEqual(0, storage['filesCopied'])
+                            self.assertEqual('completed bytes', (work / 'retained.o1').read_text())
+                        self.assertFalse(storage['compiledResultReused'])
+                        slots.put(slot)
+            self.assertEqual(2, len(directories))
+            self.assertFalse((cache / 'runs').exists())
+
+    def test_suite_slot_delta_resets_only_test_data_not_bootstrap(self):
+        from gambit_smp.suite_primitives import suite_workers, prepare_suite_worker
+        with task_fixture('suite-delta') as (root, cache):
+            runtime = root / 'runtime'
+            for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+                (runtime / name).mkdir(parents=True)
+            seed = runtime / 'gsi/gsi'
+            seed.write_bytes(b'compiled seed')
+            copied = root / 'inputs'; copied.mkdir()
+            source = copied / 'case.scm'; source.write_text('old')
+            with suite_workers(root, cache / 'runs/first', 1) as slots:
+                slot = slots.get()
+                work, _ = prepare_suite_worker(runtime, copied, slot)
+                (work / 'stale.o1').write_text('old output')
+                source.write_text('new')
+                same, storage = prepare_suite_worker(runtime, copied, slot)
+                self.assertEqual(work, same)
+                self.assertFalse(storage['workspaceReused'])
+                self.assertFalse((work / 'stale.o1').exists())
+                self.assertEqual('new', (work / 'case.scm').read_text())
+                self.assertEqual(b'compiled seed', seed.read_bytes())
+                seed.write_bytes(b'new compiled seed')
+                (work / 'stale.o1').write_text('old runtime output')
+                _, storage = prepare_suite_worker(runtime, copied, slot)
+                self.assertFalse(storage['workspaceReused'])
+                self.assertFalse((work / 'stale.o1').exists())
+
+    def test_suite_slot_keeps_verified_inputs_when_execution_context_changes(self):
+        from gambit_smp.suite_primitives import suite_workers, prepare_suite_worker
+        with task_fixture('suite-context') as (root, cache):
+            runtime = root / 'runtime'
+            for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+                (runtime / name).mkdir(parents=True)
+            copied = root / 'inputs'
+            (copied / 'nested').mkdir(parents=True)
+            (copied / 'empty').mkdir()
+            (copied / 'nested/case.scm').write_text('(exit 0)')
+            with suite_workers(root, cache / 'runs/first', 1) as slots:
+                slot = slots.get()
+                work, _ = prepare_suite_worker(runtime, copied, slot, context={'run': 'first'})
+                fixture = work / 'nested/case.scm'
+                before = fixture.stat().st_ino
+                (work / 'nested/stale.o1').write_text('compiled in a previous context')
+                (work / 'generated').mkdir()
+                (work / 'generated/stale.c').write_text('derived')
+                same, storage = prepare_suite_worker(runtime, copied, slot, context={'run': 'second'})
+                self.assertEqual(same, work)
+                self.assertEqual(fixture.stat().st_ino, before)
+                self.assertTrue((work / 'empty').is_dir())
+                self.assertFalse((work / 'generated').exists())
+                self.assertFalse((work / 'nested/stale.o1').exists())
+                self.assertTrue(storage['workspaceReused'])
+                self.assertEqual(storage['filesCopied'], 0)
+                self.assertTrue(storage['runnerOutputsInvalidated'])
+                self.assertFalse(storage['compiledResultReused'])
+
+    def test_suite_campaign_shares_and_rechecks_the_donor_snapshot(self):
+        from gambit_smp.suite_primitives import digest, suite_worker_inputs, suite_workers
+        with task_fixture('suite-shared-inputs') as (root, cache):
+            runtime = root / 'runtime'
+            for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+                (runtime / name).mkdir(parents=True)
+            executable = runtime / 'gsc/gsc'
+            executable.write_bytes(b'compiled GSC')
+            copied = root / 'inputs'
+            copied.mkdir()
+            source = copied / 'case.scm'
+            source.write_text('(exit 0)')
+            with suite_workers(root, cache / 'runs' / 'first', 2) as slots:
+                workers = [slots.get(), slots.get()]
+                with patch("gambit_smp.suite_primitives.digest", wraps=digest) as observed:
+                    with suite_worker_inputs(runtime, copied, {}) as prepare:
+                        for slot in workers:
+                            work, _ = prepare(slot)
+                            self.assertEqual(source.read_bytes(), (work / 'case.scm').read_bytes())
+                self.assertEqual(observed.call_args_list.count(call(source)), 2)
+                self.assertEqual(observed.call_args_list.count(call(executable)), 2)
+                with self.assertRaisesRegex(ValueError, 'inputs changed during the campaign'):
+                    with suite_worker_inputs(runtime, copied, {}) as prepare:
+                        work, _ = prepare(workers[0])
+                        source.write_text('(exit 1)')
+                        self.assertEqual((work / 'case.scm').read_text(), '(exit 0)')
+
+    def test_occupied_suite_pool_refuses_without_allocating_another_copy(self):
+        from gambit_smp.suite_primitives import suite_workers
+        with task_fixture('suite-lock') as (root, cache):
+            with suite_workers(root, cache / 'runs/first', 1):
+                with self.assertRaisesRegex(ValueError, 'already leased'):
+                    with suite_workers(root, cache / 'runs/second', 1):
+                        self.fail('a competing run acquired the same workspace')
+            self.assertEqual(['suite-tests'], [p.name for p in (cache / 'build').iterdir()])
+
+    def test_suite_slot_rejects_aliases_and_unknown_content(self):
+        from gambit_smp.suite_primitives import suite_workers, prepare_suite_worker
+        with task_fixture('suite-alias') as (root, cache):
+            runtime = root / 'runtime'; runtime.mkdir()
+            copied = root / 'inputs'; copied.mkdir()
+            outside = root / 'outside'; outside.write_text('retain')
+            (copied / 'escape').symlink_to(outside)
+            with suite_workers(root, cache / 'runs/first', 1) as slots:
+                slot = slots.get()
+                with self.assertRaisesRegex(ValueError, 'aliases'):
+                    prepare_suite_worker(runtime, copied, slot)
+                (copied / 'escape').unlink()
+                slot.mkdir()
+                (slot / 'foreign').write_text('retain')
+                with self.assertRaisesRegex(ValueError, 'unowned'):
+                    prepare_suite_worker(runtime, copied, slot)
+                self.assertEqual('retain', (slot / 'foreign').read_text())
+
+    def test_unknown_child_retains_slot_instead_of_forking_or_resetting(self):
+        from gambit_smp.suite_primitives import (suite_workers, prepare_suite_worker,
+                                                retain_unquiesced_suite_worker)
+        with task_fixture('suite-unknown') as (root, cache):
+            runtime = root / 'runtime'
+            for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+                (runtime / name).mkdir(parents=True)
+            copied = root / 'inputs'; copied.mkdir()
+            (copied / 'case.scm').write_text('input')
+            with suite_workers(root, cache / 'runs/first', 1) as slots:
+                slot = slots.get()
+                work, _ = prepare_suite_worker(runtime, copied, slot)
+                (work / 'retained.o1').write_text('possibly in flight')
+                with self.assertRaisesRegex(ValueError, 'quiescence unresolved'):
+                    retain_unquiesced_suite_worker(slot, [{'processGroupQuiescent': None,
+                                                            'parentReaped': True}])
+                with self.assertRaisesRegex(ValueError, 'unresolved child'):
+                    prepare_suite_worker(runtime, copied, slot)
+                self.assertEqual('possibly in flight', (work / 'retained.o1').read_text())
+
     def test_expired_compiled_group_is_unstarted_not_a_forged_child_timeout(self):
         import time
         from gambit_smp.native_capabilities import run_suite_groups
@@ -197,7 +359,7 @@ class NativeSuiteTests(unittest.TestCase):
     def test_completion_patch_is_exact_tested_fixture_and_original_source(self):
         root = Path(__file__).resolve().parents[1]
         relative = Path("tests/unit-tests/06-thread/thread_interrupt.scm")
-        receipt = json.loads((root / "evidence/model-results/native-thread-completion-019.json").read_text())
+        receipt = json.loads((root / ".cache/research/legacy-evidence/evidence/model-results/native-thread-completion-019.json").read_text())
         fixture = root / "models/gambit/native/pr988/thread_interrupt_completion.scm"
         patch = root / "patches/candidates/test-thread-interrupt-completion.patch"
         self.assertEqual(receipt["extraFixtures"]["diagnostic/thread_interrupt_completion.scm"]["sha256"],
@@ -277,3 +439,38 @@ class NativeSuiteTests(unittest.TestCase):
             for selection in ("..", "missing.scm", str(root)):
                 with self.assertRaises(ValueError):
                     selected_files(root, [selection])
+
+
+class CompletedUnitCounterTests(unittest.TestCase):
+    def test_started_filename_is_not_a_completed_test(self):
+        from gambit_smp.suite_primitives import completed_unit_cases
+        out = "[ 0| 0] 0% .... 0s a.scm\n[ 1| 0] 50% .... 1s b.scm\n"
+        self.assertEqual(completed_unit_cases(['a.scm', 'b.scm'], out),
+                         [dict(file='a.scm', status='PASS'), dict(file='b.scm', status='UNRESOLVED')])
+
+    def test_failed_counter_and_final_completion_preserve_outcomes(self):
+        from gambit_smp.suite_primitives import completed_unit_cases
+        out = "[ 0| 0] 0% .... 0s a.scm\n[ 0| 1] 50% .... 1s b.scm\n[ 1| 1] 100% .... 2s\n"
+        self.assertEqual([r['status'] for r in completed_unit_cases(['a.scm', 'b.scm'], out)], ['FAIL', 'PASS'])
+
+    def test_gaps_reset_wrong_order_and_duplicate_inventory_fail_closed(self):
+        from gambit_smp.suite_primitives import completed_unit_cases
+        for out in ['[ 1| 0] 50% .... 1s b.scm\n',
+                    '[ 0| 0] 0% .... 0s b.scm\n',
+                    '[ 0| 0] 0% .... 0s a.scm\n[ 2| 0] 100% .... 1s\n']:
+            with self.subTest(out=out), self.assertRaises(ValueError):
+                completed_unit_cases(['a.scm', 'b.scm'], out)
+        with self.assertRaises(ValueError):
+            completed_unit_cases(['a.scm', 'a.scm'], '')
+
+    def test_exit_text_without_counters_grants_no_coverage(self):
+        from gambit_smp.suite_primitives import completed_unit_cases
+        self.assertEqual(completed_unit_cases(['a.scm'], 'PASSED ALL 1 UNIT TESTS'),
+                         [dict(file='a.scm', status='UNRESOLVED')])
+
+    def test_timeout_stdout_is_not_silently_replaced_by_joined_stderr(self):
+        from gambit_smp.suite_primitives import completed_unit_cases
+        stdout = "[ 0| 0] 0% .... 0s a.scm"
+        self.assertEqual(completed_unit_cases(['a.scm'], stdout)[0]['status'], 'UNRESOLVED')
+        with self.assertRaises(ValueError):
+            completed_unit_cases(['a.scm'], stdout + 'In file included from other.c:1:')

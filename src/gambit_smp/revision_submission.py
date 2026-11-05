@@ -55,6 +55,10 @@ class RevisionSubmission:
         return result.stdout
 
     def check_native(self):
+        if self.native.get("qualificationKind") == "independent-smp-first-three":
+            from gambit_smp.smp_completion import validate_mvp_completion
+            validate_mvp_completion(self.root, self.workspace, self.native)
+            return
         for field in ("canonicalSources", "artifacts", "generatedArtifacts"):
             if field == "generatedArtifacts" and field not in self.native:
                 continue

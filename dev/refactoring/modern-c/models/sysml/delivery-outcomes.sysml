@@ -218,4 +218,19 @@ package GambitModernCOutcomes {
   part executionImpact7:Impact { ref part :>> result=execution; ref part :>> family=GambitModernCDeliveryPlan::a7; attribute :>> meaning="Impact/reuse route only; not a family admission or guaranteed increment."; }
   part executionImpact11:Impact { ref part :>> result=execution; ref part :>> family=GambitModernCDeliveryPlan::a11; attribute :>> meaning="Impact/reuse route only; not a family admission or guaranteed increment."; }
   part executionImpact12:Impact { ref part :>> result=execution; ref part :>> family=GambitModernCDeliveryPlan::a12; attribute :>> meaning="Impact/reuse route only; not a family admission or guaranteed increment."; }
+  part originalSmpMvp:Result {
+    attribute :>> countAxis="independent-smp";
+    attribute :>> deliveryStatus="NATIVE_QUALIFIED_PUBLICATION_PENDING";
+    attribute :>> id="original-smp-mvp";
+    attribute :>> title="Self-hosted C backend and original suites";
+    attribute :>> replacement="Replace repeated physical-host graph/dispatch work through explicit logical-label ownership, retain opaque C and label/frame contracts, and qualify one full first-three SMP population with original assertions and independent processes.";
+    attribute :>> validation="Two bootstrap passes, stock core, original GSI408 and GSC408 on one source/profile/producer. Generated C matches that producer. Shared assertion setup and each load consume the existing budgets, with raw negative controls retained.";
+    attribute :>> falsifier="A partial or spliced suite is promoted, a logical point/frame or tail continuation changes, opaque C is moved without proof, generated C lacks its source, or fixture mutable state is shared across processes.";
+    attribute :>> benefit="Complete original consumers within the declared budgets and measured removal of repeated assertion compilation. Historical1/12, prior2/12 and current3/12 stay source-bound.";
+    attribute :>> cost="One compiled support module and a fresh provider load per ordinary fixture, additional label/host metadata, source qualification and generated output storage. Whole workload runtime throughput and peak memory remain unmeasured.";
+  }
+  part originalSmpProducer:Need { ref part :>> result=originalSmpMvp; attribute :>> id="SMP-MVP-PRODUCER"; attribute :>> condition="One exact canonical source/profile/producer with phases1-4 twice, complete generated inventory and fresh stock core."; }
+  part originalSmpConsumers:Need { ref part :>> result=originalSmpMvp; attribute :>> id="SMP-MVP-CONSUMERS"; attribute :>> condition="Full original GSI and one whole GSC manifest, original assertions and numeric execution witness, unchanged limits and independent fixture processes."; }
+  part originalSmpState:Need { ref part :>> result=originalSmpMvp; attribute :>> id="SMP-MVP-STATE"; attribute :>> condition="Fixture owns mutable state, exit installation and late reader. Retain direct-global warning counterexample, continuation/exit controls and byte-identical source reconstruction."; }
+  part originalSmpPublication:Need { ref part :>> result=originalSmpMvp; attribute :>> id="SMP-MVP-PUBLICATION"; attribute :>> condition="Eight canonical changed sources and actual generated cohort belong to the tested producer. Preserve unrelated index/working versions and publish only the existing PR branches after five gates."; }
 }
