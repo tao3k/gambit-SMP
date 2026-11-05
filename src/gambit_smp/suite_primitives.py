@@ -324,3 +324,29 @@ def capacity(cpu, files, parallel, processors=None, jobs=None):
 
 def runner_option(option):
     return ",".join("p1" if part.startswith("p") and part[1:].isdigit() else part for part in option.split(","))
+
+
+def thread_request_fixture(original, header):
+    """Refine the old private request constructor; retain every assertion.
+
+    The consumer supplies the exact producer-bound header. Its existing macro
+    owns record layout; this projection neither duplicates fields nor adds a
+    legacy runtime representation.
+    """
+    signature = b"(##define-macro (macro-make-thread-request target thunk completion state result)"
+    include = b'(include "#.scm")\n'
+    old = b"(##thread-intr-propagate! (vector '() request))"
+    new = (b"(##thread-intr-propagate!\n"
+           b"       (macro-make-thread-request target (lambda () 'unused)\n"
+           b"                                  request 'queued (##void)))")
+    if header.count(signature) != 1:
+        raise ValueError("exact producer thread-request constructor required")
+    if original.count(include) != 1 or original.count(old) != 1:
+        raise ValueError("one original private request call and harness required")
+    headers = (b'(##include "~~lib/_gambit#.scm")\n'
+               b'(##include "~~lib/_thread#.scm")\n')
+    result = original.replace(include, include + headers, 1).replace(old, new, 1)
+    # An inverse byte check makes the source refinement boundary explicit.
+    if result.replace(include + headers, include, 1).replace(new, old, 1) != original:
+        raise ValueError("request projection changed another source span")
+    return result

@@ -9,14 +9,15 @@ def _digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def normalize_matrix(root, matrix, source, fields, kinds):
+def normalize_matrix(root, matrix, source, fields, kinds, *, efficiency_policy=None):
     """Read typed values from durable evidence; never accept literal report numbers.
 
     A directionally favorable observation is not a causal/statistical performance
     theorem. Control, accounting and structural rows cannot claim runtime speedup.
     """
     root = Path(root).resolve()
-    if not isinstance(matrix, dict) or set(matrix) != {"rows"}:
+    if (not isinstance(matrix, dict) or "rows" not in matrix
+            or set(matrix) - {"rows", "claim", "benchmark"}):
         raise ValueError("REV matrix requires rows")
     rows = matrix["rows"]
     if not isinstance(rows, list) or not rows:
@@ -116,8 +117,11 @@ def normalize_matrix(root, matrix, source, fields, kinds):
 
     for row in rows:
         row_evidence = {}
-        if not isinstance(row, dict) or set(row) != set(fields):
+        if (not isinstance(row, dict) or not set(fields) <= set(row)
+                or set(row) - set(fields) - {"dimension"}):
             raise ValueError("matrix row must supply every SysML field")
+        if "dimension" in row and (not isinstance(row["dimension"], str) or not row["dimension"]):
+            raise ValueError("matrix dimension must be explicit")
         for key in set(fields) - {"baseline", "candidate", "evidence"}:
             if not isinstance(row[key], str) or not row[key].strip():
                 raise ValueError("matrix row text must be explicit")
@@ -165,8 +169,12 @@ def normalize_matrix(root, matrix, source, fields, kinds):
                            delta=string(delta), delta_percent=string(percent),
                            candidate_over_baseline=string(ratio), outcome=outcome,
                            generalized_performance_claim=False, evidenceSha256=dict(row_evidence)))
-    return dict(source={k: source[k] for k in ("baseRevision", "tree", "profileSha256")},
-                input=matrix, rows=result, evidence=evidence)
+    normalized = dict(source={k: source[k] for k in ("baseRevision", "tree", "profileSha256")},
+                      input=matrix, rows=result, evidence=evidence)
+    normalized["efficiency"] = efficiency_evidence(
+        root, normalized, source, efficiency_policy, file)
+    return normalized
+
 
 
 def benefit_admission(matrix, *, integration=False):
@@ -184,8 +192,16 @@ def benefit_admission(matrix, *, integration=False):
     reasons = (['measured-regression'] if regressions else [])
     if integration and not positive:
         reasons.append('positive-benefit-unproven')
+    efficiency = matrix.get("efficiency", {"claim": "foundation"})
+    if efficiency["claim"] == "efficiency-upgrade":
+        reasons.extend(efficiency.get("reasons", []))
+        if not efficiency.get("benchmarkQualified"):
+            reasons.append("efficiency-upgrade-unproven")
+        if not positive:
+            reasons.append("positive-efficiency-benefit-unproven")
     return dict(admitted=not reasons, positiveRows=positive,
                 regressionRows=regressions, reasons=reasons)
+
 
 
 def render_matrix(matrix):
@@ -206,3 +222,97 @@ def render_matrix(matrix):
               "methods, limits and evidence digests are retained in the bound audit JSON.",
               "Control timings and structural benefits do not establish a runtime speedup."]
     return "\n".join(lines)
+
+def efficiency_evidence(root, matrix, source, policy, file):
+    """Qualify a declared benchmark population, not an attractive metric label."""
+    request = matrix["input"]
+    claim = request.get("claim", "foundation")
+    if claim not in {"foundation", "efficiency-upgrade"}:
+        raise ValueError("explicit foundation or efficiency-upgrade claim required")
+    required = policy["requiredMetrics"].split(";") if policy else []
+    result = dict(claim=claim, required=required, covered=[], benchmarkQualified=False,
+                  fixedOverheadAccounted=False, reasons=[])
+    if claim == "foundation":
+        return result
+    if not policy:
+        result["reasons"].append("efficiency-policy-unbound")
+        return result
+    reference = request.get("benchmark")
+    if not isinstance(reference, dict) or set(reference) != {"path", "sha256"}:
+        result["reasons"].append("matched-benchmark-missing")
+        return result
+    path = file(reference["path"])
+    if _digest(path) != reference["sha256"]:
+        raise ValueError("matched benchmark evidence changed")
+    packet = json.loads(path.read_text())
+    if any(packet.get(k) != v for k, v in (
+            ("sourceTree", source["tree"]), ("baseRevision", source["baseRevision"]),
+            ("profileSha256", source["profileSha256"]))):
+        raise ValueError("matched benchmark source/profile mismatch")
+    native_ref = packet.get("nativeReceipt")
+    if not isinstance(native_ref, dict) or set(native_ref) != {"path", "sha256"}:
+        result["reasons"].append("native-benchmark-receipt-missing")
+        return result
+    native_path = file(native_ref["path"])
+    if _digest(native_path) != native_ref["sha256"]:
+        raise ValueError("native benchmark receipt changed")
+    native = json.loads(native_path.read_text())
+    if (native.get("complete") is not True
+            or any(native.get(k) != packet.get(k) for k in
+                   ("sourceTree", "baseRevision", "profileSha256"))
+            or not native.get("processes")
+            or any(p.get("exit") != 0 or p.get("timeout") is not False
+                   or p.get("parentReaped") is not True or p.get("processGroupQuiescent") is not True
+                   for p in native["processes"])
+            or any(native_ref["path"] not in row["evidenceSha256"]
+                   for row in matrix["rows"] if row.get("dimension") in required)):
+        result["reasons"].append("native-benchmark-unsettled-or-unbound")
+        return result
+    plan_ref = packet.get("samplePlan")
+    if not isinstance(plan_ref, dict) or set(plan_ref) != {"path", "sha256"}:
+        result["reasons"].append("predeclared-sample-plan-missing")
+        return result
+    plan_path = file(plan_ref["path"])
+    if _digest(plan_path) != plan_ref["sha256"] or plan_ref["sha256"] != packet.get("samplePlanSha256"):
+        raise ValueError("matched benchmark sample plan changed")
+    plan = json.loads(plan_path.read_text())
+    if any(plan.get(k) != packet.get(k) for k in
+           ("plannedSamples", "workloadSha256", "limitsSha256", "rssScope", "costsIncluded")):
+        raise ValueError("benchmark population differs from its predeclared plan")
+    identity = lambda x: isinstance(x, str) and len(x) == 64 and all(c in "0123456789abcdef" for c in x)
+    matched = all(identity(packet.get(k)) and packet.get(k) == packet.get("baseline" + k[0].upper() + k[1:])
+                  for k in ("workloadSha256", "limitsSha256"))
+    if (packet.get("complete") is not True or packet.get("selection") != "all-planned"
+            or packet.get("excludedSamples") != [] or not matched
+            or packet.get("controlsComplete") is not True
+            or not set(policy["includedCosts"].split(";")) <= set(packet.get("costsIncluded", []))
+            or not isinstance(packet.get("rssScope"), str) or not packet["rssScope"].strip()
+            or packet.get("baselineRssScope") != packet["rssScope"]
+            or not isinstance(packet.get("samplePlanSha256"), str)
+            or not identity(packet["samplePlanSha256"])):
+        result["reasons"].append("benchmark-population-or-accounting-incomplete")
+        return result
+    planned = packet.get("plannedSamples", {})
+    for dimension in required:
+        rows = [row for row in matrix["rows"] if row.get("dimension") == dimension]
+        count = planned.get(dimension)
+        if (type(count) is int and count > 1 and rows and all(
+                row["kind"] == "measurement" and row["baseline_value"] is not None
+                and row["candidate_value"] is not None
+                and row["baseline_samples"] == count == row["candidate_samples"]
+                for row in rows)):
+            result["covered"].append(dimension)
+        else:
+            result["reasons"].append("systematic-" + dimension + "-missing")
+    result["fixedOverheadAccounted"] = any(
+        row.get("dimension") == policy["fixedOverhead"]
+        and row["kind"] in {"measurement", "accounted-cost"}
+        and row["baseline_value"] is not None and row["candidate_value"] is not None
+        for row in matrix["rows"])
+    if not result["fixedOverheadAccounted"]:
+        result["reasons"].append("fixed-overhead-unaccounted")
+    if not all(isinstance(packet.get(k), str) and packet[k].strip()
+               for k in ("avoidedFixedWork", "residualFixedWork")):
+        result["reasons"].append("fixed-work-ledger-missing")
+    result["benchmarkQualified"] = not result["reasons"]
+    return result

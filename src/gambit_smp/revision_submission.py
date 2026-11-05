@@ -330,6 +330,11 @@ class RevisionSubmission:
             raise ValueError("SysML delivery needs required")
         queries = {field: namespace + "::" + field
                    for field in ("scope", "stage", "formalDuty")}
+        efficiency_model = "dev/refactoring/modern-c/models/sysml/efficiency-claims.sysml"
+        if (self.root / efficiency_model).is_file():
+            inputs = [*inputs, efficiency_model]
+            for field in ("defaultClaim", "upgradeClaim", "requiredMetrics", "includedCosts", "fixedOverhead", "rule"):
+                queries["efficiency." + field] = "GambitEfficiencyClaims::" + field
         for field in ("fields", "allRevisions", "rule", "matrixRequired", "matrixFields", "matrixKinds", "matrixRule",
                       "commitUnitRequired", "supportSurfaces", "supportFiles", "deliveryRule", "deliveryRegistry",
                       "derivedAuditFiles", "publicationPolicy"):
@@ -407,6 +412,7 @@ class RevisionSubmission:
         write_json(self.evidence / "model-contract.json", dict(inputs=self.model_inputs,
                    values=self.values, nativeOutputSha256=digest(self.storage / "sysml.stdout")))
         return self.values
+
 
     def delivery_contract(self):
         """Bind a complete integration or a strictly non-runtime support cut.
@@ -548,7 +554,9 @@ class RevisionSubmission:
             raise ValueError("native SysML matrix contract required")
         matrix = normalize_matrix(self.root, report["matrix"], self.source,
             values["comment.matrixFields"].split(","),
-            values["comment.matrixKinds"].split(","))
+            values["comment.matrixKinds"].split(","),
+            efficiency_policy={key.removeprefix("efficiency."): value for key, value in values.items()
+                               if key.startswith("efficiency.")} or None)
         checklist = Path(report["checklist"].split("#", 1)[0])
         if (checklist.is_absolute() or ".." in checklist.parts or ".cache" in checklist.parts
                 or checklist.suffix != ".org"
@@ -568,6 +576,7 @@ class RevisionSubmission:
             delivery=delivery))
         return digest(self.audit_path)
 
+
     def audit_comment(self, expected_digest):
         if not getattr(self, "audit_path", None) or digest(self.audit_path) != expected_digest:
             raise ValueError("reviewed REV audit changed after admission")
@@ -582,7 +591,9 @@ class RevisionSubmission:
         from gambit_smp.revision_matrix import normalize_matrix, render_matrix
         verified = normalize_matrix(self.root, report["matrix"]["input"], self.source,
             self.values["comment.matrixFields"].split(","),
-            self.values["comment.matrixKinds"].split(","))
+            self.values["comment.matrixKinds"].split(","),
+            efficiency_policy={key.removeprefix("efficiency."): value for key, value in self.values.items()
+                               if key.startswith("efficiency.")} or None)
         if verified != report["matrix"]:
             raise ValueError("reviewed REV matrix evidence changed")
         if self.delivery_contract() != report.get("delivery"):
@@ -600,8 +611,10 @@ class RevisionSubmission:
         for field, value in report["fields"].items():
             lines += ["", field.capitalize() + ":", value]
         lines += ["", "Matrix-SHA256: " + content_digest(report["matrix"]),
+                  "Benefit-class: " + report["matrix"]["efficiency"]["claim"],
                   render_matrix(report["matrix"])]
         return "\n".join(lines) + "\n"
+
 
     def check_custody(self):
         self.check_native()
@@ -660,6 +673,11 @@ class RevisionSubmission:
                      "missing-matrix", "stale-matrix", "missing-matrix-row", "missing-matrix-evidence",
                      "missing-submission-unit", "support-progress", "unapproved-support-path",
                      "regressed-matrix", "missing-benefit-classification",
+                     "efficiency-upgrade-without-benchmarks",
+                     "missing-efficiency-classification",
+                     *(["efficiency-missing:" + d for d in matrix["efficiency"]["required"]]
+                       + ["efficiency-unaccounted-fixed-overhead"]
+                       if matrix["efficiency"]["required"] else []),
                      *(["nonpositive-matrix"] if unit["kind"] == "integration" else []),
                      "fragment-integration", *["missing-delivery:" + x for x in unit["requirements"]],
                      *(["stale-delivery-tree"] if unit["kind"] == "integration" else []),
@@ -727,12 +745,33 @@ class RevisionSubmission:
                 ah = "wrong-audit" if scenario == "stale-matrix" else report_digest
                 if scenario != "missing-audit-packet":
                     rows["commitMatrixPacketFact"].append([scenario, ah, mh])
+                efficiency = matrix["efficiency"]
+                if scenario != "missing-efficiency-classification":
+                    rows.setdefault("commitEfficiencyClaimFact", []).append([
+                        mh, "efficiency-upgrade" if scenario.startswith("efficiency-")
+                        else efficiency["claim"]])
+                counterfactual = scenario.startswith("efficiency-missing:") or scenario == "efficiency-unaccounted-fixed-overhead"
+                for dimension in efficiency["required"]:
+                    pair = [mh, dimension]
+                    rows.setdefault("commitEfficiencyRequiredFact", []).append(pair)
+                    observed = (dimension != scenario.partition(":")[2] if counterfactual
+                                else dimension in efficiency["covered"])
+                    if scenario != "efficiency-upgrade-without-benchmarks" and observed:
+                        rows.setdefault("commitEfficiencyObservedFact", []).append(pair)
+                if scenario != "efficiency-upgrade-without-benchmarks":
+                    if efficiency["benchmarkQualified"] or counterfactual:
+                        rows.setdefault("commitEfficiencyBenchmarkFact", []).append([mh])
+                    if ((efficiency["fixedOverheadAccounted"] or counterfactual)
+                            and scenario != "efficiency-unaccounted-fixed-overhead"):
+                        rows.setdefault("commitEfficiencyCostFact", []).append([mh])
                 for metric in ([] if scenario == "missing-matrix-row" else matrix["rows"]):
                     mid = metric["id"]
-                    rows["commitMatrixRowFact"].append([mh, mid, metric["kind"], metric["unit"]])
+                    rows["commitMatrixRowFact"].append([
+                        mh, mid, "measurement" if counterfactual else metric["kind"], metric["unit"]])
                     rows["commitMatrixValueValidFact"].append([mh, mid])
                     if scenario != "missing-benefit-classification":
-                        outcome = ("observed-regression" if scenario == "regressed-matrix"
+                        outcome = ("observed-improvement" if counterfactual
+                                   else "observed-regression" if scenario == "regressed-matrix"
                                    else "no-observed-change" if scenario == "nonpositive-matrix"
                                    else metric["outcome"])
                         rows["commitMatrixOutcomeFact"].append([mh, mid, outcome])
@@ -741,7 +780,8 @@ class RevisionSubmission:
                             # never a new empirical observation or a performance claim.
                             rows["commitMatrixRowFact"].append([mh, mid, "measurement", metric["unit"]])
                     for field in self.values["comment.matrixFields"].split(","):
-                        rows["commitMatrixFieldFact"].append([mh, mid, field, content_digest(metric[field])])
+                        value = "measurement" if counterfactual and field == "kind" else metric[field]
+                        rows["commitMatrixFieldFact"].append([mh, mid, field, content_digest(value)])
                     for path, expected in ([] if scenario == "missing-matrix-evidence" else metric["evidenceSha256"].items()):
                         rows["commitMatrixRefFact"].append([mh, mid, path, expected])
             for obligation, _, method, artifact, scope in needs:
@@ -799,6 +839,7 @@ class RevisionSubmission:
                               wholeSmpAdmitted=False)
         write_json(self.evidence / "admission.json", self.admission)
         return self.admission
+
 
     def commit(self, message, admission):
         if (admission is not getattr(self, "admission", None)

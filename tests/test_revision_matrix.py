@@ -130,3 +130,101 @@ class RevisionMatrixTests(unittest.TestCase):
                 result = benefit_admission({'rows': [row]}, integration=True)
                 self.assertFalse(result['admitted'])
                 self.assertIn('positive-benefit-unproven', result['reasons'])
+
+class EfficiencyClaimTests(unittest.TestCase):
+    """Typed synthetic benchmark controls, never measured runtime evidence."""
+    policy = dict(requiredMetrics="pause;throughput;rss",
+                  includedCosts="build;load;allocation;gc;cleanup",
+                  fixedOverhead="fixed-overhead")
+
+    def setUp(self):
+        self.temp = TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.source = dict(baseRevision="base", tree="candidate", profileSha256="profile")
+        self.identity = dict(baseRevision="base", sourceTree="candidate", profileSha256="profile")
+
+    def population(self):
+        import hashlib
+        raw = dict(self.identity, values={}, complete=True,
+                   processes=[dict(exit=0, timeout=False, parentReaped=True,
+                                   processGroupQuiescent=True)])
+        quantities = dict(self.identity, values={})
+        rows = []
+        for dimension, unit, before, after, direction in [
+            ("pause", "s", 20, 10, "lower"),
+            ("throughput", "requests/s", 20, 30, "higher"),
+            ("rss", "bytes", 200, 100, "lower"),
+            ("fixed-overhead", "s", 2, 1, "lower"),
+        ]:
+            raw["values"][dimension] = {}
+            quantities["values"][dimension] = {}
+            for arm, value in [("before", before), ("after", after)]:
+                value = dict(value=value, unit=unit, samples=2)
+                raw["values"][dimension][arm] = value
+                quantities["values"][dimension][arm] = dict(value, origin=dict(
+                    path="raw.json", pointer="/values/" + dimension + "/" + arm))
+            rows.append(dict(id=dimension, dimension=dimension, kind="measurement",
+                metric=dimension, unit=unit, direction=direction,
+                baseline=dict(path="quantities.json", pointer="/values/" + dimension + "/before"),
+                candidate=dict(path="quantities.json", pointer="/values/" + dimension + "/after"),
+                workload="Whole paired synthetic population", method="Typed policy control",
+                evidence=["raw.json"], limitation="Synthetic, not native performance."))
+        for name, value in [("raw.json", raw), ("quantities.json", quantities)]:
+            (self.root / name).write_text(json.dumps(value))
+        plan = dict(plannedSamples={k: 2 for k in ("pause", "throughput", "rss")},
+                    workloadSha256="1" * 64, limitsSha256="2" * 64,
+                    rssScope="coincident whole process-group RSS",
+                    costsIncluded=self.policy["includedCosts"].split(";"))
+        (self.root / "plan.json").write_text(json.dumps(plan))
+        plan_sha = hashlib.sha256((self.root / "plan.json").read_bytes()).hexdigest()
+        self.benchmark = dict(self.identity, **plan, complete=True, selection="all-planned",
+            excludedSamples=[], controlsComplete=True,
+            baselineWorkloadSha256=plan["workloadSha256"], baselineLimitsSha256=plan["limitsSha256"],
+            baselineRssScope=plan["rssScope"], samplePlanSha256=plan_sha,
+            samplePlan=dict(path="plan.json", sha256=plan_sha),
+            nativeReceipt=dict(path="raw.json", sha256=hashlib.sha256(
+                (self.root / "raw.json").read_bytes()).hexdigest()),
+            avoidedFixedWork="Repeated setup eliminated", residualFixedWork="One validated setup remains")
+        self.matrix = dict(rows=rows, claim="efficiency-upgrade")
+        self.save_benchmark()
+
+    def save_benchmark(self):
+        import hashlib
+        path = self.root / "benchmark.json"
+        path.write_text(json.dumps(self.benchmark))
+        self.matrix["benchmark"] = dict(path="benchmark.json",
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest())
+
+    def decision(self):
+        from gambit_smp.revision_matrix import benefit_admission
+        packet = normalize_matrix(self.root, self.matrix, self.source, FIELDS, KINDS,
+                                  efficiency_policy=self.policy)
+        return benefit_admission(packet, integration=True)
+
+    def test_local_positive_remains_foundation_and_cannot_upgrade_without_population(self):
+        self.population()
+        self.matrix.pop("benchmark")
+        self.assertFalse(self.decision()["admitted"])
+        self.matrix["claim"] = "foundation"
+        self.assertTrue(self.decision()["admitted"])
+
+    def test_complete_population_is_necessary_and_each_missing_dimension_denies(self):
+        self.population()
+        self.assertTrue(self.decision()["admitted"])
+        original = copy.deepcopy(self.matrix)
+        for dimension in ("pause", "throughput", "rss", "fixed-overhead"):
+            self.matrix = copy.deepcopy(original)
+            self.matrix["rows"] = [r for r in self.matrix["rows"] if r["dimension"] != dimension]
+            with self.subTest(dimension=dimension):
+                self.assertFalse(self.decision()["admitted"])
+
+    def test_changed_limits_excluded_samples_or_omitted_fixed_work_deny(self):
+        self.population()
+        original = copy.deepcopy(self.benchmark)
+        for key, value in [("baselineLimitsSha256", "3" * 64),
+                           ("excludedSamples", [0]), ("residualFixedWork", "")]:
+            self.benchmark = dict(original, **{key: value})
+            self.save_benchmark()
+            with self.subTest(key=key):
+                self.assertFalse(self.decision()["admitted"])

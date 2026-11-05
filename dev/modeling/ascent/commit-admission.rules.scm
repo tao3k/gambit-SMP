@@ -249,6 +249,26 @@
 (relation commitMatrixPositive (matrix))
 (relation commitMatrixBound (scenario matrix))
 (relation commitMatrixMissing (scenario row reason))
+(relation commitEfficiencyClaimFact (matrix claim))
+(relation commitEfficiencyRequiredFact (matrix dimension))
+(relation commitEfficiencyObservedFact (matrix dimension))
+(relation commitEfficiencyBenchmarkFact (matrix))
+(relation commitEfficiencyCostFact (matrix))
+((commitMatrixMissing S (lit "efficiency") (lit "claim-unclassified")) <--
+ (commitMatrixBound S M) (not (commitEfficiencyClaimFact M _)))
+((commitMatrixMissing S (lit "efficiency") (lit "positive-benefit-unproven")) <--
+ (commitMatrixBound S M) (commitEfficiencyClaimFact M (lit "efficiency-upgrade"))
+ (not (commitMatrixPositive M)))
+;; A local positive or correctness gate does not establish an efficiency upgrade.
+((commitMatrixMissing S (lit "efficiency") (lit "matched-benchmark-missing")) <--
+ (commitMatrixBound S M) (commitEfficiencyClaimFact M (lit "efficiency-upgrade"))
+ (not (commitEfficiencyBenchmarkFact M)))
+((commitMatrixMissing S D (lit "systematic-metric-missing")) <--
+ (commitMatrixBound S M) (commitEfficiencyClaimFact M (lit "efficiency-upgrade"))
+ (commitEfficiencyRequiredFact M D) (not (commitEfficiencyObservedFact M D)))
+((commitMatrixMissing S (lit "fixed-overhead") (lit "unaccounted")) <--
+ (commitMatrixBound S M) (commitEfficiencyClaimFact M (lit "efficiency-upgrade"))
+ (not (commitEfficiencyCostFact M)))
 ((commitMatrixBound S M) <-- (commitAuditBound S A) (commitMatrixPacketFact S A M))
 ;; Publication requires benefit, not merely a complete, attractive report.
 ;; Keep adverse observations locally; no favorable row cancels a regression.

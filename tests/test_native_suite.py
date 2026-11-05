@@ -11,6 +11,39 @@ from tests.support import task_fixture
 from gambit_smp.native_suite import admitted_suite, selected_files, campaign_status, extra_fixture, admitted_processors, fixture_patch, partitions, runtime_view, capacity, runner_option, atomic_suite
 
 
+class ThreadRequestFixtureTests(unittest.TestCase):
+    def sources(self):
+        root = Path(__file__).resolve().parents[1]
+        original = (root / "models/gambit/native/pr1047/thread_interrupt_ended.scm").read_bytes()
+        bootstrap = json.loads((root / "evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json").read_text())
+        header = subprocess.check_output(
+            ["git", "-C", str(root / "vendor/gambit"), "show", bootstrap["baseRevision"] + ":lib/_thread#.scm"])
+        return root, original, header
+
+    def test_current_constructor_retains_original_assertions_and_native_bytes(self):
+        from gambit_smp.suite_primitives import thread_request_fixture
+        root, original, header = self.sources()
+        proof = json.loads((root / "evidence/research/retained/modern-c/pr-gsi/request-constructor-refinement.json").read_text())
+        derived = thread_request_fixture(original, header)
+        self.assertEqual(hashlib.sha256(derived).hexdigest(), proof["projectedSha256"])
+        self.assertIn(b"(macro-make-thread-request target", derived)
+        self.assertEqual(original[original.index(b"      ;; Use trylock"):],
+                         derived[derived.index(b"      ;; Use trylock"):])
+        self.assertEqual(original.count(b"(test-"), derived.count(b"(test-"))
+
+    def test_ambiguous_old_call_or_changed_constructor_refuses_projection(self):
+        from gambit_smp.suite_primitives import thread_request_fixture
+        _, original, header = self.sources()
+        for source, contract in [
+            (original + original, header),
+            (original.replace(b"##thread-intr-propagate!", b"other"), header),
+            (original, header.replace(b"macro-make-thread-request", b"other")),
+        ]:
+            with self.subTest(source=hashlib.sha256(source).hexdigest()):
+                with self.assertRaises(ValueError):
+                    thread_request_fixture(source, contract)
+
+
 class NativeSuiteTests(unittest.TestCase):
     def test_fixed_task_slots_reuse_bytes_and_cwd_across_runs(self):
         from gambit_smp.suite_primitives import digest, suite_workers, prepare_suite_worker

@@ -117,6 +117,115 @@ def _load_smp_evidence(root, path, expected=None):
     return json.loads(raw), dict(path=path.as_posix(), sha256=identity)
 
 
+def require_pr_smp_evidence(root, receipt):
+    """Revalidate the model-bound whole PR population, never a focused PASS."""
+    import hashlib
+    from gambit_smp.suite_primitives import thread_request_fixture
+    from gambit_smp.task_processes import check_output
+
+    folder = Path("evidence/research/retained/modern-c/pr-gsi")
+    reference = receipt["nativeReference"]
+    raw, _ = _load_smp_evidence(root, reference["path"], reference["sha256"])
+    if raw.get("complete") is not True or any(receipt.get(k) != v for k, v in raw.items()):
+        raise ValueError("PR acceptance must retain its complete raw native campaign")
+    manifest, _ = _load_smp_evidence(root, folder / "manifest.json", receipt["manifestSha256"])
+    binding, _ = _load_smp_evidence(root, folder / "model-binding.json",
+                                    receipt["modelBindingSha256"])
+    spec, cases = manifest["spec"], manifest["cases"]
+    bootstrap, _ = _load_smp_evidence(
+        root, "evidence/research/retained/modern-c/frozen-568e0276-smp/shared-procedure-dispatch-bootstrap.json")
+    if (bootstrap["sourceTree"] != receipt["sourceTree"]
+            or bootstrap["producerSha256"] != receipt["producerSha256"]):
+        raise ValueError("PR immutable source-reader base lacks its exact producer")
+    read_base = bootstrap["baseRevision"]
+    if (binding.get("complete") is not True or binding.get("diagnostics") != []
+            or binding.get("manifestMatched") is not True or binding["cases"] != cases
+            or any(binding["spec"].get(k) != v for k, v in spec.items())
+            or binding["modelInputs"] != manifest["modelInputs"]):
+        raise ValueError("PR population needs its diagnostic-free native SDK binding")
+    for name, expected in binding["modelInputs"].items():
+        if digest(root / name) != expected:
+            raise ValueError("PR model source changed")
+    originals = {}
+    for name, expected in manifest["originalReferences"].items():
+        originals[name], _ = _load_smp_evidence(root, name, expected)
+    suite = next(s for s in originals[spec["originalSuite"]]["steps"]
+                 if s["id"] == "native-gsi")
+    selection = next(s["arguments"] for s in originals[spec["originalSelection"]]["steps"]
+                     if s["id"] == "pr-regressions-gsi")
+    additional = suite["arguments"]["additionalFixtures"]
+    controls = set(selection["selection"]) - set(selection["additionalFixtures"])
+    expected = set(additional) | controls
+    actual = [row["target"] for row in cases]
+    if len(actual) != len(set(actual)) or set(actual) != expected:
+        raise ValueError("PR manifest omits or duplicates an original requirement")
+    for row in cases:
+        if row["kind"] == "additional":
+            if {k: row[k] for k in ("source", "sha256")} != additional.get(row["target"]):
+                raise ValueError("PR fixture differs from the original pinned source")
+            if digest(root / row["source"]) != row["sha256"]:
+                raise ValueError("PR original fixture source changed")
+        elif row["kind"] != "original-control" or row["target"] not in controls:
+            raise ValueError("PR control is outside the original selection")
+        else:
+            data = check_output(["git", "-C", root / "vendor/gambit", "show",
+                                 read_base + ":tests/unit-tests/" + row["target"]], timeout=10)
+            if hashlib.sha256(data).hexdigest() != row["sha256"]:
+                raise ValueError("PR original control differs from the published source")
+    if (receipt["sourceTree"] != spec["canonicalTree"]
+            or receipt["profileSha256"] != spec["profile"]
+            or receipt["producerSha256"] != spec["producer"]
+            or receipt["baselineRevision"] != spec["baseline"]
+            or receipt["publishedTree"] != spec["publishedTree"]
+            or receipt["wholeBudgetSeconds"] != suite["budgetSeconds"]
+            or receipt["wholeBudgetSeconds"] != spec["wholeSeconds"]
+            or receipt["innerBudgetSeconds"] != spec["innerSeconds"]
+            or not 0 < receipt["seconds"] <= spec["innerSeconds"]
+            or receipt.get("heapRaised") is not False or receipt.get("waitExtended") is not False
+            or receipt.get("observationsSpliced") is not False):
+        raise ValueError("PR source, producer or original resource contract differs")
+    proof = originals[spec["requestProjectionEvidence"]]
+    if receipt.get("requestProjection") != proof:
+        raise ValueError("PR private-constructor refinement changed")
+    header = check_output(["git", "-C", root / "vendor/gambit", "show",
+                           read_base + ":" + proof["producerHeader"]], timeout=10)
+    original = (root / additional["06-thread/thread_interrupt_ended.scm"]["source"]).read_bytes()
+    projected = thread_request_fixture(original, header)
+    if (hashlib.sha256(header).hexdigest() != proof["producerHeaderSha256"]
+            or hashlib.sha256(projected).hexdigest() != proof["projectedSha256"]
+            or digest(root / proof["projectionSource"]) != proof["projectionSha256"]):
+        raise ValueError("PR constructor does not match the producer-bound source projection")
+    limits = {row["target"]: row["seconds"] for row in cases if row["seconds"]}
+    for row in cases:
+        expected_hash = proof["projectedSha256"] if row["target"] == "06-thread/thread_interrupt_ended.scm" else row["sha256"]
+        if receipt["testInputFiles"].get("unit-tests/" + row["target"]) != expected_hash:
+            raise ValueError("PR executed fixture differs from its declared source")
+    populations = list(map(int, spec["processors"].split(";")))
+    jobs = {int(k): int(v) for k, v in (x.split(":") for x in spec["jobs"].split(";"))}
+    if [run["processors"] for run in receipt["topologies"]] != populations:
+        raise ValueError("PR requires every declared processor population exactly once")
+    for run in receipt["topologies"]:
+        request = run["request"]
+        if (run.get("complete") is not True or run["jobs"] != jobs[run["processors"]]
+                or request["mode"] != "gsi" or request["processors"] != run["processors"]
+                or request["jobs"] != run["jobs"] or request["fileBudgetSeconds"] != limits
+                or request["expectedFiles"] != sorted(expected)):
+            raise ValueError("PR topology or unchanged fixture budget is incomplete")
+        if ([p["role"] for p in run["probes"]] != ["runner", "fixture"]
+                or any(p.get("complete") is not True or p.get("exit") != 0
+                       or p.get("timeout") is not False or p.get("expected") != n
+                       or p.get("observed") != "PROCESSORS:" + str(n)
+                       or not 0 < p["seconds"] <= 10
+                       for p, n in zip(run["probes"], (1, run["processors"])))):
+            raise ValueError("PR needs real runner and fixture processor probes")
+        rows = run["observations"]
+        if (sorted(n for row in rows for n in row["files"]) != sorted(expected)
+                or any(row.get("accepted") is not True or row.get("exit") != 0
+                       or row.get("timeout") is not False
+                       or sorted(row["observedFiles"]) != sorted(row["files"]) for row in rows)):
+            raise ValueError("PR needs every original case to complete in each topology")
+
+
 def accepted_smp_status(root):
     """Report the recorded milestone from its own bound evidence period."""
     root = Path(root).resolve()
@@ -173,9 +282,22 @@ def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
     claimed = packet["currentPassed"]
     if type(claimed) is not int or not baseline["passed"] <= claimed <= len(families):
         raise ValueError("SMP candidate cannot replace the accepted prefix")
-    if previous is not None and (previous["origin"] != origin or claimed < previous["passed"]
-                                 or (claimed == previous["passed"] and previous["accepted"] != accepted)):
-        raise ValueError("SMP history cannot regress or replace an equal milestone")
+    if previous is not None:
+        same_milestone = claimed == previous["passed"] and previous["accepted"] != accepted
+        correction = False
+        if same_milestone and packet.get("metadataCorrectionOf") == previous["accepted"]:
+            old, _ = _load_smp_evidence(root, previous["accepted"]["path"],
+                                        previous["accepted"]["sha256"])
+            # Only a wrong redundant remainder may be normalized. Native
+            # receipts, source, facts, model epoch and answers must be identical.
+            before = {k: v for k, v in old.items() if k != "currentRemaining"}
+            after = {k: v for k, v in packet.items()
+                     if k not in {"currentRemaining", "metadataCorrectionOf"}}
+            correction = (before == after and old.get("currentRemaining") != len(families) - claimed
+                          and packet.get("currentRemaining") == len(families) - claimed)
+        if (previous["origin"] != origin or claimed < previous["passed"]
+                or (same_milestone and not correction)):
+            raise ValueError("SMP history cannot regress or replace an equal milestone")
 
     policy = "dev/modeling/ascent/delivery-plan.rules.scm"
     if digest(root / policy) != packet["policySha256"]:
@@ -247,6 +369,8 @@ def accepted_smp_progress(root, baseline_path, candidate_path, previous=None):
             if any(sorted(group.get("observedFiles", [])) != sorted(group["files"])
                    for group in groups if group["files"] != ["03-number/_num.scm"]):
                 raise ValueError("accepted GSC requires per-file runner completion")
+        if family == "pr-gsi":
+            require_pr_smp_evidence(root, receipt)
         references[family] = identity
 
     return dict(origin=origin, originPassed=baseline["passed"], accepted=accepted,

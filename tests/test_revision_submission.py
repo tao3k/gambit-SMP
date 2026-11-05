@@ -239,7 +239,7 @@ class RevisionSubmissionTests(RevisionSubmissionFixture):
 
         with patch("gambit_smp.ascent_program.query", side_effect=observe):
             admission = submission.admit()
-        self.assertEqual(admission["negativeControls"], 28)
+        self.assertEqual(admission["negativeControls"], 30)
         self.assertFalse((submission.evidence / "query.ss").exists())
         (directory / "commit-context.rules.scm").write_text("changed policy schema")
         with self.assertRaisesRegex(ValueError, "admission artifact changed"):
@@ -594,7 +594,7 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
             self.assertEqual(sum(row[0] == scenario for row in admitted['answers']['commitGateReady']), 5)
             self.assertIn([scenario, requirement], admitted['answers']['commitUnitGap'])
             self.assertNotIn([scenario], admitted['answers']['commitReady'])
-        self.assertEqual(admitted['negativeControls'], 44)
+        self.assertEqual(admitted['negativeControls'], 46)
 
     def test_real_support_admission_never_advances_result(self):
         sub = self.submission()
@@ -608,7 +608,7 @@ class CompleteDeliveryTests(RevisionSubmissionFixture):
         admitted = sub.admit()
         self.assertEqual(admitted['answers']['commitProgressReady'], [])
         self.assertEqual(admitted['progressDelta'], 0)
-        self.assertEqual(admitted['negativeControls'], 31)
+        self.assertEqual(admitted['negativeControls'], 33)
 
     def test_delivery_drift_after_admission_refuses_git_commit(self):
         sub, report = self.integration()

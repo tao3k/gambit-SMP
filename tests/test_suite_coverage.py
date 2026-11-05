@@ -17,9 +17,9 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         path = SMP_LEDGER_FOLDER / "accepted-smp-progress.json"
         recorded = accepted_smp_status(ROOT)
         self.assertEqual((recorded["originPassed"], recorded["passed"], recorded["remaining"]),
-                         (1, 3, 9))
+                         (1, 4, 8))
         self.assertTrue(recorded["sourceTree"].startswith("65a4a2e2"))
-        self.assertEqual(recorded["closed"], ["bootstrap", "gsi", "gsc"])
+        self.assertEqual(recorded["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi"])
         with TemporaryDirectory() as directory:
             root = Path(directory)
             refs = [recorded[key]["path"] for key in ("origin", "accepted", "originalInventory")]
@@ -68,8 +68,8 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         historical = "evidence/research/retained/modern-c/frozen-568e0276-smp/indexed-acceptance.json"
         diagnostic = "evidence/research/retained/modern-c/frozen-568e0276-smp/env-index-acceptance.json"
         result = accepted_smp_status(ROOT)
-        self.assertEqual((result["originPassed"], result["passed"], result["remaining"]), (1, 3, 9))
-        self.assertEqual(result["closed"], ["bootstrap", "gsi", "gsc"])
+        self.assertEqual((result["originPassed"], result["passed"], result["remaining"]), (1, 4, 8))
+        self.assertEqual(result["closed"], ["bootstrap", "gsi", "gsc", "pr-gsi"])
         accepted = result["accepted"]["path"]
         self.assertFalse(result["wholeSmpAdmitted"])
         with self.assertRaisesRegex(ValueError, "cannot replace the accepted prefix"):
@@ -77,13 +77,93 @@ class AcceptedSmpProgressTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot regress"):
             accepted_smp_progress(ROOT, origin, historical, result)
         with self.assertRaisesRegex(ValueError, "cannot regress"):
-            accepted_smp_progress(ROOT, origin, accepted, dict(result, passed=4))
+            accepted_smp_progress(ROOT, origin, accepted, dict(result, passed=5))
         packet = json.loads((ROOT / accepted).read_text())
         if all(digest(ROOT / name) == expected for name, expected in packet["modelInputs"].items()):
             self.assertEqual(accepted_smp_progress(ROOT, origin, accepted, result), result)
         else:
             with self.assertRaisesRegex(ValueError, "SMP model input changed"):
                 accepted_smp_progress(ROOT, origin, accepted, result)
+
+
+class PrSmpEvidenceTests(unittest.TestCase):
+    """Synthetic tampering controls; only the retained native campaign grants credit."""
+    def setUp(self):
+        from gambit_smp.suite_coverage import _load_smp_evidence
+        self.load = _load_smp_evidence
+        self.receipt = json.loads((ROOT / "evidence/research/retained/modern-c/pr-gsi/qualified-native.json").read_text())
+
+    def test_whole_declared_pr_population_has_both_actual_topologies(self):
+        from gambit_smp.suite_coverage import require_pr_smp_evidence
+        require_pr_smp_evidence(ROOT, self.receipt)
+
+    def test_tampered_complete_raw_campaign_cannot_hide_missing_obligations(self):
+        from unittest.mock import patch
+        from gambit_smp.suite_coverage import require_pr_smp_evidence
+        def missing_population(v):
+            v["topologies"].pop()
+        def missing_case(v):
+            v["topologies"][0]["observations"].pop()
+        def longer_guard(v):
+            v["topologies"][0]["request"]["fileBudgetSeconds"]["06-thread/thread_interrupt_ended.scm"] = 21
+        def false_topology(v):
+            v["topologies"][1]["probes"][1]["observed"] = "PROCESSORS:1"
+        def wrong_constructor(v):
+            v["testInputFiles"]["unit-tests/06-thread/thread_interrupt_ended.scm"] = "0" * 64
+        def wrong_producer(v):
+            v["producerSha256"] = "0" * 64
+        def incomplete(v):
+            v["complete"] = False
+        for mutate in [missing_population, missing_case, longer_guard, false_topology,
+                       wrong_constructor, wrong_producer, incomplete]:
+            receipt = copy.deepcopy(self.receipt)
+            mutate(receipt)
+            raw = {k: v for k, v in receipt.items()
+                   if k not in {"nativeReference", "modelBindingSha256"}}
+            def load(root, path, expected=None):
+                if str(path) == receipt["nativeReference"]["path"]:
+                    return raw, receipt["nativeReference"]
+                return self.load(root, path, expected)
+            with self.subTest(mutation=mutate.__name__), \
+                 patch("gambit_smp.suite_coverage._load_smp_evidence", side_effect=load):
+                with self.assertRaises(ValueError):
+                    require_pr_smp_evidence(ROOT, receipt)
+
+    def test_relabeling_the_failed_legacy_campaign_cannot_grant_credit(self):
+        from gambit_smp.framework import digest
+        from gambit_smp.suite_coverage import require_pr_smp_evidence
+        receipt = copy.deepcopy(self.receipt)
+        path = "evidence/research/retained/modern-c/pr-gsi/legacy-request-failure.json"
+        receipt["nativeReference"] = dict(path=path, sha256=digest(ROOT / path))
+        with self.assertRaises(ValueError):
+            require_pr_smp_evidence(ROOT, receipt)
+
+    def test_remainder_correction_preserves_every_native_and_model_fact(self):
+        from gambit_smp.suite_coverage import accepted_smp_progress, accepted_smp_status
+        current = accepted_smp_status(ROOT)
+        packet = json.loads((ROOT / current["accepted"]["path"]).read_text())
+        previous = dict(current, accepted=packet["metadataCorrectionOf"])
+        result = accepted_smp_progress(
+            ROOT, "evidence/research/retained/modern-c/delivery-plan/current/smp-acceptance.json",
+            current["accepted"]["path"], previous)
+        self.assertEqual(result, current)
+
+    def test_metadata_correction_cannot_replace_native_facts(self):
+        from unittest.mock import patch
+        from gambit_smp.suite_coverage import accepted_smp_progress, accepted_smp_status
+        current = accepted_smp_status(ROOT)
+        packet = json.loads((ROOT / current["accepted"]["path"]).read_text())
+        previous = dict(current, accepted=packet["metadataCorrectionOf"])
+        packet["receipts"]["pr-gsi"]["sha256"] = "0" * 64
+        def load(root, path, expected=None):
+            if str(path) == "synthetic-correction.json":
+                return packet, dict(path=str(path), sha256="1" * 64)
+            return self.load(root, path, expected)
+        with patch("gambit_smp.suite_coverage._load_smp_evidence", side_effect=load):
+            with self.assertRaisesRegex(ValueError, "cannot regress or replace"):
+                accepted_smp_progress(
+                    ROOT, "evidence/research/retained/modern-c/delivery-plan/current/smp-acceptance.json",
+                    "synthetic-correction.json", previous)
 
 
 class SuiteCoverageTests(unittest.TestCase):
