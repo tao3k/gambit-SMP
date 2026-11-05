@@ -54,8 +54,10 @@ class ProtocolEvidenceTests(unittest.TestCase):
         self.assertEqual("constructorSafe", positive["invariant"])
         self.assertEqual(282122, positive["states"]["distinct"])
         self.assertEqual(0, positive["states"]["queued"])
-        text = (ROOT / Path(receipt_name).parent / positive["log"]).read_text()
-        self.assertIn("15360 distinct states generated", text)
+        from gambit_smp.output_observations import recorded
+        observation = recorded(ROOT, ROOT/Path(receipt_name).parent/positive['log'], positive['logSha256'])
+        self.assertEqual(positive['states'], observation['tlc']['states'])
+        self.assertTrue(observation['tlc']['completed'])
         saved = json.loads((ROOT / receipt_name).read_text())
         self.assertEqual(5, len(saved["modelSources"]))
         _, bound = evidence.bundle_facts(ROOT, manifest_name, receipt_name)
@@ -421,7 +423,8 @@ class ProtocolEvidenceTests(unittest.TestCase):
                        "modelSha256": digest(model), "sourceStable": True, "accepted": True,
                        "evidence": "finite-state-TLC", "exit": 1 if variant == "old" else 0,
                        "timeout": False, "log": log.name, "logSha256": digest(log),
-                       "temporal": None if variant == "old" else "progress", "states": {"queued": 0}}
+                       "temporal": None if variant == "old" else "progress",
+                       "states": {} if variant == 'old' else {'generated': 2, 'distinct': 2, 'queued': 0}}
                 if variant == "old":
                     trace = root / "old.trace.json"
                     trace.write_text("{}")
@@ -453,7 +456,7 @@ class ProtocolEvidenceTests(unittest.TestCase):
                 evidence.checked_rows(root, manifest, path)
             model.write_text("module small {}")
             (root / "fixed.log").write_text("unbound green")
-            with self.assertRaisesRegex(ValueError, "log digest"):
+            with self.assertRaisesRegex(ValueError, "output observation"):
                 evidence.checked_rows(root, manifest, path)
 
 

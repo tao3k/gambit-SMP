@@ -1,0 +1,22 @@
+(require 'json)
+(require 'seq)
+(let* ((ast (with-temp-buffer
+              (insert-file-contents ".cache/tasks/still-init-recovery/case-current.ss")
+              (read (current-buffer))))
+       (pairs 0) (receipts nil))
+  (dolist (form ast)
+    (when (and (listp form) (eq (car form) 'fact))
+      (let ((row (cadr form)))
+        (cond
+         ((eq (car row) 'receiptPairFact)
+          (unless (= (length row) 17) (error "Receipt pair arity drift"))
+          (setq pairs (1+ pairs))
+          (let ((scenario (nth 1 row)) (status (nth 2 row)))
+            (push (append (list scenario) (seq-subseq row 3 10) (list status)) receipts)
+            (push (append (list scenario) (seq-subseq row 10 17) (list status)) receipts)))
+         ((eq (car row) 'receiptFact)
+          (push (cdr row) receipts))))))
+  (unless (and (= (length receipts) 30) (= pairs 15)) (error "Receipt cardinality drift"))
+  (with-temp-file ".cache/tasks/still-init-recovery/unpacked-receipts.json"
+    (insert (json-encode (vconcat (mapcar #'vconcat receipts)))))
+  (princ (format "Transport inverse: %d pairs -> %d independent tuples\n" pairs (length receipts))))

@@ -1,0 +1,130 @@
+#+TITLE: Producer Closure, Late Work and Target Reclamation
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: runtime
+
+* RESEARCH Completion has three distinct scopes
+:PROPERTIES:
+:ID: 1552a447-a5f2-50d3-923b-61109d612874
+:CUSTOM_ID: completion-contract
+:OWNER: architecture/runtime/interfaces
+:STATUS: design-selected-refinement-open
+:EVIDENCE_CLASS: current-source-and-conditional-argument
+:END:
+
+[[file:models/sysml/collection-completion.sysml][The owned SysML model]] defines the necessary phase/producer/custody/permit predicates and authored source anchors. [[file:completion-model-map.org][The source and lifecycle tables]] and [[file:diagrams/completion-custody.d2][D2 lifecycle source]] derive from it. [[file:../../../modeling/proof-obligations.org][The closure matrix]] derives from the relation model. This document owns the argument; existing QNT/Lean and runtime source are unchanged.
+
+** Evidence correction
+:PROPERTIES:
+:CUSTOM_ID: prior-trace-correction
+:EVIDENCE_CLASS: withdrawn-source-claim
+:END:
+
+The earlier record claimed that finish followed by rescan was possible in [[file:../../../../models/library/gc/CollectionContract.qnt][CollectionContract]]. That claim is withdrawn. Both that receipt and the current entry bind SHA256 ~c11981c73e967b50fc11b355c5783f100a9ef77c20ce23540fea5c622edaade6~. The source at that identity already requires ~not(s.done)~ in rescan. Finish makes done true, so the alleged following action is disabled. A matching hash did not validate the earlier semantic reading.
+
+There is no evidence here of an intervening source edit that explains the mistake. The [[file:../../../../evidence/research/gc-terminal-closure/counterexample-correction.json][correction record]] binds the original receipt, source identity, disabled guard and withdrawal. The original receipt remains unchanged. The omitted-guard path can be discussed only as a hypothetical negative control, never as a current-source or native failure. This task does not run a model checker or a prover.
+
+** Selected contract scopes
+#+NAME: completion-scopes
+| Witness | Identity | Meaning | Does not authorize |
+|---+---+---+---|
+| PhaseDrain | VM/generation, collection/root cut, strong or weak phase, round, producer generation, worker team | No admitted work or producer right remains in this closed phase | Weak-phase work suppression, whole-cycle delivery, arbitrary reclamation |
+| CollectionCompletion | VM/generation and collection identity; matching phase witnesses | Strong and weak drains, continuation movement, participant/result delivery and cleanup custody are accounted | Reclaim of a resource with remaining saved/native/deferred users |
+| ReclaimPermission | Target/resource generation, required cut and closed target admission generation | The particular backing may be released under its own last-use proof | Use of another resource, stale permit, unregistered old pointer or unrelated shutdown |
+
+A phase witness remains stable when moving to another phase. The next phase gets explicit admission; it does not masquerade as a new whole collection. Whole-collection terminal stability remains the aggregate requirement in [[file:models/sysml/interfaces.sysml][WorkClosure / CompletedEpochStabilityLaw]]. The new PhaseDrainStabilityLaw carries the phase discriminator that the aggregate cannot erase.
+
+** What Gambit's actual producers do
+The [[file:completion-model-map.org][SysML-derived source ledger]] records 12 anchor ranges and limits. The important chain is concrete:
+
+1. setup_stack_heap_vmstate initializes distinct strong and weak scan-worker counts to processor_count. Root marking begins while participants are counted, including work before entering the local scan loop.
+2. mark_array copies with a local allocation cursor. A forwarding CAS may become visible before all payload words are copied. end_heap_chunk later publishes initialized chunk content with ordered barriers. A forwarding address is not a scanner-ready work receipt.
+3. mark_captured_continuation copies raw saved frames and may end/publish another chunk. Traversing a saved continuation can create more collector work even when a public FIFO was momentarily empty.
+4. The local fixed point alternates still-object and movable-object scanning. Movable work includes the incomplete local chunk, complete FIFO chunks and the chunk currently being scanned. Still scanning can generate movable or still work.
+5. A counted worker steals a complete chunk and returns to the local fixed point. It decrements its phase count under scan_termination_mutex only after its local/steal path; a wake increments the count when termination has not occurred. Publication uses a chunk lock and barriers, not that termination mutex. Source-to-memory and producer-lifetime proof must connect the two.
+6. Strong drain is followed by a collective barrier and process_wills in the weak phase. process_wills calls mark_array on wills and selected testators. This is legitimate later work in the same collection. Weak scan completion is followed by move_continuation.
+7. Cleanup processes GC hash tables and frees unreachable still wrappers. free_unmarked_still_objs invokes release_foreign, then frees the aligned wrapper. release_foreign clears its pointer/release function before calling native code and may return an error; this caller does not inspect that error. Native-resource success cannot be inferred from wrapper reclamation.
+8. Another barrier precedes processor-zero resize_heap. The overall function later prepares execution state and returns overflow. A phase counter reaching zero is earlier than those operations. Capacity-request success and completion/custody are distinct outcomes.
+
+These are source facts for the inspected branches. The single-threaded configuration replaces BARRIER with an empty macro; no SMP memory-order result is assigned to every profile. Worker census, supported native callback behavior and the real enabled profile remain qualification premises.
+
+** Producer closure permits accounted derived work
+Closing external enrollment means new unrepresented roots, callbacks or workers cannot enter the phase. An already admitted producer may still discover a child while retaining a valid producer right. Therefore external seal alone does not authorize a drain receipt.
+
+Let P be admitted producer rights and let I, Q, S, T and C be private, queued, scanning, transfer and reserved-child work obligations. A phase-drain cut requires a complete producer census, external enrollment closed, P empty and every work class empty under the same admission/closure order. These are logical sets or counts, with a disjointness/completeness premise. They do not prescribe a new per-object atomic counter; Gambit's worker/chunk accounting may be used after a proved projection.
+
+The parent reserves and commits the child's custody before dropping the parent's final right. Moving work through private -> queue -> scanner changes its owner, not its existence. A transfer failure leaves the source custodian live until another owner has acknowledged custody. Required reachable-object scanning cannot be canceled merely to make the count zero. Partial publication and reserved-but-not-visible children remain obligations at the probe.
+
+** Late-work classification
+#+NAME: late-work-custody
+| Arrival window | Admission / action | Custody condition |
+|---+---+---|
+| Before external seal | Enroll into the current phase | Matching scope and live root/backing |
+| After seal, admitted parent still active | Accept a derived child | Reserve/register child before parent's final release; phase not closed |
+| Races with phase close | Serialize against the close cut | Winner is accounted; losing old-phase admission cannot enqueue |
+| After strong drain, weak seed admitted | Accept weak work in its own scope | Matching collection; new weak-phase producer census and barriers |
+| Before completion, publication/transfer fails | Retain for retry or declared failure | A valid prior lease/root and source owner still exist |
+| After whole-collection completion | Admit a genuinely new request only through a new collection protocol | Stable relocated handle/root; no relabeling of an unresolved raw origin |
+| After target permit or physical release | Reject new old-target borrowing | No dereference of released backing; an unregistered raw pointer cannot acquire a lease retroactively |
+
+Late-work rejection is not a recovery proof. A valid lease that pins the exact target would have prevented its permit from being issued. Once backing has actually been released, neither a new epoch number nor an exception handler restores it. The no-unknown-user premise must be proved before granting permission.
+
+** Target cuts preserve existing release timing
+#+NAME: target-reclaim-cuts
+| Target | Required cut in the proposed contract | Source relationship / unresolved evidence |
+|---+---+---|
+| Unreachable still wrapper | Relevant tracing/weak cut, native release call returned, wrapper users closed | Current cleanup frees it before full collection return. Any deferred root/payload must have durable successor custody first. |
+| Movable/stack backing considered for shrink or reuse | Required raw origins/relocation and continuation move complete, post-cleanup phase cut, no remaining target users | resize_heap follows cleanup barrier; complete physical bounds, callers and native-origin closure remain open. |
+| Native payload/resource | Its release contract, owner-thread and asynchronous result/last-use cut | Clearing the Scheme wrapper's pointer or ignoring a return code does not prove native disposal. |
+| Execution/context storage or code metadata | Relevant collection delivery plus its own saved/foreign return-user closure | A collection receipt alone does not enumerate these users. |
+
+CollectionCompletion may coexist with deferred native cleanup if durable custody and supported future entry are established. It must not wait for every unrelated I/O action. ReclaimPermission for a target still in use remains denied. This separates collection progress from resource shutdown and avoids requiring a foreign task to run while a collector waits for it under ownership the task needs.
+
+The permit binds resource identity, resource generation, the required cut and the closed admission generation. Consumption is serialized and single-use. The SysML consumption predicate requires a known issued permit, matching actual target, a previously unused permit and a consumed post-state. A proof still has to establish issuer uniqueness, atomic consumption and no late borrower; booleans in a definition do not issue authority.
+
+** Conditional no-reopen argument
+Assume complete producer enumeration, no external enrollment after seal, every derived child charged before its parent exits, complete/disjoint private/queue/scan/transfer accounting, correct publication visibility, and one serialization order for admission and closure.
+
+If a later same-phase work item exists after a zero-work/zero-right cut, it must originate from an external entrant, an admitted producer, or an in-flight transfer. The first contradicts the seal/census; the second contradicts no producer rights and parent-child accounting; the third contradicts complete zero transit/reservation accounting. Thus no later same-phase work is admitted under those premises. A weak-phase seed is outside that phase identity, while all global root and backing premises remain required.
+
+This is a conditional mathematical argument. It is not a new Lean proof, a proof of source census, or a C weak-memory theorem.
+
+** QNT correction design
+The direct rescan guard already exists and is preserved. The remaining model work is a structured refinement:
+
+- Treat CollectionContract.done as the selected item/phase model's terminal fact. Its current step has no explicit terminal stutter. A future totalized terminal action must keep scope and state unchanged; it is not permission to hide an enabled producer.
+- Represent external sealing separately from admitted producer rights and work in transit. Close may succeed only after every required source is represented and all obligations drain. A guard added to one action does not construct this census.
+- Preserve valid pre-close rescan/derived work and negative controls for omitted producer lifetime, early publication, stale identity and premature close. Never obtain safety by globally disabling useful pre-close work.
+- Reuse [[file:../../../../models/gambit/gc_work_closure.qnt][gc_work_closure]] for its counted workers, graph-discovered child and two phase transition. Its nextPhase changes phase and reopens phase work without inventing a new collection epoch. The supporting slice is finite and atomically abstracts queues and counts; it is not a complete native refinement.
+- Model target permission after its required cut, with racing borrower, failed transfer, delayed foreign delivery and stale/duplicate consumption controls. A terminal scan state is insufficient as the permission predicate.
+
+No existing .qnt file is edited, interpreted, simulated or checked here. The correction is a selected design and an obligation inventory.
+
+** Concrete projection boundary
+#+NAME: completion-projections
+| Existing element | Proposed interpretation | Refinement boundary |
+|---+---+---|
+| CollectionContract.done and work flags | One selected item/phase drain | No explicit external seal, producer membership or in-transit domain; cannot fill those missing fields with true/zero defaults |
+| gc_work_closure.phase=0/1 | Strong/weak phase within the same collection identity | nextPhase must change phase scope, not manufacture a fresh collection to evade stability |
+| gc_work_closure.work=1/2/4/5/6 | Local seed/private/queued/scanning/resolved work | An undiscovered reachable child is covered by its still-active parent; full graph and all native producer classes remain to prove |
+| gc_work_closure.count and active | Abstract counted producer/worker membership | Source scan_workers_count[traverse_weak_refs] is a coarse candidate; private copying and callback/transfer coverage must be established |
+| Native end_heap_chunk / FIFO acquire | Work custody and payload publication | Queue ordering and forwarding publication are different; C memory-model proof is not supplied by the abstract atomic action |
+| SavedStackRetirementWindow phase order | Necessary ordering before target reuse | Native target identity, raw-origin census, physical bounds and foreign last users are additional premises |
+
+The finite worker-phase model and generic Lean statements are reused as supporting artifacts, not merged by file import into a claimed complete proof. A future simulation relation must connect initial states, each enabled action, hidden-step preservation, identity and the terminal/phase distinction. Safety and fairness preservation are separate obligations.
+
+** Lean refinement obligations
+#+NAME: lean-refinement-plan
+| Obligation | Reused support | Additional premise / proof owed |
+|---+---+---|
+| Every producer remains counted through required child creation | WorkAccounting.ProducerLifetimeSafe, reopenedWorkRevokesZeroCount | Map actual worker/scanner/transfer roles to a complete domain; preserve the invariant through each source action |
+| Zero accounting excludes local and in-flight work | zeroCountAndEmptyQueuesExcludeHiddenWork, zeroCountExcludesActive | Scanning and transfer imply an accounted right; no overflow; exact queue/private domain coverage |
+| Closed phase excludes future same-phase work | Proposed no-reopen argument above | Initial/step simulation, seal/admit linearization and all producer cases |
+| Next phase preserves previous witness | SavedStackRetirementWindow.phaseCompletionOrdersReuse | Phase discriminator, phase receipts and a legitimate weak seed; do not treat all done transitions as one epoch terminal |
+| Target permit implies no last raw use | completeOriginsBoundLastRawAccess, emptyWitnessNeedsStableWindow | Every actual native/control/scanner user represented, stable no-arrival window and target-specific required cut |
+| Permit consumption and failure custody | Existing identity/entry lemmas are limited support | Unique issuance, atomic single use, exact generations and failed transfer ownership |
+| Progress after adding closure | Existing QNT weak-fair structure is only abstract support | No circular wait, fair service assumptions and no phase completion starvation under the supported source profile |
+
+No new theorem is asserted closed. In particular, a proof of the generic accounting equation cannot discharge native producer lifetime or the publication/acquire relationship. See [[file:../../../modeling/proof-obligations.org][the generated matrix]] for current statuses.
+
+** Producer inventory and custody refinement
+[[file:producer-custody-design.org][The producer custody study]] expands the root/copy/chunk/weak/native issuer families, parent-child acceptance, failed transfer ownership and service withdrawal cuts. [[file:producer-custody-map.org][The source census and transfer map]] derive from the owned producer SysML model. Whole-runtime closure remains open.

@@ -1,0 +1,285 @@
+#+TITLE: Outer Completion Landing for Modern C Sessions
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+PROPERTY: SOURCE_AUTHORITY OuterCompletionLanding
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-decision
+:STATUS: conditional-models-source-open
+:MAINLINE: modern-generated-c
+:END:
+
+A native return is not an execution-session retirement event. Gambit already has
+nested catchers and generated conversion cleanup. Modern C should preserve these
+semantics and add a durable, generated completion protocol covering the remaining
+marker, root, restoration and roster obligations. This is a runtime/compiler
+boundary refactoring, not a toolchain flag selection. Zig has no demonstrated
+additional benefit for these obligations.
+
+The canonical contract is [[file:models/sysml/outer-completion-landing.sysml][SysML]].
+[[file:outer-completion-landing-matrix.org][The matrix]] and
+[[file:diagrams/outer-completion-landing.d2][D2]] are native-query projections.
+[[file:../../modeling/ascent/outer-completion-landing.rules.scm][ASCENT DSL]] checks
+component/action/guard/lemma/source bindings, exact subject hashes and scopes,
+and inherited obligations. [[file:../../../models/build/outer_completion_landing.qnt][QNT]]
+explores nested catcher/guard histories. [[file:../../../models/build/OuterCompletionLanding.lean][Lean]]
+proves abstract custody preservation. Neither is a source simulation, C memory
+model proof, liveness proof, or native admission.
+
+The frozen parent is [[file:decrement-restore-closure-design.org][Decrement and Restoration]].
+The parent receipt itself remains frozen, but current header/setup/makefile hashes
+differ from its source bindings. Current source is rebound as a new observation;
+inherited source qualification is explicitly false. Its handoff/unknown-result and current-processor premises remain prerequisites.
+New models do not replace root/storage, VM lifetime, old-roster or native evidence.
+
+* RESEARCH Actual callers and abnormal landing sites
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-callers
+:EVIDENCE_KIND: source-inspection
+:END:
+
+| Boundary | Actual source | Normal completion | Exceptional landing / remaining custody |
+|---+---+---+---|
+| ___call | setup.c:3276–3390 | Matching UNWIND_C_STACK and marker restore fp and PSR0 after END_TRY | Other error or marker mismatch rethrows through the restored outer catcher; fp tail is skipped |
+| ___run | setup.c:3394–3419 | Allocates marker, calls ___call, kills marker, restores catcher, returns err | Outer TRY catches propagated throw; kill inside the success arm can be bypassed; return err does not itself prove marker settlement |
+| Startup | setup.c:6390–6439 | Associates OS thread/PSTATE, loads kernel thunk through ___run | Error invokes ___cleanup; whole-VM cleanup must wait for all independent obligations, not just the return code |
+| Secondary processor | setup.c:765–804,812–835 | ___run result is sent by OP_PROCESSOR_0_THROW_ERROR | Caller enters perpetual service_sync_op loop; processor-0 error delivery and old-roster participation outlive ___run |
+| Generated SFUN | gambit.h.in:10043–10059; _ptree2.scm:3134–3179 | Calls ___call; conversion recovery may call it again; lexical END_SFUN kills marker then propagates error | A rethrow from ___call may bypass SFUN conversion cleanup and marker tail; some outer catch can run without owning that marker |
+| Generated CFUN | _ptree2.scm:2902–3012,3239–3319 | cleanup? follows parameter type-needs-cleanup?, not whether body can callback | Cleanup CFUN has TRY and post-catch conversion cleanup/rethrow; plain CFUN body has no automatic catcher |
+| Host embedding | examples/pthread/pthread.c:52,115,125 | ON_THROW surrounds exported Scheme calls | Restores catcher before stat2; example unlocks mutex after catch; this does not establish SMP concurrent entry or all-path marker cleanup |
+| Tcl nesting | examples/tcltk/tcltk.scm:110–130,221–227,271–277 | char-string c-lambda -> tcltk_eval -> Tcl -> scheme_call_cmd -> tcltk_call -> Scheme | Real generator route for nested callback; Tcl's internal cleanup is not proved safe under a C longjmp crossing Tcl frames |
+
+Source links:
+[[file:../../../vendor/gambit/lib/setup.c][setup.c]],
+[[file:../../../vendor/gambit/include/gambit.h.in][header]],
+[[file:../../../vendor/gambit/gsc/_ptree2.scm][FFI generator]],
+[[file:../../../vendor/gambit/examples/pthread/pthread.c][pthread embedding]],
+[[file:../../../vendor/gambit/examples/pthread/mylib.scm][exported functions]],
+[[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][Tcl caller]].
+
+This is a bounded in-tree syntactic census of lib/examples plus generated macro
+routes. Exported ___GSTATE function pointers (setup.c:6074–6101), EXT indirection,
+external embedders, arbitrary native bodies and unknown longjmp destinations
+prevent claiming a complete universe of native callers. Such entry points need
+explicit registration or must be denied retirement/reuse qualification.
+
+** Existing CFUN cleanup must not be erased or double-counted
+
+The checked-in [[file:../../../vendor/gambit/lib/_kernel.c][_kernel.c]]:6004–6028
+contains the real set_gambitdir UCS-2-string conversion route:
+
+#+begin_example
+BEGIN_CFUN_ARG / BEGIN_CFUN_SCMOBJ_TO_UCS_2STRING
+  BEGIN_CFUN_BODY_CLEANUP          // W_ALL_INL; BEGIN_TRY
+    set_gambitdir(arg1)
+  END_CFUN_BODY_CLEANUP            // AT_END; END_TRY; R_ALL_INL
+END_CFUN_SCMOBJ_TO_UCS_2STRING     // conversion-specific release
+END_CFUN_ARG
+CFUN_ERROR_CLEANUP_VOID           // conversion dispatch; propagate_error
+END_CFUN_VOID
+#+end_example
+
+AT_END is inside the successful TRY arm. A longjmp to that catcher skips AT_END,
+then restores old_catcher, reloads inline registers, exits conversion scopes and
+propagates the error. Therefore AT_END is not finally. Plain C BEGIN_CLEANUP /
+END_CLEANUP (header:9972–9975) are lexical braces and a cleanup statement, not an
+unwind facility. cleanup? is selected from parameter cleanup requirements
+(_ptree2.scm:2502–2525,2902–2905); it is not a universal callback/escape predicate.
+
+The out-of-line CFUN wrapper also has BEGIN_CFUN_CTX W_ALL and END_CFUN_CTX R_ALL;
+CFUN_OOL reads temp1 and can jump to the conversion error handler afterward
+(header:10325–10398). An inline reload is consequently not the universal last
+PSTATE access. The source proves these macro definitions and an emitted consumer,
+not their expansion under the installed compiler flags or exact GC masks.
+
+* RESEARCH Proposed stable completion protocol
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-protocol
+:PROOF_STATUS: conditional
+:END:
+
+** Identity and custody
+
+A physical NativeActivationId identifies one actual C activation and its live
+catcher. It includes VM/session generation, current OS-thread/processor binding,
+parent activation, owned marker token and creation state. An immutable completion
+receipt refers to this identity and settlement transaction. A captured Scheme
+continuation and each invocation have separate identities; neither can replay an
+already settled physical activation or resurrect its jmpbuf.
+
+A durable guard record outside an automatic frame holds marker/root ownership,
+conversion resources, reload obligations, child links and roster debt. Root
+registration precedes any allocation/callback that may GC. Marker acquisition
+has three outcomes: not acquired, acquired, and unknown publication/response.
+Only acquired ownership permits kill; failure/unknown keeps the original or
+confirmed recipient responsible. Existing c_intf.c:6511–6550 already records a
+proc_or_false GC-protection TODO; adding guard metadata does not solve it by itself.
+
+** Ordered landing and release
+
+1. Establish VM session/root custody before entering throw-capable code.
+2. Push a catcher tied to this physical activation. A live C catcher cannot
+   migrate to another OS thread or be retained after its defining activation ends.
+3. On ___call landing, restore exactly its saved outer catcher. A matching
+   UNWIND_C_STACK also restores fp/PSR0; an unmatched marker/error propagates.
+4. Preserve skipped descendant marker/resource responsibility in stable records.
+   The selected modern C schedule settles marker debt before popping its modeled
+   outer boundary; other orders require a separate refinement proof. This is a
+   proposed guard transition, not current ___run/SFUN behavior.
+5. Restore the outer catcher, reload live carriers, release acquired conversion
+   resources, and settle result/error delivery and caller-specific last accesses.
+   Existing CFUN conversion cleanup remains in its current semantic order.
+6. Settle children and transfer any old-roster/storage obligation to an explicitly
+   acknowledged recipient. Unknown transfer does not erase the sender's debt.
+7. Publish immutable completion and then release the guard/session from a stable
+   outer custodian that will no longer dereference the retired PSTATE.
+
+A single final decrement cannot simply be inserted into ___END_TRY,
+___END_SFUN, ___run return or CFUN R_ALL. These sites cover different subsets of
+the remaining accesses. In particular the secondary-processor caller has no
+existing finite completion point: replacing its service loop needs the inherited
+roster protocol and actual takeover, not a fabricated success return.
+
+** Nested callbacks, exceptions and multi-shot continuation
+
+Child landing restores the child's saved catcher, which may be the parent's call
+catcher. It must not pop the parent catcher or release the parent session. A
+continuation escape to an ancestor's live C marker can require multiple native
+unwind hops. The source provides that marker-mismatch propagation mechanism;
+qualification of a specific Tcl invocation remains open without its full foreign
+unwind contract. Scheme dynamic-wind semantics and Scheme exception dispatch are
+not automatically C resource cleanup.
+
+After a physical marker is invalidated, the same Scheme continuation may still
+restore Scheme frames/denv under a new invocation lease. Return-to-C first rejects
+the wrong processor and then an invalid marker (_kernel.scm:1020–1065). An invalid
+marker does not prohibit all Scheme execution before that check. Existing guard
+settlement cannot be repeated by multi-shot restoration. Exported continuation
+handles retain VM semantics, not an obsolete raw processor pointer; each new
+invocation must acquire a valid current context and settled arena/root ownership.
+Internal Scheme reference cycles must not be converted into permanent external
+VM roots. Exported-handle accounting and collection are separate obligations.
+
+* RESEARCH C memory and nonlocal transfer conditions
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-c-memory
+:STATUS: source-and-memory-refinement-open
+:END:
+
+Use a sequentially consistent baseline for new guard state until the weaker
+publication graph is proved. The intended graph is: register owned roots and
+initialize immutable record -> release publication -> acquire of the same
+transaction -> decrement sender authority. Publication of a pointer alone proves
+neither scanned-root visibility nor storage lifetime. GC slot mutation must obey
+the shared RootRegistry contract; plain PSTATE catcher fields stay owner-thread
+local with exclusive activation nesting. Signal handlers do not mutate this
+catcher stack.
+
+The completion guard must not depend on changed nonvolatile automatic locals
+surviving longjmp. C11 draft [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570]]
+7.13.2.1 specifies indeterminate changed nonvolatile locals, restrictions on the
+saved activation/thread, and the nonlocal transfer rules. It is not a proof of
+Gambit's effective macro expansion. GCC's [[https://gcc.gnu.org/onlinedocs/gcc/Nonlocal-Gotos.html][Nonlocal Gotos]]
+documents a different builtin ABI, including value=1 and caller restrictions;
+libc and builtin jump buffers cannot be interchanged. Darwin/GCC branch selection,
+architecture register preservation and generated liveness remain open gates.
+
+* RESEARCH Darwin, SMP and generated-product correspondence
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-profile
+:STATUS: declared-profile-only
+:END:
+
+| Layer | Established statically | Unresolved qualification |
+|---+---+---|
+| Installed driver/header | Frozen parent records pin exact absolute paths and hashes; compiler declaration GCC-16, SINGLE_HOST/INLINE_JUMPS/TRUST_C_TCO | Effective argv, include overrides, inherited CC_OPTIONS/environment, selected macro branches |
+| Installed header mode | Header defaults SINGLE_THREADED_VMS; nine literal macro spans equal current template | A default branch is not a preprocessed SMP declaration or matching object |
+| Source VM threading | configure.ac:1271–1284 maps multiple-threaded-vms to header substitution | Independent of SMP scheduler feature; neither implies the other |
+| Source scheduler | configure.ac:1289–1299 adds enable-smp/disable-smp Scheme feature | Need matching expanded Scheme library, generated header, runtime and generated C/object set |
+| Generated consumer | _kernel.c:6004–6028 has cleanup CFUN, 11729–11777 return-to-C body | Generator invocation/configuration and installed SDK object relationship unresolved |
+| Outer Bazel producer | Parent pins gambit_runtime.bzl and repository.bzl installed producer path | Clang executable linker is not evidence generated Gambit C used LLVM |
+| Registered historical clues | This turn's read rejected current header source identity | Keep rejection and inherited host registration unresolved; do not relabel source reading as native qualification |
+
+Nine parity spans cover previous R1/SELF/host/capture/restore/catcher macros plus
+SFUN boundaries, CFUN context/cleanup and plain-C cleanup. Full-template equality
+only proves the exact text, including unselected branches. No preprocessing,
+compiler invocation, native execution or performance measurement is performed.
+
+* RESEARCH Formal refinement and counterexamples
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-proof
+:END:
+
+QNT models two physical activations, explicit outer/call catcher IDs, owned marker,
+reload and roster debt, retained handle and repeated fresh invocations. It selects
+one guarded schedule. Normal matched and abnormal propagation paths both land;
+actual marker comparison, C buffer bytes, moving GC, failed marker allocation,
+root leases and C11 memory events are abstract premises inherited or open. The
+sampled invariant checks safety, not scheduling fairness, eventual shutdown or
+all histories. Histories explicitly assert failures of weakened protocols.
+
+| Obligation | Local model | Source-refinement obligation still open |
+|---+---+---|
+| Nested LIFO restoration | QNT stack.top guards; Lean nestedPop | Map each generated TRY and all nonlocal destinations to physical IDs |
+| No early release | QNT active implies owner; Lean historyPreserves | Register all EXT/function-pointer/embedding entrants and stable native storage |
+| Marker settlement | QNT completeMarker; Lean markerCleared | New abnormal guard, acquire failure and exact-once kill with root coverage |
+| Caller restoration | QNT reloadRoots; Lean reloaded | Exact W_ALL/R_ALL masks and continuation/GC restore graph |
+| Old-roster duty | QNT transferRoster; Lean rosterTransferred | Actual acknowledged takeover replaces perpetual service_sync_op loop |
+| Multi-shot exclusion | QNT repeated invocation without stack resurrection | Physical marker versus exported handle/invocation identity and processor admission |
+| VM lifetime | QNT retireVm; Lean VM handle exclusion | Shared roots/still/cleanup/native shutdown closure |
+
+Six negative controls preserve: release before completion; wrong nested catcher
+pop; skipped abnormal marker kill; skipped roster debt; resurrection of a popped
+catcher by continuation; and freeing VM while an exported handle survives.
+
+Lean proves abstract steps preserve guard safety and derives history preservation
+by induction. Its Guard is a projection, not a mechanized refinement of QNT's
+whole state. ASCENT checks exact bindings and missing/stale/wrong-scope controls;
+it cannot infer that source operations satisfy theorem hypotheses. Source and
+platform obligations stay open, so the current candidate must remain blocked.
+
+* RESEARCH Benefits, added work and retirement gates
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-benefits
+:END:
+
+Let A be peak active physical activations, H exported handles, I active restored
+invocations, B accepted batches and S reusable execution sessions. Proposed
+metadata is O(A+H+I), plus actual retained roots/resources; no byte count is
+justified before a representation exists. Nested depth must be bounded by actual
+live activation storage, not a guessed fixed universal limit.
+
+| Outcome | Avoided work or strengthened capability | Added cost | Admission / falsifier |
+|---+---+---+---|
+| All-path completion | Close skipped marker/session cleanup on propagated escapes | Per-activation registration and exact-once settlement; retained unknown outcomes | Any unregistered escape or lost marker ownership falsifies full coverage |
+| Reuse sessions | At most B-S lease pairs saved against per-batch sessions | B claim settlements remain; roots, receipts, retention and query cost remain | Positive work balance requires saved cost > added cost; no measured gain |
+| Preserve C integration | Keep tail-call, continuation and existing conversion semantics | Generate shared typed completion descriptions and backend-specific adapters | Must qualify installed ABI and native library unwind boundaries |
+| Remove policy duplication | Retire scattered ownership/marker completion policy after complete caller migration | Keep fp/PSR0 restore, GC materialization, conversion releases and roster duties | Existing CFUN cleanup is reusable and yields zero newly avoided work by itself |
+| Modern C versus Zig | C handles this protocol with existing ABI and generator | Both require the same state machine, roots, memory-order and native qualification | No Zig-specific positive net benefit demonstrated; no forced second backend |
+
+Retirement order: generated boundary descriptions and caller census -> root and
+marker acquisition -> stable exceptional landing -> matching return and caller
+cleanup -> roster/storage takeover -> final session/VM retirement. Existing
+CFUN/SFUN macros can retire only after all equivalent normal/conversion/error
+edges have qualified generated consumers. The old trampoline/tail-host routes,
+Scheme return checks and GC root semantics are not retired by this study.
+
+There is no established runtime speedup, macOS build speedup, reduced native
+allocation count or SMP correctness admission. This layer supplies a necessary
+safety contract for independent compiler sessions and runtime ownership; build
+parallelism remains conditional on the separate mutable-state and dependency
+closure studies.
+
+* RESEARCH Reproducible local checks
+:PROPERTIES:
+:CUSTOM_ID: outer-completion-landing-checks
+:END:
+
+[[file:../../modeling/tools/outer-completion-landing-study.py][Python orchestration]] invokes
+native SysML, projects Org/D2, checks the contract DAG and bindings, runs QNT/Lean
+and ASCENT controls, checks Org without Babel, and pins source/config/artifact
+hashes. [[file:../../../evidence/research/outer-completion-landing/checks.json][Checks]]
+and [[file:../../../evidence/research/outer-completion-landing/input.json][identity receipt]]
+separate local models from runtime admission. Diagnostics and retained failed
+attempts stay under the task cache and structured evidence directory.

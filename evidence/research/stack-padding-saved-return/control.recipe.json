@@ -1,0 +1,113 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-padding-saved-return-controls",
+  "scope": "Finite check that a tag-0 slot whose saved word is a return steps four words with an empty map. The exit -6 ___RETN_GET and the 8-word overshoot are counterexamples. Relations 4*8=32>24 and 8*8=64>32 are invariant conjuncts. The abort observation is an input, not a native PASS. No bootstrap, stress, runtime, or milestone admission.",
+  "budgetSeconds": 400,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "models/gambit/stack_padding_saved_return_check.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-padding-saved-return/source.lock.json",
+    "evidence/fixtures/darwin-stack-padding-saved-return/review-contract.json",
+    "evidence/fixtures/darwin-stack-padding-saved-return/native-observation.json",
+    "patches/fixtures/darwin-stack-padding-saved-return.patch",
+    "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-padding-saved-return/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": ["source"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_padding_saved_return_check.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_padding_saved_return_check.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "positive",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_saved_return_check.qnt",
+        "parsed": "parse",
+        "initializer": "initSaved",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "omitted-abort",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_saved_return_check.qnt",
+        "parsed": "parse",
+        "initializer": "initAbort",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "omitted-overshoot",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_saved_return_check.qnt",
+        "parsed": "parse",
+        "initializer": "initOvershoot",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "interrupts",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_saved_return_check.qnt",
+        "parsed": "parse",
+        "initializer": "initServicesInterrupts",
+        "step": "step",
+        "invariant": "InterruptsOff",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "type", "positive", "omitted-abort", "omitted-overshoot", "interrupts"],
+      "budgetSeconds": 45,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"},
+        "expected": {"missing": []}
+      }
+    }
+  ]
+}

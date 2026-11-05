@@ -1,0 +1,200 @@
+#+TITLE: Chunk Transport, Object Repair and Copy Capacity
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never :tangle no
+#+STARTUP: overview
+
+* Historical scope
+
+The following records the transport cut before frame access and private copy
+grants. Its FAL/captured-link and capacity gaps are advanced, not erased, by
+[[file:frame-custody.org][the current frame custody cut]]. Native observations for each cut retain
+their original source locks.
+
+* Responsibility replacement
+:PROPERTIES:
+:CUSTOM_ID: transport-authority
+:SOURCE_BRANCH: modern-c
+:COMMIT_ADMITTED: false
+:END:
+
+The collector worker owns traversal progress. A chunk identity is its link-word
+address in the destination semispace. Its state uses a non-object position in
+the existing two-bit scan trailer. It does not change Scheme object tags or
+consume another payload word. Chunk state and object state share storage but
+use disjoint word positions; that disjointness is a C refinement obligation.
+
+The previous =end_heap_chunk= inferred local ownership from a range containing
+=scan_ptr=. The replacement holds =local_scan_chunk_= explicitly before
+root copying can close the initial chunk. Completing a local chunk releases
+that identity; selecting the current incomplete chunk consumes private
+authority. The scan cursor advances independently of the allocation frontier.
+
+#+NAME: transport-handoff
+| Cut | State transition | Responsible party | Obligation |
+|-----+------------------+-------------------+------------|
+| Initial local frontier | private -> held | setup after trailer reset | Before root copying; unique worker/context binding |
+| Close private chunk | private -> queued | copying worker | Payload and terminal marker initialized before queue publication |
+| Close held local chunk | held stays held | copying worker | No FIFO publication; local cursor retains unfinished interval |
+| FIFO dequeue | queued -> held | consuming worker under producer FIFO lock | Claim precedes head advance; own and stolen paths use identical authority |
+| Complete closed chunk | held -> drained | consuming worker | Reached terminal marker; does not pay Tail/frame debts |
+| Select incomplete frontier | private -> held | local worker | New identity; never reset an already-held cursor to its start |
+
+Empty terminal chunks remain legal: publishing or draining one transfers no
+object field authority. Chunk links may be overwritten as FIFO linkage, but
+remain tagged FORW terminal words, not object headers. Trailer identity is
+never reused within the same round. Reinitialization requires the existing
+whole-round barrier; independent failed-worker takeover is not admitted.
+
+* Three authorities and a capacity premise
+
+Chunk traversal is distinct from READY/OWNED/DONE object repair and from
+first-field Tail execution. An object claim prevents a second ordinary field
+writer even if transport delivers a duplicate request. The copy winner keeps
+Tail debt after raw payload publication. The ordinary scanner skips that field.
+Captured stack frames additionally keep a special continuation-link repair
+obligation: raw payload READY is not evidence that link repair has finished.
+
+The existing frame scanner temporarily replaces a fixnum link by FAL while
+scanning roots, then retags it. =mark_captured_continuation= reads the initial
+cell before MISC locking and may repair subsequent links under that lock.
+These accesses need an explicit field partition and C memory-order proof.
+Passing map/GC tests cannot prove that partition. This slice does not authorize
+arbitrary frame migration or claim that all historical failures share a cause.
+
+#+NAME: capacity-prerequisites
+| Quantity | Actual source boundary | Required justification |
+|----------+------------------------+------------------------|
+| U | Frozen source heap plus restorable stack/frame charges | Identity-injective copying; distinguish census accounting from live bytes |
+| Amax | =mark_array= and captured-frame contiguous allocation requests | Header/alignment plus frame size; the movable-object constant alone is insufficient |
+| Markers | =prepare_heap_msection=, =end_heap_chunk= | Initial link, completed links, empty terminal cases |
+| Terminal loss | Per-worker section changes | Contiguous packing and shared stack/heap limits |
+| R | Context restoration and next allocation checkpoint | Logical resume allowance distinct from physical interval grants |
+| Q | Retained native/heap domains | Isolation cannot refund unknown native resources |
+
+The sufficient conditional packing expression remains in the authoritative
+SysML model. It is not an implemented allocator transaction. No larger heap
+is selected to compensate for repeated scans. A full pre-flip grant must be
+issued before parity changes; allocation failure must preserve old roots and
+return one common outcome. Unknown allocation/termination cannot justify a
+refund. Those obligations remain open until source and model refinement close.
+
+=mem.h= declares =___MAX_NB_FRAME_SLOTS=8192 and requires the fudge area to
+cover that frame plus header/extra slot. =gsc/_t-c-1.scm= separately declares
+=targ-max-nb-frame-slots=4096; the focused search finds only its declaration.
+Neither declaration establishes that every dynamic/internal frame or loaded
+module is validated against that maximum. Until emitter/loader/runtime checks
+and all frame constructors close, 8194 is a candidate admission bound, not a
+proved =Amax=. Generated-product observations can qualify only that closed
+product set and do not validate arbitrary future modules.
+
+#+NAME: transport-benefit-peak-obligations
+| Responsibility | Eliminated work or ambiguity | Added work/storage | Positive-net condition / refutation |
+|----------------+------------------------------+--------------------+------------------------------------|
+| Local/FIFO handoff | Allocation-range inference of scan ownership | Chunk-state CAS at selection, enqueue, take and drain; worker progress fields | Exclusive, disjoint intervals prevent repeated traversal; refuted if overlap/requeue survives |
+| Object claim | Second ordinary field writer | Existing 2-bit trailer and per-object lookup/CAS | Duplicate requests transfer no field writes; zero duplicates gives no demonstrated saving |
+| Tail/frame link | No elimination credited yet | Explicit debt, field partition and synchronization proof | Ordinary scan cannot take Tail or special-link ownership |
+| Physical capacity | No peak reduction credited yet | Frozen census, marker/terminal accounting, all-or-retain grant | Source bound, Amax and physical packing all proved before flip |
+| Unknown join | No whole-VM freeze for the qualified empty ABORT domain | Retained source root and native record, no slot reuse | Healthy GC progresses while actor held; native bytes remain retained |
+
+Additional chunk states reuse non-object positions in the existing trailer;
+they add zero trailer bytes per section. This does not mean zero total cost:
+worker progress/counters and the additional atomic/lookups must be measured
+against the configured layout. The predecessor pays 16,384 bytes per section
+and 86,944 bytes per VM. No elapsed-time or RSS improvement follows from either
+the finite model or a single successful native run.
+
+* Evidence chain and counterexamples
+
+[[file:models/sysml/copy-custody.sysml][SysML]] owns contract routes and scoped evidence requirements.
+[[file:models/quint/copy_custody.qnt][QNT]] adds a finite private/queued/held/drained partition, local-frontier
+and FIFO histories, and negative double-publication/double-take controls.
+[[file:models/lean/CopyCustody.lean][Lean]] separates local/queue exclusion, Tail debt, and conditional source
+plus physical-packing charge. Neither finite chunk identities nor arithmetic
+hypotheses prove actual pointer interval disjointness or packed C CAS behavior.
+[[file:../../modeling/ascent/copy-custody.rules.scm][ASCENT]] must match source/profile/artifact/digest/scope and transitive
+dependencies. Debugger snapshots cannot satisfy native-whole or C simulation.
+
+The previous read-only OWNED event proves a second ordinary scan request; it
+does not identify the original owner or publication edge. New worker-owned
+active chunk/object/origin coordinates make a stopped-process snapshot useful
+for distinguishing local frontier, own FIFO and stolen FIFO. These coordinates
+are not a concurrent snapshot API or a worker recovery receipt.
+
+* Observed transport violation and synchronization cut
+:PROPERTIES:
+:CUSTOM_ID: queue-grant-acquire
+:EVIDENCE_CLASS: source-bound-native-readonly
+:END:
+
+The intermediate explicit-frontier candidate completes the official two-pass
+bootstrap, then all three p11 compiler lanes exit 70 with =GC chunk authority
+lost=. A calibrated fatal snapshot stops an own-FIFO =queued -> held= attempt
+at =mark_reachable_from_marked+436= (return PC +440). The requested link is
+section 19, destination word 14610, already state 3 (DRAINED). Another snapshot
+reaches the stolen-FIFO claim. These are transport requests, before ordinary
+object repair; they are not evidence that a frame descriptor caused the request.
+
+The original ticket-lock adapter obtains a ticket with an atomic fetch-add,
+then waits for grant through a plain volatile load. The arm64 disassembly has
+=ldr= grant polling and no acquire after observing grant before queue reads.
+An acquire before a wait does not establish synchronization with a later
+unlock. This missing edge is a concrete source-level proof gap; the debugger
+snapshot alone is not a complete hardware memory-order reconstruction.
+
+The successor makes the collector FIFO responsible for its own synchronization:
+=lock_chunk_fifo= acquires through the successful full-barrier CAS;
+=unlock_chunk_fifo= releases through atomic clear. =take_heap_chunk= performs
+head/tail observation, chunk claim and head advance inside that gate, for both
+own and stolen work. Failed steals read no queue state. The old unlocked
+prefilter and duplicated dequeue bodies retire. Other runtime ticket locks
+remain outside this migration cut and are not thereby qualified.
+
+#+NAME: transport-source-refinement-obligations
+| Concrete operation | QNT abstraction | Lean premise / remaining obligation |
+|--------------------+-----------------+--------------------------------------|
+| Initial frontier / private close | held initial identity / closePrivate, closeHeld | Link-word identities are injective and distinct from object headers |
+| FIFO CAS gate, claim, head update | takeChunk | Acquire/release adapters, no head/tail access outside the gate, exact linearization |
+| Local current chunk selection | selectFrontier | localChunkCannotBeQueued; no reset of a partially scanned identity |
+| Terminal marker reached | drainChunk | chunkCompletionDoesNotPayTail; no premature worker-idle transition |
+| Source charge and interval plan | plan, forward | sourceChargePlusPacking needs an independently established physical grant |
+
+The finite QNT take remains atomic: it is a specification for the gated C
+critical section, not a proof that volatile ticket polling refines it. The
+observed DRAINED request is retained as a counterexample to that old refinement.
+
+* Why a shared bump pointer is not a capacity proof
+:PROPERTIES:
+:CUSTOM_ID: private-reservation-refund
+:END:
+
+=mark_array= reserves a destination header before attempting source forwarding
+CAS. A losing copier undoes its private allocation with =alloc--= and follows
+the winner; it does not increase =copied_words=. That refund is valid because
+the allocation cursor is private. A global atomic bump pointer cannot simply
+decrement on a loss: another worker may already own a later allocation.
+
+Therefore a future shared copy arena must preserve reversible private leases
+or establish source-copy ownership before reserving shared space. Counting
+only forwarding winners while leaking speculative shared reservations would
+break the capacity bound, even with perfect object scan uniqueness. Chunk
+leases additionally need marker/terminal charges, and captured frames need a
+separate contiguous-bound admission path. Tail ownership transfers only on a
+winning copy; losing reservations cannot transfer or discharge that debt.
+
+#+NAME: copy-capacity-retirement-boundary
+| Existing path | Required replacement | What must remain unresolved today |
+|---------------+----------------------+-----------------------------------|
+| worker -> context allocator | Collector-owned reversible extent/lease and later context handoff | This branch still uses the stopped context's private copy cursor |
+| =alloc--= on forwarding loss | Explicit cancelable reservation before publication | A shared bump pointer is not an equivalent refund |
+| post-copy =resize_heap= | Pre-flip complete interval grant with common failure outcome | General source/frame bound and all-or-retain transaction |
+| frame raw READY plus link repair | Separate link debt and root-coordinate partition | Temporary FAL, initial unlocked link read and constructor/scanner interaction |
+
+The queue cut removes a real duplicate-delivery source; it does not retire
+these allocation and continuation responsibilities by renaming their owner.
+
+* Submission gate
+
+No commit is authorized by a green bootstrap alone. Full native acceptance,
+architecture gains/cost, current migration process, actual model refinement,
+and questions about Gambit's root/control/continuation design are conjunctive.
+Native campaigns and failed hypotheses remain immutable, source-bound history.

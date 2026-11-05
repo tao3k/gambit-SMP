@@ -1,0 +1,572 @@
+{
+  "source": [
+    {
+      "key": "capacity-before-fixup",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "while (alloc + words + ___SUBTYPED_BODY > limit)",
+      "obligation": "Next fresh frame can publish previous chunk before writing previous ptr"
+    },
+    {
+      "key": "frame-ready",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "publish_object_scan (work, copy_header);",
+      "obligation": "All publisher call sites inventoried; frame publisher follows initial copied payload"
+    },
+    {
+      "key": "pending-link",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "ptr = &___FP_STK(alloc,link+1);",
+      "obligation": "Cursor retains preceding copied-frame link address"
+    },
+    {
+      "key": "already-forwarded-fixup",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*ptr = ra2; /* already copied, replace by forwarding pointer */",
+      "obligation": "Separate fixup branch exists; capacity witness uses the fresh-frame branch"
+    },
+    {
+      "key": "copy-lock",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "MISC_MEM_LOCK();\n\n      next_frame:",
+      "obligation": "Copier holds global memory lock; this alone does not exclude frame scanner"
+    },
+    {
+      "key": "strong-weak-barrier",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "garbage_collect_mark_strong_phase (work);\n\n  BARRIER();",
+      "obligation": "Strong closure precedes weak phase but does not serialize weak classification against weak marking"
+    },
+    {
+      "key": "will-repair",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, tail_exec+___WILL_TESTATOR, 1);",
+      "obligation": "Executable and moved-to-executable paths directly repair testator"
+    },
+    {
+      "key": "chunk-authority",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (alloc_heap_chunk_start != work->local_scan_chunk_)",
+      "obligation": "Current source uses explicit local chunk identity; parent range guard is historical"
+    },
+    {
+      "key": "terminal",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (___FIXNUMP(cf) && cf != ___END_OF_CONT_MARKER)",
+      "obligation": "Seal last link without successor"
+    },
+    {
+      "key": "retag",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*orig_ptr = ___TAG(___UNTAG_AS(*orig_ptr, ___tFIXNUM), ___tSUBTYPED);",
+      "obligation": "Retag follows all link resolution"
+    },
+    {
+      "key": "custom",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "return custom_msection_alloc ();",
+      "obligation": "Custom grant unknown"
+    },
+    {
+      "key": "grant",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc_heap_limit = alloc_heap_start + (___MSECTION_SIZE>>1);",
+      "obligation": "Standard half section"
+    },
+    {
+      "key": "shared",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "space = (space - 2*___MSECTION_FUDGE) >> 2;",
+      "obligation": "Shared stack remaining grant"
+    },
+    {
+      "key": "markers",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc_heap_limit_ -= 2;",
+      "obligation": "Two end markers plus first link word"
+    },
+    {
+      "key": "frame-max",
+      "path": "vendor/gambit/lib/mem.h",
+      "needle": "#define ___MAX_NB_FRAME_SLOTS   8192",
+      "obligation": "Static slot limit"
+    },
+    {
+      "key": "threshold",
+      "path": "vendor/gambit/lib/mem.h",
+      "needle": "#define ___MSECTION_BIGGEST     255",
+      "obligation": "Threshold not maximum chunk size"
+    },
+    {
+      "key": "end-value",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___END_OF_CONT_MARKER ___VOID",
+      "obligation": "Nonfixnum terminal"
+    },
+    {
+      "key": "callcc",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(receiver (reify-continuation cont))",
+      "obligation": "Captured continuation retained by closure"
+    },
+    {
+      "key": "capture",
+      "path": "vendor/gambit/gsc/_t-c-2.scm",
+      "needle": "(targ-emit-jump-inline \"CONTINUATION_CAPTURE\" safe? nb-args)",
+      "obligation": "Actual capture emitter"
+    },
+    {
+      "key": "public-will",
+      "path": "vendor/gambit/lib/_nonstd.scm",
+      "needle": "(define-prim (make-will testator action)",
+      "obligation": "Distinct wills may share testator"
+    },
+    {
+      "key": "will-list",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "___ADD_SUBTYPED_ELEM(___WILL_NEXT,___ps->context->mem.nonexecutable_wills_)",
+      "obligation": "Per-context registration"
+    },
+    {
+      "key": "will-decision",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "UNMARKED(testator)) /* testator was not marked? */",
+      "obligation": "Mutable mark observation"
+    },
+    {
+      "key": "will-local",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "determine_will_executability (nonexecutable_wills);",
+      "obligation": "Local decide immediately followed by retention"
+    }
+  ],
+  "footprint": [
+    {
+      "key": "steady debt",
+      "required": "<=1 pending link",
+      "reuse": "ptr cursor",
+      "premise": "Sequential loop boundary"
+    },
+    {
+      "key": "transient debt",
+      "required": "<=2 unsealed copied frames",
+      "reuse": "Existing destination storage",
+      "premise": "Initialize successor before predecessor fixup"
+    },
+    {
+      "key": "deferred chunk",
+      "required": "<=1 per admitted sequential copier",
+      "reuse": "Retain allocated chunk",
+      "premise": "Drain before next close; next frame fits grant"
+    },
+    {
+      "key": "frame cap",
+      "required": "fs+2 <=8194 words",
+      "reuse": "Existing guarded copy layout",
+      "premise": "SUBTYPED_BODY=1 EXTRA=1 and valid descriptor"
+    },
+    {
+      "key": "section grant",
+      "required": "65536 minus 3 marker words",
+      "reuse": "Existing standard tospace",
+      "premise": "Unshared standard allocation only"
+    },
+    {
+      "key": "chunk bound",
+      "required": "threshold+maxFrame+terminator conditional",
+      "reuse": "No O(N) whole-chain buffer",
+      "premise": "Regular threshold checks; current stale local-alloc check unresolved"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "reserve",
+      "toNode": "initialize",
+      "custody": "Fit grant; retain owner"
+    },
+    {
+      "fromNode": "initialize",
+      "toNode": "fix-previous",
+      "custody": "At most two copied obligations"
+    },
+    {
+      "fromNode": "fix-previous",
+      "toNode": "install",
+      "custody": "Seal predecessor; current pending"
+    },
+    {
+      "fromNode": "install",
+      "toNode": "reserve",
+      "custody": "Advance chain"
+    },
+    {
+      "fromNode": "install",
+      "toNode": "defer-chunk",
+      "custody": "Retain last unresolved chunk"
+    },
+    {
+      "fromNode": "defer-chunk",
+      "toNode": "publish",
+      "custody": "Whole physical coverage sealed"
+    },
+    {
+      "fromNode": "install",
+      "toNode": "terminal",
+      "custody": "Seal END without successor"
+    },
+    {
+      "fromNode": "install",
+      "toNode": "forwarded",
+      "custody": "Same-epoch sealed suffix"
+    },
+    {
+      "fromNode": "terminal",
+      "toNode": "retag",
+      "custody": "No pending copied link"
+    },
+    {
+      "fromNode": "forwarded",
+      "toNode": "retag",
+      "custody": "Stop; do not recopy suffix"
+    },
+    {
+      "fromNode": "reserve",
+      "toNode": "failure",
+      "custody": "Owner retains unresolved debt"
+    },
+    {
+      "fromNode": "strong-closure",
+      "toNode": "classify-all",
+      "custody": "Freeze roster and lists"
+    },
+    {
+      "fromNode": "classify-all",
+      "toNode": "decision-cut",
+      "custody": "Every owner acknowledges"
+    },
+    {
+      "fromNode": "decision-cut",
+      "toNode": "weak-retain",
+      "custody": "Then repair and derived work"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "chain",
+      "status": "proved-in-model",
+      "scope": "All lengths scalar accounting",
+      "gap": "Object identity and physical chunk mapping open"
+    },
+    {
+      "key": "terminal",
+      "status": "proved-in-model",
+      "scope": "Empty and final-frame exits",
+      "gap": "Actual retag and descriptor mapping open"
+    },
+    {
+      "key": "forwarded",
+      "status": "conditional",
+      "scope": "Same-epoch sealed suffix",
+      "gap": "Receipt issuer not implemented"
+    },
+    {
+      "key": "capacity",
+      "status": "conditional",
+      "scope": "Bounded debt and failure custody",
+      "gap": "Custom/shared grant and byte bounds open"
+    },
+    {
+      "key": "Scheme reachability",
+      "status": "source-family",
+      "scope": "Public callcc and make-will callers",
+      "gap": "Exact emitted frames and processor schedule unqualified"
+    },
+    {
+      "key": "shared will",
+      "status": "proved-in-model",
+      "scope": "Two lists same testator",
+      "gap": "Native schedule unqualified"
+    },
+    {
+      "key": "global cut",
+      "status": "proved-in-model",
+      "scope": "All classification precedes retention",
+      "gap": "Full weak producer roster open"
+    },
+    {
+      "key": "C11",
+      "status": "open",
+      "scope": "READY queue and phase publication",
+      "gap": "Source/configuration refinement absent"
+    },
+    {
+      "key": "native",
+      "status": "open",
+      "scope": "No implementation or native tests",
+      "gap": "No performance qualification"
+    }
+  ],
+  "gain": [
+    {
+      "key": "rolling seal",
+      "avoided": "Avoid O(N) full-chain staging",
+      "added": "One link record; transient second frame",
+      "condition": "One deferred chunk with fit/drain rule"
+    },
+    {
+      "key": "suffix reuse",
+      "avoided": "0 new copies for S sealed suffix frames",
+      "added": "One suffix lifetime check",
+      "condition": "Already a C advantage; no added speed credit"
+    },
+    {
+      "key": "will consistency",
+      "avoided": "W decisions before weak retention",
+      "added": "Existing O(W) work plus one collective cut",
+      "condition": "Frozen lists and all weak producers gated"
+    },
+    {
+      "key": "snapshot option",
+      "avoided": "May avoid new rendezvous",
+      "added": "Immutable strong epoch metadata",
+      "condition": "All decisions read stable snapshot; not free"
+    },
+    {
+      "key": "C retirement",
+      "avoided": "Remove immediate READY and fused classify-retain entry",
+      "added": "Seal API and split phase entry",
+      "condition": "All callers migrated; no Zig requirement"
+    },
+    {
+      "key": "parallel overlap",
+      "avoided": "Other workers scan sealed prefixes",
+      "added": "Delay P bytes per copier plus phase handoff",
+      "condition": "Useful overlap exceeds handoff cost; no timing evidence"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "captured_chain_seal.reserve",
+      "lemma": "ChainSeal.reservePreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.initializeCopy",
+      "lemma": "ChainSeal.initializeCopyPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.resolvePrevious",
+      "lemma": "ChainSeal.resolvePreviousPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.finishInstall",
+      "lemma": "ChainSeal.finishInstallPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.deferChunk",
+      "lemma": "ChainSeal.deferChunkPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.publishDeferred",
+      "lemma": "ChainSeal.publishDeferredPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.publishPrefix",
+      "lemma": "ChainSeal.publishPrefixPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.certifySuffix",
+      "lemma": "ChainSeal.certifySuffixPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.terminal",
+      "lemma": "ChainSeal.terminalPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.forwarded",
+      "lemma": "ChainSeal.forwardedPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.capacityFailure",
+      "lemma": "ChainSeal.capacityFailurePreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.retagRoot",
+      "lemma": "ChainSeal.retagRootPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "captured_chain_seal.release",
+      "lemma": "ChainSeal.releasePreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.strongReachable",
+      "lemma": "WillCut.strongReachablePreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.decideA",
+      "lemma": "WillCut.decideAPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.decideB",
+      "lemma": "WillCut.decideBPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.legacyDecideA",
+      "lemma": "WillCut.legacyDecideAPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.legacyDecideB",
+      "lemma": "WillCut.legacyDecideBPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.classifyCut",
+      "lemma": "WillCut.classifyCutPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.weakMark",
+      "lemma": "WillCut.weakMarkPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    },
+    {
+      "actionName": "will_classification_cut.finish",
+      "lemma": "WillCut.finishPreserves",
+      "scope": "Actual typed IR update; source mapping open"
+    }
+  ],
+  "composition": [
+    {
+      "key": "chain",
+      "lemma": "ChainSeal.arbitraryLengthSafe",
+      "scope": "Any length accounting"
+    },
+    {
+      "key": "debt",
+      "lemma": "ChainSeal.unresolvedBound",
+      "scope": "At most two transient obligations"
+    },
+    {
+      "key": "steady",
+      "lemma": "ChainSeal.quiescentLinkBound",
+      "scope": "One at loop boundary"
+    },
+    {
+      "key": "fit",
+      "lemma": "ChainSeal.grantIncludesFrame",
+      "scope": "Given fit"
+    },
+    {
+      "key": "chunk",
+      "lemma": "ChainSeal.closedChunkBound",
+      "scope": "Given threshold and maxFrame"
+    },
+    {
+      "key": "will",
+      "lemma": "WillCut.reachableSafe",
+      "scope": "All modeled steps"
+    },
+    {
+      "key": "decision",
+      "lemma": "WillCut.sharedDecision",
+      "scope": "Same strong observation"
+    },
+    {
+      "key": "legacy",
+      "lemma": "WillCut.legacyDisagreement",
+      "scope": "Updates with Quint guard-admitted trace"
+    }
+  ],
+  "seam": [
+    {
+      "producer.moduleId": "roots",
+      "consumer.moduleId": "collector",
+      "contract": "Root and chain identity",
+      "modelNeed": "CS-source"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "collector",
+      "contract": "Deferred chunk to scan",
+      "modelNeed": "CS-frameInduction"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "control",
+      "contract": "Frozen roster decision cut",
+      "modelNeed": "CS-weakInduction"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "native",
+      "contract": "C11 readiness publication",
+      "modelNeed": "CS-platform"
+    }
+  ],
+  "need": {
+    "frameHistory": {
+      "obligationId": "CS-frameHistory",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/captured_chain_seal.qnt",
+      "subjectScope": "Three frames and both exits",
+      "owner.componentId": "gc-work"
+    },
+    "weakHistory": {
+      "obligationId": "CS-weakHistory",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/will_classification_cut.qnt",
+      "subjectScope": "Two owners shared testator",
+      "owner.componentId": "gc-work"
+    },
+    "frameInduction": {
+      "obligationId": "CS-frameInduction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ChainSeal.lean",
+      "subjectScope": "All steps arbitrary length accounting",
+      "owner.componentId": "gc-work"
+    },
+    "weakInduction": {
+      "obligationId": "CS-weakInduction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/WillCut.lean",
+      "subjectScope": "All steps consistent decisions",
+      "owner.componentId": "gc-work"
+    },
+    "projection": {
+      "obligationId": "CS-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ChainSealAst.lean",
+      "subjectScope": "Both typed IR exact rosters trusted emitter",
+      "owner.componentId": "gc-work"
+    },
+    "source": {
+      "obligationId": "CS-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/chain-seal-will-cut-design.org",
+      "subjectScope": "Physical mapping and producer closure open",
+      "owner.componentId": "gc-work"
+    },
+    "platform": {
+      "obligationId": "CS-platform",
+      "kind": "native-memory-order",
+      "subjectPath": "dev/refactoring/modern-c/chain-seal-will-cut-design.org",
+      "subjectScope": "Actual C11 and config refinement open",
+      "owner.componentId": "gc-work"
+    }
+  }
+}

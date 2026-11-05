@@ -1,0 +1,288 @@
+#+TITLE: Signal Route Withdrawal, Handler Entry and Generation Retirement
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:nil
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: signal-route-retirement
+:STATUS: conditional-models-source-open
+:CANONICAL_MODEL: models/sysml/signal-route-retirement.sysml
+:END:
+
+Modern C remains the mandatory runtime direction. Replace the assumption that
+stopping a source, masking one thread or observing a zero callback count proves
+route retirement. Use a process-lifetime signal shell with a tagged atomic
+entry/revoke gate; handler lifetime, semantic work and native endpoint lifetime
+have separate closure conditions. This extends the frozen
+[[file:native-wake-channel-design.org][wake channel study]], without rewriting its evidence or treating its signal
+quiescence premise as a completed platform proof.
+
+SysML owns eight contracts, ten dependencies, seven open gates and four benefit
+rows. Python queries native SysML and derives Org/D2. Actual ASCENT rules check
+source/action/lemma bindings, dependency endpoints, prior invariants and hashes.
+No runtime/compiler implementation, native build, native test or performance
+experiment is included. Formal checks are conditional design evidence.
+
+* RESEARCH Actual source and platform findings
+:PROPERTIES:
+:CUSTOM_ID: signal-route-source
+:END:
+
+| Real seam | Source anchor | Established behavior | Missing retirement evidence |
+|-
+| Disposition helper | os_base.c:1817–1839 | Returns void; sigaction uses empty additional mask; ignores sigaction/signal result | Known installation/withdrawal result and prior disposition ownership |
+| Thread mask wrapper | os_thread.c:874–914 | Calls pthread_sigmask in threaded POSIX branch, sigprocmask in fallback; returns native int | Cross-thread acknowledgement and normalized error convention |
+| HB callback | os_time.c:987–996 | Optional USE_signal reinstallation then module callback | Counter at wrapper start alone does not cover pre-entry selection |
+| HB mask bracket | os_time.c:1055–1075 | Blocks current thread and later restores saved mask; ignores returned errors | Known successful restore and complete native-thread membership |
+| HB cleanup | os_time.c:1095–1105 | Stops interval, sets SIG_IGN, unblocks current thread | In-flight callback drain; pending reason policy |
+| TTY handler | os_tty.c:8700–8732 | SIGINT/TERM callback; SIGWINCH traverses native tty stack; SIGCONT restores device mode | Direct native effects and resource lifetimes beyond notification |
+| TTY setup/cleanup | os_tty.c:8769–8824,8899–8905 | Installs handler/ignore actions, later restores defaults and unblocks current thread | Process-global disposition ownership, other users and old handler completion |
+| SIGCHLD/SIGPIPE | os_io.c:8503–8590 | Saves errno, loops waitpid for coalesced child changes; changes SIGPIPE disposition | Child-resource/action closure and global SIGPIPE policy lifetime |
+| Global interrupt routing | setup.c:110–136 | Walks VM list; disabled mutex comment mentions recursive-lock deadlock investigation | Signal-safe VM list publication and reclamation |
+| Outer OS teardown | os_setup.c:3224–3233 | Cleans I/O before TTY/time/thread modules | Prior signal route and service drain before native facility destruction |
+
+These source facts do not prove a native race is exercised in this configuration.
+USE_SIGNALS/USE_signal/USE_sigaction and timer branches remain configuration-bound.
+The handler helper has no status channel; calling it cannot issue a success receipt.
+pthread_sigmask returns an error code while sigprocmask uses its own return/errno
+convention: the existing wrapper must be normalized at a typed boundary.
+
+[[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/pthread_sigmask.2.html][Apple's archived pthread_sigmask manual]] explicitly limits mask changes to the
+calling thread. [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/sigaction.2.html][The archived sigaction manual]] distinguishes disposition, pending
+signals and delivery, including nested different signals and interrupted I/O.
+These documents constrain interpretation; they do not qualify the current local
+Darwin ABI or supply an all-thread handler grace primitive. The POSIX online page
+returned HTTP 403 and is not used as evidence.
+
+* RESEARCH The zero-count hole and the stronger entry protocol
+:PROPERTIES:
+:CUSTOM_ID: signal-route-entry
+:END:
+
+Counter-only counterexample: the kernel selects a handler; the thread is paused
+before the wrapper increments active; the closer sees zero and frees its route;
+the handler resumes and touches the freed record. Moving the increment a few C
+statements earlier does not prove coverage of that first instruction window.
+Loading a reclaimable route pointer before incrementing its count has the same
+problem. A standalone generation comparison has a check/use race as well.
+
+** Process-lifetime shell
+Keep trampoline code, one stable gate address and a native reason mailbox alive
+for the process signal epoch. They cannot live in a PSTATE, GC heap or unloadable
+per-VM module. The trampoline does not obtain a raw VM pointer before admission.
+A denied handler touches only this stable shell. It must preserve errno, avoid
+GC/allocators/ordinary mutexes and use only qualified signal-safe operations.
+Process-global shell lifetime is an intentional retained cost, not leaked VM state.
+It is not retired merely because the last current VM disappeared.
+
+** One tagged atomic admission/count gate
+The logical gate contains open/closed state, generation and active-pin count.
+Initialize immutable route fields before opening the gate. Handler admission
+performs a single linearized conditional increment only if the gate is open,
+generation matches and count has room. Only after successful admission may it read
+the immutable route and endpoint. Closing atomically clears open on that same
+gate while preserving the count. Separate open and count variables need a different
+proof and are not the default design.
+
+There are two orders: entry wins before revoke and is counted, or revoke wins and
+entry cannot obtain the old pin. A handler paused before admission remains harmless
+after old route reclamation because its later CAS fails. Counter overflow or CAS
+contention may take a bounded denial path to the stable mailbox; never wrap a
+count/generation or spin unboundedly inside the handler. Packing/tag width and
+always-lock-free CAS are ABI admission conditions; a hidden libatomic lock is not
+acceptable here. The finite model abstracts the successful CAS and a contention
+fallback, not its target-machine implementation.
+
+** Last old access and work custody
+Pin release follows the last old-route/endpoint access and return-value
+classification. No error path, deferred destructor, function epilogue or reinstalled
+legacy disposition may read old data after release. Code after release uses only
+the stable shell. Notification failures are recorded in an independent accepted
+custody slot before release; otherwise the pin must remain held. Handler return
+and zero pins do not discharge published work or its failure record.
+
+* RESEARCH Memory-order contract
+:PROPERTIES:
+:CUSTOM_ID: signal-route-memory-order
+:END:
+
+| State | Modern C contract | Refinement obligation |
+|-
+| Tagged entry/revoke/count | Initially use sequentially consistent atomic CAS/RMW/load; no mixed ordinary accesses | Prove successful entry and revoke share one modification order; preserve generation and non-wrapping count |
+| Immutable route/endpoint descriptor identity | Initialize before release publication/open; read only after successful acquire admission | Route fields remain immutable until all admitted pins retire |
+| Last-access pin release | Release/SC decrement after all old reads/writes and notification custody transfer | Closer's acquire/SC zero observation must synchronize with the relevant decrement/release sequence |
+| Stable mailbox reason bits/slots | Qualified lock-free atomic publication; ordinary owner consumes with acquire | Define coalescing/identity per reason; no Scheme pointer hidden in native mailbox |
+| Closer's wait and root custody | Normal thread code may use a gate/journal, but holds no mutex across handler drain or collective service | A signal handler never waits for that gate; closer continues participating as required |
+| Mask/disposition result | Typed known-failure/known-success/unknown receipt in normal code | Match native error convention, thread identity, prior mask/disposition and affected signal set |
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570, 5.1.2.4, 7.14.1.1 and 7.17]] constrains conflicting accesses,
+release/acquire visibility and signal-safe atomic objects. This does not turn
+volatile or a fence beside ordinary fields into atomic publication. SC is the
+initial design strength, not a claim that compiler builtins or every target have
+already been qualified. The QNT is sequentially atomic; Lean proves the abstract
+gate transition invariant, including open-gate implying live backing. C source-to-CAS, release-sequence and lock-free ABI
+refinement remain open.
+
+* RESEARCH Cross-thread mask policy and late delivery
+:PROPERTIES:
+:CUSTOM_ID: signal-route-masks
+:END:
+
+Masking is a delivery policy, not the reclamation authority of the atomic-gate
+route. A cooperative per-thread mask transaction needs a complete native-thread
+roster, thread-birth enrollment fence, signal set, saved prior mask, known return
+code, and thread-generation acknowledgement. SMP processor membership alone does
+not enumerate foreign/pool/library threads that might receive signals. Each
+thread executes its own call; a coordinator does not mask another thread by
+calling pthread_sigmask locally. New threads must inherit/enroll into the selected
+policy before they become eligible receivers. Enrollment failure is a retained
+coordinator obligation, not a fabricated all-masked receipt.
+
+Known or unknown mask failure need not prevent memory-safe retirement under the
+qualified atomic gate: unmasked late handlers can still reach the permanent shell
+and be denied old-route access. It DOES block any policy operation whose semantics
+requires a known all-thread mask. If legacy handlers bypass the gate, this benefit
+disappears; retain old route/native state and reject retirement until they are
+covered or a separately proved platform grace mechanism exists.
+
+Stopping a timer does not erase a selected or pending delivery. Setting SIG_IGN
+or SIG_DFL is a process-global semantic change, not a callback-join operation.
+Restoring a mask can immediately expose pending reasons. A late handler may also
+reinstall its old handler under USE_signal; the permanent trampoline design
+requires removing that legacy reinstallation path before claiming a stable route.
+Global disposition ownership must include HB, TTY, child, crash/debug and embedding
+users; one VM cannot restore a default on behalf of unrelated users.
+
+** Pending signals do not carry an endpoint generation
+A pending ordinary signal cannot be classified as old/new VM work from its number
+alone. Denial goes to a process-level native mailbox with an explicit semantic
+custodian, not automatically to a new endpoint generation. Termination/user reasons
+must not silently vanish; heartbeat reasons may coalesce only according to their
+existing policy. SIGCHLD needs child-status/resource reconciliation. SIGWINCH and
+SIGCONT have real native effects; deferring them requires separate timing/resource
+semantics, not just replacing their bodies with a generic wake byte.
+
+An owner may explicitly bind a mailbox reason to the still-live old VM, taking
+root/service custody and invalidating a previously issued retirement receipt.
+After retirement it cannot target the old VM. An unresolved destination retains
+the process-level mailbox and its semantic obligation. If a payload actually
+contains an old VM pointer, that is a rooted VM lease and blocks its teardown;
+the native-bit-only mailbox model does not permit such a pointer to escape.
+
+* RESEARCH Failure custody, old roster and final receipt
+:PROPERTIES:
+:CUSTOM_ID: signal-route-custody
+:END:
+
+| Event | Custodian | Consequence |
+|-
+| Entry denied after revoke / generation mismatch / contention | Stable mailbox owner | No access to old endpoint; no automatic replay in next generation |
+| Admitted handler still executing | Generation pin | Keep old route/endpoint and scan/dispatch dependencies alive |
+| Notification hard/unknown failure after publish | Independent delivery record and old-work custodian | Handler may drop pin only after custody transfer; route still cannot retire until failure settles |
+| Mask or disposition result unknown | Normal coordinator with original transaction journal | Do not claim policy success; preserve previous-state responsibility and refuse unsupported restoration |
+| Old VM assignment of late mailbox reason | Rooted old-work domain | Reopen work accounting and invalidate retirement receipt before publication |
+| Native close/OS join unknown | Existing endpoint/VM custodian | No slot/generation reuse or whole-VM cleanup based on reduced processor_count |
+
+While draining, preserve the old roster's native wake fallback, root adapters,
+owner identity and sync-op service path. Do not close its abort channel or hold a
+coordinator lock while awaiting handler count zero. A normal closer that is itself
+a required participant must stop waiting, publish roots and service the collective.
+POSIX signal masks and Scheme intr_mask/intr_enabled are different mechanisms;
+masking HB/TTY signals does not authorize disabling INTR_SYNC_OP participation.
+
+RouteRetirementReceipt requires: gate closed in the expected generation; active
+pins zero observed through the atomic protocol; all published old work selected
+and completed; every notification/failure child settled; no retained native
+borrower; root/service handoffs acknowledged; old-roster retirement receipt still
+current. Stable mailbox and trampoline continue independently. Endpoint close
+and any uncertain close retain the prior native-channel obligations.
+
+Route retirement is weaker than processor exit or VM cleanup. OS threads can
+still be in the permanent trampoline without borrowing the old route. If such a
+thread is an old processor, its actual exit/join must still finish before its
+PSTATE/native stack is reclaimed. The model's handler hosts and logical collector
+members are distinct role spaces, even when their numeric labels coincide.
+Its roster receipt abstracts prior thread/guard constraints; it does not infer
+an OS join from a zero signal-pin count. Process-global shell destruction needs
+a different process-shutdown proof, outside per-VM cleanup.
+
+* RESEARCH Models, counterexamples and open refinement
+:PROPERTIES:
+:CUSTOM_ID: signal-route-proofs
+:END:
+
+[[file:../../../models/build/signal_route_retirement.qnt][QNT]] models three handlers on two native hosts, including nested different
+handlers on one host, selected-before-CAS state, tagged entry/revoke, active pins,
+per-thread masks/failures (unknown conservatively permits delivery), stable mailbox and old-work snapshots across a two-member
+collective. The selected pre-entry state is intentionally not a pin. Histories
+cover delayed entry after revoke/reuse, admitted drain, one-thread masking,
+source stop with late delivery, unknown mask, independent failure custody, signal
+arrival during a collective and process-mailbox survival after old-VM cleanup.
+Negative controls free on zero count without closing admission, add a late count
+after close, drop pins/mailbox custody, reuse generation early, lose an old member
+or ignore notification failure.
+
+[[file:../../../models/build/SignalRouteRetirement.lean][Lean]] proves all abstract Gate.Step transitions preserve active-count protection,
+with admission/retirement preconditions. It proves revoked/stale/overflow entry
+rejection, one-thread mask not being global, publication/settlement conservation,
+work outliving handlers and failure/roster boundary lemmas. It does not prove the
+entire QNT model inductively or simulate C weak memory/kernel delivery. QNT's
+identity-set pin coverage and Lean's natural count need an explicit count=set-size
+simulation in a composed proof. This remains open.
+
+No fairness, handler termination or finite native timer guarantee is inferred from
+bounded sampling. Infinite stream of external signals, fatal signals, SA_NODEFER,
+alt-stack unwind, longjmp out of a handler and foreign disposition replacement
+need separate profiles or rejection. The model leaves the stable process shell
+alive and does not establish final program shutdown. A handler that bypasses its
+last-access guard keeps the route pinned or unqualified, rather than being
+silently counted as returned.
+
+[[file:../../modeling/ascent/signal-route-retirement.rules.scm][ASCENT DSL]] joins eight components and ten contract dependency edges to real
+QNT/Lean declarations and source anchors. It binds four frozen prior invariant
+subjects by hash/scope and rejects missing/stale mappings and open-parent evidence.
+Only the synthetic all-qualified scenario can be a candidate. Native source,
+semantic mailbox and platform admission remain open; no host attestation retry
+is used to promote local checks into runtime acceptance.
+
+* RESEARCH Benefits, costs and migration cuts
+:PROPERTIES:
+:CUSTOM_ID: signal-route-benefits
+:END:
+
+[[file:signal-route-retirement-matrix.org][Canonical benefit/closure matrix]]: qualified atomic retirement can avoid an
+all-native-thread masking rendezvous merely to free one old route. It does not
+remove mask policy transactions that are semantically required. The retained
+cost is a process-level shell plus O(R+H+T) route, active-handler and thread-policy
+metadata; no byte size or speed multiplier is estimated. Admitted entry/release
+adds atomic operations; contention denial adds mailbox/normal-owner work. Benefits
+require reduced lifecycle coupling and avoided unsafe/repeated cleanup to exceed
+atomic, mailbox, scan/retention and policy coordination costs. No global progress
+bound exists without handler termination and prior scheduler/OS assumptions.
+
+Modern C supplies the gate, typed receipts and generated per-reason adapters while
+preserving Gambit's C portability. Zig does not remove signal ABI, semantic mailbox,
+root, native lifetime or grace-period proofs. No incremental Zig net benefit is
+established by this component.
+
+Migration order and actual old-path retirement conditions:
+1. Inventory every signal/disposition owner and source configuration, including
+   embedding and native threads. Generate per-reason semantic/root/effect profiles.
+2. Normalize installation/mask results and introduce process-lifetime signal shell.
+   Remove direct old-VM pointer lookup before gate admission.
+3. Route all participating handler bodies through the tagged entry/revoke protocol.
+   Retire module-local raw callback dereferences and USE_signal reinstallation only
+   after every reason-specific effect has a qualified owner.
+4. Bind mailbox/delivery debt to rooted normal dispatch; keep old-roster finite-wait
+   services active. Replace zero-count-as-completion with combined lifetime/work receipt.
+5. Retire raw endpoint close, default-disposition restoration and per-VM route free
+   only after ownership/grace/native acceptance. Uncovered legacy handlers retain
+   the old path and block managed retirement; no compatibility bypass can issue receipts.
+
+* RESEARCH Reproducibility
+[[file:../../modeling/tools/signal-route-retirement-study.py][Python driver]] invokes native SysML, local ASCENT, QNT/Lean, D2 and Org parsing;
+[[file:../../../evidence/research/signal-route-retirement/checks.json][structured local receipts]] bind source/artifact hashes and separate open gates.
+Frozen parent evidence is verified without rerunning it. Initial authoring failures
+are retained; raw diagnostics stay cache-local. Org parsing executes no Babel.
+No runtime implementation or native test is performed.

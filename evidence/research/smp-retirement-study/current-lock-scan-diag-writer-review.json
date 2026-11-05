@@ -1,0 +1,29 @@
+{
+  "schema": "scan-diag-writer-review.v1",
+  "inputs": {
+    "patches/fixtures/current-lock-scan-diag-cumulative.patch": "fbf60628d163f88d376ad7623fd37d9be102ee8c610c0168234a15717c334b5f",
+    "evidence/research/processor-interrupt-collective-wait/current-lock-scan-diag.lock.json": "20e7af89a4895075adb9c3f39422a8e46aa7aeafa0f05969cf47ee048a592de8",
+    "evidence/research/smp-retirement-study/current-lock-scan-diag-landed.json": "64d2de52f7bd98d17c8e42cfc7a02411481e9f790a4b8492f39d709238af0cf5"
+  },
+  "advertisedMemSha256": "477f301eb1350fd91e4deebe23891e89933872d2665d0779ab0fa81f5ffd32dd",
+  "actualMemObjectIndependentlyVerified": false,
+  "actualNewCandidateIndependentlyVerified": false,
+  "patchLineRange": [
+    3009,
+    3073
+  ],
+  "patchFragment": "+static int gc_diag_entry_line;\n+static void *gc_diag_parent;\n+static unsigned int gc_diag_seq;\n+static struct gc_diag_rec\n+  {\n+    unsigned int commit_seq;\n+    unsigned int stage;\n+    unsigned int entry_line;\n+    unsigned int raw_present;\n+    unsigned long long cell;\n+    unsigned long long raw_word;\n+    unsigned long long header_address;\n+    unsigned long long entry_start;\n+    unsigned long long current_parent;\n+    unsigned long long entry_words;\n+    unsigned int footer;\n+  } gc_diag_prev, gc_diag_cur;\n+\n+static void gc_diag_publish\n+   ___P((unsigned int stage,\n+         void *cell,\n+         unsigned long long raw_word,\n+         int raw_present,\n+         void *header,\n+         void *entry_start,\n+         unsigned long long entry_words,\n+         void *parent),\n+        (stage,\n+         cell,\n+         raw_word,\n+         raw_present,\n+         header,\n+         entry_start,\n+         entry_words,\n+         parent)\n+unsigned int stage;\n+void *cell;\n+unsigned long long raw_word;\n+int raw_present;\n+void *header;\n+void *entry_start;\n+unsigned long long entry_words;\n+void *parent;)\n+{\n+  unsigned int seq;\n+\n+  gc_diag_prev = gc_diag_cur;\n+  seq = gc_diag_seq + 1;\n+  gc_diag_seq = seq;\n+  /* Payload is complete before the release footer. The fence is the\n+     Store/Load barrier before the caller's original read. A release or\n+     seq_cst store by itself is not that barrier. */\n+  gc_diag_cur.stage = stage;\n+  gc_diag_cur.entry_line = (unsigned int)gc_diag_entry_line;\n+  gc_diag_cur.raw_present = raw_present ? 1u : 0u;\n+  gc_diag_cur.cell = (unsigned long long)___CAST(___UWORD,cell);\n+  gc_diag_cur.raw_word = raw_word;\n+  gc_diag_cur.header_address = (unsigned long long)___CAST(___UWORD,header);\n+  gc_diag_cur.entry_start = (unsigned long long)___CAST(___UWORD,entry_start);\n+  gc_diag_cur.current_parent = (unsigned long long)___CAST(___UWORD,parent);\n+  gc_diag_cur.entry_words = entry_words;\n+  gc_diag_cur.commit_seq = seq;\n+  __atomic_store_n (&gc_diag_cur.footer, seq, __ATOMIC_RELEASE);\n+  __atomic_thread_fence (__ATOMIC_SEQ_CST);\n+}\n+",
+  "findings": [
+    "process-global plain context/counter/payload has no established single-writer owner",
+    "plain previous-record copy is not a stable snapshot under concurrent writers",
+    "unsigned sequence has no explicit wrap refusal",
+    "private storage cannot survive as supervisor-readable crash output",
+    "STR report insufficient to judge complete publication envelope"
+  ],
+  "runtimeExecutions": 0,
+  "modelReruns": 0,
+  "patchModified": false,
+  "qualifierModified": false,
+  "peerAction": false,
+  "commitOrPush": false
+}

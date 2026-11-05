@@ -2,6 +2,261 @@
 
 ## Current Milestone Checkpoint
 
+### 2026-10-19 Current Checkpoint Full Native And Gerbil Execution
+
+Frozen FFI/GC negative traces are now bound to verified historical model bytes,
+without changing trace hashes or current model extensions. Complete original GSI
+first exposed a mutex-unlock return regression (373/374); Grok's two-branch void
+return repair was incrementally regenerated/linked from the retained checkpoint.
+The same original GSI inventory then passed **374/374**. No Gambit bootstrap was
+repeated, and the original failing fixture and every denied run remain retained.
+
+Complete GSC launched all **374** original files: **373 passed**, while the
+numerical case exceeded its unchanged 90-second cap. Official GC/FFI Make
+**test7/test8/test9 passed** on the same successor. All current lifecycle fixtures
+also passed, including actual runtime pending/sticky joins and terminal reader
+drain. These observations do not supply natural error-then-success join recovery
+or preadmission OS-handler generation quiescence.
+
+Gerbil consumed the exact current native products, built stage0 and stage1, then
+failed natively in stdlib. Matched-text symbolization maps the crash to the
+structure writer's type-field read. A separate message-only diagnostic still
+failed at that location. No complete Gerbil test run or release claim is made.
+The four open gates remain open; the aggregate stays **8/12**, with actual repairs,
+full inventories, source-bound controls and failures detailed in the
+[current checkpoint audit](../evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md).
+
+
+### 2026-10-19 Lifecycle Admission Rollback And Work Bound
+
+Cumulative progress remains **8/12**. A new current-source official-FFI test
+closes the precommit admission-prefix rollback branch at every child-list
+position, not the whole lifecycle gate. On this host, CPU-derived topology
+creates ten child VMs, ten real busy-rejection rounds and 100 post-rollback
+callback returns with rooted forced GC. Execution is **0.583235 seconds**;
+whole campaign **23.935027 seconds**, exit zero, no timeout. The smaller
+last-child predecessor executed in 0.889433 seconds; these are different
+workloads, not a measured speedup. All four build-prefix stages are reused;
+bootstrap is not repeated and no duplicate C repair is introduced.
+
+QNT jointly checks prefix rollback and per-attempt work, including a deliberately
+safety-preserving redundant-scan control. Eight trajectory tests pass. Conditional
+Lean arithmetic generalizes to arbitrary populations: frame probes plus gate
+operations are bounded by the processor-population sum plus twice the VM count,
+given single visits and single reopens. Lock waiting, hardware CAS retries, GC
+and OS scheduling are not bounded by these proofs; 0.8 seconds is not a release
+performance guarantee. Both proofs use the existing bounded framework.
+
+The remaining four gates and their precise uncovered branches are recorded in
+[the source-bound observation](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md).
+Constructor same-storage failure/retry, failed joins and sticky root failures
+keep lifecycle open. Complete GC/FFI, current Gerbil and release latency/build
+qualification remain open. No current-source full GSI/GSC/PR claim is inherited.
+
+### 2026-10-19 Registry Lifetime Continuation
+
+Cumulative completion is **8/12**, within the declared source-bound registry
+qualification scope, not whole current-source SMP/release admission.
+The current collective-wait source already contains reader admission, leased
+replay, grace-before-resource-cleanup and changed-count publication repairs.
+No duplicate C patch is introduced. Its original host-derived topology fixture
+passes all selected 2-5 VM populations on this observed host: 1.481442 seconds
+to compile, **1.262543 seconds to execute**, exit zero, no timeout. Native stage
+3.522341 seconds; whole campaign 12.885300 seconds. All four successful build
+stages are consumed without launching them; no bootstrap is repeated.
+
+The existing multi-writer QNT model is strengthened in place: replay owns a
+reader lease, with explicit prepared/live/visible/captured resource incarnations
+and per-owner retirement. Another writer must drain captured readers before
+publication; later readers referencing only new resources do not prevent old
+resource retirement. The final protocol exhausts 1944 distinct states. Both
+model positives and six negative controls pass within unchanged 15-second
+limits; all eight explicit trajectory tests pass. This is conditional finite
+protocol evidence, not a whole C weak-memory or unbounded signal-fairness proof.
+See the [source/native/model record](../evidence/research/processor-interrupt-collective-wait/registry-lifetime-native-observation.md).
+
+The five items open at 7/12 now have these actual states:
+
+| Obligation | Actual state |
+| --- | --- |
+| Shared-registry lifetime | Closed for the current declared happy-path topology, source and conditional model contract; failed joins and arbitrary externally unjoined users are not admitted. |
+| Lifecycle failure/rollback | Open. Earlier models and retained failure evidence do not supply complete current-source native fault/rollback qualification. |
+| Complete GC/FFI | Open. Original stress and forced GC in this fixture are supporting coverage, not the whole GC/FFI inventory. |
+| Gerbil correctness | Open. No complete Gerbil build/test receipt on this exact current producer. |
+| Release performance | Open. No accepted full VM latency populations or matched downstream build/test qualification; this correctness execution is not a speedup measurement. |
+
+Current-source full GSI/GSC and PR requalification remain additional release
+requirements. Failed historical aggregates and stale whole-input bindings are
+not upgraded by these new scoped observations or by cache availability.
+
+### 2026-10-19 Original Interpreted Stress Completed
+
+At this preceding checkpoint cumulative completion was **7/12**. The existing collective-wait
+candidate completes the unchanged original interpreted stress inventory:
+**4/4 files, exit zero, no timeout**, in **1828.146 seconds** (1844.205 seconds
+including supervision). Source, configure, seed and core checkpoints were
+reused without launching those stages; no bootstrap was repeated.
+
+The source lock is `7a031c22c980c1314464f55208470d12ff56b95c4d4da3066698ba7eb3940e7b`.
+The declared observer uses a separately loaded nonblocking datagram callback,
+not interleaved human GC reports or Scheme-port forwarding. Its source/control
+checks address allocation and report-framing interference; this is not proof
+of universal scheduling noninterference. The 300-second genuine-witness
+inactivity window is unchanged. GC progress alone grants neither mutator
+completion nor runtime admission; the original assertions and natural exit
+establish this stress result. See the
+[source-bound observation](../evidence/research/processor-interrupt-collective-wait/gc-datagram-native-observation.md)
+and [model/source audit](../evidence/research/processor-interrupt-collective-wait/gc-datagram-source-review.md).
+
+The five gates cumulatively open at that checkpoint were:
+
+1. Shared-registry lifetime, resize, reuse and retirement.
+2. Lifecycle initialization failure, rollback and retry.
+3. Complete GC/FFI qualification.
+4. Gerbil build and test correctness.
+5. Release performance, including complete concurrent-VM latency populations.
+
+Current-source full GSI/GSC and PR requalification remain additional release
+obligations; historical completion of those gates is not inherited by a changed
+producer. The separate observer control does not close the GC/FFI gate. Earlier
+timeouts and rejected observation contracts remain historical evidence below.
+
+### 2026-10-18 Stack-Entry Contract Candidate
+
+At this historical checkpoint cumulative completion was **6/12**; no gate is reset by cache
+retirement. Complete compiled stress is newly closed on this candidate. The
+historical five completed requirements remain recorded; because the compiler
+changed, same-producer full GSI/GSC inventory and PR regression requalification
+is still required before a current-source release claim.
+The new frozen source is
+`evidence/fixtures/darwin-stack-entry-contract/source.lock.json`
+(`f0507df35d87eea34634047edc98e0cb9130bad77f24a63ca7bd131135c81dc4`).
+It combines the parent call-boundary repair with stable partitioning of
+compiler-private continuation labels and exact poll-combine dominance. Stack
+checks are preserved, including ordinary warning-disabled calls. The rejected
+warning-policy proposal remains counterevidence, not an integrated fix.
+
+The label-partition model exhausts all 256 four-label kind sequences and checks
+the measured kernel and dynamic-env return ordinals. Its old negative control
+and replacement pass their expected exits; the separate nine-pair poll model
+also passes. These finite checks do not establish source refinement or native
+correctness. Full generated kernel/manual-entry alignment and both original
+stress inventories remain required.
+
+The stale construction source has been retired through the existing two-slot
+storage policy, retaining small evidence. The new candidate is rematerialized
+from the pinned vendor revision and complete overlay in the same construction
+path, without stale generated C or binaries. All eight two-pass bootstrap phases
+complete: native make 452.279 seconds, bootstrap stage 466.235 seconds, exit zero.
+The original owner-only shutdown DENY is retained; the existing independent
+final evaluation uses the original 10-second window and exports the exact
+completed producer without recovering failed native stages or widening budgets.
+The failed native records and small generated-C evidence are retained. Its old
+verification source cache has since been retired through the guarded cleanup
+API, freeing that same slot for the debug-projection successor. The completed
+stack-entry producer remains in the other fixed slot; no third source role is
+created. Retired cache availability is not a reversal of historical evidence.
+
+The final generated kernel source matches the completed producer identity. All
+14 handwritten kernel ordinals align with actual label definitions, while
+dynamic-env-bind uses ordinary return 1 and internal stack-check continuation 2.
+Its metadata table also preserves ordinary-before-internal return classes. See
+`evidence/research/stack-entry-contract/abi-observation.json`. This is actual
+generated-code evidence, not a captured historical fault PC.
+
+Processor discovery now exits zero in 0.812 seconds. Complete original compiled
+stress passes **4/4 files**, zero skips, failures or timeouts: 147.711 native-stage
+seconds, 180.493 whole-run seconds, natural exit zero. Host-auto execution uses
+three workers, each with three tested processors on this 12-CPU host. The same
+producer's complete interpreted stress ends with one passed file, TFIB and
+interrupt2 inactivity timeouts, and terminate not executed after the first file
+in its shard times out. The original 300-second windows remain unchanged and
+all process groups are reaped. Buffered child output does not establish either
+internal useful progress or GC deadlock. These are correctness runs, not package
+cold-build or release-performance measurements.
+
+Same-producer full GSI/PR requalification exposes additional SIGSEGV failures;
+the historical five gates are not represented as current-source passes. Two
+system-generated crash reports match the exact current binary UUID and fault
+offset. Static annotated assembly has identical text bytes to the built object
+and maps the fault to `##local->value`, taking CDR of the empty-list value.
+The partition allocator changes actual label ids, but debug-info generation
+still uses identity ids from emission order. Runtime continuation/environment
+lookup uses actual subprocedure ids, exposing a missing metadata projection.
+See `evidence/research/stack-entry-contract/interpreter-crash.json`. The source
+inconsistency is established; causality for every test failure and native repair
+still require validation. No unchanged full-inventory retry is authorized.
+
+The six cumulatively unclosed milestone gates are complete interpreted stress, registry
+lifetime, lifecycle faults/rollback, GC/FFI, Gerbil correctness and release
+performance. Additionally, current-source full GSI/GSC and PR requalification
+must pass; the current candidate cannot inherit those four historical passes.
+No model/framework pass closes any native gate.
+
+### 2026-10-18 Call-Boundary Candidate
+
+Historical completion remains **5/12**. The call-boundary source lock is
+`evidence/fixtures/darwin-stack-call-boundary-reserve/source.lock.json`.
+It adds stack-only checks at completed calls in interrupt-disabled code and
+handler-frame reserve; it is an unqualified repair candidate, not a release patch.
+
+All eight two-pass bootstrap phases complete with stable inputs: native make
+733.909 seconds, bootstrap stage 753.268 seconds. An owner-only shutdown DENY
+is retained, and the existing export independently revalidates its final review
+within the original window. No failed native stage is recovered.
+
+The original compiled stress attempt fails at processor discovery: **SIGSEGV,
+0.726 seconds, zero stress files executed**. This is not four failed test files
+or a complete stress result. The bootstrap identity binds generated `_kernel.c`:
+inserted checks move the stack-handler body to label 4 while `setup.c` still
+selects label 2. This establishes an ABI mismatch, not a captured fault PC or
+proof that it causes this SIGSEGV. The native and source observations are retained
+in `evidence/research/stack-call-boundary-reserve/native-observation.json`.
+
+Grok's source audit also finds that conditional jump folding treats `'stack`
+as a full interrupt poll. Its separate minimal delta and finite nine-pair model
+are retained; the old counterexample and replacement characterization both meet
+their expected exits. That delta is not yet integrated or natively qualified.
+The handler-entry repair must precede another qualification attempt.
+
+The seven open gates remain interpreted stress, compiled stress, registry
+lifetime, lifecycle faults/rollback, GC/FFI, Gerbil correctness and release
+performance. Candidate bootstrap completion and framework/model tests do not
+close any of these gates.
+
+### 2026-10-18 Preparation-Origin Producer
+
+The `darwin-stack-prepare-origin` diagnostic now has a retained, source-bound
+two-pass bootstrap producer. All eight native phases pass (each phase twice),
+in 638.384 bootstrap-stage seconds. Configure takes 64.126 seconds and seed-core
+101.375 seconds. These are toolchain-bootstrap observations, not MCP timings.
+
+The original campaign remains **DENY**, with stable inputs and all stages PASS:
+the evaluation owner was forcibly terminated during shutdown. A separate final
+review under the original sealed implementation and original 10-second review
+window exits zero naturally in 1.297 seconds, with its process group quiescent.
+It retains the original failed owner receipt and does not rerun or recover a
+failed native stage. The completed producer and revalidation hashes are bound by
+`evidence/research/current-source-full-bootstrap/darwin-stack-prepare-origin-completed-producer.json`.
+
+Framework corrections distinguish cache receipts from fixture-only source
+leases, resolve the checkout through Git rather than the disposable `.data`
+directory, and use the renewed stage deadline for owner shutdown admission.
+The old input-drift and shutdown failures remain history, not current claims
+that a producer is unavailable. Producer qualification alone grants no stress,
+runtime-repair or release acceptance.
+The unchanged four-file compiled stress then completes **2 PASS, TFIB SIGABRT,
+interrupt2 TIMEOUT**. The 300-second inactivity watchdog remains unchanged;
+all child groups are reaped. TFIB records `prepare_line=8078`, the return-zero
+merge in `___stack_limit`, which does not distinguish a section switch from
+the branch that reuses the section. The printed `ra` is write-time `___R0`,
+not a captured preparation caller. Its allocation generation, effective poll
+coverage and first administrative-header writer remain unknown. Reviewed
+results and small original stdout/stderr files are retained by
+`evidence/fixtures/darwin-stack-prepare-origin/native-observation-20261018.json`.
+No unchanged native retry is admitted. Historical completion remains **5/12**,
+with the same seven open gates below.
+
 ### 2026-10-16 Stack Write State
 
 The current diagnostic source is `darwin-stack-prepare-origin`, locked by

@@ -1,5 +1,8 @@
 """Typed retry transport. Native ASCENT owns eligibility and missing premises."""
 import math
+import hashlib
+import json
+import subprocess
 import re
 import shlex
 from pathlib import Path
@@ -179,6 +182,22 @@ def selected_scope(name, selected, fixtures):
             not path.suffix and any(path in Path(file).parents for file in selected))
 
 
+def make_operation_scope(args):
+    if "operations" not in args:
+        return {"Makefile:" + args["operation"]} if args.get("operation") is not None else set()
+    operations = args["operations"]
+    if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
+            or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name)
+                   for name in operations)
+            or not isinstance(args.get("requestedOperations"), list)
+            or not set(args["requestedOperations"]) <= set(operations)):
+        raise ValueError("exact inferred and requested operation inventories required")
+    makefile_scope = args.get("makefileScope")
+    if args.get("regime") != "upstream-make" or makefile_scope != "tests/makefile":
+        raise ValueError("source-bound official Makefile operation scope required")
+    return {makefile_scope + ":" + name for name in operations}
+
+
 def failure_campaign_files(receipt):
     """Project closed recorded inventories; unknown or malformed scope stays open."""
     if (receipt.get("schema") not in {"gambit-upstream-suite.v1", "gambit-upstream-atomic-coverage.v1"}
@@ -221,6 +240,20 @@ def milliseconds(seconds):
     return int(value)
 
 
+def campaign_tree_identity(runtime, tested_unit):
+    """Bind actual native bytes plus the complete prospective unit-test overlay."""
+    from gambit_smp.recipes import tree_identity
+    inventory = tree_identity(runtime)
+    if tested_unit.resolve() != (runtime / "tests/unit-tests").resolve():
+        prefix = "tests/unit-tests"
+        inventory = {name: row for name, row in inventory.items()
+                     if name != prefix and not name.startswith(prefix + "/")}
+        inventory[prefix] = {"directory": True}
+        inventory.update({prefix + "/" + name: row
+                          for name, row in tree_identity(tested_unit).items()})
+    return inventory
+
+
 def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite_budget=None):
     from gambit_smp.recipes import tree_identity
     from gambit_smp.research_kernel import content_id
@@ -232,10 +265,12 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
                         capacity(cpu, len(files), args["regime"] != "whole-sequential",
                                  args.get("processors"), args.get("jobs")))
     result = {"candidateReceiptSha256": digest(candidate_receipt), "mode": args["mode"],
-            "runtimeTreeId": content_id(tree_identity(runtime)),
+            "runtimeTreeId": content_id(campaign_tree_identity(runtime, tested_unit)),
             "failureInventorySha256": digest(ctx.root / "evidence/native-failures.json"),
             "reviewRulesSha256": digest(ctx.root / args["reviewRules"]),
-            "regime": args["regime"], "selectedFiles": {str(file): digest(tested_unit / file) for file in files},
+            "regime": args["regime"],
+            "watchdogMode": "no-progress" if ctx.receipt.get("timeoutPolicy", {}).get("mode") == "progress" else "wall-clock",
+            "selectedFiles": {str(file): digest(tested_unit / file) for file in files},
             "operation": args.get("operation"),
             "suiteBudgetSeconds": step["budgetSeconds"] if suite_budget is None else suite_budget,
             "recipeBudgetSeconds": ctx.receipt["budgetSeconds"],
@@ -244,11 +279,25 @@ def campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, *, suite
             "groupBudgetSeconds": args.get("groupBudgetSeconds", {}),
             "processors": args.get("processors"), "jobs": args.get("jobs"),
             "hostCpuCapacity": cpu, "effectiveProcessors": population, "effectiveJobs": jobs}
+    if 'numericGrouping' in args:
+        from gambit_smp.compiler_phase_primitives import bind_numeric_grouping
+        # The original Scheme bytes alone do not identify a transformed
+        # compiler input. Review and execution bind the same real producer.
+        bind_numeric_grouping(ctx, tested_unit.parent, args['numericGrouping'])
+        result['numericGrouping'] = dict(args['numericGrouping'])
+    if 'targetProcessors' in args:
+        result['targetProcessors'] = args['targetProcessors']
+    if 'reviewRulesExtension' in args:
+        result['reviewRulesExtensionSha256'] = digest(ctx.root / args['reviewRulesExtension'])
     if "environmentProbe" in args:
         observation = ctx.artifact(args["environmentProbe"], "current-producer-observation")
         result.update(environmentProbe=args["environmentProbe"], environmentObservationSha256=digest(observation))
+        if args['regime'] == 'upstream-make':
+            from gambit_smp.recipes import read_json
+            result['makeProcessors'] = read_json(observation)['processors']
     if "operations" in args:
-        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"])
+        result.update(operations=args["operations"], requestedOperations=args["requestedOperations"],
+                      unitModes=args["unitModes"], makefileScope=args["makefileScope"])
     return result
 
 
@@ -283,6 +332,16 @@ def resource_plan_change(previous, current):
     return plan, hashlib.sha256(encoded).hexdigest()
 
 
+def bind_log_bytes(ctx, reference, inputs):
+    from gambit_smp.recipes import fields
+    from gambit_smp.output_observations import read_bytes
+    fields(reference, ('path',), ('sha256',))
+    data, bound = read_bytes(ctx.root, reference['path'], reference.get('sha256'))
+    inputs.update(bound)
+    ctx.bind(ctx.root / name for name in bound)
+    return data
+
+
 def environment_change(ctx, change, current, failure, previous, facts, inputs):
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.suite_primitives import capacity
@@ -313,12 +372,12 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
         if control.get("kind") != "outside-sandbox-unchanged-source-and-artifacts":
             continue
         control_path = source_path(ctx.root, control["receipt"])
-        log = source_path(ctx.root, control["log"])
+        log = bind_log_bytes(ctx, {'path': control['log']}, inputs)
         record = read_json(control_path)
-        if not log.stat().st_size:
+        if not log:
             raise ValueError("environment control requires its retained raw log")
-        inputs.update({control["receipt"]: digest(control_path), control["log"]: digest(log)})
-        ctx.bind([control_path, log])
+        inputs[control['receipt']] = digest(control_path)
+        ctx.bind([control_path])
         if record.get("schema") != "gambit-upstream-suite.v1":
             raise ValueError("typed native environment control required")
         rows = [row for row in record["results"] if row.get("mode") == current["mode"]]
@@ -334,6 +393,31 @@ def environment_change(ctx, change, current, failure, previous, facts, inputs):
             bool(previous.get("sourceFiles")) and previous["sourceFiles"] == record.get("sourceFiles"),
             same_config, milliseconds(previous["wholeSuiteBudgetPerMode"]),
             milliseconds(record["wholeSuiteBudgetPerMode"])])
+
+
+def review_source_bytes(root, reference):
+    """Original documentary source only, never a runtime/artifact substitution."""
+    from gambit_smp.recipes import fields
+    from gambit_smp.source_identity import read_source
+    from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
+    fields(reference, ('path','sha256','identity'))
+    path = Path(reference['path']); identity = reference['identity']
+    if (path.is_absolute() or '..' in path.parts or path.as_posix()!=reference['path']
+            or any(part in {'.cache','.data','.git','.venv'} for part in path.parts)
+            or path.suffix.casefold() in TRANSCRIPT_SUFFIXES
+            or identity.get('kind')!='git'
+            or (Path(identity['repository'])/identity['path']).as_posix()!=reference['path']):
+        raise ValueError('exact immutable review source owner/path required')
+    try:
+        from gambit_smp.source_materialize import source_binding
+        if source_binding(root,dict(submodule=identity['repository'],revision=identity['revision']),identity['path']) != identity:
+            raise ValueError('immutable review source identity mismatch')
+        data = read_source(root,identity)
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise ValueError('immutable review source unavailable') from error
+    if hashlib.sha256(data).hexdigest()!=reference['sha256']:
+        raise ValueError('immutable review source digest drift')
+    return data
 
 
 def project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs, *, producer_binding=False):
@@ -353,8 +437,21 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
     if set(indexed) - set(failures):
         raise ValueError("retry review names an unselected or unknown failure")
 
+    log_bytes, source_borrows = {}, {}
+
+    def log_data(reference):
+        fields(reference, ("path", "sha256"))
+        key = (reference['path'], reference['sha256'])
+        if key not in log_bytes:
+            log_bytes[key] = bind_log_bytes(ctx, reference, inputs)
+        return log_bytes[key]
+
     def bound(reference):
         fields(reference, ("path", "sha256"))
+        from gambit_smp.output_observations import TRANSCRIPT_SUFFIXES
+        if Path(reference['path']).suffix.casefold() in TRANSCRIPT_SUFFIXES:
+            log_data(reference)
+            return relative(ctx.root, reference['path'])
         path = source_path(ctx.root, reference["path"])
         if digest(path) != reference["sha256"]:
             raise ValueError("retry review evidence identity drift")
@@ -366,8 +463,8 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
         failure, previous = failures[route]
         if entry["receiptSha256"] != inputs[failure["receipt"]]:
             raise ValueError("retry review changed the failure receipt")
-        log = bound(entry["log"])
-        if failure.get("log") != entry["log"]["path"] or not log.stat().st_size:
+        log = log_data(entry["log"])
+        if failure.get("log") != entry["log"]["path"] or not log:
             raise ValueError("archived known-failure raw log required")
         # Old execution inputs may be obsolete; the failed observation itself stays immutable.
         outcome = entry["failurePointer"]
@@ -430,7 +527,8 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
         original_files = previous.get("selectedFiles")
         exact_whole = regime in whole_regimes and current["regime"] in whole_regimes
         exact_atomic = regime == current["regime"] == "atomic-coverage"
-        if (current["regime"] in whole_regimes and not current.get("operation")
+        if ((current["regime"] in whole_regimes and not current.get("operation")
+             or current["regime"] == "upstream-make" and current["mode"] in current.get("unitModes", []))
                 and isinstance(original_files, list) and original_files
                 and all(isinstance(name, str) for name in original_files)
                 and len(set(original_files)) == len(original_files)):
@@ -576,10 +674,20 @@ def project_review(ctx, document, current, failures, runtime, tested_unit, facts
                     or type(row["domain"]) is not str or type(row["status"]) is not str):
                 raise ValueError("explicit causal reasoning, references and typed premise inventory required")
             for ref in row["references"]:
-                bound(ref)
+                if 'identity' in ref:
+                    # Only supporting source references may borrow old objects.
+                    # Baseline identities, tested changes and causal documents
+                    # themselves still pass the original physical bound().
+                    key = json.dumps(ref, sort_keys=True)
+                    if key not in source_borrows:
+                        source_borrows[key] = (ref, review_source_bytes(ctx.root,ref))
+                else:
+                    bound(ref)
             facts["claim_evidence"].append([route, claim["id"], row["domain"], row["status"], digest(evidence_path)])
             facts["claim_dependency"].extend([route, claim["id"], premise] for premise in row["premises"])
             facts["claim_change"].extend([route, claim["id"], change] for change in row["changes"])
+
+    return list(source_borrows.values())
 
 
 def historical_observation(ctx, failure, original, inputs, facts):
@@ -593,18 +701,29 @@ def historical_observation(ctx, failure, original, inputs, facts):
     if version["schema"] != "historical-failure-observation.v1":
         raise ValueError("typed historical failure observation required")
     inputs[failure["observation"]] = digest(version_path)
-    for label in ("original", "archive", "log"):
+    for label in ("original", "archive"):
         reference = version[label]
         fields(reference, ("path", "sha256"))
         path = source_path(ctx.root, reference["path"])
         if digest(path) != reference["sha256"]:
             raise ValueError("historical observation reference drift: " + label)
         inputs[reference["path"]] = reference["sha256"]
+    if not bind_log_bytes(ctx, version['log'], inputs):
+        raise ValueError('historical observation requires its original log bytes')
     if version["original"] != {"path": failure["receipt"], "sha256": inputs[failure["receipt"]]}:
         raise ValueError("historical observation must retain the exact canonical failure")
     archive_path = source_path(ctx.root, version["archive"]["path"])
     archived_inputs = validate(ctx.root, version["archive"]["path"])
-    if version["log"]["path"] not in archived_inputs:
+    # Transcript observations are represented by publication bindings in the
+    # validator's input closure. Membership still belongs to the validated
+    # archive inventory, not to the set of ordinary repository input paths.
+    log_path = relative(ctx.root, version["log"]["path"])
+    try:
+        log_member = log_path.relative_to(archive_path.parent).as_posix()
+    except ValueError:
+        raise ValueError("historical observation log must belong to the verified archive")
+    archived = read_json(archive_path)
+    if archived.get("files", {}).get(log_member) != version["log"]["sha256"]:
         raise ValueError("historical observation log must belong to the verified archive")
     inputs.update(archived_inputs)
     recovered = read_json(archive_path.parent / "receipt.json")
@@ -633,7 +752,14 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     from gambit_smp.recipes import read_json, source_path
     from gambit_smp.research_kernel import manifest_paths
     from gambit_smp.suite_primitives import check_runtime
-    check_runtime(runtime, read_json(candidate_receipt))
+    candidate = read_json(candidate_receipt)
+    if candidate.get('schema') == 'gambit-bootstrap-input-identity':
+        if args.get('mode') != 'bootstrap' or args.get('operation') != 'from-scratch':
+            raise ValueError('compiler-only identity cannot admit a runtime operation')
+        from gambit_smp.bootstrap_artifacts import check
+        check(runtime, candidate)
+    else:
+        check_runtime(runtime, candidate)
     ctx.bind([candidate_receipt])
     manifest = source_path(ctx.root, args["failures"])
     if manifest != source_path(ctx.root, "evidence/native-failures.json"):
@@ -645,29 +771,29 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
     engine = review_policy_identity(Path(ctx.receipt["engine"]["path"]))
     if digest(rules) != engine["files"].get("policy/suite-review-rules.ss"):
         raise ValueError("retry safety policy must match the sealed engine")
+    rule_paths = [args['reviewRules']]
+    extension = args.get('reviewRulesExtension')
+    if extension:
+        from gambit_smp.upstream_tests import POLICIES
+        path = source_path(ctx.root, extension)
+        if (current_regime := args.get('regime')) != 'upstream-make' or digest(path) != engine['files'].get(POLICIES.get(extension)):
+            raise ValueError('unsealed or non-Make retry policy extension')
+        rule_paths.append(extension)
+        ctx.bind([path])
     names = ("retry_marker", "known_failure", "selected_failure", "failure_category", "failure_scope", "review_present", "campaign_bound", "budget_regime",
              "required_budget", "original_budget", "requested_budget", "scoped_single_file", "scoped_file_group", "exact_whole_inventory", "exact_atomic_inventory", "changed_input",
              "claim_evidence", "claim_dependency", "claim_change", "observation_bridge", "observation_equal_pointer",
              "environment_observation", "environment_control", "resource_plan_observation", "whole_budget_interval",
              "review_original_file", "review_current_file", "compiler_probe_failure", "compiler_options_observation",
              "compiler_configuration_observation", "failure_campaign_file", "failure_campaign_closed",
-             "current_campaign_file")
+             "current_campaign_file", "budget_toolchain_distinct", "budget_watchdog_distinct")
     facts = {name: [] for name in names}
     facts["retry_marker"] = [[True]]
-    inputs = {args["failures"]: digest(manifest), args["reviewRules"]: digest(rules)}
+    inputs = {args["failures"]: digest(manifest), **{name: digest(ctx.root/name) for name in rule_paths}}
     selected = {str(path) for path in files}
     facts["current_campaign_file"] = [[name] for name in sorted(selected)]
-    if args.get("operation") is not None:
-        selected.add("Makefile:" + args["operation"])
-    if "operations" in args:
-        operations = args["operations"]
-        if (not isinstance(operations, list) or not operations or len(operations) != len(set(operations))
-                or any(not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", name) for name in operations)
-                or not isinstance(args.get("requestedOperations"), list)
-                or not set(args["requestedOperations"]) <= set(operations)):
-            raise ValueError("exact inferred and requested operation inventories required")
-        selected.update("Makefile:" + name for name in operations)
-    overlaps, failures = [], {}
+    selected.update(make_operation_scope(args))
+    overlaps, failures, budget_compilers = [], {}, []
     seen = set()
     for failure in declared["failures"]:
         if failure["id"] in seen:
@@ -687,12 +813,32 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         facts["selected_failure"].append([route])
         facts["failure_category"].append([route, failure.get("category", "unknown")])
         facts["failure_scope"].append([route, failure["file"]])
+        original_compiler = prior.get("compiler", prior.get("compilerVersion"))
+        if (failure.get("category") == "budget" and isinstance(original_compiler, str)
+                and original_compiler.strip()):
+            budget_compilers.append((route, original_compiler.splitlines()[0]))
+        if (failure.get("category") == "budget"
+                and ctx.receipt.get("timeoutPolicy", {}).get("mode") == "progress"
+                and prior.get("timeoutPolicy", {}).get("mode") != "progress"):
+            facts["budget_watchdog_distinct"].append([route])
         recorded_files = failure_campaign_files(prior)
         if recorded_files is not None:
             facts["failure_campaign_closed"].append([route])
             facts["failure_campaign_file"].extend([route, name] for name in recorded_files)
         failures[route] = (failure, prior)
         overlaps.append(route)
+    comparisons = []
+    if budget_compilers:
+        output = ctx.require("budget-compiler-version", [ctx.tools["gcc"], "--version"], ctx.root, 10)
+        version = output.splitlines()[0] if output.splitlines() else ""
+        if "gcc" not in version.lower() or "clang" in version.lower():
+            raise ValueError("GNU GCC budget comparison requires current compiler identity")
+        for route, original in budget_compilers:
+            distinct = original != version
+            comparisons.append({"route": route, "original": original, "current": version,
+                                "comparable": not distinct})
+            if distinct:
+                facts["budget_toolchain_distinct"].append([route])
     current = campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget)
     if document is None and "retryReview" in args:
         if isinstance(args["retryReview"], dict):
@@ -707,18 +853,32 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
                 raise ValueError("bound review intent changed")
             inputs[intent["path"]] = intent["sha256"]
             ctx.bind([review_path])
+            successor = bound_document.get("sourceSuccessor")
+            if successor is not None:
+                from gambit_smp.recipes import fields, source_path
+                fields(successor, ("path", "sha256"))
+                source = source_path(ctx.root, successor["path"])
+                if digest(source) != successor["sha256"]:
+                    raise ValueError("bound source successor changed")
+                inputs[successor["path"]] = successor["sha256"]
+                ctx.bind([source])
             document, producer_binding = bound_document["document"], True
         else:
             review_path = source_path(ctx.root, args["retryReview"])
             inputs[args["retryReview"]] = digest(review_path)
             document = read_json(review_path)
+    source_borrows = []
     if document is not None:
-        project_review(ctx, document, current, failures, runtime, tested_unit, facts, inputs,
+        distinct = {route for relation in ("budget_toolchain_distinct", "budget_watchdog_distinct")
+                    for route, in facts[relation]}
+        reviewable = {**document, "failures": [entry for entry in document["failures"]
+                                              if entry["id"] not in distinct]}
+        source_borrows = project_review(ctx, reviewable, current, failures, runtime, tested_unit, facts, inputs,
                        producer_binding=producer_binding)
     ctx.bind(ctx.root / name for name in inputs)
     if not re.fullmatch(r"[a-z][a-z0-9-]{0,95}", label):
         raise ValueError("bounded retry observation label required")
-    answers = evaluate_observations(ctx, [args["reviewRules"]], facts,
+    answers = evaluate_observations(ctx, rule_paths, facts,
         {"selected": "selected_known_failure", "disjoint": "failure_campaign_disjoint",
          "eligible": "retry_eligible", "denied": "retry_denied",
          "missing": "missing_claim", "review": "review_required", "need": "needed_claim",
@@ -729,11 +889,21 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
         raise ValueError("native retry rules did not partition all scoped known failures exactly once")
     if sorted(answers["eligible"] + answers["review"]) != sorted(answers["selected"]):
         raise ValueError("native retry disposition omitted or duplicated a known failure")
-    check_runtime(runtime, read_json(candidate_receipt))
+    candidate = read_json(candidate_receipt)
+    if candidate.get('schema') == 'gambit-bootstrap-input-identity':
+        if args.get('mode') != 'bootstrap' or args.get('operation') != 'from-scratch':
+            raise ValueError('compiler-only identity cannot admit a runtime operation')
+        from gambit_smp.bootstrap_artifacts import check
+        check(runtime, candidate)
+    else:
+        check_runtime(runtime, candidate)
     if campaign(ctx, args, runtime, candidate_receipt, files, tested_unit, suite_budget=suite_budget) != current:
         raise ValueError("candidate campaign or topology drift during native inference")
     if any(digest(ctx.root / name) != expected for name, expected in inputs.items()):
         raise ValueError("retry review input drift during native inference")
+    for reference, data in source_borrows:
+        if review_source_bytes(ctx.root,reference) != data:
+            raise ValueError('immutable review source drift during native inference')
     ctx.bind([candidate_receipt])
     decisions = answers["decision"]
     if len(decisions) != 1 or decisions[0][0] not in {"DENY", "REVIEW_REQUIRED", "RETRY_ELIGIBLE", "NOT_REQUIRED"}:
@@ -743,6 +913,8 @@ def preflight(ctx, args, runtime, candidate_receipt, files, tested_unit, *, docu
             "knownSelectedFailures": [row[0] for row in answers["selected"]],
             "knownScopeCandidates": overlaps, "disjointCampaignFailures": [row[0] for row in disjoint],
             "answers": answers, "inputs": inputs,
-            "facts": facts, "runtimeAdmitted": False, "executionAuthorized": False,
+            "facts": facts, "budgetCompilerComparisons": comparisons,
+            "immutableSourceReferences": [reference for reference, _ in source_borrows],
+            "runtimeAdmitted": False, "executionAuthorized": False,
             "policyProgram": "research-suite-review.v1",
             "scope": "Conditional investigation eligibility only. Host authorization and full native results remain independent."}

@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "still-ledger-snapshot:311417c334e63067f101f92ddb8adfb2bb5499327849aa9daaf2691876c2f88a" "still-ledger-snapshot:311417c334e63067f101f92ddb8adfb2bb5499327849aa9daaf2691876c2f88a" "support" "dev/architecture/runtime/gc/models/sysml/still-ledger-snapshot.sysml"))
+ (fact (factor "still-ledger-snapshot:311417c334e63067f101f92ddb8adfb2bb5499327849aa9daaf2691876c2f88a" "target-model-bundle-sha256" "311417c334e63067f101f92ddb8adfb2bb5499327849aa9daaf2691876c2f88a"))
+ (fact (factor "still-ledger-snapshot:311417c334e63067f101f92ddb8adfb2bb5499327849aa9daaf2691876c2f88a" "native-output-sha256" "965511fdd7c545cc1e0daf1f19a7a724c862c8002b010c16c3da63bdb2e947e9"))
+ (fact (factor "still-ledger-snapshot:311417c334e63067f101f92ddb8adfb2bb5499327849aa9daaf2691876c2f88a" "planner-dsl-sha256" "cc9c8d1947556b15cb655ea9fad522fceca8463a32c506f0245126e213e6fac7"))
+)

@@ -1,0 +1,163 @@
+#+TITLE: Frame Publication and Weak Coverage — Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitObjectScanCustody
+:STATUS: conditional-model-induction; source-schedule-and-c11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| private-exclusion | vendor/gambit/lib/mem.c | !(scan_ptr >= alloc_heap_chunk_start && scan_ptr < work->context->mem.alloc_heap_ptr_)) | Initial chunk exclusion is interval-local, not whole-chain protection |
+| rollover | vendor/gambit/lib/mem.c | alloc_heap_chunk_start = work->context->mem.alloc_heap_ptr_; | New section/chunk start can differ while scan_ptr stays in prior chunk |
+| capacity-before-fixup | vendor/gambit/lib/mem.c | while (alloc + words + ___SUBTYPED_BODY > limit) | Next fresh frame can publish previous chunk before writing previous ptr |
+| frame-ready | vendor/gambit/lib/mem.c | publish_object_scan (work, copy_header); | All publisher call sites inventoried; frame publisher follows initial copied payload |
+| pending-link | vendor/gambit/lib/mem.c | ptr = &___FP_STK(alloc,link+1); | Cursor retains preceding copied-frame link address |
+| new-frame-fixup | vendor/gambit/lib/mem.c | *ptr = forw; | Next iteration mutates preceding frame link after its READY |
+| already-forwarded-fixup | vendor/gambit/lib/mem.c | *ptr = ra2; /* already copied, replace by forwarding pointer */ | Separate fixup branch exists; capacity witness uses the fresh-frame branch |
+| copy-lock | vendor/gambit/lib/mem.c | MISC_MEM_LOCK();\n\n      next_frame: | Copier holds global memory lock; this alone does not exclude frame scanner |
+| scanner-read | vendor/gambit/lib/mem.c | frame = ___FP_STK(fp,descriptor.link+1); | Frame scanner snapshots link before its temporary write |
+| scanner-hide | vendor/gambit/lib/mem.c | ___FP_SET_STK(fp,descriptor.link+1,___FAL) | Scanner temporary store can overlap copier fixup |
+| scanner-restore | vendor/gambit/lib/mem.c | ___FP_SET_STK(fp,descriptor.link+1,___TAG(___UNTAG_AS(frame, ___tFIXNUM), ___tSUBTYPED)) | Restore uses earlier snapshot; SC schedule can lose newer fixup |
+| steal | vendor/gambit/lib/mem.c | scan_complete_heap_chunk (work, ptr+1); | Other carrier executes scanner after FIFO dequeue without taking copy lock at frame entry |
+| root-scan-then-steal | vendor/gambit/lib/mem.c | mark_execution_roots (work, | Workers enter their own reachable-work loop after their roots; no intervening root-only collective barrier |
+| strong-weak-barrier | vendor/gambit/lib/mem.c | garbage_collect_mark_strong_phase (work);\n\n  BARRIER(); | Strong closure precedes weak phase but does not serialize weak classification against weak marking |
+| will-flag | vendor/gambit/lib/mem.c | body[0] = body[0] \vert{} ___UNMARKED_TESTATOR_WILL; | Strong will scan records omitted testator field |
+| will-repair | vendor/gambit/lib/mem.c | mark_array (work, tail_exec+___WILL_TESTATOR, 1); | Executable and moved-to-executable paths directly repair testator |
+| nonexec-repair | vendor/gambit/lib/mem.c | mark_array (work, tail_nonexec+___WILL_TESTATOR, 1); | Nonexecutable branch directly repairs testator |
+| fresh-weak-will | vendor/gambit/lib/mem.c | mark_array (work, body+1, 2); /* scan action and testator */ | Fresh weak-phase will scanner covers both fields |
+| hash-register | vendor/gambit/lib/mem.c | reached_gc_hash_tables = ___CAST(___WORD,body); | Scanner registers table once; list retained until cleanup |
+| hash-cleanup | vendor/gambit/lib/mem.c | body[i] = ___DELETED; | Weak cleanup forwards surviving references or deletes dead entries without tracing weak edges |
+| will-layout | vendor/gambit/include/gambit.h.in | #define ___WILL_TESTATOR 1 | NEXT flag and testator offsets match tail pointer arithmetic |
+| hash-layout | vendor/gambit/include/gambit.h.in | #define ___GCHASHTABLE_KEY0      5 | Key/value parity and MEM_ALLOC_KEYS determine collector footprint |
+| frame-slot-coordinates | vendor/gambit/include/gambit.h.in | #define ___FP_STK(fp,fpo)fp[-(fpo)] | Copier end pointer and scanner body plus extra plus fs address the same link under matching descriptors |
+| frame-extra | vendor/gambit/include/gambit.h.in | #define ___FRAME_EXTRA_SLOTS 1 | Heap frame extra slot is used consistently by copy size and scanner base |
+
+** Footprint
+
+| key | required | reuse | premise |
+|---+---+---+---|
+| ordinary closure symbol | Same named/freevar/ordinary fields in strong and weak | DONE may be reused after original scanner completes | Tail and frame fixup obligations remain separate |
+| strong-scanned will | Strong action only; NEXT flag records deferred testator | process_wills repairs testator through destination body; DONE unchanged | Unique list ownership and flag preservation through list rewrites |
+| fresh weak will | Weak scanner traces action and testator together | READY to OWNED to DONE normally | List/root update and queue publication must retain storage |
+| strong hash fields | Keys iff !WEAK_KEYS and MEM_ALLOC_KEYS; values iff !WEAK_VALS | Same generic footprint in either phase; register reached list once | Flags stable and scan owner unique |
+| weak hash fields | Not tracing roots; cleanup rewrites live references or deletes entries | Cleanup consumes retained reached list after weak closure | All four weak-flag cases plus non-heap key mode; no ephemeron claim |
+| new weak hash table | Generic scanner sees it first in weak phase | Strong-field policy plus reached-list registration unchanged | Existing reached list must not be reset at weak entry |
+| captured frame | Descriptor root runs plus RA; link temporarily hidden/restored | READY requires overlapping copier fixups settled or synchronized | Current post-READY write is not excluded by scan bitmap |
+| still objects | No movable scan-state bitmap in scan entry | Still-mark/list ownership remains separate | Not covered by movable DONE uniqueness proof |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| private-chunk | capacity-cut | exclude current cursor |
+| capacity-cut | published-frame | legacy later chunk visible |
+| published-frame | scanner-snapshot | READY allows scan |
+| scanner-snapshot | copier-fixup | overlap is enabled |
+| copier-fixup | stale-restore | lost link witness |
+| capacity-cut | deferred-chunk | candidate retains custody |
+| deferred-chunk | seal-frame | fill link before READY |
+| seal-frame | published-sealed | release readiness and queue |
+| strong-DONE | weak-repair | will testator flag |
+| strong-DONE | cleanup-list | hash registration retained |
+| weak-repair | weak-closure | settle derived work |
+| cleanup-list | field-resolution | forward or delete |
+
+** Obligation
+
+| key | status | scope | gap |
+|---+---+---+---|
+| legacy-source-path | source-enabled-under-premises | Two capacity cuts with stale private cursor; fresh next frame; second worker may steal | No native input/configuration witness; no defined C11 outcome once racing stores occur |
+| managed-frame | proved-in-model | Delay READY and chunk visibility until pending link is fixed; all modeled steps preserve invariant | Whole chain staging capacity and descriptor/native mapping remain open |
+| weak-field-coverage | proved-in-model | Strong DONE retained; explicit will repair and table cleanup cover omitted fields | List aliasing flag lifetime and full C source refinement remain open |
+| global-will-decision | open | Shared testator strong reachability decision must precede weak marking across lists | Field coverage does not prove executability semantics |
+| descriptor-validity | open | RETI/RETN coordinates frame-size bounds and enough destination space | Source schedule assumes valid nonterminal frame chain spanning capacity cuts |
+| c11-publication | open | Post-fixup release READY and FIFO publication; acquire object claim | Existing atomics cannot publish later ordinary writes backwards |
+| epoch-and-termination | open | Scanner frame copier deferred batch derived work and two phase closures retain custody | No native completion or old storage retirement receipt issued |
+| restricted-projection | conditional-checked | Actual scalar typed IR invariant initial expressions and all-step roster emitted to Lean | Parser/emitter trusted; no verified full QNT or C semantics |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| frame seal | Prevent stale restoration of a newer chain fixup | Pending-link record plus deferred chunk custody and seal checks | Correctness admission; no performance gain claimed |
+| deferred allocation | Keep allocating next frame without exposing mutable predecessor | Candidate local closed-chunk list; requires no-allocation failure-safe storage | At most one pending predecessor per sequential chain; physical staging bound still conditional on frame fit |
+| preserve DONE reuse | Avoid an unnecessary whole-graph weak-phase reset/rescan | Keep existing will repair and reached-table list adapters | Existing source benefit is baseline reuse, not new speedup |
+| authorization cost | Same object-state transitions can be retained with later READY | Queue seals may add work; no extra state CAS is inherently required by model | C11 operation/footprint refinement before selecting representation |
+| modern C retirement | Retire early frame READY and unconditional publish for overlapping mutable frames | New producer-owned readiness seal; keep forwarding frame decode weak cleanup and barriers | Only after both frame publishers/fixup branches and all consumers migrate |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| frame_publish_seal.rollInitial | FrameSeal.rollInitialPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.copyA | FrameSeal.copyAPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.readyEarly | FrameSeal.readyEarlyPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.publishEarly | FrameSeal.publishEarlyPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.deferChunk | FrameSeal.deferChunkPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.fillLink | FrameSeal.fillLinkPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.sealReady | FrameSeal.sealReadyPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.publishDeferred | FrameSeal.publishDeferredPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.claim | FrameSeal.claimPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.readLink | FrameSeal.readLinkPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.hideLink | FrameSeal.hideLinkPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.restoreOld | FrameSeal.restoreOldPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.restoreFixed | FrameSeal.restoreFixedPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.releaseCopier | FrameSeal.releaseCopierPreserves | Actual projected guard and update; native source refinement open |
+| frame_publish_seal.close | FrameSeal.closePreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.configStrong | WeakCoverage.configStrongPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.configWeakKey | WeakCoverage.configWeakKeyPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.configWeakVal | WeakCoverage.configWeakValPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.configWeakBoth | WeakCoverage.configWeakBothPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.configRawKey | WeakCoverage.configRawKeyPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.deadKey | WeakCoverage.deadKeyPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.deadVal | WeakCoverage.deadValPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.traceKey | WeakCoverage.traceKeyPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.traceVal | WeakCoverage.traceValPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.tableScanDone | WeakCoverage.tableScanDonePreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.strongWill | WeakCoverage.strongWillPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.enterWeak | WeakCoverage.enterWeakPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.repairWill | WeakCoverage.repairWillPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.freshWeakWill | WeakCoverage.freshWeakWillPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.skipDone | WeakCoverage.skipDonePreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.finishWeak | WeakCoverage.finishWeakPreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.cleanupTable | WeakCoverage.cleanupTablePreserves | Actual projected guard and update; native source refinement open |
+| weak_done_coverage.close | WeakCoverage.closePreserves | Actual projected guard and update; native source refinement open |
+
+** Composition
+
+| key | lemma | scope |
+|---+---+---|
+| frame-induction | FrameSeal.reachableSafe | All managed frame actions |
+| frame-mode | FrameSeal.reachableManaged | Managed mode remains enabled along modeled reachability |
+| legacy-witness | FrameSeal.legacyLostFixup | Exact projected SC update trace; source admissibility premises separate |
+| weak-induction | WeakCoverage.reachableSafe | All weak coverage actions |
+| repair-reuse | WeakCoverage.repairKeepsObjectDone | Testator repair does not reset object DONE |
+| table-phase | WeakCoverage.hashFootprintPhaseIndependent | Generic table footprint independent of phase |
+| frame-coordinate | FrameSeal.frameLinkCoordinate | Heap pointer arithmetic alias conditional on matched RETI RETN descriptors and in-bounds storage |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| collector | collector | copier seal to scanner admission | FW-frameHistory |
+| roots | collector | frozen valid frame coordinates | FW-source |
+| collector | control | weak field closure and collective phase transition | FW-weakInduction |
+| collector | native | payload link and queue C11 publication | FW-platform |
+
+** Proof routing
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| FW-frameHistory | interleaving | dev/refactoring/modern-c/models/quint/frame_publish_seal.qnt | Managed frame protocol and legacy two-cut source schedule |
+| FW-weakHistory | interleaving | dev/refactoring/modern-c/models/quint/weak_done_coverage.qnt | One will one table flags and field obligations |
+| FW-frameInduction | induction | dev/refactoring/modern-c/models/lean/FrameSeal.lean | All projected managed steps and reachability |
+| FW-weakInduction | induction | dev/refactoring/modern-c/models/lean/WeakCoverage.lean | All projected weak coverage steps and reachability |
+| FW-projection | restricted-projection | dev/refactoring/modern-c/models/lean/FrameSealAst.lean | Both scalar typed IR models with trusted emitter and exact rosters |
+| FW-source | source-refinement | dev/refactoring/modern-c/frame-weak-coverage-design.org | Source control-flow premises descriptor and producer closure open |
+| FW-platform | c11-refinement | dev/refactoring/modern-c/frame-weak-coverage-design.org | Effective config release/acquire reset and lifecycle open |

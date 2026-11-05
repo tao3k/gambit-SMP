@@ -1,0 +1,847 @@
+{
+  "source": [
+    {
+      "key": "scheduler-local",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(macro-thread-restore!",
+      "obligation": "Local, stealing and non-SMP scheduling restore an existing suspended activation"
+    },
+    {
+      "key": "scheduler-pinned",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(macro-thread-pinned stolen-thread)",
+      "obligation": "Steal admission checks affinity; a guard cannot relax return-to-C affinity"
+    },
+    {
+      "key": "thread-wrapper",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim ##thread-restore!",
+      "obligation": "Rest wrapper applies procedure; not the sole generated inline entry"
+    },
+    {
+      "key": "graft-wrapper",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim ##continuation-graft-no-winding",
+      "obligation": "Direct low-level graft can bypass winding hooks"
+    },
+    {
+      "key": "return-wrapper",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim ##continuation-return-no-winding",
+      "obligation": "Direct return cannot rely on a before hook"
+    },
+    {
+      "key": "wind-before",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "((macro-dynwind-before dst))",
+      "obligation": "Internal graft navigation invokes arbitrary user hook; keep one restore transaction"
+    },
+    {
+      "key": "wind-after",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "((macro-dynwind-after src))",
+      "obligation": "After hook is neither last use nor exact exit witness"
+    },
+    {
+      "key": "fast-return",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(if (or (##eq? src dst) ;; check common case (same dynamic-wind context)",
+      "obligation": "Same denv fast path bypasses winding"
+    },
+    {
+      "key": "scheduler-syntax",
+      "path": "vendor/gambit/lib/_thread#.scm",
+      "needle": "(##thread-restore!",
+      "obligation": "Scheduler macro directly targets primitive"
+    },
+    {
+      "key": "emit-thread",
+      "path": "vendor/gambit/gsc/_t-c-2.scm",
+      "needle": "(targ-emit-jump-inline \"THREAD_RESTORE\" safe? nb-args)",
+      "obligation": "GVM emitter must carry explicit restore intent before destructive jump"
+    },
+    {
+      "key": "emit-graft",
+      "path": "vendor/gambit/gsc/_t-c-2.scm",
+      "needle": "(targ-emit-jump-inline \"CONTINUATION_GRAFT_NO_WINDING\" safe? nb-args)",
+      "obligation": "FrameSpec root and restore intent needed at actual emitter"
+    },
+    {
+      "key": "emit-return",
+      "path": "vendor/gambit/gsc/_t-c-2.scm",
+      "needle": "(targ-emit-jump-inline \"CONTINUATION_RETURN_NO_WINDING\" safe? nb-args)",
+      "obligation": "Return point metadata and private guard binding required"
+    },
+    {
+      "key": "native-thread",
+      "path": "vendor/gambit/include/gambit.h",
+      "needle": "#define ___THREAD_RESTORE",
+      "obligation": "Current thread and frame change; guard handoff precedes destructive switch"
+    },
+    {
+      "key": "native-graft",
+      "path": "vendor/gambit/include/gambit.h",
+      "needle": "#define ___CONTINUATION_GRAFT_NO_WINDING",
+      "obligation": "FP, denv and caches replaced; frame-local ticket is insufficient"
+    },
+    {
+      "key": "native-return",
+      "path": "vendor/gambit/include/gambit.h",
+      "needle": "#define ___JUMP_CONTINUATION_RETURN_NO_WINDING2",
+      "obligation": "Arguments popped and frame replaced; preserve rooted incoming values"
+    },
+    {
+      "key": "catcher",
+      "path": "vendor/gambit/include/gambit.h",
+      "needle": "#define ___END_TRY } ___ps->catcher = ___old_catcher; }",
+      "obligation": "Outer catcher restoration is distinct from Scheme body return"
+    },
+    {
+      "key": "sfun-error",
+      "path": "vendor/gambit/include/gambit.h",
+      "needle": "#define ___SFUN_ERROR_VOID",
+      "obligation": "Conversion handler can call ___call repeatedly with the same marker"
+    },
+    {
+      "key": "sfun-exit",
+      "path": "vendor/gambit/include/gambit.h",
+      "needle": "#define ___END_SFUN_VOID",
+      "obligation": "Kill marker before propagation on shown normal macro path; exceptional census remains open"
+    },
+    {
+      "key": "call-unwind",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2]",
+      "obligation": "Mismatched unwind continues outward instead of authorizing local completion"
+    },
+    {
+      "key": "run-root",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___make_sfun_stack_marker_from_root",
+      "obligation": "Managed startup distinguishes rooted thunk from legacy raw endpoint"
+    },
+    {
+      "key": "run-exit",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___kill_sfun_stack_marker (marker);",
+      "obligation": "Marker invalidation and startup result publication are distinct duties"
+    },
+    {
+      "key": "root-reload",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "proc_or_false = *proc_root; /* reload after allocating the marker */",
+      "obligation": "Root slot must be registered and updated by GC before allocation"
+    },
+    {
+      "key": "legacy-root",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "Legacy raw SFUN entry is not made a registered-root interface",
+      "obligation": "C local wrapper does not close roots for arbitrary native entry"
+    },
+    {
+      "key": "marker-kill",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "___VECTORELEM(marker, 0) = ___FAL; /* invalidate the C stack frame */",
+      "obligation": "C stack liveness marker is not a completion record"
+    },
+    {
+      "key": "wrong-processor",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___COVER_RETURN_TO_C_HANDLER_WRONG_PROCESSOR;",
+      "obligation": "Must preserve destination processor semantics"
+    },
+    {
+      "key": "dead-c-frame",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___COVER_RETURN_TO_C_HANDLER_MULTIPLE_RETURN;",
+      "obligation": "Multi-shot Scheme cannot revive a dead C activation"
+    },
+    {
+      "key": "ffi-caller",
+      "path": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "char *result = tcltk_call",
+      "obligation": "Concrete native callback obtains Scheme payload from data_rc"
+    },
+    {
+      "key": "ffi-body",
+      "path": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "(c-define (##tcltk-call vect args)",
+      "obligation": "Real callback applies Scheme closure; nested reentry needs child guard"
+    }
+  ],
+  "identity": [
+    {
+      "key": "ticket",
+      "structure": "SessionNonce + DomainId + Generation + AttemptId",
+      "rule": "Mint outside restored graph for each new semantic invocation",
+      "caveat": "Addresses or captured counters do not establish freshness"
+    },
+    {
+      "key": "guard",
+      "structure": "Full TicketId + GuardSerial + OwnerGeneration",
+      "rule": "A completion witness names its immutable guard",
+      "caveat": "Never look up destination from ambient currentTicket"
+    },
+    {
+      "key": "semantic",
+      "structure": "Continuation invoke or admitted raw no-winding transfer",
+      "rule": "Fresh ticket before restoring; old activation retained until classified",
+      "caveat": "Raw escape or unknown issuer denies optimization receipt"
+    },
+    {
+      "key": "navigation",
+      "structure": "Internal dynamic-wind graft transaction",
+      "rule": "Keep same ticket through before/after navigation",
+      "caveat": "Hook may escape; no completion inferred"
+    },
+    {
+      "key": "scheduler",
+      "structure": "Suspended activation binding",
+      "rule": "Resume same ticket; transfer carrier under owner protocol",
+      "caveat": "Processor affinity qualification remains separate"
+    },
+    {
+      "key": "foreign",
+      "structure": "HostEntryId plus optional child TicketId",
+      "rule": "Nested callback new child; conversion retries retain host identity",
+      "caveat": "Every ___call is not automatically a new SFUN invocation"
+    },
+    {
+      "key": "transport",
+      "structure": "OperationId plus immutable TicketId and payload binding",
+      "rule": "Lost reply queries exact record",
+      "caveat": "Same arguments do not identify a fresh execution"
+    }
+  ],
+  "issuer": [
+    {
+      "key": "semantic-entry",
+      "proposedIssuer": "Native restore admission owner",
+      "actualSource": "no-winding inline emitters and macros identified",
+      "status": "Required refactoring; not implemented",
+      "responsibility": "Register guard and roots before destructive transfer"
+    },
+    {
+      "key": "intent",
+      "proposedIssuer": "Scheme/GVM semantic classifier",
+      "actualSource": "Scheduler macros and internal wind grafts share low-level primitives",
+      "status": "Caller census incomplete",
+      "responsibility": "Distinguish fresh invoke, navigation, scheduling and foreign entry"
+    },
+    {
+      "key": "scheduler",
+      "proposedIssuer": "Execution-context owner",
+      "actualSource": "Local and stealing scheduler invoke thread-restore",
+      "status": "Existing restore located; guard transfer absent",
+      "responsibility": "Keep same ticket and roots; obey C affinity"
+    },
+    {
+      "key": "foreign",
+      "proposedIssuer": "Stable host entry owner",
+      "actualSource": "Tcl callback and SFUN error loop located",
+      "status": "Generic managed entry still open",
+      "responsibility": "Register child before allocating marker; preserve parent binding"
+    },
+    {
+      "key": "exit",
+      "proposedIssuer": "Stable outer completion guard",
+      "actualSource": "___call unwinds and ___run kills marker; catcher macro restores",
+      "status": "No trusted keyed guard signer found",
+      "responsibility": "Classify exit and restore outer binding before witness"
+    },
+    {
+      "key": "settlement",
+      "proposedIssuer": "Per-ticket ledger owner",
+      "actualSource": "No new native ledger implemented",
+      "status": "Conditional algebra only",
+      "responsibility": "Commit exact outcome before ack; query immutable target"
+    },
+    {
+      "key": "roots",
+      "proposedIssuer": "VM RootRegistry and context scan owner",
+      "actualSource": "Rooted startup helper reloads slot after marker allocation",
+      "status": "All callbacks and GVM maps unqualified",
+      "responsibility": "Keep rooted payload/result through error and unknown exit"
+    }
+  ],
+  "claim": [
+    {
+      "key": "same-id",
+      "mechanism": "Separate semantic intent from physical jump",
+      "condition": "Trusted caller classification",
+      "result": "No ticket per scheduler hop or winding graft",
+      "gap": "All raw entry producers remain to be qualified"
+    },
+    {
+      "key": "old-receipt",
+      "mechanism": "Immutable full GuardId dispatch",
+      "condition": "Guard equality and surviving owner record",
+      "result": "Old receipt does not modify new guard",
+      "gap": "Native key allocator and generation overflow open"
+    },
+    {
+      "key": "exit-order",
+      "mechanism": "Body return then outer restore then marker close then witness",
+      "condition": "Real outer catch and root coverage",
+      "result": "No early settlement from Scheme return",
+      "gap": "Native exception and profile refinement open"
+    },
+    {
+      "key": "unknown",
+      "mechanism": "Retain old guard and roots across cross restore",
+      "condition": "No invented absence receipt",
+      "result": "New execution cannot erase unclassified old custody",
+      "gap": "Liveness and bounded retained-memory guarantee open"
+    },
+    {
+      "key": "generic",
+      "mechanism": "Arbitrary-key Lean guard map",
+      "condition": "Faithful full-key equality and trusted witness",
+      "result": "Wrong owner, serial or ticket retained; ambient cannot retarget",
+      "gap": "Finite QNT to arbitrary nested native product not proved"
+    },
+    {
+      "key": "normalization",
+      "mechanism": "Use completed capability retirement as admission premise",
+      "condition": "All metadata writers and late callbacks closed",
+      "result": "Second normalization potentially removable",
+      "gap": "This study retires zero native paths"
+    }
+  ],
+  "memory": [
+    {
+      "key": "reserve",
+      "publication": "Owner serializes full key and reserved guard before exposure",
+      "observation": "Restore gateway sees reserved record",
+      "obligation": "Allocation failure before admission has no runnable ticket",
+      "overhead": "One record per semantic or host entry"
+    },
+    {
+      "key": "roots",
+      "publication": "RootRegistry publishes live scanned slots before possible GC",
+      "observation": "Marker allocator reloads rooted incoming values",
+      "obligation": "Release only after scanner and executor handoff acknowledged",
+      "overhead": "Root carrier plus scan lease"
+    },
+    {
+      "key": "switch",
+      "publication": "Admission joins source and destination owner under stable guard",
+      "observation": "FP/denv/current-thread switch consumes intent token",
+      "obligation": "No locks across hooks, Scheme, FFI or GC",
+      "overhead": "Short handoff; source guard remains owned on unknown"
+    },
+    {
+      "key": "exit",
+      "publication": "Outer owner records catcher and parent-binding restoration plus marker status",
+      "observation": "Exact GuardId witness",
+      "obligation": "Result remains rooted until terminal ownership transfers",
+      "overhead": "One completion transition per logical entry"
+    },
+    {
+      "key": "commit",
+      "publication": "One owner transaction publishes terminal outcome before acknowledgement",
+      "observation": "Pinned record queried by immutable key",
+      "obligation": "C23 ordering is not GC rooting or crash durability",
+      "overhead": "Mutex or qualified atomics; avoid unnecessary global CAS"
+    },
+    {
+      "key": "reclaim",
+      "publication": "Close admission and drain accepted readers and executors",
+      "observation": "Generation-safe tombstone or non-replay response",
+      "obligation": "No generation wrap or address reuse while stale receipts survive",
+      "overhead": "Retained tombstones and unknown roots require capacity policy"
+    }
+  ],
+  "gain": [
+    {
+      "key": "navigation",
+      "avoided": "h tickets and ledger entries for h internal grafts",
+      "added": "h intent checks; zero fresh tickets",
+      "condition": "One known restore transaction; user callback new entry classified separately"
+    },
+    {
+      "key": "scheduler",
+      "avoided": "s fresh ticket allocations for s scheduler resumes",
+      "added": "s carrier handoffs; zero fresh tickets",
+      "condition": "Suspended activation ownership and affinity proven"
+    },
+    {
+      "key": "retry",
+      "avoided": "r executions and side effects for r lost replies",
+      "added": "r keyed reads; retained outcome",
+      "condition": "Single surviving ledger; no crash exactly-once claim"
+    },
+    {
+      "key": "foreign",
+      "avoided": "Unsafe early root release and parent mis-settlement",
+      "added": "One child guard per logical callback plus outer cleanup",
+      "condition": "All entry roots and exceptions qualified"
+    },
+    {
+      "key": "shared-support",
+      "avoided": "Duplicate per-component root and outcome custody mechanisms",
+      "added": "Shared registry ABI and scanner integration once",
+      "condition": "Do not count reused support as new implementation savings twice"
+    },
+    {
+      "key": "second-pass",
+      "avoided": "At most one resource normalization traversal",
+      "added": "Intent, guard, root and capability accounting",
+      "condition": "Removed traversal cost must exceed all marginal hot-path and retention costs; currently not qualified"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "Scheme GVM intent",
+      "toNode": "Native restore gateway",
+      "custody": "fresh semantic / navigation / scheduler / foreign"
+    },
+    {
+      "fromNode": "Native restore gateway",
+      "toNode": "Stable owner guard",
+      "custody": "reserve immutable key outside restored frames"
+    },
+    {
+      "fromNode": "Stable owner guard",
+      "toNode": "GC root carrier",
+      "custody": "publish and scan before allocating marker"
+    },
+    {
+      "fromNode": "GC root carrier",
+      "toNode": "FP denv thread switch",
+      "custody": "incoming values remain rooted across transfer"
+    },
+    {
+      "fromNode": "FP denv thread switch",
+      "toNode": "Restored execution",
+      "custody": "bind current guard from runtime context"
+    },
+    {
+      "fromNode": "Restored execution",
+      "toNode": "Stable owner guard",
+      "custody": "unknown escape retains old custody"
+    },
+    {
+      "fromNode": "Restored execution",
+      "toNode": "Outer completion",
+      "custody": "body return alone insufficient"
+    },
+    {
+      "fromNode": "Outer completion",
+      "toNode": "Exact ticket ledger",
+      "custody": "restore catcher and parent; close marker; commit before ack"
+    },
+    {
+      "fromNode": "Old captured receipt",
+      "toNode": "Exact ticket ledger",
+      "custody": "immutable old target; never ambient current"
+    },
+    {
+      "fromNode": "Exact ticket ledger",
+      "toNode": "Next semantic invocation",
+      "custody": "fresh external ID; old outcome remains queryable"
+    },
+    {
+      "fromNode": "Stable owner guard",
+      "toNode": "Scheduler resume",
+      "custody": "same activation ID; carrier handoff"
+    },
+    {
+      "fromNode": "Scheduler resume",
+      "toNode": "Restored execution",
+      "custody": "preserve affinity and roots"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "restore_entry_guard.reserveInitial0",
+      "lemma": "RestoreEntry.reserveInitial0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.publishRoot0",
+      "lemma": "RestoreEntry.publishRoot0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.enterInitial0",
+      "lemma": "RestoreEntry.enterInitial0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.internalGraft0",
+      "lemma": "RestoreEntry.internalGraft0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.suspend0",
+      "lemma": "RestoreEntry.suspend0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.schedulerResume0",
+      "lemma": "RestoreEntry.schedulerResume0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.bodyReturn0",
+      "lemma": "RestoreEntry.bodyReturn0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.restoreOuter0",
+      "lemma": "RestoreEntry.restoreOuter0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.observeExit0",
+      "lemma": "RestoreEntry.observeExit0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.settle0",
+      "lemma": "RestoreEntry.settle0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.reserveSemantic1",
+      "lemma": "RestoreEntry.reserveSemantic1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.reserveCrossRestore1",
+      "lemma": "RestoreEntry.reserveCrossRestore1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.reserveForeignChild1",
+      "lemma": "RestoreEntry.reserveForeignChild1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.publishRoot1",
+      "lemma": "RestoreEntry.publishRoot1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.allocateMarker1",
+      "lemma": "RestoreEntry.allocateMarker1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.enter1",
+      "lemma": "RestoreEntry.enter1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.internalGraft1",
+      "lemma": "RestoreEntry.internalGraft1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.bodyReturn1",
+      "lemma": "RestoreEntry.bodyReturn1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.restoreOuter1",
+      "lemma": "RestoreEntry.restoreOuter1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.invalidateMarker1",
+      "lemma": "RestoreEntry.invalidateMarker1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.observeExit1",
+      "lemma": "RestoreEntry.observeExit1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.settle1",
+      "lemma": "RestoreEntry.settle1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.abortMarkerAllocation1",
+      "lemma": "RestoreEntry.abortMarkerAllocation1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.unknownForeignExit1",
+      "lemma": "RestoreEntry.unknownForeignExit1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.confirmOuterCatch1",
+      "lemma": "RestoreEntry.confirmOuterCatch1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.presentOld",
+      "lemma": "RestoreEntry.presentOldPreserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.presentNew",
+      "lemma": "RestoreEntry.presentNewPreserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.presentOldAsNew",
+      "lemma": "RestoreEntry.presentOldAsNewPreserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.rejectMismatchedGuard",
+      "lemma": "RestoreEntry.rejectMismatchedGuardPreserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.repeatOldReceipt",
+      "lemma": "RestoreEntry.repeatOldReceiptPreserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.rejectUnobservedOldExit",
+      "lemma": "RestoreEntry.rejectUnobservedOldExitPreserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.loseReply0",
+      "lemma": "RestoreEntry.loseReply0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.query0",
+      "lemma": "RestoreEntry.query0Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.loseReply1",
+      "lemma": "RestoreEntry.loseReply1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    },
+    {
+      "actionName": "restore_entry_guard.query1",
+      "lemma": "RestoreEntry.query1Preserves",
+      "scope": "typed QNT AST step; source simulation open"
+    }
+  ],
+  "proof": [
+    {
+      "key": "schedulerPreservesTicket",
+      "lemma": "RestoreEntry.schedulerPreservesTicket"
+    },
+    {
+      "key": "navigationPreservesTicket",
+      "lemma": "RestoreEntry.navigationPreservesTicket"
+    },
+    {
+      "key": "oldReceiptCannotSettleNew",
+      "lemma": "RestoreEntry.oldReceiptCannotSettleNew"
+    },
+    {
+      "key": "newSettlementNeedsNewGuard",
+      "lemma": "RestoreEntry.newSettlementNeedsNewGuard"
+    },
+    {
+      "key": "oldNonceCannotSettleNew",
+      "lemma": "RestoreEntry.oldNonceCannotSettleNew"
+    },
+    {
+      "key": "completionRequiresRestoration",
+      "lemma": "RestoreEntry.completionRequiresRestoration"
+    },
+    {
+      "key": "unknownRetainsGuard",
+      "lemma": "RestoreEntry.unknownRetainsGuard"
+    },
+    {
+      "key": "queryKeepsInvocation",
+      "lemma": "RestoreEntry.queryKeepsInvocation"
+    },
+    {
+      "key": "atMostOnce",
+      "lemma": "RestoreEntry.atMostOnce"
+    },
+    {
+      "key": "wrongTicketRetained",
+      "lemma": "RestoreGuardAlgebra.wrongTicketRetained"
+    },
+    {
+      "key": "wrongSerialRetained",
+      "lemma": "RestoreGuardAlgebra.wrongSerialRetained"
+    },
+    {
+      "key": "wrongOwnerRetained",
+      "lemma": "RestoreGuardAlgebra.wrongOwnerRetained"
+    },
+    {
+      "key": "markerStillLiveRetained",
+      "lemma": "RestoreGuardAlgebra.markerStillLiveRetained"
+    },
+    {
+      "key": "unrestoredRetained",
+      "lemma": "RestoreGuardAlgebra.unrestoredRetained"
+    },
+    {
+      "key": "acceptIdempotent",
+      "lemma": "RestoreGuardAlgebra.acceptIdempotent"
+    },
+    {
+      "key": "ambientCannotRetarget",
+      "lemma": "RestoreGuardAlgebra.ambientCannotRetarget"
+    },
+    {
+      "key": "otherGuardUntouched",
+      "lemma": "RestoreGuardAlgebra.otherGuardUntouched"
+    },
+    {
+      "key": "step-preservation",
+      "lemma": "RestoreEntry.stepPreserves"
+    },
+    {
+      "key": "reachable-safety",
+      "lemma": "RestoreEntry.reachableSafe"
+    }
+  ],
+  "route": [
+    {
+      "component": "entry",
+      "actionName": "restore_entry_guard.reserveInitial0",
+      "lemma": "RestoreEntry.reserveInitial0Preserves",
+      "producerAnchor": "emit-return",
+      "obligationId": "RE-entry"
+    },
+    {
+      "component": "entry",
+      "actionName": "restore_entry_guard.reserveSemantic1",
+      "lemma": "RestoreEntry.reserveSemantic1Preserves",
+      "producerAnchor": "graft-wrapper",
+      "obligationId": "RE-entry"
+    },
+    {
+      "component": "entry",
+      "actionName": "restore_entry_guard.reserveCrossRestore1",
+      "lemma": "RestoreEntry.reserveCrossRestore1Preserves",
+      "producerAnchor": "native-graft",
+      "obligationId": "RE-entry"
+    },
+    {
+      "component": "entry",
+      "actionName": "restore_entry_guard.internalGraft0",
+      "lemma": "RestoreEntry.internalGraft0Preserves",
+      "producerAnchor": "wind-before",
+      "obligationId": "RE-entry"
+    },
+    {
+      "component": "entry",
+      "actionName": "restore_entry_guard.schedulerResume0",
+      "lemma": "RestoreEntry.schedulerResume0Preserves",
+      "producerAnchor": "scheduler-local",
+      "obligationId": "RE-entry"
+    },
+    {
+      "component": "guard",
+      "actionName": "restore_entry_guard.reserveForeignChild1",
+      "lemma": "RestoreEntry.reserveForeignChild1Preserves",
+      "producerAnchor": "ffi-caller",
+      "obligationId": "RE-execution"
+    },
+    {
+      "component": "guard",
+      "actionName": "restore_entry_guard.restoreOuter1",
+      "lemma": "RestoreEntry.restoreOuter1Preserves",
+      "producerAnchor": "catcher",
+      "obligationId": "RE-execution"
+    },
+    {
+      "component": "guard",
+      "actionName": "restore_entry_guard.observeExit1",
+      "lemma": "RestoreEntry.observeExit1Preserves",
+      "producerAnchor": "sfun-exit",
+      "obligationId": "RE-execution"
+    },
+    {
+      "component": "guard",
+      "actionName": "restore_entry_guard.settle1",
+      "lemma": "RestoreEntry.settle1Preserves",
+      "producerAnchor": "call-unwind",
+      "obligationId": "RE-execution"
+    },
+    {
+      "component": "roots",
+      "actionName": "restore_entry_guard.publishRoot1",
+      "lemma": "RestoreEntry.publishRoot1Preserves",
+      "producerAnchor": "legacy-root",
+      "obligationId": "RE-roots"
+    },
+    {
+      "component": "roots",
+      "actionName": "restore_entry_guard.allocateMarker1",
+      "lemma": "RestoreEntry.allocateMarker1Preserves",
+      "producerAnchor": "root-reload",
+      "obligationId": "RE-roots"
+    },
+    {
+      "component": "guard",
+      "actionName": "restore_entry_guard.repeatOldReceipt",
+      "lemma": "RestoreEntry.repeatOldReceiptPreserves",
+      "producerAnchor": "dead-c-frame",
+      "obligationId": "RE-execution"
+    }
+  ],
+  "need": {
+    "formal": {
+      "obligationId": "RE-formal",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/RestoreEntry.lean",
+      "subjectScope": "two-ticket intent and completion safety; all modeled steps",
+      "owner.componentId": "guard"
+    },
+    "algebra": {
+      "obligationId": "RE-algebra",
+      "kind": "algebra",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/RestoreGuardAlgebra.lean",
+      "subjectScope": "arbitrary GuardId dispatch and immutable outcome; trusted witness",
+      "owner.componentId": "guard"
+    },
+    "ingress": {
+      "obligationId": "RE-entry",
+      "kind": "source",
+      "subjectPath": "vendor/gambit/gsc/_t-c-2.scm",
+      "subjectScope": "complete caller intent and generated point/root/restore mapping",
+      "owner.componentId": "entry"
+    },
+    "execution": {
+      "obligationId": "RE-execution",
+      "kind": "source",
+      "subjectPath": "vendor/gambit/lib/setup.c",
+      "subjectScope": "real stable guard and outer exit signer including all exceptional exits",
+      "owner.componentId": "guard"
+    },
+    "roots": {
+      "obligationId": "RE-roots",
+      "kind": "source",
+      "subjectPath": "vendor/gambit/lib/c_intf.c",
+      "subjectScope": "all FFI and restored GVM slots rooted across allocating and scan cut",
+      "owner.componentId": "roots"
+    },
+    "platform": {
+      "obligationId": "RE-platform",
+      "kind": "platform",
+      "subjectPath": "dev/refactoring/modern-c/language-baseline-design.org",
+      "subjectScope": "C23 locking or atomics, finite IDs and effective Darwin ABI identity",
+      "owner.componentId": "guard"
+    },
+    "emission": {
+      "obligationId": "RE-emission",
+      "kind": "equivalence",
+      "subjectPath": "dev/refactoring/modern-c/ticket-capability-retirement-design.org",
+      "subjectScope": "complete late writers and normalization equivalence before retirement",
+      "owner.componentId": "entry"
+    }
+  }
+}

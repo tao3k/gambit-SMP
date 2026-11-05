@@ -1,0 +1,80 @@
+{
+  "localityRuns": [
+    {
+      "name": "sleep-unbound",
+      "returncode": 0,
+      "timeout": false,
+      "stdout": "MODE unbound\nVM-PROCS 11\nCOUNT 120000\nEXPECTED 120000\nROOTS 0\nFAULT #f\nPLACEMENT\n#(0 0 5 19817)\n#(1 0 6 19642)\n#(2 0 6 19858)\n#(3 0 5 19620)\n#(4 7 10 19702)\n#(5 0 1 19768)\nGC-BEFORE (.065798 .039664 .19326376914978027 .03963518142700195 2. 26224568. 406232. 242472.)\nGC-AFTER (2.013236 .374788 6.726770877838135 1.604973316192627 121. 26224776. 620730128. 308808.)\n",
+      "group": "absent",
+      "image": "60b3dfb237ad36891ecffb9a1d79702b78300f1da3615d0bf221b1be1a8cac7f"
+    },
+    {
+      "name": "sleep-colocated",
+      "returncode": 0,
+      "timeout": false,
+      "stdout": "MODE colocated\nVM-PROCS 11\nCOUNT 120000\nEXPECTED 120000\nROOTS 0\nFAULT #f\nPLACEMENT\n#(0 0 0 20011)\n#(1 1 1 20011)\n#(2 2 2 20011)\n#(3 3 3 20011)\n#(4 4 4 20011)\n#(5 5 5 20011)\nGC-BEFORE (.062767 .036664 .10844111442565918 .013809919357299805 2. 26224568. 406232. 242472.)\nGC-AFTER (2.567374 .440478 8.76323914527893 2.2735517024993896 140. 26224776. 605980368. 305320.)\n",
+      "group": "absent",
+      "image": "60b3dfb237ad36891ecffb9a1d79702b78300f1da3615d0bf221b1be1a8cac7f"
+    }
+  ],
+  "sampleCheckpoint": {
+    "status": "waiting-for-supervisor",
+    "sessionId": "b962c586-91d1-4919-870f-11741aa5f3b5",
+    "phase": "scheduler-locality-root-fix",
+    "record": "8/12",
+    "nativeAdmitted": false,
+    "formal9of12": false,
+    "runtimeAdmitted": false,
+    "executionAuthorized": false,
+    "noLiveNativeChildren": true,
+    "liveChildren": [],
+    "census": "proc_listpids and proc_pidpath",
+    "imageSha256": "60b3dfb237ad36891ecffb9a1d79702b78300f1da3615d0bf221b1be1a8cac7f",
+    "uuid": "70518855-4D43-304E-90AF-0516415B1FDE",
+    "sourceFix": {
+      "applied": false,
+      "reason": "Explicit per-group pin before thread-start made the same 120000 sleeper interrupts slower, 8.655s versus 6.534s, with verified placement. Queuing non-running targets onto the requesting processor is the same locality bet and was not applied."
+    },
+    "diagnostic": {
+      "unboundRealSeconds": 6.533507108688355,
+      "colocatedRealSeconds": 8.654798030853271,
+      "vmProcessors": 11,
+      "count": 120000,
+      "roots": 0,
+      "fault": false,
+      "placement": "colocated groups 0..5 stayed on their pin for 20011 samples each"
+    },
+    "sample": {
+      "pid": 72492,
+      "window": "1 second",
+      "observation": "all 11 processors were inside sync-op GC, including mark_captured_continuation and barrier cond wait. One window, not the whole run."
+    },
+    "originalOutcome": "not-started",
+    "negativeFailures": [
+      "colocation diagnostic is slower and is not a pass",
+      "first startup-boot-gc BOOT-GC 2. exit 70 remains a distinct earlier failure",
+      "focused test2 inactive-thread-exception after normal termination remains"
+    ],
+    "remainingCausalBlockers": [
+      "p1 versus p11 wall gap remains after rejecting per-group co-location",
+      "real minus user minus system is only a lower bound and was not identified as device_select",
+      "no route change was justified"
+    ],
+    "audit": {
+      "stdout": "((\"accepted\" (\"b962-colocation-slower\" \"b962-route-versus-prefer-current\")) (\"declarationIdentity\" \"752cce8235550f334387e0285b52dfd180954be9015ec33c50156863fd2644b3\") (\"executionAuthorized\" #f) (\"prefix\" \"61a509c8cee50af067bbd3546f17867b0d015a5bd6007dcc5c5a831466b1185a\") (\"retainedClues\" 76) (\"runtimeAdmitted\" #f) (\"scope\" \"repair-9-12\") (\"submissions\" 46))",
+      "returncode": 0
+    }
+  },
+  "sourcePath": ".cache/tasks/repair-9-12/processes/audit/runs/fb10c74142dd4c5dabd47be1015f5e6a/outputs/b962-locality-select-review/os_io-before.c",
+  "sourceSha256": "cdb767ae88dace1249a0bd4ff80ca7b10243531a915251722c06d084c356a08d",
+  "sourceDefect": {
+    "internalWake": "device_select sees self-pipe ready, drains it, returns ERRNO(EINTR) when aborted and otherwise NO_ERR.",
+    "retryConflation": "os_condvar_select retries scheduler_select_eintr until fixed deff, absent immediate or actual IO readiness; internal scheduler wake is retried with unrelated OS signals.",
+    "reasonIntegrity": "FD_ISSET after EINTR is insufficient evidence; a separate reason must be based on actual positive pipe read or real platform abort event.",
+    "implementationRequired": "Private per-call reason, preserve public ABI/errno, prompt internal wake return after IO flags, genuine EINTR same-deadline retry.",
+    "status": "Actual matching-source defect; dominant original-stress cost attribution still requires native before/after and original acceptance."
+  },
+  "noRuntimeEditByAudit": true,
+  "formalCount": "8/12",
+  "qualifierChanged": false
+}

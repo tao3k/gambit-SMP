@@ -4,6 +4,14 @@ Source-grounded Quint models, frozen counterexamples, native regressions and
 an executable Datalog evidence index for Gambit's multiple-VM and parallel-GC
 repair work. This repository is not an accepted replacement runtime.
 
+## Current Milestone
+
+Cumulative progress is **6/12**: the stack-entry candidate completes bootstrap
+and all four original compiled stress files. Complete interpreted stress and
+current-source full GSI/GSC requalification are not green. Historical passes
+remain history, not inherited release acceptance. See the
+[source-bound checkpoint and remaining gates](docs/smp-threaded-vm-milestone.md).
+
 ## Layout
 
 | Directory | Responsibility |
@@ -18,14 +26,30 @@ repair work. This repository is not an accepted replacement runtime.
 | `.cache/` | New local logs, generated contexts, validation outputs and replaceable workspace inventories; not Git evidence |
 | `.data/` | Historical local workspaces retained in place; new logs and journals use `.cache/` |
 
+## Experimental Research
+
+[Experimental SMP design foundations](docs/experimental/smp-design-foundations.md)
+connect pinned Gambit, Chez and OCaml sources to existing models, open transfer
+assumptions and reusable research Recipe briefs. Reference mechanisms are not
+selected runtime changes or native acceptance; current qualification continues
+independently.
+
 ## Local Checks
 
-Evidence inference requires the ASCENT CFFI API build; there is no Python
-Datalog fallback. Point a local binding path at the selected ASCENT checkout's
-`python` project and set `PYTHONPATH` to its receipt-bound native API directory.
-See [native setup](integrations/ascent/README.md).
+Evidence inference uses the ASCENT Rust/PyO3 package pinned by `uv.lock`;
+there is no Python Datalog fallback or downstream Scheme compile workflow.
+The package RECORD and compiled source inventory are checked at load time;
+`uv` owns dependency resolution. Older CFFI
+receipts and setup sections remain historical, not the active loading contract.
+See [Agentic AI interface](docs/agentic-evidence-interface.md) for the structured
+`discover/select/observe` entry and progressive evidence/explanation access.
 `gambit-smp agent-context` validates the evidence pipeline and emits an
 identity-bound Agent handoff linking Catalog entries, receipts and open gates.
+
+`gambit-smp trajectory clues` evaluates caller-authored Scheme/Datalog queries
+over registered evidence relations and returns source-bound incremental slices.
+Its `--help` lists relation signatures; no Context selection is required.
+See [the relation-query interface](docs/smp-trajectory-application.md#direct-logical-evidence-reads).
 
 ```sh
 uv sync --locked

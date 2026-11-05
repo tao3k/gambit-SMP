@@ -1,0 +1,212 @@
+#+TITLE: C23 RC Allocation, Registration and Physical Release — Storage Index Contract
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:t
+
+* RESEARCH Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: rc-storage-lifecycle
+:BASELINE: C23
+:ARCHITECTURE_AUTHORITY: GambitRcStorageLifecycle
+:STATUS: conditional-formal; native-signers-open
+:END:
+
+Modern C remains the baseline. Replace implicit RC list ownership with an explicit allocation-attempt, storage-index and reclamation service. Allocation success, root registration, publication acknowledgement, caller reference release and physical free are different events. A raw pointer or a zero reference count cannot issue all five permissions.
+
+This study follows actual modular C and concrete Tcl, C closure, string/list and TLS callers. It extends [[file:storage-index-transactions-design.org][the concurrent storage-index transaction study]], without editing runtime code, preprocessing headers, building Scheme/C artifacts or running native tests. Formal checking is design evidence, not runtime admission. Native [[file:models/sysml/rc-storage-lifecycle.sysml][SysML]] owns source anchors, seven issuer roles, action/proof routes, open obligations, cost rows and diagram edges. Python drives native SysML, actual [[file:../../modeling/ascent/rc-storage-lifecycle.rules.scm][ASCENT DSL]], QNT and Lean; Org and D2 are projections.
+
+* RESEARCH Actual source path and limits
+:PROPERTIES:
+:CUSTOM_ID: rc-storage-real-path
+:END:
+
+#+NAME: rc-real-path
+| Existing step | Source observation | Required new responsibility |
+|---------------+--------------------+-----------------------------|
+| alloc_rc_no_register | Adds sizeof(rc_header), calls ALLOC_MEM, initializes refcount=1/data=FAL and returns h+1 | Checked extent, native header base, unique allocation attempt and StorageId incarnation |
+| alloc_rc | Calls no_register, registers only when ptr != 0, then returns ptr | Preserve definite NULL behavior; separately represent managed rejection/unknown result |
+| register_rc | Derives h from payload, writes prev/next and appends to context chain; body returns void | Root admission transaction, owner selection, scan-visible registration and exact result |
+| addref_rc/release_rc | Plain increment/decrement; zero unlinks neighbors and frees h | Controlled retain admission, exact release ledger, close/drain and physical release permit |
+| cleanup_rc | Detaches head, walks saved next and frees each header regardless of refcount | Result-aware ownership transfer and drain; unresolved allocations must survive context teardown |
+| mark_rc | Traverses context RC chain and updates h->data | Stable VM-owned root enumeration, distinct-slot ownership and descriptor grace |
+
+RC memory is native header/backing storage whose data field can contain a Scheme GC root; RC reference counting is not the Scheme heap collector. Replacing these native ownership helpers neither removes Scheme GC nor establishes a generational collector.
+
+All these bodies are in [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc][rc-allocation.inc]] and [[file:../../../vendor/gambit/lib/_mem/rc-roots.inc][rc-roots.inc]]. The [[file:../../../vendor/gambit/include/_gambit/memory_state.h.in][header schema]] has no StorageId, generation, extent or operation identity. The [[file:../../../vendor/gambit/include/_gambit/runtime_protocols.h.in][ALLOC_MEM macro]] delegates to exported allocation functions; the default branch in [[file:../../../vendor/gambit/lib/os_base.c][os_base.c]] calls malloc/free. Alternative and debug branches remain configuration inputs; this is not effective Darwin artifact qualification.
+
+The no-register allocation body does not initialize prev/next. Ordinary release reads those links when decrement reaches zero. Hence a never-linked candidate needs a private abort path using its original allocator base, not ordinary linked release. The supplied in-tree source search finds the direct no-register/register call pair in alloc_rc; it does not establish an in-tree misuse. Exported function pointers admit indirect/out-of-tree users, so absence of other literal calls is not caller closure.
+
+The requested total bytes are formed before the allocation macro. The local expression has no explicit checked-add result. The managed C23 contract must validate payload plus header, alignment/extent and representation before allocating, using checked arithmetic such as ckd_add where the qualified toolchain provides it. Zero payload is not zero allocation: Tcl requests alloc_rc(0), yet the header and its data root still exist.
+
+There is also an explicit ABI reconciliation obligation: register_rc has a void implementation, while [[file:../../../vendor/gambit/include/_gambit/runtime_protocols.h.in][runtime_protocols.h.in]] and [[file:../../../vendor/gambit/include/_gambit/global_state.h.in][the GSTATE function table]] spell a pointer return. This source mismatch is not a claim that a particular generated binary was compiled with a conflicting ABI. No native profile is qualified here.
+
+* RESEARCH Concrete callers and cleanup effects
+:PROPERTIES:
+:CUSTOM_ID: rc-concrete-callers
+:END:
+
+#+NAME: rc-caller-contracts
+| Caller | Actual sequence | Contract consequence |
+|--------+-----------------+----------------------|
+| Tcl command creation | alloc_rc(0); allocate Scheme vector; vector failure calls release_rc(cd); set data; Tcl_CreateCommand | Failure rollback is linked because alloc_rc registered cd; cannot generalize it to private no-register candidates |
+| Tcl callback/deletion | Read data_rc(client_data); delete releases Scheme value then RC header | Raw client_data still needs header backing even if Scheme payload is copied elsewhere; in-flight callback drain is mandatory |
+| C closure | Conditional alloc_rc(code size); set Scheme procedure; emit native trampoline; closure_release calls release_rc | Root publication and executable-code publication are separate; proc must be protected across managed allocation, and code users must drain before free |
+| C string/list | release_string delegates to release_rc; last string-list reference releases elements before parent | Header free cannot substitute for the child-resource destructor walk; refcount_rc(x)==1 also needs a controlled ownership observation |
+| TLS context | Release owned strings, SSL_CTX_free, then release_rc(c) | Foreign effects have an adapter owner and completion boundary; cleanup_rc does not perform those operations |
+
+Sources: [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][Tcl adapter]], [[file:../../../vendor/gambit/lib/os_dyn.c][C closures]], [[file:../../../vendor/gambit/lib/c_intf.c][C-interface resources]], [[file:../../../vendor/gambit/lib/os_io.c][TLS/resource adapters]]. This study does not infer Tcl_CreateCommand failure ownership or closure ABI support from the RC allocator alone; those remain adapter-specific obligations.
+
+[[file:../../../vendor/gambit/lib/_mem/memory-lifecycle.inc][cleanup_mem_pstate]] frees still objects before cleanup_rc. Its VM cleanup text names processor zero with a TODO for other processors. [[file:../../../vendor/gambit/lib/setup.c][setup.c]] and [[file:../../../vendor/gambit/lib/_mem/capacity-resize.inc][resize handoff]] provide narrower known-join/retained-root rules; they do not sign generic foreign borrower or registry-settlement receipts. Processor exit must transfer root-cell backing, still payloads, code descriptors, resources and unresolved operation records before their old scan/locking facilities disappear.
+
+* RESEARCH Allocation-attempt and registration protocol
+:PROPERTIES:
+:CUSTOM_ID: rc-attempt-protocol
+:END:
+
+#+NAME: rc-proposed-results
+| Proposed result | Meaning | Caller custody |
+|-----------------+---------+----------------|
+| DefiniteFailure(OperationId, reason) | No published storage entry; exact attempt is terminal | Release source protection only after failure/abort is known; no retry with same ID as a new effect |
+| Published(OperationId, AllocationKey, payload view, root coverage) | Storage/root/result transaction committed | Managed borrower uses generation-bearing handle; source GC protection can transfer only to proved target roots |
+| Pending(OperationId, request digest, stable custodian) | Service delivery outcome unknown | Keep roots, candidate/backing and operation record; exact query, never translate into NULL |
+
+OperationId identifies a semantic allocation attempt, not equal argument bytes. Re-executing an allocation expression after continuation restoration is a new attempt and must receive a new ID; only redelivery of the same attempt reuses its ID. The stable issuer/fence outside restored frames remains an execution obligation.
+
+These are design records, not a new implemented C API. Existing synchronous alloc_rc returning NULL is a definite local failure in its visible wrapper: register_rc is not called. A cancelled asynchronous delivery or lost service response is a different event. Old pointer/void signatures cannot silently encode this distinction; generated C FFI adapters and failure paths need an explicit migration.
+
+The ordering is:
+
+1. Acquire a nonallocating stable attempt slot and protect any Scheme inputs before the first allocating operation. Metadata exhaustion here is definite failure before native allocation.
+2. Check header-plus-payload arithmetic and allocator provenance. Call the native allocator outside the index mutex. Preserve the original header base separately from the returned payload view.
+3. On NULL, record definite no-storage completion. On success, transfer private allocation custody to the stable attempt record before exposing it. A native return-to-record cancellation/exception gap still needs a real nonabandonable guard proof; this study does not manufacture recovery for an unrecorded pointer.
+4. Under the storage owner transaction, resolve allocation identity and reserve the occupied extent. Index metadata failure after native success retains a private candidate until definite abort; do not return a failure while leaking responsibility.
+5. Prepare scan-visible private root cells/descriptor. Publish complete root bundle and immutable operation result as one observation. Root initialization and source-before-allocation coverage remain native premises.
+6. Observe the exact operation outcome. Only a proved independent target root can replace source GC protection. A lost acknowledgement preserves stable owner custody.
+
+The new model's sourceHold is GC protection for the Scheme input, not the parent's semantic source-write freeze lease. Releasing this protection does not free native header backing, return every alias lease, or permit an unmanaged setter. The parent's alias/copy binding and writer protocols require a separate product refinement. In particular, do not map sourceHold directly onto the dual-applicant index model's entire alias lifetime lease.
+
+* RESEARCH Reference release, unpublication and free
+:PROPERTIES:
+:CUSTOM_ID: rc-release-protocol
+:END:
+
+A caller reference release settles an exact native lease; it does not directly execute free. Existing raw refcount APIs must be replaced or constrained by a generation/lease-bearing adapter. Atomicizing refcount alone does not close late retain, raw callback, root-scan or cleanup races.
+
+#+NAME: rc-free-permit
+| Stage | Required evidence | Forbidden inference |
+|-------+-------------------+---------------------|
+| Close admission | Same owner excludes new native retains/lookups | Context exit or refcount zero does not imply this |
+| Drain | Every accepted callback/reference, code/native pin, scan and foreign effect is settled | Join success is not a native-borrow receipt |
+| Unpublish | Withdraw root-use admission; retain the physical extent claim through free completion or unknown-effect quarantine | Removing an entry is not proof that old GC descriptors vanished |
+| Scan/code grace | No prior scanner/descriptor/code reader can touch header/data | release/acquire visibility alone is not lifetime protection |
+| Physical free | Exact allocation generation and original allocator base; effect-complete permit; single executor | Payload pointer, stale token or a duplicate reply cannot initiate another free |
+| Record outcome | Stable owner records terminal completion or retains unknown irreversible-effect state | Lost acknowledgement does not justify another free or address reuse |
+
+The unified record has two views: root-use admission and physical storage occupancy, mutated by the same owner. In the model, index=4 means the root-use view is withdrawn; owned=1 or owned=2 still retains the physical extent claim. Only known physical free (owned=0) permits address reuse.
+
+Here root-entry unpublication is distinct from allocator ownership of backing. The allocator/arena still forbids overlapping fresh allocation until physical free completes. Withdrawing root-use admission cannot declare the header memory globally available. Equating this intermediate state with the parent model's fully unlinked extent would be an invalid refinement. The parent's interval reservation model and this allocation owner need an explicit composition relation; the new finite model has only one allocation cohort and therefore does not prove arbitrary concurrent allocator exclusion.
+
+If a free call's outcome becomes unknown, neither retrying free nor advancing generation is admitted. The owner retains a poisoned identity/result record, not an assertion that the old memory is still physically allocated. A portable generic recovery signer for the free-return-to-record window is not identified. Ordinary synchronous free returning normally is not itself a lost-response event; the uncertainty belongs to the proposed managed completion boundary.
+
+* RESEARCH Address reuse and the raw-pointer impossibility boundary
+:PROPERTIES:
+:CUSTOM_ID: rc-address-reuse
+:END:
+
+AllocationKey contains allocator domain, StorageId and generation. A copied old handle is rejected against the new generation before dereferencing old storage. Generation and OperationId never wrap within their admitted representation; exhausted identity space refuses issuance or selects a genuinely fresh identity domain.
+
+Adding generation only inside an address-index entry cannot authenticate the caller's expected incarnation. If old and current requests supply the same address to the same current index state, an address-only authorization function receives identical inputs. It cannot both reject the old caller and accept the new one. [[file:models/lean/RcStorageBoundary.lean][The boundary theorem]] formalizes this information deficit for abstract address tokens. This is not permission to evaluate or compare an expired C pointer: C lifetime rules still apply.
+
+Therefore choose one explicit boundary: a generation-bearing Module/Storage/Lease handle; a wrapper whose native borrow is provably confined before reuse; or refusal of managed reuse for untracked raw aliases. Looking up the current generation by raw address and treating it as the expected generation is unsound. Old raw C APIs cannot be globally retired until exported and out-of-tree callers migrate or are excluded from this guarantee.
+
+* RESEARCH cleanup_rc, unknown commit and processor retirement
+:PROPERTIES:
+:CUSTOM_ID: rc-cleanup-custody
+:END:
+
+#+NAME: rc-cleanup-custody-matrix
+| State when cleanup is requested | Custodian and permitted progress | Still missing in native code |
+|---------------------------------+----------------------------------+------------------------------|
+| Ticket/allocator in flight | Stable attempt owner retains input roots and allocation-return record | Real allocation guard spanning native return and result publication |
+| Private candidate | Private allocation owner; definite abort may free after resource/root withdrawal and grace | Separate never-linked abort API and effect classification |
+| Published result unknown | VM owner accepts header root-cell backing, source hold, descriptor and immutable result; callback/scan state remains live | Atomic StorageHandoffReceipt and next-round VM root enumeration |
+| Known live entry | Close borrower admission and drain exact leases; keep Scheme payload and executable code live | Complete raw caller and GC/code consumer census |
+| Unpublished, grace incomplete | Storage owner retains header despite no new entry lookup | Real grace signer and late descriptor admission closure |
+| Physical free unknown | Stable VM/domain custodian retains poisoned result record; no retry/free/reuse | Independent recovery authority not identified |
+| Whole VM shutdown | Continue owner service until every domain has a terminal drain or explicit external handoff | No generic all-domain teardown receipt found |
+
+Old cleanup_rc cannot erase a mixed legacy/managed chain before ownership is classified. Its saved next pointer is valid only while that old list/backing remains exclusively owned and stable. A new owner must either detach known transferred nodes under a proved chain protocol or keep its own registry; blindly resetting the head then inspecting potentially reclaimed nodes is not a migration protocol. Still-object cleanup must likewise wait for the transferred payload backing contract, not merely for RC header ownership.
+
+* RESEARCH Formal scope, controls and composition gaps
+:PROPERTIES:
+:CUSTOM_ID: rc-formal-scope
+:END:
+
+[[file:models/quint/rc_storage_lifecycle.qnt][The actual QNT model]] covers one allocation cohort, up to two operation/storage generations, one base reference, one extra exact reference, one callback borrower, one scan and one native pin. Its numeric size example is payload 0–9, header 8 and limit 16, purely abstract arithmetic coordinates. These numbers are not native sizeof measurements or performance estimates.
+
+#+NAME: rc-model-phases
+| Phase | Meaning |
+|-------+---------|
+| 0 / 1 | Idle / stable ticket before allocation |
+| 2 / 3 | Private native allocation / index reservation and private rooting |
+| 4 / 5 | Published live / admission closing |
+| 6 / 7 | Unpublished backing retained / physical free in flight |
+| 8 / 9 / 10 | Known freed / free outcome unknown and retained / definite failure without storage |
+
+Publication leaves result knowledge unknown. New native/callback borrowing can happen before the submitting caller observes the response, so it is modeled independently of known. Closing entries continue to support collector scanning until unpublication. A context can exit with an unknown commit only after a stable VM owner takes custody; the model treats that handoff and root coverage as trusted native premises. A same-address second allocation increments generation and retains the old operation result, so old queries do not settle current storage.
+
+[[file:models/lean/RcStorageAst.lean][Typed IR is projected into Lean]], with action preservation partitioned into [[file:models/lean/RcStorageAllocation.lean][allocation]], [[file:models/lean/RcStoragePublication.lean][publication]], [[file:models/lean/RcStorageAccess.lean][access]], [[file:models/lean/RcStorageCleanup.lean][cleanup]] and [[file:models/lean/RcStorageReuse.lean][reuse]]. [[file:models/lean/RcStorage.lean][The full step and reachable-state induction]] composes those same action theorems. Preservation reuses unchanged invariant projections and isolates the hypotheses needed for changed fields. Earlier aggregate and group compilation timeouts, an unsuccessful full-formula tactic trial and noninductive-invariant diagnostics are retained, not relabeled as a pass or native defect. No timeout or heartbeat budget is widened.
+
+[[file:models/lean/RcStorageBoundary.lean][Generic boundary proofs]] establish checked integer totals, nonempty zero-payload headers, generation distinction, raw-address information limits, the linked-release precondition and the insufficiency of count zero or unknown outcomes for a free permit. These do not prove native pointer representation, malloc provenance or FFI closure.
+
+Seven concrete histories cover overflow, NULL, zero-payload headers, unknown commit across context exit, private abort, same-address reuse and unknown free. Four concrete mutants test premature free, unpublishing an unknown commit, context exit without custody transfer and unchanged reused generation. Each checks a safe predecessor, an enabled mutated guard and the negated postcondition; these are abstract invariant controls, not assertions of a reachable defect in current native Gambit. Four typed-IR corruption controls and eleven ASCENT scenarios test binding/scope/source/action/proof/owner/issuer rejection.
+
+Full composition with the parent's two-applicant index, semantic payload bindings and moving GC is unresolved. SourceHold is not a semantic-write lease; index entry removal is not physical allocator release. Unbounded native retain counts, arbitrary generations, replay-record reclamation, fairness and eventual shutdown remain separate obligations. C23 refinement, actual root coverage, source signatures and real completion guard issuance are not established by reachable-state induction.
+
+* RESEARCH Net benefit, cost and retirement
+:PROPERTIES:
+:CUSTOM_ID: rc-net-benefit
+:END:
+
+The [[file:rc-storage-lifecycle-matrix.org][SysML-derived matrix]] contains detailed source, issuer, memory, route and benefit rows.
+
+#+NAME: rc-work-accounting
+| Mechanism | Quantified work/custody boundary | Net-return condition |
+|-----------+----------------------------------+----------------------|
+| Checked size / definite NULL | One total-size validation; zero registration commits for definite no-storage result | Extra validation is small enough for the chosen allocation path; correctness does not imply a measured speedup |
+| Stable same-operation delivery | For r deliveries, at most one physical allocation and one publication in the admitted protocol, plus r-1 queries | Saved repeated preparation exceeds query, record and contention work; no current retry frequency assumed |
+| Generation-bearing release | One successful exact release; duplicate delivery returns prior result | Caller actually supplies expected identity; raw-pointer-only API cannot receive this benefit |
+| Canonical roots | One update owner per physical root cell per round | Do not merge distinct cells merely because their Scheme values alias; no root-count reduction claimed without census |
+| Unknown result custody | u unresolved allocations retain their actual backing bytes plus metadata and required roots | Bound admissions by available capacity; unbounded u defeats a bounded-memory claim |
+| Processor-independent ownership | Context retirement no longer defines native storage lifetime | VM scan/cleanup costs and retained capacity are justified by real lifecycle reuse and correctness |
+| C23 versus Zig | Same allocation index, GC bridge, operation ledger and native effect gates required | No additional Zig net return has been demonstrated; C23 remains sufficient for the contract |
+
+Existing alloc_rc already skips registration after NULL, and register_rc performs a constant-size context-list append. Preserving those properties is not a new optimization. The reference complete overlap check adds O(n) work per reservation; a more efficient index needs its own refinement. For ordinary synchronous allocation with no repeated deliveries, CPU and metadata cost may increase.
+
+Use avoided CPU work A and added index/transaction/query/GC/contention work I,T,Q,G,C in the same work units: positive CPU return requires A > I+T+Q+G+C. Retained bytes and blocked time are separate constraints. No person-day or invented timing estimate is used. Safety and modernized lifecycle boundaries can justify a refactor independently of a speed claim; this study does not assert measured allocator or compiler acceleration.
+
+#+NAME: rc-retirement-gates
+| Legacy responsibility | Required replacement | Retirement evidence |
+|-----------------------+----------------------+---------------------|
+| no-register raw allocator used as storage identity | Checked allocation-attempt owner and original-base receipt | All allocation/exported callers mediated; failure and unknown-result guard proved |
+| register_rc context append as complete root admission | VM root registry transaction plus GC activation cut | Every nonzero processor, scan and retained context covered; signature mismatch reconciled |
+| raw addref/refcount/release as lifetime authority | Generation-bearing exact native lease API | Tcl, closure, strings/list, resources and indirect/out-of-tree calls migrated or excluded |
+| direct zero-count physical free | Closed admission, reference/resource drain, unpublish and grace permit | Real signers and no late access; unknown free cannot retry |
+| cleanup_rc unconditional bulk free | VM-owned result-aware arena drain | Header, still payload, code and foreign effect responsibility transferred before context facilities disappear |
+
+All retirement gates are currently open; native paths retired = 0. Migration order: reconcile ABI/schema and classify resource kinds; establish attempt/provenance ownership; private abort; VM root registration and result publication; migrate exact native leases and adapters; then context handoff, physical free and same-address reuse. No wrapper layer counts as retirement unless the old bypass authority disappears.
+
+* RESEARCH Receipts and theory
+:PROPERTIES:
+:CUSTOM_ID: rc-reproduction
+:END:
+
+#+BEGIN_SRC python
+# Formal/design tools only, from the repository environment.
+# .venv/bin/python dev/modeling/tools/rc-storage-lifecycle-study.py
+#+END_SRC
+
+Read [[file:../../../evidence/research/rc-storage-lifecycle/checks.json][checks]], [[file:../../../evidence/research/rc-storage-lifecycle/input.json][input and log bindings]], [[file:../../../evidence/research/rc-storage-lifecycle/source-witnesses.json][physical source anchors]], [[file:../../../evidence/research/rc-storage-lifecycle/ascent-results.json][ASCENT controls]] and [[file:../../../evidence/research/rc-storage-lifecycle/artifacts.json][artifact hashes]]. Native SysML qualification is scoped to this package; no whole-DEV or native runtime qualification is implied.
+
+The public [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf][C23 draft N3096]] supplies object-lifetime, checked arithmetic (7.20), allocation/free (7.24.3) and synchronization constraints. The transaction design continues [[https://www.cs.cmu.edu/~wing/publications/HerlihyWing90.pdf][Herlihy and Wing's linearizability]] distinction between effect and response. These theoretical sources constrain the proposed interface; actual Gambit consumers and the missing native simulations determine admission.

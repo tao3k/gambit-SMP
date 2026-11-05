@@ -1,0 +1,37 @@
+direction: down
+classes: {
+  existing: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  proposed: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+  contract: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+}
+source: "Gambit: expand macros and resolve bindings\nEffective declarations, module and target context\nPreserve typed FFI in NEW parse-time side record" {class: existing}
+hook: "PROPOSED EXPORT\n_front.scm: before normalize-program (line 250)\nImmutable logical IDs; no Scheme pointers" {class: contract}
+source -> hook
+c_path: {
+  label: "C profile: retained compiler, managed build"
+  style.font-size: 20
+  normal: "Primitive expansion -> assignment conversion\nDead definitions -> beta reduction\nDead definitions -> lambda lifting" {class: existing}
+  c: "GVM and Gambit C emission" {class: existing}
+  object: "Native construction of generated C" {class: proposed}
+  normal -> c -> object
+}
+service: {
+  label: "Proposed isolated MLIR service"
+  style.font-size: 20
+  high: "Functional / dynamic Scheme IR\nNested lambdas, cells, arity, multiple values\nCall targets, guards, control effects" {class: proposed}
+  optimize: "Higher-order specialization and escape analysis\nAllocation policy: eliminate / native scope / GC" {class: proposed}
+  control: "Explicit closures and continuation control\nLocal joins distinct from multi-shot continuations" {class: proposed}
+  runtime: "Selected Gambit runtime protocol\nFrames, roots, calls, polls and module metadata" {class: contract}
+  native: "LLVM/native or protocol-aware C emission" {class: proposed}
+  high -> optimize -> control -> runtime -> native
+}
+hook -> c_path.normal: "existing route"
+hook -> service.high: "versioned semantic records"
+zig: "Zig engineering layer\nToolchains, service processes, buffers\nBuild graph, diagnostics and artifacts" {class: proposed}
+zig -> service.high: "request and transport" {style.stroke-dash: 3}
+zig -> c_path.object: "native construction" {style.stroke-dash: 3}
+admit: "Gambit semantic linking and admission\nRuntime execution / GC / scheduler authority\nA platform object alone is insufficient" {class: existing}
+c_path.object -> admit: "constructed C-route artifact"
+service.native -> admit: "runtime-compatible code object"
+note: "DESIGN ONLY: blue = retained Gambit; purple = proposed; orange = contract\nC-ABI companion kernels are a separate artifact class." {shape: text; style.font-size: 15}
+admit -> note: {style.opacity: 0}

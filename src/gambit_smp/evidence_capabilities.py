@@ -73,6 +73,7 @@ class EvaluationOwner:
         execution_origin(self.engine)
         request_sha = digest(request_path)
         if self.process is None:
+            from gambit_smp.task_processes import spawn as _task_spawn
             self.policy_identity()
             self.directory.mkdir(parents=True, exist_ok=False)
             self.log = (self.directory / "stderr.log").open("wb")
@@ -84,7 +85,7 @@ class EvaluationOwner:
             if slot is not None:
                 environment.update(GAMBIT_SMP_SESSION_CONSTRUCTION_LOCK=str(slot[0]),
                                    GAMBIT_SMP_SESSION_CONSTRUCTION_DEADLINE=str(slot[1]))
-            self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            self.process = _task_spawn(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=self.log, env=environment)
             self.argv = argv
         row = {"request": str(request_path), "requestSha256": request_sha,
@@ -162,13 +163,13 @@ class EvaluationOwner:
         forced = False
         try:
             from gambit_smp.ascent_program import construction_admission, construction_slot
-            admission = (construction_admission() if construction_slot() is not None
+            admission = (construction_admission(deadline=self.deadline) if construction_slot() is not None
                          and all(row["requestCompleted"] for row in self.records) else nullcontext())
             with admission:
                 # Completed owners finalize one at a time; unfinished native
                 # requests must not wait on a permit they may themselves hold.
                 self.process.stdin.close()
-                self.process.wait(timeout=max(.001, min(1, self.deadline - time.monotonic())))
+                self.process.wait(timeout=max(.001, self.deadline - time.monotonic()))
         except (subprocess.TimeoutExpired, TimeoutError):
             forced = True
             if not self.process.stdin.closed:
@@ -275,6 +276,10 @@ def facts(receipt):
         result["required_step"].append([name])
         result["observed_step"].append([name, step["outcome"], step["capability"]])
         result["step_dependency"].extend([name, parent] for parent in step["dependsOn"])
+        storage = step.get('workspaceReuse')
+        if isinstance(storage, dict) and 'sourceContentId' in storage:
+            result.setdefault('runtime_storage_observation', []).append([
+                name, storage['mode'], storage['sourceContentId'], storage['copiedFiles']])
         if step["outcome"] == "PASS":
             decision = step.get("producerDecisionSupersession")
             if decision is not None:

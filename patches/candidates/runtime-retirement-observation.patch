@@ -1,0 +1,65 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -191,6 +191,9 @@ void ___vm_registry_close ___PVOID
+ #endif
+ }
+ 
++static ___VOLATILE ___UWORD vm_registry_seal_old_lease_bits = 0;
++static ___VOLATILE ___UWORD vm_registry_post_close_lease_bits = 0;
++
+ ___HIDDEN void vm_registry_seal ___PVOID
+ {
+ #ifndef ___SINGLE_VM
+@@ -199,6 +202,12 @@ ___HIDDEN void vm_registry_seal ___PVOID
+     old = ___COMPARE_AND_SWAP_WORD(&vm_registry_gate, 0, 0);
+   while (___COMPARE_AND_SWAP_WORD(&vm_registry_gate, old, old | 3) != old);
++  __atomic_store_n(&vm_registry_seal_old_lease_bits,
++                   old & ~(___UWORD)3,
++                   __ATOMIC_RELEASE);
+   ___vm_registry_close();
++  __atomic_store_n(&vm_registry_post_close_lease_bits,
++                   __atomic_load_n(&vm_registry_gate, __ATOMIC_ACQUIRE) & ~(___UWORD)3,
++                   __ATOMIC_RELEASE);
+ #endif
+ }
+ 
+@@ -211,6 +220,31 @@ int ___vm_registry_sealed ___PVOID
+ #endif
+ }
+ 
++___EXP_FUNC(___UWORD,___vm_registry_seal_old_lease) ___PVOID
++{
++  return __atomic_load_n(&vm_registry_seal_old_lease_bits, __ATOMIC_ACQUIRE);
++}
++
++___EXP_FUNC(___UWORD,___vm_registry_post_close_lease) ___PVOID
++{
++  return __atomic_load_n(&vm_registry_post_close_lease_bits, __ATOMIC_ACQUIRE);
++}
++
++___EXP_FUNC(___UWORD,___vm_registry_gate_observed) ___PVOID
++{
++#ifndef ___SINGLE_VM
++  return __atomic_load_n(&vm_registry_gate, __ATOMIC_ACQUIRE);
++#else
++  return 0;
++#endif
++}
++
++static void vm_registry_reset_observations ___PVOID
++{
++  __atomic_store_n(&vm_registry_seal_old_lease_bits, 0, __ATOMIC_RELAXED);
++  __atomic_store_n(&vm_registry_post_close_lease_bits, 0, __ATOMIC_RELAXED);
++}
++
+ void ___vm_registry_open ___PVOID
+ {
+ #ifndef ___SINGLE_VM
+@@ -7078,6 +7112,7 @@ ___setup_params_struct *setup_params;)
+ 
+   cleanup_phase = 0;
+ 
++  vm_registry_reset_observations();
+   /*
+    * Remember setup parameters.
+    */

@@ -1,0 +1,13 @@
+# 9/12 is not closed
+
+2026-10-23. No milestone edit. `qualify_nine_of_twelve(".")` returns admitted false, count 8/12.
+
+`os_join_error_then_success` returns false when the text contains `LIFECYCLE-JOIN:STILL-JOINABLE-THEN-SUCCESS` (lines 495–496) and when `re.fullmatch` fails (lines 502–503). It returns true only for an exact nonzero errno other than EINVAL 22, then `LIFECYCLE-JOIN:SAME-OWNER-JOIN 0`. Three shipped checkpoint tests passed, including `test_real_recovery_banner_is_not_a_still_joinable_join`.
+
+Lifecycle campaign `.cache/tasks/repair-9-12/lifecycle-borrower-3` is DENY, exit 2, timeout false, runtimeAdmitted false. join-probe stdout is `LIFECYCLE-JOIN:NO-STILL-JOINABLE-ERROR` then `(11 0 1 0 11 0)`. `.cache/tasks/repair-9-12/lifecycle-borrower-4` is the unchanged-route refusal. That route was not replayed. On this Darwin host a same-owner `EDEADLK` retry stays 11 until that owner exits, so the borrower-drain edit cannot record a still-joinable `___thread_join` error followed by same-owner join 0.
+
+The other three published contracts are also unmet. GC/FFI still needs the numerical case inside the unchanged 90-second cap and the current-producer stress/PR inventory. Gerbil still has no exclusive source cause. Release still has no accepted producer. None of those was substituted for the lifecycle receipt. The milestone stays 8/12.
+
+`.cache/tasks/repair-9-12/gc-ffi-inventory-inplace-1` passed candidate, runtime, numeric, and official, then stress-gsi timed out: exit -9 after 4517s. `suite-0-0.stdout` shows `tfib_stress.scm` reached the next file, `thread_interrupt2_stress.scm` failed with exit 70 inside `thread-join!` of thread #3, and `thread_interrupt_stress.scm` was still running when the suite was killed. `thread_terminate_stress.scm` did not run. That inventory was not replayed. `structure-lifetime-source-map.json` still has `nativeCauseEstablished` false and `producerIdentity` UNKNOWN. No release campaign on an accepted producer was started. No 9/12 edit.
+
+The same imported gsi rejects `(##vector-inc! (vector 0) 0)` with wrong-number-of-arguments and accepts `(##vector-inc! (vector 0) 0 1)`. `gsc/_prims.scm` already lists `##vector-inc!` as `(2 3)` at lock revision 7c490c3 and at vendor HEAD. The callable procedure in `.cache/tasks/repair-9-12/ci/gambit-runtime-numeric-host.tar` is still three-argument. stress-gsi uses that archive, not a gsi rebuilt from a candidate edit. `##atan` on that gsi does accept its short arity, so this is specific to `##vector-inc!`. Rebuilding that runtime was not started. Even a two-argument primitive would leave `thread_interrupt_stress.scm` inside the same 3600s stress step, so this one change does not close the GC/FFI gate. The milestone stays 8/12.

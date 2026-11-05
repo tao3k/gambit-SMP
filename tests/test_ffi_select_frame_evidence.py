@@ -4,6 +4,7 @@ import unittest
 
 from gambit_smp.ascent_program import engine_api, evaluate
 from gambit_smp.evidence_views import load, registry
+from gambit_smp.evidence_index import export
 from gambit_smp.framework import ROOT, digest
 
 VIEW = "evidence/scenarios/concurrent-gc/ffi-select-frame.view.json"
@@ -58,8 +59,15 @@ class SelectFrameEvidenceTests(unittest.TestCase):
 
     def test_exact_model_import_recipe_and_unproved_conditions(self):
         record = json.loads((ROOT / "evidence/fixtures/darwin-ticket-ownership-acquire/ffi-select-relock-model.json").read_text())
-        for field in ("source", "import", "recipe"):
+        for field in ("source", "recipe"):
             self.assertEqual(digest(ROOT / record[field]), record[field + "Sha256"])
+        # Preserve the observed import version, not a pass for today's import.
+        history = export()["facts"]["historical_frozen_negative"]
+        snapshots = {row[3] for row in history if row[0] == "ffi_gc_frame_protocol"}
+        self.assertTrue(snapshots)
+        for path in snapshots:
+            self.assertEqual(digest(ROOT / path), record["importSha256"])
+        self.assertEqual(record["import"], "models/gambit/ffi_gc_frame_protocol.qnt")
         self.assertEqual(0, record["checks"][0]["queued"])
         self.assertTrue(all(row["accepted"] for row in record["checks"]))
         self.assertEqual(3, sum(row["negative"] for row in record["checks"]))

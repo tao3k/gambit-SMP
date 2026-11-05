@@ -1,0 +1,7 @@
+import NativeScope
+open NativeScopeAst NativeScope
+def witness : State := rawInterferenceNext (issueNext (initial))
+example : issueGuard (initial) := by simp [issueGuard,initial]
+example : rawInterferenceGuard (issueNext (initial)) := by simp [rawInterferenceGuard,initial,issueNext]
+example : Safe witness := by simp [CanUse,Safe,issueGuard,beginWriteGuard,publishReleaseGuard,recordOutcomeGuard,deliverOutcomeGuard,loseResponseGuard,recoverRecordedGuard,enterNestedGuard,leaveNestedGuard,catcherSubtreeGuard,acquire0Guard,acquire1Guard,closeAdmissionGuard,renewSameThreadGuard,prepareMigrationGuard,targetAcquireGuard,issueTargetGuard,rejectStaleDeliveryGuard,rawInterferenceGuard,retireGuard,initial,issueNext,rawInterferenceNext,witness]
+example : ¬ (CanUse witness) := by simp [CanUse,Safe,issueGuard,beginWriteGuard,publishReleaseGuard,recordOutcomeGuard,deliverOutcomeGuard,loseResponseGuard,recoverRecordedGuard,enterNestedGuard,leaveNestedGuard,catcherSubtreeGuard,acquire0Guard,acquire1Guard,closeAdmissionGuard,renewSameThreadGuard,prepareMigrationGuard,targetAcquireGuard,issueTargetGuard,rejectStaleDeliveryGuard,rawInterferenceGuard,retireGuard,initial,issueNext,rawInterferenceNext,witness]

@@ -1,0 +1,47 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -1375,6 +1375,21 @@
+       __atomic_store_n (&___delivery_c1_commit_ready, 1, __ATOMIC_RELEASE);
+       __atomic_store_n (&___delivery_c1_holding, 1, __ATOMIC_RELEASE);
+     }
++}
++
++/* Observation aliases are not production request roots. Configured cases
++   publish only their one validated subject; the legacy C1 arm remains a
++   test-only entry. No allocation, GC, callbacks or locks occur here. */
++int ___delivery_obs_publish_enabled
++   ___P((___SCMOBJ thread),
++        (thread)
++___SCMOBJ thread;)
++{
++  if (!__atomic_load_n (&___delivery_obs_configured, __ATOMIC_ACQUIRE))
++    return ___delivery_c1_arm != 0;
++  return delivery_obs_is_subject (thread) &&
++    __atomic_load_n (&___delivery_obs_constructed, __ATOMIC_ACQUIRE) == 1 &&
++    (__atomic_load_n (&___delivery_obs_invalid, __ATOMIC_ACQUIRE) & 1) == 0;
+ }
+ 
+ void ___delivery_obs_note_gc_return
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -2505,10 +2505,16 @@
+         (##c-code "___delivery_obs_note_construct (___ARG1, ___ARG2); ___RESULT = ___VOID;"
+                   thread
+                   interrupt)
+-        (##c-code "___delivery_obs_writer_begin (2); ___RESULT = ___VOID;")
+-        (set! ##delivery-case-mutex result-mutex)
+-        (set! ##delivery-case-request interrupt)
+-        (##c-code "___delivery_obs_writer_end (2); ___RESULT = ___VOID;")
++        ;; Disabled observation must not publish extra global roots or
++        ;; contend on a global writer ledger on every production request.
++        ;; Configured controls retain the same writer/holder protocol.
++        (if (##c-code "extern int ___delivery_obs_publish_enabled ___P((___SCMOBJ),()); ___RESULT = ___delivery_obs_publish_enabled (___ARG1) ? ___TRU : ___FAL;"
++                     thread)
++            (begin
++              (##c-code "___delivery_obs_writer_begin (2); ___RESULT = ___VOID;")
++              (set! ##delivery-case-mutex result-mutex)
++              (set! ##delivery-case-request interrupt)
++              (##c-code "___delivery_obs_writer_end (2); ___RESULT = ___VOID;")))
+         (macro-mutex-specific-set! result-mutex thread)
+         (macro-mutex-lock! result-mutex #f thread)
+         (let ((published (##thread-intr-retain! interrupt)))

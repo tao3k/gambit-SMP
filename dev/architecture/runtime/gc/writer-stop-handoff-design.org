@@ -1,0 +1,237 @@
+#+TITLE: Modern C Writer Closure and Repeated Helper Handoff
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: OPEN RESEARCHED | CLOSED
+
+* Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: writer-stop-handoff
+:STATUS: conditional-models-only
+:MAINLINE: modern-c
+:END:
+Modern C is the required runtime mainline. This study closes a design omission in
+[[file:origin-bind-commit-design.org][origin admission and binding commit]]: its stop receipts were external premises and
+its single helper was not itself subject to repeated interruption. Neither the
+existing catcher nor a thread-exit observation issues those receipts today.
+
+The semantic authority is [[file:models/sysml/writer-stop-handoff.sysml][the SysML model]]. Its native evaluation supplies
+contracts, component needs, dependencies, transition mapping, source routes,
+implementation steps and the [[file:writer-stop-handoff-matrix.org][closure/benefit matrix]]. The
+[[file:../../../../vendor/gambit/dev/modern-c/implementation-plan.org][vendor modern-c implementation action board]] is a generated projection of those
+steps. It is an actual documentation addition in that checkout, not an implemented
+runtime change. No runtime source, generated C, bootstrap or native test is changed
+or executed here. No commit or push is claimed.
+
+#+begin_quote
+The first runtime cut is a connected ownership slice: rooted native entry,
+resident activation/lease, generated exits, post-catcher transfer, repeated-helper
+closure and thread lifecycle. Merely adding a guard macro cannot retire the old
+ownership system. This slice enables the broader GC/SMP refactoring; it is not the
+whole modernization program.
+#+end_quote
+
+* Source-backed issuance gap
+** Generator and conversion exits
+:PROPERTIES:
+:CUSTOM_ID: writer-stop-generated-exits
+:END:
+=vendor/gambit/gsc/_ptree2.scm:2902-2925= computes =cleanup?= from parameter
+conversion types. The branches at =2940-3017= select =CFUN_ERROR_CLEANUP*= or
+ordinary error macros; =3238-3251= selects body-with-TRY on that same condition.
+This is useful conversion-resource cleanup, but does not describe all stores,
+borrows, nested callbacks or nonlocal escapes of the native body.
+
+=include/gambit.h.in:10325-10404= spills/reloads the Scheme context and expands
+=___AT_END= inside the TRY body, before =___END_TRY=. A throw skips normal body
+fallthrough. Conversion cleanup after a caught body error may still run; it must
+be enumerated rather than incorrectly claimed to disappear universally. Scope
+creation and exit coverage must be independent of =cleanup?= in both inline and
+out-of-line generated paths. =return/goto/longjmp= in arbitrary user C cannot be
+silently treated as a managed exit; rewrite that entry or refuse qualification.
+
+** SFUN, call and run
+=include/gambit.h.in:10043-10065= makes the marker before generated arguments.
+=lib/c_intf.c:6511-6550= allocates its vector and explicitly records a TODO that
+=proc_or_false= may already have moved. Source-root admission must precede that
+allocation; a stop protocol does not fix the bootstrap root gap by itself.
+
+=lib/setup.c:3276-3390= installs a return-to-C frame, catches trampoline exit,
+then may call =___throw_error= again when error/marker does not match. The normal
+marker kill in =___run= is inside its TRY (=3394-3423=); a rethrow reaches the
+outer catch without executing that kill. =___propagate_error= (=853-867=) is a
+conditional rethrow, not a finally block. SFUN macro fallthrough kills and
+propagates; that fallthrough is not universal exception coverage.
+
+The future generator must put a stable scope locator in VM-owned storage before
+native effects. A common noescape funnel runs after catcher restoration or
+explicitly transfers to the enclosing registered scope on rethrow. It preserves
+the original exception/result, marker disposition, root debt and borrow graph.
+A cleanup call that can reenter or throw needs a recorded child debt *before*
+it is invoked. If it never returns, retain the debt; do not publish a false seal.
+Nested continuation escape closes exact activations, not every scope sharing a
+PSTATE. Same dynamic-wind context is not evidence of C-stack exit.
+
+C setjmp rules make changed nonvolatile automatic locals an unsuitable sole
+recovery journal. A volatile qualifier does not provide inter-thread atomicity,
+root registration or a no-future-write guarantee.
+
+** Thread stop and two run callers
+=lib/setup.c:781= calls =___run= for a worker, then performs error delivery and
+synchronization service. =6425= is the main caller. Returning from =___run= closes
+neither the whole worker lifetime nor externally queued callbacks.
+
+The shrink route =setup.c:930-936= cleans PSTATE before =___thread_exit=;
+=966-971= ignores =___thread_join='s error. =lib/os_thread.c:546-590= checks the
+POSIX join return, and thread exit calls =pthread_exit=. The wrapper's failure
+translation also uses =err_code_from_errno= rather than explicitly carrying the
+pthread return value; a future typed outcome must retain the actual platform
+return independently. No specific errno diagnosis is inferred here.
+
+A pre-exit guard is earlier than cancellation cleanup/TSD destructors. The
+runtime's own TLS key has a NULL destructor (=os_thread.c:989=); this narrow fact
+does not cover foreign TLS, helpers or borrowed native pointers. Successful
+unique join establishes target termination; a complete producer census is still
+needed for all other writers. Failed/unknown join retains VM custody. No mutex
+owned by an unverified stopped actor may be force-unlocked as a recovery tactic.
+
+* Receipt and handoff contract
+** Identity, authority and publication
+:PROPERTIES:
+:CUSTOM_ID: writer-stop-receipts
+:END:
+Use one canonical bounded activation record and lease, not a new map entry per
+retry. Each acquisition records activation/session identity, checked writer
+generation, exact slot/source lease, writer classes, permits, scan/read pins and
+result disposition *before* allowing that actor to issue stores. A missing
+acquisition response is reconciled against this record; it is not a reason to
+start a second operation or free the first actor's support.
+
+A data seal and a control seal bind the exact generation and complete admitted
+producer graph. For each relevant class they require both:
+
+1. No future authority: the entry gate has closed against new writer/borrow
+   acquisition, including native helper and callback admission.
+2. No in-flight operation: already granted stores, ownership CAS, readers that
+   still authorize writes, native borrows and callback-created cleanup debt have
+   actually completed or transferred under an equally strong closure witness.
+
+Checking an open flag and later incrementing a counter is insufficient: close can
+observe zero between them. The implementation needs a single proven gate/permit
+linearization protocol. A release-published seal follows physical stores and
+permit settlement; the successor acquires exact-generation seals. The abstract
+model assumes such atomic steps; C/ISA refinement remains open.
+
+** Helper interruption and no unbounded history
+A helper is a new writer, including a helper whose acquisition reply was lost.
+Old owner seals cannot close the helper's future or pending stores. Before a
+successor is authorized, repeat closure for the previous helper, drain metadata
+readers and validate the same canonical slot/source identity. On checked counter
+exhaustion, refuse new authority and retain custody; never wrap into an old token.
+The finite model includes owner plus two helpers, not arbitrary-helper induction.
+
+A private store may complete before its progress bit. Repair may replay only a
+finite declared set of idempotent private control writes, after exclusive closure.
+It must not replay Scheme evaluation, native allocation/free, foreign destructor,
+marker refcount decrement or a GC-updated root payload. Partial marker clear and
+refcount decrement need their own effect receipt/ownership adapter before a
+helper can complete them. This remains a separate source obligation.
+
+The record can be reused only after no stale issuer/readers can act, the result
+and source ACKs settle, and physical scan pins drain. O(1) metadata per live
+activation is a design capacity property, not a bound on pinned source frames,
+unknown foreign resources or recovery latency.
+
+** Conditional custody proof
+#+NAME: writer-stop-custody-cases
+| Observation | Safe next action | Custodian / unresolved requirement |
+|------------+------------------+------------------------------------|
+| Generated normal exit with exact drained borrows | Publish class-specific seals | Stable VM journal until ACK/readers settle |
+| Registered catcher restores and common funnel completes | Transfer/close exact activation | Original exception and marker/root debt remain explicit |
+| Owner exit seen, pending store unknown | Query or wait; no successor | VM keeps source, slot and progress |
+| Helper exit after original owner stopped | Close helper's own generation | Original owner receipt has no authority here |
+| Unique successful join plus complete census | Produce qualified stop witness | Other helper/foreign debts still need their own closure |
+| Failed/unknown join, foreign escape or incomplete census | Refuse seal and reclaim | VM custody; raw data writers may still block GC |
+| Frozen registered root, unknown private metadata writer | GC may scan independent old view | Root adapter/scan pin must not depend on writer callback |
+
+Proof conditions: complete producer membership, race-safe admission gate, exact
+lease identity, stable rooted source, no untracked raw writes, and real closure
+witnesses. Under these conditions, no old-generation write overlaps successor
+private repair; the source remains scannable through unknown outcome; progress
+repair cannot undo collector relocation. Removing any of these premises invalidates
+the argument. It is not a proof that arbitrary asynchronous C-thread death is
+recoverable, nor a proof that every unknown state permits the collector to finish.
+
+* Executable research chain and retained counterexamples
+:PROPERTIES:
+:CUSTOM_ID: writer-stop-model-chain
+:END:
+- [[file:models/sysml/writer-stop-handoff.sysml][SysML]] owns typed component needs, prerequisite references, transition/source
+  routes, closure-cut predicates and implementation-step-to-need associations.
+- [[file:../../../../models/gambit/writer_stop_handoff.qnt][QNT]] separates physical write from progress, data/control permits, borrowed
+  calls, cleanup debt, owner/helper acquisition, missing response, result ACK and
+  GC scan. Root completeness and actual noescape/termination are external premises.
+  Data writes in this finite model are private binding metadata; it does not
+  freeze arbitrary Scheme payload writes merely by setting a flag.
+- [[file:../../../../models/gambit/lean/WriterStopHandoff.lean][Lean]] proves selective conditional rejection, identity and custody laws.
+  It does not prove all QNT transitions, C-memory simulation or source coverage.
+- [[file:../../../modeling/ascent/writer-stop-handoff.rules.scm][ASCENT DSL]] derives method/check obligations from native SysML data and joins
+  exact artifact digest, scope and dependency receipts. Typed implementation needs
+  derive blocked source steps, not just file links. The
+  [[file:../../../modeling/ascent/writer-stop-handoff.request.scm][retained executable request]] includes actual facts/rules.
+- [[file:diagrams/writer-stop-handoff.d2][D2]] and Org matrices/action board are native-model projections.
+
+Unsafe histories retain premature data-only seal, owner-seal reuse, pending-store
+seal, exit-only seal, cleanup debt, raw borrow, unknown-result release, replay of
+moved root and duplicate commit. An independent unsafe run must violate =safe=;
+its expected nonzero exit is evidence, not a failed acceptance hidden from report.
+Sampling is bounded and not exhaustive. Source/C needs remain open even when
+WS-H and WS-I have local receipts. A synthetic all-scoped case tests routing and
+must never be presented as native qualification.
+
+* Benefit decision and peak boundary
+Use the [[file:writer-stop-handoff-matrix.org][generated matrix]] for conditional benefits and newly required support.
+Let A be admitted live activations, L live canonical helper leases, R resident
+receipt records, and g actual successful successions. Metadata remains O(A+L+R),
+not O(total retries), if reuse obeys full issuer/reader draining. Total closure
+work is O(g), with two class-specific seals per succession; this is not free.
+For g=2 in the finite history, two transitions each validate the predecessor's
+pair of seals. Real ABI sizes remain unmeasured.
+
+Count only fields not already included in prior root/journal budgets:
+=DeltaH = A*newScopeBytes + L*newLeaseBytes + R*newReceiptBytes + pinnedBacking=.
+The claimed reduction condition is eliminated retry support/backing greater than
+new support plus source/canonical-root overlap. We have not proved or measured
+that inequality for the whole runtime. There are zero retired runtime paths and
+no established whole-heap peak or speed improvement in this turn.
+
+The architectural benefit sought is stronger than cleanup convenience: Scheme
+continuations and precise roots become usable across explicitly owned native
+activations without requiring the dying owner to service GC callbacks. Modern C
+can express this design directly; Zig removes neither these contracts nor their
+proof obligations. It is not a second required runtime for this slice.
+
+* Primary references and limits
+1. Herlihy and Wing, /Linearizability: A Correctness Condition for Concurrent
+   Objects/, ACM TOPLAS 1990, [[https://cs.brown.edu/~mph/HerlihyW90/p463-herlihy.pdf][author-hosted paper]]. Invocation/effect/response
+   separation motivates lost-response reconciliation. It does not prove C ordering.
+2. WG14 [[https://open-std.org/JTC1/SC22/WG14/issues/c90/issue0008.01.html][issue 0008.01]] gives the committee's changed nonvolatile setjmp-local rule
+   and optimization interpretation. This supports resident recovery state, not a
+   target-specific atomic qualification.
+3. Open Group [[https://pubs.opengroup.org/onlinepubs/009696899/functions/pthread_exit.html][pthread_exit]] and [[https://pubs.opengroup.org/onlinepubs/9799919799/functions/V2_chap02.html][thread termination ordering]] specify cleanup/TSD
+   execution before thread termination. Official indexed text was consulted;
+   installed Darwin/foreign-library closure is not thereby qualified.
+
+* OPEN Remaining source and native obligations
+:PROPERTIES:
+:CUSTOM_ID: writer-stop-open
+:END:
+- Complete generated and arbitrary-user-C effect/escape/borrow census.
+- All nonzero processor roots and marker preallocation protection.
+- Post-catcher funnel that itself cannot escape without recorded debt transfer.
+- True stop/complete-helper/foreign-destructor witnesses and unique join owner.
+- C-memory gate, permit, seal publication and checked generation refinement.
+- Partial marker clear/decrement effect reconciliation.
+- Full native bootstrap/GC/SMP/FFI acceptance after implementation authorization.
+
+No new test or receipt converts these open obligations into closed source proof.

@@ -1,0 +1,344 @@
+#+TITLE: Construction Escrow, Covered GC Debt and Non-Cyclic Recovery
+#+PROPERTY: header-args :eval never
+#+STARTUP: overview
+#+OPTIONS: toc:3
+
+* Architecture decision and qualification boundary
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-decision
+:MAINLINE: modern-generated-C
+:STATUS: conditional-model-source-order-open
+:END:
+
+A constructor need not return before GC can finish. It must instead provide a
+complete, current, immutable view of every managed dependency and an exact
+custodian for its native resources and reserved ticket. GC must not wait for a
+business completion that itself requires GC return. This distinction is necessary
+because Gambit's foreign-wrapper allocation can synchronously invoke GC after
+the native resource has already been created.
+
+Introduce a typed ConstructionEscrow owned outside the resumable C stack. It
+contains the invocation identity, native resource stages, stable result/root
+slots, dependency/native/code leases, reservation and current epoch/generation.
+The owner retains exclusive execution responsibility for its native call; root
+scanners obtain only authority to scan the published immutable view. Moving a
+root view does not move, unwind, cancel or replay the foreign C call.
+
+Modern generated C is the mainline. Scheme owns FFI/exception semantics, compiler
+root/FrameSpec contracts and result mapping. Modern C owns admission, escrow,
+publication, root-domain integration, native resource leases and owner reentry.
+This design establishes no additional Zig runtime-work saving.
+
+[[file:models/sysml/constructor-debt-closure.sysml][GambitConstructorDebtClosure]] is the maintained authority for types, component
+needs, source routes, dependencies, caller/cost rows and diagram topology. Its
+ConstructionEscrow references the existing ReleaseRight, FrozenState,
+ReentryState and whole-round SealState types. Native sysml drives [[file:constructor-debt-closure-matrix.org][the matrix]]
+and [[file:diagrams/constructor-debt-closure.d2][D2]]. Actual [[file:../../../modeling/ascent/constructor-debt-closure.rules.scm][ASCENT rules]] connect exact artifact/digest/method/check/scope
+to [[file:../../../../models/gambit/constructor_debt_closure.qnt][QNT]] and [[file:../../../../models/gambit/lean/ConstructorDebtClosure.lean][Lean]], with source and memory-order obligations still open.
+The [[file:../../../../evidence/research/constructor-debt-closure/checks.json][receipt]] records this extension boundary, not global model requalification.
+
+No runtime implementation, native test, benchmark, path retirement, commit or
+push is included. No native-call termination guarantee, exhaustive model result,
+arbitrary C-stack capture or whole-application deadlock proof is claimed.
+
+* Why waiting for constructor completion is the wrong cut
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-cut
+:END:
+
+[[file:../../../../vendor/gambit/lib/c_intf.c::5156][POINTER_to_SCMOBJ]] receives an already-created native pointer, allocates a
+FOREIGN wrapper, then initializes tags/release_fn/ptr and publishes the result.
+[[file:../../../../vendor/gambit/lib/mem.c::1487][The allocation contract]] assigns body initialization to the caller before the
+next allocation. [[file:../../../../vendor/gambit/lib/mem.c::1647][alloc_scmobj_still]] may unlock the allocation lock and invoke
+GC before obtaining/linking the wrapper. Native-result ownership therefore has
+to survive a collection in which the wrapper does not exist yet.
+
+#+NAME: constructor-return-cycle
+#+BEGIN_EXAMPLE
+owner conversion -> alloc_scmobj_still -> GC
+GC waits for constructor return -> conversion cannot return until GC does
+#+END_EXAMPLE
+
+The [[file:release-producer-admission-design.org][previous study]] retained a real model counterexample to seal with an
+uncovered in-flight producer. Its conservative repair required total constructor
+debt zero. That model and its receipts remain unchanged. The new design is an
+alternative with an explicit abstraction change, not a proof that business
+pending maps to zero in that old model.
+
+#+NAME: covered-construction-cut
+#+BEGIN_EXAMPLE
+BusinessPending = invocation result / wrapper / error not yet delivered
+UncoveredGCDebt  = dependencies or managed writers not covered by a valid cut
+GC closure requires UncoveredGCDebt = 0 and all other round gates
+GC closure does not require BusinessPending = 0
+#+END_EXAMPLE
+
+CD-CUT requires a source refinement from each real C program counter to this
+split. A ticket, a native pointer, or an owner-waiting flag alone does not prove
+coverage. The snapshot must include current root handles, physical native/code
+leases, all suspended ancestor/callback frames and result-slot lifetime.
+
+* Three admissible cuts and their limits
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-cuts
+:END:
+
+#+NAME: construction-cut-admission
+| Cut | Required state | Why GC need not wait for owner return | Refusal boundary |
+|-----+----------------+--------------------------------------+------------------|
+| Captured result before wrapper allocation | Native call returned; exact payload/stages in escrow; dependencies registered and traced; managed publication frozen | Scanner uses escrow; owner finishes wrapper conversion after reentry | Stack-only pointer, unrooted dependency, unknown native borrower or missing result slot |
+| Bounded native-only operation outside runtime | Copied native inputs, no managed access/callback/hidden roots, bounded resource debt, retained code/native lifetime, controlled result publication | Native outcome may remain unknown while GC scans the fixed view | Unknown effect/affinity, shared GC-visible mutation, unbounded resource recipe or surprise callback |
+| Reentrant callback suspended at real safe point | Parent call physically suspended; all ancestor/callback roots covered; no collector-needed lock held; return writer permit withheld until reentry | GC scans the stopped context and parent escrow without waiting for the callback to return | Incomplete frame chain, raw unmanaged borrow of movable Scheme data, uncontrolled nonlocal exit or unfrozen concurrent producer |
+
+These are qualification alternatives, not assertions that all three source
+functions already satisfy them. The first is the direct remedy for a collection
+inside wrapper allocation. The second cannot be inferred from an OS/library call
+name. The third requires an actual stop/safe-point receipt; a callback-depth
+counter alone is insufficient.
+
+A no-effect reservation may be cancelled only before invocation authority has
+been claimed or after a proved no-effect stop. A claimed call with an unknown
+outcome cannot be treated as an unused reservation. Cancelling an observer never
+cancels a native effect or releases its ticket.
+
+* Actual failure chains, roots and native custody
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-callers
+:END:
+
+** Accepted TCP client: distinguish new ownership from the server borrow
+
+[[file:../../../../vendor/gambit/lib/os_io.c::6067][device_tcp_server_read]] accepts a socket, creates a client, closes the socket
+if client setup fails, optionally initializes TLS and transfers close
+responsibility. The outer [[file:../../../../vendor/gambit/lib/os_io.c::10930][os_device_tcp_server_read]] converts client into a
+wrapper but calls device_cleanup(d), the server, on conversion failure.
+[[file:../../../../vendor/gambit/lib/_kernel.scm::4370][The Scheme primitive]] is a scheme-object C stub. [[file:../../../../vendor/gambit/lib/_io.scm::8395][Its real Scheme reader]] holds
+the port mutex while calling it, retries EINTR, releases the mutex around EAGAIN
+waiting, and raises other errors before constructing a client port.
+
+The proposed escrow must distinguish:
+
+- A borrowed server wrapper/condvar/port root and a native server-use lease.
+- Ownership of the accepted socket, then initialized client storage and any TLS
+  stage; ownership transfer is by exact stage, not by callback-name equality.
+- The captured client pointer, wrapper result slot and one release ticket.
+- Any TLS-context/code/library dependencies; SSL_new/SSL_accept do not prove a
+  no-callback, bounded-allocation or worker-independent profile.
+
+Failure rollback must target the created client or its earlier socket stage,
+never the borrowed server. The port mutex must remain outside the scan-service
+wait graph. Server/client group membership is not a physical lease, nor an
+independent collector root. This is a source correction obligation, not an
+implemented fix or a measured/reproduced failure.
+
+** Process construction: a child is not undone by freeing a device
+
+[[file:../../../../vendor/gambit/lib/os_io.c::9101][The process producer]] creates pipes/forks, exchanges exec status, creates a
+process device and transfers close responsibility. The interrupt mask is later
+restored; it is not a proof of GC participation or root immutability. Windows
+uses a different process/thread/pipe handle path. [[file:../../../../vendor/gambit/lib/os_io.c::10553][The outer constructor]] owns
+argv/env/directory conversion temporaries and cleans them after result conversion.
+Its wrapper-conversion failure has no local device cleanup branch.
+
+There is also an exact static result-mapping gap: POINTER_to_SCMOBJ sets *obj
+(result here) to #f on allocation failure and returns error e. The process outer
+function returns result without assigning e in that branch. [[file:../../../../vendor/gambit/lib/_io.scm::7166][The Scheme consumer]]
+expects either a fixnum error or a usable device. The source path therefore
+needs an explicit error commit and ownership correction before admission. This
+is a conditional source observation, not a native failure execution.
+
+Use separate stage duties for native string buffers, pipe endpoints, pid/process
+identity, device storage/group membership, status readers and wrapper/result
+root. [[file:../../../../vendor/gambit/lib/os_io.c::3520][Process cleanup/status code]] and [[file:../../../../vendor/gambit/lib/os_io.c::3804][pid-based setup]] show that closing handles
+or device I/O is not evidence that the child exited. POSIX status is updated
+asynchronously. A partial/unknown exec-status result cannot justify reforking,
+killing the child, declaring it reaped or discarding the child identity.
+
+A modern C service may retain process/status custody while reporting a known
+constructor error according to an explicit policy. It needs a real native status
+reader/drain protocol before withdrawing the group. No total inverse of fork/exec
+is proposed. Process-local native-memory reservations do not bound the child's
+heap, kernel buffers or other external side effects.
+
+** Win32 event: consumption, reentry and RC lifetime are distinct
+
+[[file:../../../../vendor/gambit/lib/os_io.c::7109][device_event_queue_read]] allocates/registers RC MSG storage, calls PeekMessage
+with PM_REMOVE and directly returns wrapper conversion status. The outer
+[[file:../../../../vendor/gambit/lib/os_io.c::11471][os_device_event_queue_read]] propagates errors and drops the still-object hold
+on success. [[file:../../../../vendor/gambit/lib/_io.scm::9685][The real Scheme event reader]] holds a port mutex across the primitive,
+retries EINTR/EAGAIN under its own rules and otherwise raises an I/O exception.
+
+[[https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-peekmessagea][Microsoft's PeekMessage contract]] says the call dispatches pending nonqueued
+messages and processes the calling thread's queue. It can therefore reenter
+application code before producing its selected result. PM_REMOVE is not a
+transaction rollback API, and re-reading is not equivalent to recovering the
+same message. The profile must preserve the actual thread and dispatch policy.
+
+The RC MSG buffer is a native allocation; [[file:../../../../vendor/gambit/lib/mem.c::703][its RC header data starts as #f]].
+[[file:../../../../vendor/gambit/lib/mem.c::3984][The RC scanner]] marks that header data cell, not arbitrary pointer-valued
+wParam/lParam or every OS message payload. Their lifetime/managed association
+needs a declared message profile; copying MSG does not root its pointees.
+
+Reserve MSG/result/dependency capacity before consuming a message. During an
+admitted callback stop, retain parent and callback views; after a known message
+return, publish the captured MSG escrow before wrapper allocation. Conversion
+failure retains the consumed-message/RC duty and the original error boundary.
+Requeue, reread and worker dispatch are refused unless independently equivalent.
+RC addref cannot replace physical transfer/drain before cleanup_rc.
+
+* Publication, reentry and failure protocol
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-protocol
+:END:
+
+#+NAME: construction-escrow-state-machine
+#+BEGIN_EXAMPLE
+reserve backed ticket/root/result slots (no GC)
+  -> root known input dependencies; retain native/code borrowers
+  -> claim native invocation exactly once
+  -> capture native result OR qualify native-only/callback-suspended cut
+  -> close managed writer authority; publish immutable epoch/generation view
+  -> independent current-round scan and relocation receipt
+  -> all whole-round gates -> seal, without GC waiting for owner return
+  -> active-permit reentry consumes frozen receipt and restores context roots
+  -> query known result / continue conversion exactly once / original error path
+  -> wrapper root and release duty published before result delivery
+#+END_EXAMPLE
+
+The capture record and published root view have different mutability. A qualified
+native-only result may publish a native scalar/pointer into its pre-reserved
+result slot while the immutable managed-root view is being scanned. It cannot
+add a managed dependency, change a borrowed root location or retire the ticket.
+The native result publication and root-view publication need separate C ordering
+proofs. The named QNT history covers this late native-result case conditionally.
+
+Reentry validates epoch/generation and binding, releases scan pins under the
+shared protocol, consumes the old frozen permission and restores roots before
+managed allocation/callback. A new GC entry withdraws the old active permission.
+Known result queries do not rerun native production or allocate a duplicate
+wrapper. A completed wrapper is kept in the canonical rooted result slot until
+its consumer commits delivery; lost notification is recovered from that slot.
+
+Partially initialized wrapper state requires a separate no-escape initialization
+cut. The current allocator links a still object and initializes its header before
+the caller fills FOREIGN fields. Source refinement must prove no scanner observes
+an invalid body, and no hidden safepoint/exception loses the unique initialization
+duty before result-root publication. An arbitrary stopped instruction between
+allocation return and slot publication is not automatically recoverable.
+
+Rollback records exact created identity, native stage, call attempt and typed
+physical disposition. Device cleanup can unlink or close before an error, and
+device_release can free its storage despite an error. Neither a scalar error nor
+a missing reply authorizes replay or refund. Ticket/result/root/code storage
+persists through terminal receipt readers and child duties; only known physical
+disposition plus reader/child drain permits retirement.
+
+* Unknown outcome recovery matrix
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-unknown
+:END:
+
+#+NAME: constructor-unknown-admission
+| Unknown state | GC/context recovery | Business result and remaining custody |
+|---------------+---------------------+---------------------------------------|
+| Notification lost; canonical native/wrapper result known and rooted | Reentry after current seal; query exact slot | Deliver once; keep ticket until normal release/receipt policy |
+| Native-only bounded outcome unknown; complete fixed roots, known custodian and writer restrictions | GC may close; eligible context may reacquire for recovery query | No invented success/error, reexecution, resource free or refund; native duty can remain indefinitely |
+| Parent native call suspended in a fully covered callback safe point | Conditional GC return to same owner/context after all round gates | Resume callback/native frame in place; no frame migration or generic replay |
+| External child/message effect known, disposal/result still pending | GC only if managed dependencies and lifetime are independently covered | Preserve exact child/message identity and outcome custody; original public result contract remains binding |
+| Root shape, mutable borrow, callback frame, owner handoff, initialization or shared managed writer unknown | Refuse this resume/handoff permit | Retain ticket and known leases; require source/provider recovery or explicit unsupported profile |
+| Cleanup return lost after possible physical effects | Only a separately isolated native outcome may coexist with GC progress | Retain attempt and disposition debt; cannot free/reinvoke/refund from timeout |
+
+GC progress, owner reentry permission and delivery of a completed Scheme result
+are different decisions. Allowing GC to finish does not promise that a blocked
+native syscall will return, that every context may resume, or that shutdown can
+drain. An uncertain service outcome must not be encoded as EINTR/EAGAIN: the
+existing Scheme loops could then consume a different connection/message or
+repeat a side effect. If public asynchronous pending results are desired, that
+is a separate explicit Scheme API change, not a hidden C adapter behavior.
+
+* Conditional progress and memory-order obligations
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-progress
+:END:
+
+The declared wait graph has owner -> GC -> bounded scan service, with a strictly
+decreasing rank. GC has no constructor-return/owner-callback wait edge. Scan and
+cleanup services may not acquire the held Scheme port mutex, require an owner
+callback's active permit, borrow withdrawn PSTATE scratch or allocate new task
+capacity. Owner-visible synchronous rollback can still wait after reentry; it
+must not become a reverse edge needed to issue that same seal.
+
+This is a conditional graph proof. Hidden library callbacks, group/status readers,
+RC-chain locks, allocator gates, nested frame registration and shutdown edges
+must be enumerated in the source refinement. No rank proof of a declared subset
+proves deadlock freedom for arbitrary C. A native call without a qualified stop
+or isolation cut can still block collector admission; the protocol reports that
+limit instead of forcing cancellation or inferring owner death.
+
+C implementation obligations include:
+
+1. Preflight reservation and root/result-slot registration are backed no-GC
+   operations; native invocation cannot pass a cancelled/unclaimed grant.
+2. Release/acquire publication exposes complete immutable root/native/code views
+   before scan authority is granted. Gate close races with registration and
+   capture have a single known custodian or conservatively retained source duty.
+3. Native-only late result publication changes no scanned managed edge; a managed
+   dependency requires active authority and the appropriate next-round barrier.
+4. Relocated root handles are consumed after current-generation reentry. Stale
+   snapshot, result receipt or wrap token cannot authorize allocation/delivery.
+5. Wrapper/body/root publication and physical/native/RC lifetime withdrawal are
+   ordered with every reader/borrower. Terminal ACK never substitutes for drain.
+
+The new QNT model covers one invocation, one ticket and one abstract callback
+frame. Multi-producer capacity, arbitrary recursive callback chains, real
+FrameSpec layout, foreign effects and all GC phases remain source/imported
+premises. Lean proves a separate credit Step/Trace conservation relation,
+conditional cut rejection, result-independence under coverage and decreasing
+rank for the declared wait graph. It does not prove all QNT transitions simulate
+C or that scans are fair/finite on the platform.
+
+* Evidence chain, learning and modernization return
+:PROPERTIES:
+:CUSTOM_ID: constructor-debt-closure-evidence
+:END:
+
+SysML CD-CUT/CD-ESCROW/CD-FAILURES/CD-UNKNOWN/CD-REENTRY/CD-PROGRESS and CD-ORDER
+route source and C-memory work independently of CD-H/CD-I formal checks. Nine
+imported RP/RS needs retain their exact prior scopes and remain open. The prior
+whole-constructor-zero QNT/Lean receipts are not imported as this new law.
+
+Five actual ASCENT cases cover current evidence, missing history, wrong scope,
+stale digest and synthetic all-scoped control. Independent Scheme fact parsing
+checks native need/dependency/artifact/route transport. A synthetic component
+closure is never native admission. Org and D2 are rendered from native SysML
+observations and the source-bound assurance result, without a duplicate layout
+registry or runtime implementation.
+
+[[https://ocaml.org/manual/5.3/intfc.html][OCaml's C-interface section 12.2]] separates copied native inputs from managed
+runtime access and requires reacquisition before callbacks/results. It also
+warns that acquire/release transitions can deliver callbacks/exceptions. Gambit
+should learn this capability separation while preserving its own continuation,
+C-stack and port-mutex contracts; an OCaml domain lock is not transplanted here.
+
+[[https://cs.brown.edu/people/mph/HerlihyW90/p463-herlihy.pdf][Herlihy and Wing's linearizability]] motivates exact invocation, publication and
+query histories, but does not prove these C operations are linearizable.
+[[https://www.hboehm.info/popl03/slides.pdf][Boehm's finalization/synchronization discussion]] motivates transitive native
+borrower/lock/shutdown analysis. Neither source supplies a Gambit speedup number.
+The attempted POSIX accept/fork page reads returned HTTP 403; no platform claim
+is justified from those failed fetches. The C draft fetch timed out; actual
+C-memory refinement remains unresolved rather than being claimed from that read.
+
+Benefits and costs are in the generated eleven-row matrix. The principal benefit
+is removing a structurally cyclic dependency, plus exact once-only result/custody
+support reusable by the three producers. It is not a measured pause reduction.
+Physical pre-reservation adds resident control storage. Resource-only quarantine
+can last indefinitely. Whole-round peak is the maximum of simultaneous heap,
+actual pools, unique native backing, roots and quarantine; copying independent
+maxima or treating queue acceptance as free would be an invalid estimate.
+
+Migration first introduces Scheme-visible error/origin contracts and exact C
+native-stage identities, then root/result escrow and preflight backing, then the
+three safe cuts and root-scan/reentry integration. Only after source/C-order and
+independent native acceptance may stack-only custody, wrong-target rollback,
+ambiguous process result mapping or implicit collector->owner waits retire.
+No such production path has retired in this study.

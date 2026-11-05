@@ -1,0 +1,666 @@
+{
+  "source": [
+    {
+      "key": "threshold-limit",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc_heap_chunk_limit = work->context->mem.alloc_heap_ptr_ + ___MSECTION_CHUNK;",
+      "obligation": "Fresh threshold starts after preceding marker"
+    },
+    {
+      "key": "threshold-object",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (alloc >= alloc_heap_chunk_limit)",
+      "obligation": "Object and captured-frame paths are the only threshold close callers"
+    },
+    {
+      "key": "no-fit",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->context->mem.alloc_heap_limit_-alloc < required",
+      "obligation": "The early close caller is reserve_copy, before obtaining the next grant"
+    },
+    {
+      "key": "close-marker",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK;",
+      "obligation": "Empty close still consumes marker; count it even if no chunk is queued"
+    },
+    {
+      "key": "prepare-prefix",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; /* link of msection's first chunk */",
+      "obligation": "Prefix word is not copied payload or a threshold charge"
+    },
+    {
+      "key": "prepare-slack",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->context->mem.alloc_heap_limit_ -= 2;",
+      "obligation": "Two end markers do not imply two chunk births"
+    },
+    {
+      "key": "cancel-private",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "return begin;",
+      "obligation": "Cancellation restores grant begin only; earlier close/prepare remains charged"
+    },
+    {
+      "key": "cancel-after-fit",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc = cancel_copy(work,&grant);",
+      "obligation": "Lost object forwarding never refunds a section/node already started"
+    },
+    {
+      "key": "frame-grant",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "grant = reserve_copy(work,alloc,words,0);",
+      "obligation": "Frame body and extra slots consume allocation spans"
+    },
+    {
+      "key": "padding",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->copy_padding_words_ += (grant->past-grant->begin)-(grant->words+1);",
+      "obligation": "A counts committed physical spans including padding, not just Scheme payload"
+    },
+    {
+      "key": "counter-check",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->copy_reserved_words_-work->copy_cancelled_words_ !=",
+      "obligation": "Post-weak diagnostic is not a prospective capacity certificate"
+    },
+    {
+      "key": "initial-visits",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "nb_msections_assigned = np*2;",
+      "obligation": "Initial prepare calls are already included in L"
+    },
+    {
+      "key": "frozen",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "participant->phase = ___GC_ROOTS_FROZEN;",
+      "obligation": "Candidate preflight collective is after frozen barrier before setup side effects"
+    },
+    {
+      "key": "flip",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "tospace_offset = fromspace_offset;",
+      "obligation": "Pool plan must be accepted before flip and all setup mutations"
+    },
+    {
+      "key": "strong-done",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "garbage_collect_mark_strong_phase (work);",
+      "obligation": "Following real barrier does not reset worker cursors or node occupancy"
+    },
+    {
+      "key": "weak-producers",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "process_wills (work);",
+      "obligation": "Weak tracing resumes same allocator state and may allocate further"
+    },
+    {
+      "key": "restore-stack",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "while (p1 != start)\n    *--p2 = *--p1;",
+      "obligation": "move_continuation copies stack data; it is not a heap chunk birth"
+    },
+    {
+      "key": "restore-heap",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (alloc_heap_ptr > alloc_heap_limit - ___MSECTION_FUDGE)",
+      "obligation": "Post-GC restoration next_heap_msection has no prepare_heap_msection caller; cannot invent a node charge"
+    },
+    {
+      "key": "custom",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "return custom_msection_alloc ();",
+      "obligation": "Uncertified repeated visits invalidate finite list-derived L"
+    },
+    {
+      "key": "shared-fallback",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "result = ms;",
+      "obligation": "Current allocator can use one stack section as heap; no double ownership assumed"
+    },
+    {
+      "key": "shared-stop",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (stack_msection == heap_msection)",
+      "obligation": "After sharing exhaustion, default allocator terminates; no infinite legitimate fallback lease"
+    },
+    {
+      "key": "K",
+      "path": "vendor/gambit/lib/mem.h",
+      "needle": "#define ___MSECTION_BIGGEST     255",
+      "obligation": "Selected source K; effective build-profile mapping open"
+    },
+    {
+      "key": "H",
+      "path": "vendor/gambit/lib/mem.h",
+      "needle": "#define ___MSECTION_SIZE        131072",
+      "obligation": "Half section H=65536 is a conservative span ceiling"
+    },
+    {
+      "key": "native-gate",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "__sync_val_compare_and_swap(p,oldval,newval)",
+      "obligation": "Existing adapter is not portable C11 qualification"
+    }
+  ],
+  "call": [
+    {
+      "key": "object-end",
+      "callerName": "mark_array",
+      "callee": "end_heap_chunk",
+      "siteCount": "1",
+      "effect": "Threshold closure then immediate start"
+    },
+    {
+      "key": "frame-end",
+      "callerName": "mark_captured_continuation_locked",
+      "callee": "end_heap_chunk",
+      "siteCount": "1",
+      "effect": "Threshold closure after frame commit; backfill custody independent"
+    },
+    {
+      "key": "early-end",
+      "callerName": "reserve_copy",
+      "callee": "end_heap_chunk",
+      "siteCount": "1",
+      "effect": "No-fit, including zero-span chunk"
+    },
+    {
+      "key": "object-start",
+      "callerName": "mark_array",
+      "callee": "start_heap_chunk",
+      "siteCount": "1",
+      "effect": "New node birth after threshold end"
+    },
+    {
+      "key": "frame-start",
+      "callerName": "mark_captured_continuation_locked",
+      "callee": "start_heap_chunk",
+      "siteCount": "1",
+      "effect": "New node birth after threshold end"
+    },
+    {
+      "key": "lease-start",
+      "callerName": "prepare_heap_msection",
+      "callee": "start_heap_chunk",
+      "siteCount": "1",
+      "effect": "Exactly one initial or later lease birth"
+    },
+    {
+      "key": "initial-prepare",
+      "callerName": "setup_stack_heap_vmstate",
+      "callee": "prepare_heap_msection",
+      "siteCount": "1",
+      "effect": "Loop repeats P times; site count is not dynamic event count"
+    },
+    {
+      "key": "next-prepare",
+      "callerName": "reserve_copy",
+      "callee": "prepare_heap_msection",
+      "siteCount": "1",
+      "effect": "One per successful no-fit visit; prepare failure keeps custody"
+    },
+    {
+      "key": "stack-setup-exclusion",
+      "callerName": "___setup_mem_pstate",
+      "callee": "next_stack_msection",
+      "siteCount": "1",
+      "effect": "Only literal direct stack-section advance caller; exclude concurrent processor setup from admitted tracing profile"
+    }
+  ],
+  "charge": [
+    {
+      "key": "birth-topology",
+      "mechanism": "Every start is threshold successor or prepare entry",
+      "bound": "starts = T + L",
+      "excluded": "No extra P when L includes initial prepares",
+      "status": "Lexical caller inventory closed in pinned mem.c; effective call graph open"
+    },
+    {
+      "key": "threshold",
+      "mechanism": "Disjoint committed spans since each start",
+      "bound": "255*T <= A; T <= floor(A/255)",
+      "excluded": "Uncommitted losing CAS reservations, markers and raw source payload count",
+      "status": "Conditional invariant induction proved; physical interval injection open"
+    },
+    {
+      "key": "partial-and-empty",
+      "mechanism": "Early close changes marker and closes current lease; prepare creates next node",
+      "bound": "end = T + E; L = E + open for one slice",
+      "excluded": "No second node for a marker; no refund on canceled next grant",
+      "status": "Modeled closure and exact lexical callers; exception segment refinement open"
+    },
+    {
+      "key": "per-lease",
+      "mechanism": "Threshold spans do not cross lease close; phase cut does not close a lease",
+      "bound": "B_data <= sum_i(floor(U_i/255)+1)",
+      "excluded": "No separate worker increment beyond initial leases",
+      "status": "Lean list-sum bound conditional on per-lease charge relation"
+    },
+    {
+      "key": "fixed-default",
+      "mechanism": "N frozen sections, P initial heap and P initial stack; at most N-2P fresh heap visits plus P stack fallbacks",
+      "bound": "L<=N; B_total<=258*N+D for H=65536",
+      "excluded": "Custom allocator, concurrent resize/extension, stack reassignment or GC reentry",
+      "status": "Derived under explicit profile; native issuer not yet implemented"
+    },
+    {
+      "key": "phase-carry",
+      "mechanism": "Strong and weak share cursor, span, lease and node identities",
+      "bound": "254+1 threshold requires one whole charge; preserve prior starts and visits",
+      "excluded": "Separately flooring phase byte totals or resetting open span",
+      "status": "Cut preservation and negative control proved"
+    },
+    {
+      "key": "restoration",
+      "mechanism": "Actual move_continuation only changes stack cursor; later heap restore does not prepare a chunk",
+      "bound": "No invented additional start from these two endpoints",
+      "excluded": "Future redesign may add a new producer class only with explicit budget",
+      "status": "Source-specific classification; future users still matter for lifetime"
+    }
+  ],
+  "receipt": [
+    {
+      "key": "preflight-cut",
+      "issuer": "Frozen-roster coordinator plus lease/pool owners",
+      "condition": "After roots-frozen barrier, before any setup flip or still-list mutations; all participants share decision",
+      "failure": "OOM/rejection collectively retains old parity and roots; no processor-only return",
+      "gap": "Existing path has no such allocation receipt or collective branch"
+    },
+    {
+      "key": "manifest",
+      "issuer": "Storage owner",
+      "condition": "N stable, acyclic unique section list, finite default path, no custom allocator, no intervening stack reassignment",
+      "failure": "Unknown producer/profile or capacity overflow rejects signature",
+      "gap": "Raw struct availability is not proof of ownership or absence of external writer"
+    },
+    {
+      "key": "capacity",
+      "issuer": "Pool owner plus charge-class auditor",
+      "condition": "Per-lease U, K/profile, starts before forwarding, checked bytes, D dummy records, allocation success",
+      "failure": "Post-forward failure retains node/copy/Tail; cannot roll back accepted graph",
+      "gap": "No native allocation-plan implementation or C11 handoff proof"
+    },
+    {
+      "key": "weak-continuity",
+      "issuer": "Every worker allocator owner plus stage coordinator",
+      "condition": "Same epoch, same section/start/cursor, accumulated spans, retained nodes and grants/Tail accounted",
+      "failure": "Do not re-sign a fresh pool or refund old markers at strong cut",
+      "gap": "Model carries physical counters; exact source snapshot and completion proof open"
+    },
+    {
+      "key": "reclaim",
+      "issuer": "Existing pool lifecycle coordinator",
+      "condition": "Capacity closure plus work completion, users closed, head detached, receipts and borrowers gone",
+      "failure": "Unknown result retains old epoch; reentry may prevent completion",
+      "gap": "Capacity proof does not replace old last-user and generation obligations"
+    }
+  ],
+  "memory": [
+    {
+      "key": "owner-counters",
+      "ordering": "Owner-private committed cursor and local charge counters",
+      "obligation": "Do not add a global atomic on every payload word; materialize stable snapshot at collective cut",
+      "gap": "No native local-counter layout generated"
+    },
+    {
+      "key": "preflight-publish",
+      "ordering": "Initialize immutable plan then release; every participant acquire and acknowledge same generation",
+      "obligation": "Failure branch must be collective before setup, not coordinator-only early return",
+      "gap": "Exact BARRIER/atomic adapter and failure semantics open"
+    },
+    {
+      "key": "phase-carry",
+      "ordering": "All worker final local writes before release acknowledgement; next phase consumes after acquire",
+      "obligation": "Cut snapshot includes open-span remainder, current node, physical interval and outstanding tasks",
+      "gap": "Phase enum alone does not prove publication or initialization closure"
+    },
+    {
+      "key": "birth-ledger",
+      "ordering": "Reserve child node and task before parent settlement / forwarding; synchronize queue via gate",
+      "obligation": "Threshold or lease birth is paired with exactly one root or derived old-pool reserve",
+      "gap": "Native indivisible segment and task identity open"
+    },
+    {
+      "key": "overflow",
+      "ordering": "Checked native cardinality and byte arithmetic before admission",
+      "obligation": "Mathematical integer division and list lengths do not prove size_t safety",
+      "gap": "Generation wrap remains fail/retain; no silent rollover"
+    }
+  ],
+  "gain": [
+    {
+      "key": "tighter-bound",
+      "avoided": "Remove duplicated initial-worker allowance when visits include initial prepares",
+      "added": "Retain exact per-lease budget and caller classification",
+      "condition": "Against preceding bound saves up to P data-record allowances at equal L"
+    },
+    {
+      "key": "finite-budget",
+      "avoided": "Dense one-node-per-word ceiling unnecessary under qualified topology",
+      "added": "At three 8-byte pointer fields, >=24*(258*N+D) bytes reserved for selected full-section plan",
+      "condition": "258N+D is a capacity choice under profile; actual stride/pins add overhead"
+    },
+    {
+      "key": "normalized-space",
+      "avoided": "Fields for 258 nodes per full half-section: 6192 bytes, ~1.181% of 524288 bytes",
+      "added": "Dummy records, pool metadata, retained epochs and allocator rounding additional",
+      "condition": "Arithmetic only, not actual live heap fraction or measured resident memory"
+    },
+    {
+      "key": "no-rollback-tax",
+      "avoided": "Cancellation reuses current open-node reservation; no new record per failed copy CAS",
+      "added": "Stable grant ownership and charge-preserving rollback",
+      "condition": "Earlier no-fit/prepare remains retained even if next copy loses"
+    },
+    {
+      "key": "phase-reuse",
+      "avoided": "No second node pool and no repeated threshold charge at strong/weak transition",
+      "added": "One local stable snapshot and existing collective reuse where proven",
+      "condition": "Never remove barriers based solely on arithmetic"
+    },
+    {
+      "key": "net-benefit",
+      "avoided": "Ordinary C classifiers and bounded native pool can avoid heap-wide atomic conversion",
+      "added": "Plan validation, per-start reservation, queue records, memory pressure and lifetime coordination",
+      "condition": "Positive only if saved work exceeds all transport and extra-GC costs; no timings claimed"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "frozen-roster",
+      "toNode": "manifest",
+      "custody": "Freeze finite leases and complete producer classes"
+    },
+    {
+      "fromNode": "manifest",
+      "toNode": "capacity-plan",
+      "custody": "Sum per-lease threshold and prepare budgets; checked allocation"
+    },
+    {
+      "fromNode": "capacity-plan",
+      "toNode": "collective-admit",
+      "custody": "All participants see the same success or failure before flip"
+    },
+    {
+      "fromNode": "collective-admit",
+      "toNode": "copy-owner",
+      "custody": "One open node reservation precedes forwarding"
+    },
+    {
+      "fromNode": "copy-owner",
+      "toNode": "threshold-close",
+      "custody": "Committed spans uniquely charge a new successor node"
+    },
+    {
+      "fromNode": "copy-owner",
+      "toNode": "early-close",
+      "custody": "Partial or empty close retains prior node and marker"
+    },
+    {
+      "fromNode": "early-close",
+      "toNode": "lease-prepare",
+      "custody": "Preparing next lease issues one new node"
+    },
+    {
+      "fromNode": "threshold-close",
+      "toNode": "same-pool-ledger",
+      "custody": "Pair birth with root/child reserve exactly once"
+    },
+    {
+      "fromNode": "lease-prepare",
+      "toNode": "same-pool-ledger",
+      "custody": "No separate acceptance on queue publication"
+    },
+    {
+      "fromNode": "same-pool-ledger",
+      "toNode": "weak-continuity",
+      "custody": "Carry old occupancy plus unfinished physical span"
+    },
+    {
+      "fromNode": "weak-continuity",
+      "toNode": "retire-cut",
+      "custody": "Allocation close and old last-user obligations both required"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "callers",
+      "status": "checked-snapshot",
+      "scope": "All literal start/end/prepare callers in pinned mem.c",
+      "gap": "Lexical evidence does not verify preprocessed arbitrary C callbacks"
+    },
+    {
+      "key": "charge",
+      "status": "conditional-proved",
+      "scope": "Typed AST all-step invariants, floor and per-lease arithmetic",
+      "gap": "Inject real intervals and visit permissions without alias/reuse"
+    },
+    {
+      "key": "composition",
+      "status": "conditional-proved",
+      "scope": "Guarded charge/pool product and paired root/child births",
+      "gap": "C instruction-level coupling, interrupted segments and identity mapping open"
+    },
+    {
+      "key": "default-profile",
+      "status": "conditional-source-argument",
+      "scope": "N frozen, default allocator, fixed stacks during strong/weak",
+      "gap": "Prove no external writers or native GC reentry; reject uncertified profile"
+    },
+    {
+      "key": "C11",
+      "status": "open",
+      "scope": "Owner snapshots and collective release/acquire decisions",
+      "gap": "No weak-memory execution checker or machine-code receipt"
+    },
+    {
+      "key": "net-benefit",
+      "status": "open",
+      "scope": "Memory bounds and per-birth cost terms",
+      "gap": "No runtime implementation native test or performance qualification"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "chunk_capacity_charge.reserveOne",
+      "lemma": "CapacityCharge.reserveOnePreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.reserveOneCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.reserveNear",
+      "lemma": "CapacityCharge.reserveNearPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.reserveNearCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.reserveOvershoot",
+      "lemma": "CapacityCharge.reserveOvershootPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.reserveOvershootCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.publishForward",
+      "lemma": "CapacityCharge.publishForwardPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.publishForwardCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.commit",
+      "lemma": "CapacityCharge.commitPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.commitCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.cancel",
+      "lemma": "CapacityCharge.cancelPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.cancelCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.closeThreshold",
+      "lemma": "CapacityCharge.closeThresholdPreserves",
+      "targetStep": "chunk_node_pool.reserve",
+      "simulation": "CapacityChargeComposition.thresholdRoot"
+    },
+    {
+      "actionName": "chunk_capacity_charge.observeNoFit",
+      "lemma": "CapacityCharge.observeNoFitPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.observeNoFitCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.closeEarly",
+      "lemma": "CapacityCharge.closeEarlyPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.closeEarlyCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.advanceVisit",
+      "lemma": "CapacityCharge.advanceVisitPreserves",
+      "targetStep": "chunk_node_pool.reserve",
+      "simulation": "CapacityChargeComposition.visitRoot"
+    },
+    {
+      "actionName": "chunk_capacity_charge.cutToWeak",
+      "lemma": "CapacityCharge.cutToWeakPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.cutToWeakCouples"
+    },
+    {
+      "actionName": "chunk_capacity_charge.closeCapacity",
+      "lemma": "CapacityCharge.closeCapacityPreserves",
+      "targetStep": "chunk_node_pool.stutter",
+      "simulation": "CapacityChargeComposition.closeCapacityCouples"
+    }
+  ],
+  "proof": [
+    {
+      "key": "birth-count",
+      "lemma": "CapacityCharge.exactBirthCount",
+      "scope": "No extra worker count beyond visits"
+    },
+    {
+      "key": "floor-bound",
+      "lemma": "CapacityCharge.tightCeiling",
+      "scope": "Whole-epoch threshold budget"
+    },
+    {
+      "key": "per-lease",
+      "lemma": "CapacityCharge.leaseSumBound",
+      "scope": "Conditional sum of per-lease floor budgets"
+    },
+    {
+      "key": "threshold-space",
+      "lemma": "CapacityCharge.thresholdHasSpace",
+      "scope": "Threshold event has successor node capacity"
+    },
+    {
+      "key": "visit-space",
+      "lemma": "CapacityCharge.visitHasSpace",
+      "scope": "Remaining lease has node capacity"
+    },
+    {
+      "key": "cut-carry",
+      "lemma": "CapacityCharge.cutCarriesState",
+      "scope": "Strong cut leaves physical counters unchanged"
+    },
+    {
+      "key": "cancel",
+      "lemma": "CapacityCharge.cancellationKeepsTopology",
+      "scope": "Cancel refunds grant, not prior node birth"
+    },
+    {
+      "key": "fraction-control",
+      "lemma": "CapacityCharge.separatelyRoundedPhasesLoseCarry",
+      "scope": "Concrete 254+1 phase rounding counterexample"
+    },
+    {
+      "key": "product",
+      "lemma": "CapacityChargeComposition.reachableGood",
+      "scope": "Actual old pool plus source-charge abstraction"
+    },
+    {
+      "key": "threshold-child",
+      "lemma": "CapacityChargeComposition.thresholdChild",
+      "scope": "Derived child birth after root close"
+    },
+    {
+      "key": "visit-child",
+      "lemma": "CapacityChargeComposition.visitChild",
+      "scope": "Derived no-fit successor birth"
+    },
+    {
+      "key": "retire-control",
+      "lemma": "CapacityChargeComposition.lifetimeCutNecessary",
+      "scope": "No pool completion while source allocation admission remains open"
+    }
+  ],
+  "seam": [
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "collector",
+      "contract": "Physical charge to old pool task reservation",
+      "modelNeed": "CC-composition"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "control",
+      "contract": "Frozen cohort collective capacity decision",
+      "modelNeed": "CC-source"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "native",
+      "contract": "Native allocator profile and snapshot publication",
+      "modelNeed": "CC-platform"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "CC-history",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/chunk_capacity_charge.qnt",
+      "subjectScope": "Threshold early empty cancellation and strong-weak carry histories",
+      "owner.componentId": "gc-work"
+    },
+    "induction": {
+      "obligationId": "CC-induction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/CapacityCharge.lean",
+      "subjectScope": "Actual typed AST step safety and conditional charge arithmetic",
+      "owner.componentId": "gc-work"
+    },
+    "composition": {
+      "obligationId": "CC-composition",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/CapacityChargeComposition.lean",
+      "subjectScope": "Guarded product with exact preceding NodePool AST",
+      "owner.componentId": "gc-work"
+    },
+    "projection": {
+      "obligationId": "CC-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/CapacityChargeAst.lean",
+      "subjectScope": "Typed binding identity plus literal-coefficient multiplication",
+      "owner.componentId": "gc-work"
+    },
+    "source": {
+      "obligationId": "CC-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/chunk-capacity-charge-design.org",
+      "subjectScope": "Physical disjoint leases and actual collective receipt issuer open",
+      "owner.componentId": "gc-work"
+    },
+    "platform": {
+      "obligationId": "CC-platform",
+      "kind": "native-memory-order",
+      "subjectPath": "dev/refactoring/modern-c/chunk-capacity-charge-design.org",
+      "subjectScope": "C11 cut publication generation native arithmetic open",
+      "owner.componentId": "gc-work"
+    }
+  }
+}

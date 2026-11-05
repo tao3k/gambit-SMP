@@ -1,0 +1,295 @@
+#+TITLE: Target Root Adapter, Collector Entry and Commit Publication
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Target Root Adapter, Collector Entry and Commit Publication :ffi:
+:PROPERTIES:
+:ID: c3f35708-cda2-51b1-b67c-225c57ceaa2f
+:CUSTOM_ID: target-root-adapter-collector-entry-and-commit-publication
+:SOURCE_PATH: docs/experimental/zig/target-root-adapter-design.md
+:SOURCE_SHA256: ca4979aae20ced72e09c9e417b4b3face96b7c7f6332e2ab738750472176a8f9
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Architecture research only: no implementation, native test,
+checked proof, model/engine execution or positive economic bound. This refines
+RTO06--08/RFS02--05 in the [[file:root-transfer-receipt-design.org][root-transfer design]].
+Read the [[file:target-root-adapter-evidence.org][evidence ledger]],
+[[file:target-root-adapter-cost-matrix.org][cost matrix]],
+[[file:../../../../../docs/experimental/zig/target-root-caller-inventory.json][source reference inventory]] and
+[[file:../../../../../docs/experimental/zig/target-root-adapter-traceability.json][document trace map]].
+
+The architectural change is a VM-owned root service and an explicit collector
+work domain. A retired processor must cease to be the implicit owner of either
+root discovery or the collector's allocation/queue machinery. This is necessary
+runtime reconstruction in modern C or Zig; changing the build driver does not
+perform it. SharedRuntimeContract remains the common semantic boundary.
+
+*** 1. Concrete Target Adapter
+:PROPERTIES:
+:ID: 9fc0512d-c423-53d1-90ed-e1c9fbf379d1
+:CUSTOM_ID: 1-concrete-target-adapter
+:END:
+
+[[file:../diagrams/target-root-scan-adapter.svg][Target carrier and collector worker]]
+[[file:../diagrams/target-root-scan-adapter.d2][D2 source]].
+
+The selected profile is *StrongTaggedRcData*: stable native RC headers whose
+actual ~data~ words hold strong Gambit tagged values in the same live VM/heap.
+Existing ~mark_rc~ traces exactly ~&h->data~ through ~mark_array~ [TR-S01].
+It does not describe arbitrary pointers inside a foreign payload, C locals,
+weak handles, executable closure code or another VM's objects. Those require
+separate admitted descriptors/lifetimes; this adapter cannot make them roots.
+
+| ID | Proposed record / service | Required meaning and reconstruction |
+|-
+| TRA01 | TargetCarrier | VM/heap identity, reuse identity, storage/deallocator identity, native sentinel, membership revision, lifecycle and dependency leases. Carrier storage outlives the source PSTATE and all actual borrowers. Same-address header adoption preserves payload ABI but requires RC ownership routing to change [TR-S01/S08]. |
+| TRA02 | RootManifest | Immutable descriptor sequence identifying actual cell addresses, allocation identities/extents, StrongTaggedRcData kind, manifest identity and membership revision. Tagged word contents remain mutable between admitted epochs; the cell locations/kinds do not change during the sealed epoch. Different cells containing the same object both appear; duplicate descriptions of one cell have one canonical writer [TR-S01, TR-P02]. |
+| TRA03 | RootRegistryEntry | VM-owned registration of carrier, manifest and scan adapter with a lifecycle lease. Publication under G makes it discoverable for the next ticket. Registering a pointer is preparation for scanning, not evidence that scanning occurred. Source PSTATE cleanup cannot free this registry/carrier [TR-S08]. |
+| TRA04 | CollectorWorkContext | Current collector worker's VM/epoch identity, allocation/forwarding state, queue access and phase participation, distinct from carrier ownership. Today mark_array uses PSTATE allocation/heap state and chunk publication. First reuse it only through a qualified collector-owned internal adapter; independent workers require extraction of that context and macro/TLS dependencies [TR-S01/S02/S09]. |
+| TRA05 | RootSeedPlan | Final registry snapshot after safe acknowledgements; immutable partition assigning every canonical strong cell to exactly one admitted seed worker. Freeze this plan before any worker can be declared terminally idle; retain its manifest/VM/facility leases through physical use. Partitions may be uneven in reachable work [TR-S02/S03, TR-P03]. |
+| TRA06 | TraceStrongCells | On an active worker in the correct strong phase, visit the actual cells through existing tagged-value trace/forward logic, write relocated values back to those same cells and publish all resulting heap work before finishing seed responsibility. It is not an arbitrary host-thread callback into hidden mark_array [TR-S01/S02]. |
+| TRA07 | Epoch/borrower completion | A worker remains active while it has unvisited seeds or unpublished derived work. Finish strong reachability only after seed responsibility and queue work settle; retain carriers until all actual readers/writers finish. Weak/will, continuation, cleanup and heap-prepare terminality still follow [TR-S02/S03]. |
+| TRA08 | RC mutation/retirement router | Route alloc/register/addref/release/data read/write and force-cleanup for migrated headers to their authoritative carrier. Exclude legacy cleanup_rc and mark_rc for the migrated cohort. Refcount zero alone never frees a cell still borrowed by an epoch or handoff [TR-S01/S08]. |
+
+*One discovery route per physical cell.* The chosen full design detaches the
+migrated cohort from processor ~rc_head~ and attaches it to a native carrier,
+scanned through its manifest. Residual processor lists keep legacy scanning.
+Merely splicing into a receiver's legacy list and also registering a manifest
+would expose the same ~data~ cell to two relocation writers. An alternative can
+use only the receiver's legacy scanner, but then it retains PSTATE ownership and
+does not achieve independent carrier retirement. These are alternative designs,
+not two steps to combine.
+
+The native carrier can use the existing sentinel/list layout. Its existence
+alone does not intercept ~release_rc~, ~set_data_rc~ or unconditional cleanup.
+A header association/opaque handle or qualified ABI bridge must identify the
+right authority. Untracked legacy clients block that cohort's migration.
+Every membership change, including final root removal, needs a new admitted
+manifest cut and borrower drain. Ordinary data writes need rooted inputs and
+phase exclusion; this study does not invent a concurrent/generational barrier.
+
+The adapter contains no Scheme evaluator or new object representation. Scheme
+retains effects, continuation/root semantics and descriptor production; runtime
+retains tracing, GC phase coordination, custody and VM lifetime. LLVM maps can
+feed separately qualified descriptors. LLVM does not supply this registry or
+these lifecycle services [TR-P02/P04].
+
+*** 2. GC / Resize Caller Closure and Admission
+:PROPERTIES:
+:ID: edccb96e-4e37-5cfb-b0de-2a2a115645af
+:CUSTOM_ID: 2-gc-resize-caller-closure-and-admission
+:END:
+
+[[file:../../gc/diagrams/collector-entry-closure.svg][Entry and nested collector scopes]]
+[[file:../../gc/diagrams/collector-entry-closure.d2][D2 source]].
+
+The [[file:../../../../../docs/experimental/zig/target-root-caller-inventory.json][inventory]] binds three exact textual
+queries: **58 native-symbol lines, 55 exact managed-symbol lines, 6 dispatch-tag
+lines, 23 source files**. Groups overlap. Counts include definitions,
+declarations, generated mirrors, symbol tables and comments; they are not call
+counts. Hidden/ignored selected file types under vendor/gambit are included.
+No preprocessing, regeneration or executable tracing occurred.
+
+| ID | Actual origin / route | Required closure / retained behavior |
+|-
+| TGC01 | _kernel Scheme inline allocation, stack/rest handlers and explicit GC; saved generated _kernel.c [TR-S04]. | Preserve RA/register materialization before participation and reload after relocation. Admission must cover ordinary allocation, not just explicit ##gc. |
+| TGC02 | _system weak-table and _num bignum small allocation; corresponding saved generated C [TR-S05]. | Newly exposed omissions in the previous slice. Both call garbage_collect directly with W_ALL/R_ALL and overflow handling. Large allocations take alloc_scmobj and the still-allocation route. |
+| TGC03 | alloc_scmobj_still -> public garbage_collect; sync dispatch -> private garbage_collect_pstate [TR-S06/S07]. | Public/body admission must agree. No private-body bypass and no second public ticket for every participating processor. Native allocation clients also owe valid roots. |
+| TGC04 | ##cvmr -> ##current-vm-resize -> public current_vm_resize -> OP_VM_RESIZE -> vm_resize_pstate -> optional garbage_collect_pstate [TR-S07/S10]. | Resize owns a parent operation; nested collection gets an authorized child scope. Reacquiring a nonreentrant VM operation gate inside resize deadlocks. Preserve target-count/capacity/error semantics. |
+| TGC05 | service_sync_op interrupt, on_all_processors and execute_sync_op_loop; processor error/start/stop and fdset/actlog share rendezvous [TR-S07/S11]. | Actor participation is distinct from new request admission. Existing/error/derived participants must make progress even while new transfers or independent collectors are sealed. Preserve priority/combining semantics; GC combines requested_words_still by addition. |
+| TGC06 | shutdown current_vm_resize(FAL,1), then cleanup of processors/VM and scan locks [TR-S08]. | Teardown resize is a real resize/possible-GC user. Closing new transfers cannot disable GC it needs. Interrupt shutdown/single-thread branches do not themselves establish root/borrower closure. |
+| TGC07 | Direct imports and ___EXT/GSTATE function-pointer slots; private declarations; saved/generated or loaded foreign modules [TR-S12]. | One authoritative public adapter and guarded internal body, including indirect ABI paths. The textual census does not discover all external function-pointer or macro-generated calls. A native profile remains unresolved until those clients are bound or excluded. |
+| TGC08 | Managed retry/will path, tests/examples; universal backend stub and generated symbol tables [TR-S04/S10/S13]. | Calls through admitted managed primitives need no separate collector body route; preserve continuation/error behavior. Universal stub is outside native C profile. Textual metadata/mirrors are not extra runtime operations. |
+
+**** Proposed operation contract
+:PROPERTIES:
+:ID: 8d373498-892e-5b43-aa3d-fa17c2c0e56b
+:CUSTOM_ID: proposed-operation-contract
+:END:
+
+| ID | Boundary / state | Concrete rule |
+|-
+| TAD01 | Public request adapter | Capture requester/VM identity, requested still words or resize thunk/count, saved-root disposition, expected result ABI and operation identity. Under short G admit against lifecycle/held-transfer state; release G before rendezvous/wait. Pending request storage and thunk are real roots/dependencies, not unrooted queued C values; final descriptor acknowledgement must include them. Post-seal entry cannot silently add a new managed-root domain [TR-S04/S07]. |
+| TAD02 | Rendezvous and selection | All contributors acknowledge final safe states. Existing sync priority/combining gets an explicit mapping from merged requests to one selected operation/epoch and each request's result. Do not attach a separate independently advancing GC epoch to each processor or silently lose combined capacity requests [TR-S07/S11]. |
+| TAD03 | Private body scope | garbage_collect_pstate and vm_resize_pstate accept only an admitted parent operation, phase, participant identity and VM/facility lease. Hide/replace unguarded routes or put validation at the body boundary; source conventions alone cannot prevent bypass. No long-held G/C/L [TR-S06/S07/S12]. |
+| TAD04 | Resize child scope | A coordinated resize may invoke the collector only as its admitted descendant with the same held context domain. Child phase/setup/termination is real collection work; return its capacity result to resize. Mutual exclusion against a root-transfer cut is inherited; no lock reacquisition or overlap [TR-S07]. |
+| TAD05 | Result and resumed state | Internal outcomes distinguish Completed(no overflow), Completed(overflow), Deferred, Rejected and Unknown. Existing ___BOOL means overflow, so Deferred/Rejected must never be mapped to false success. A retained ABI adapter must await a terminal operation cooperatively with valid roots, or use a separately admitted rooted error path. Preserve resize's Scheme result/error semantics [TR-S04/S07]. |
+| TAD06 | Held cut versus lifecycle | A root handoff waits for admitted parent/child work to settle, then prevents new collector/root-writer/resume entry through final root publication. ClosingTransfers rejects new handoffs but honors already enrolled descendants and required GC; final collector-entry seal waits for all pending handoff dispositions and a successor route or no future heap users [TR-S08]. |
+
+This is a *closed admission design*, with a source-bounded reference inventory,
+not a claim of already proved whole-program closure. Missing code generation,
+external imports, hidden root aliases, error reentry and target-specific branches
+remain qualification obligations. At least TGC01--08, body guards, managed save/
+reload and the shared rendezvous must be resolved as one migration; wrappers
+around only the two exported names do not suffice.
+
+A foreign destructor/callback reached during GC cleanup may itself reach native
+allocation or a public GC request. It must have a qualified effect/participation
+profile; resize's child-scope rule is not permission for arbitrary recursive
+collection. Waiting for the very epoch currently executing that callback creates
+a cycle. Such effects need admitted noncollecting work, deferred delivery with
+real root/custody transfer, or a separately proved reentry protocol. The existing
+foreign-release study's unresolved effect gate remains in force.
+
+*** 3. RC Membership to Target Root Publication
+:PROPERTIES:
+:ID: 5be6a68d-7b94-5ad9-b8bb-7dc925e96cd6
+:CUSTOM_ID: 3-rc-membership-to-target-root-publication
+:END:
+
+[[file:../diagrams/target-root-publication.svg][Membership completion and closure races]]
+[[file:../diagrams/target-root-publication.d2][D2 source]].
+
+Keep the preceding exclusive terminal-epoch cut. All new records below are
+proposed authoritative runtime state, not observed receipts. Prepare capacity
+before mutation. G protects coordinator/registry state; C protects custody
+mutation. Neither gate is held over allocation, tracing, waiting or callbacks.
+
+| ID | Ordered operation | Memory visibility and custody |
+|-
+| TPB01 | Before close can win: reserve HandoffRecord, CompletionCell, target carrier/manifest/registry capacity, VM/facility pins and R. | Under G enroll the transaction in the facility's pending-transfer set. Request/pins and close use the same authority. If enrollment loses, source remains responsible; do not mutate C. |
+| TPB02 | At held boundary: final descriptors validated; under G claim Committing against cancellation. | Committing seals the right to perform the reserved mutation, not a completed transfer. Hand off an immutable claimed token/plan through qualified worker delivery. Cancel after this claim observes/resolves; it cannot revoke that token, free records or reopen the VM. |
+| TPB03 | Under C: validate held permit and source/target revisions, perform bounded nonfailing prepared link changes, set target custody and final immutable disposition fields. | Exclude all readers, root writers, cleanup and competing ref/list mutation. After first mutation no ordinary allocation/error/foreign callback path is allowed. An unsupported interruption produces Unknown, not automatic rollback. |
+| TPB04 | Custody committer completes C then release-publishes MemberCommitted in the pinned CompletionCell. | This is a one-writer completion record, separate from mutable G state. Immutable commit fields and preceding list writes happen before a resolver's successful acquire read of this same completion. A relaxed flag or unrelated mutex does not provide this edge [TR-P01]. |
+| TPB05 | Resolver acquire-observes completion before reading commit fields; under G revalidates transaction, VM, carrier/revision and held boundary. | No C/G nesting. Validate membership identity, not obsolete Serving status: a previously enrolled transaction can finalize during ClosingTransfers. Failure to read/validate means remain held with actual custody/pins, never guess source ownership. |
+| TPB06 | Single G commit: install already prepared target registry/manifest, record authoritative RootTransferReceipt, consume permit and resolve pending transaction. | No allocation/callback/safepoint here. Authoritative registry and receipt publication form one protected commit. Collector admission acquires G, snapshots and pins the manifest before sealing its ticket. A copied response receipt is delivered afterward; notification debt/response loss is separate from commit. |
+| TPB07 | Release held boundary only after target discovery is guaranteed; next epoch seals RootSeedPlan, scans, finishes writes and resumes with relocated values. | G publication and epoch handoff provide a qualified visibility chain to workers; completion needs corresponding worker-to-resume synchronization. No unsupported lock-free registry reads. Pins last through real use, not merely lookup or notification. |
+| TPB08 | Close/retire: resolve preexisting transfers, then establish successor/no-future-heap-use cut, seal independent old collector entry, drain derived work and physical users, destroy outside gates. | ClosingTransfers is not scan destruction. An admitted collector's queue work and signallers remain allowed until it settles. Target heap/registry/borrowers may still depend on a different successor facility. Root receipt alone authorizes none of those frees [TR-S08]. |
+
+The CompletionCell is preallocated native storage with TransferId/reuse identity,
+one custody writer identity, immutable terminal commit fields and an atomic
+completion tag. Only the custody committer writes those fields; only after the
+matching release/acquire edge may a resolver read them. No timeout reads a
+half-written plain struct. Reuse waits for all writer/resolver/waiter/notification
+users. G-owned lifecycle/cancellation fields live separately, avoiding concurrent
+non-atomic access through a shared status struct. Multiple resolvers serialize
+idempotent TPB06 under G. Any C/Zig boundary should expose opaque completion
+operations implemented on one side; compatible native atomic layout and language
+memory models must not be assumed from a matching struct size.
+
+The G-to-C handoff also requires an ordering edge: same-thread sequencing, or
+a qualified release/acquire worker queue carrying the immutable claimed token.
+The C committer must not inspect mutable G lifecycle/cancellation fields without
+G. Its token remains valid until it reports a terminal disposition. Cancellation
+and close can request resolution but cannot revoke the claim during mutation.
+This uses the existing shared executor contract, not a second unchecked queue.
+
+Release/acquire supplies visibility; it does not validate actual commit, prove
+all callers safe, pin storage or repair interrupted links. A qualified runtime
+mutex/event implementation can provide the same edge, but it must be the one
+actually used by both sides. No new architecture credit is awarded for atomics
+syntax [TR-P01/P05].
+
+*** 4. Failure, Closure and Actual Custodian
+:PROPERTIES:
+:ID: 01eeda39-167b-571a-9640-4e970ee9c69b
+:CUSTOM_ID: 4-failure-closure-and-actual-custodian
+:END:
+
+| ID | Cut / failure | Responsibility and required disposition |
+|-
+| TFL01 | Reserve fails or close wins before enrollment; or cancellation wins before Committing. | Source owns actual headers/roots until confirmed no mutation and transaction/pins are settled. Closing source cleanup must wait that resolution. Reserved target metadata may be freed only after its borrowers drain. |
+| TFL02 | Committing claimed; completion still Pending. | Transaction owns exclusion/resolution; actual source or target links cannot be inferred from Pending. Keep both storage dependencies, prepared root metadata, VM/facility and R. A live C writer cannot be replaced by a timeout resolver. |
+| TFL03 | MemberCommitted observed; registry commit delayed/rejected by a correctable validation mismatch. | Target owns actual storage; pinned handoff protects root metadata and held VM. The resolver repairs only through qualified same-transaction rules. It may finish while ClosingTransfers; it cannot return destructor authority to source or resume collection through an absent registry. |
+| TFL04 | Writer fails mid-mutation or unknown relocation/borrower state. | Quarantine all potentially used storage/VM/facility dependencies and keep resume/collection closed. A resolver may inspect/repair only after excluding the original writer and proving a prepared-plan disposition. No generic recovery, bounded retention or progress is proved; process crash recovery is outside scope. |
+| TFL05 | Registry/receipt committed, response lost or observer cancels. | Target stays registered/custodian; retry resolves the same authoritative record. Notification/response user debt remains separately live; receipt copy cannot cause a second transfer/free. |
+| TFL06 | Facility close races after TPB01 but before TPB06. | Close records ClosingTransfers and waits outside gates for enrolled completion/resolution; it must not revoke the reserved adapter/manifest/facility pins. Pending transaction can complete as an admitted descendant. Destroy cannot race it. |
+| TFL07 | Final collector seal competes with a required resize/GC or unresolved transfer. | Reject/defer the seal, keeping required facility service available. A close path holding G/registry locks while awaiting a participant creates an internal wait cycle; redesign the dependency, not the timeout. |
+| TFL08 | Root metadata is correct but external raw data writer/release or deferred foreign effect remains. | No permit for that cohort until it is rooted/participating or closed. C closure code/return users and TLS/provider tasks retain their own leases; target registry cannot attest for them. |
+
+Source owns precommit storage; target owns confirmed committed storage; the
+handoff authority owns *unresolved coordination and retention*, not magical
+relocation of unknown physical ownership. Quarantine prevents unsafe reuse only
+under complete exclusion/lifetime premises. It may retain the whole VM and block
+shutdown forever; it is not an acceptable progress proof or memory-cost bound.
+
+*** 5. Conditional Arguments and Countermodels
+:PROPERTIES:
+:ID: 8132e26a-1133-5898-a44f-119facae3f1f
+:CUSTOM_ID: 5-conditional-arguments-and-countermodels
+:END:
+
+These are handwritten implications under stated premises, not machine-checked
+proofs or native witnesses. The preceding study's final acknowledgements,
+terminal epoch and exclusion requirements remain premises.
+
+| ID | Conditional argument | Derivation / open premise |
+|-
+| TAP01 | Every eligible target RC data cell is relocated before resumed use. | TRA02/05 enumerate each actual cell exactly once; TRA06 uses qualified tracing/writeback; TRA07 prevents termination while seeds/derived work remain; TPB07 orders reload. Hidden aliases, correct tracing and complete resumption roots remain PA03/04 obligations. |
+| TAP02 | No admitted collector observes the membership/publication gap. | TAD03/04 guard body routes, TAD06 holds the cut, TPB03 excludes old borrowers, TPB06 precedes release. Therefore an admitted next snapshot sees target registry. External bypass or unguarded private entry falsifies the premise. |
+| TAP03 | A finalized receipt cannot precede actual membership writes. | Sole committer sequences immutable fields/list writes before release; resolver acquire reads that release then validates same transaction; TPB06 is under G. The happens-before edge establishes visibility, while held-boundary/identity premises establish meaning [TR-P01]. |
+| TAP04 | Intermediate failure never licenses an unsafe source free. | TFL01 requires confirmed precommit cancellation; TFL02--04 retain both potentially used dependencies; TFL05 retains confirmed target custody. No unresolved state grants source destruction. Complete cleanup routing and all-exit exclusion remain premises. |
+| TAP05 | Closure does not destroy a facility still needed by a transaction or epoch. | TPB01 enrolls before close; TFL06 preserves admitted descendants; TPB08 waits for actual transaction/epoch/queue/users and a future route cut. Finite participant/resolver progress and complete census remain unproved. |
+| TAP06 | Resize-driven GC cannot evade the cut or self-deadlock on entry. | TAD02 selects coordinated work; TAD04 derives a collector scope from the parent resize without gate reacquisition; TAD06 arbitrates transfer vs parent admission. All participants and request combining still need a concrete scheduler refinement. |
+| TAP07 | Root seeding cannot arrive after strong termination in the chosen plan. | TRA05 freezes assignments before active/idle termination accounting; TRA06/07 keep each seed owner active through work publication. It says nothing about balanced graph work or later weak/will phases [TR-P03]. |
+
+| ID | Logical countermodel / violated condition | Consequence |
+|-
+| TAX01 | Registry contains copied proc value instead of &header.data. | Collector updates the copy; callback reads stale payload word. |
+| TAX02 | Migrated header remains on a scanned receiver rc_head and in target manifest. | Two workers may write the same root cell without a canonical writer law. |
+| TAX03 | Native carrier calls mark_array using a retired donor PSTATE. | Trace reads freed allocation/queue/TLS state even though carrier storage lives. |
+| TAX04 | All workers become idle, then a host executor enqueues root seeds. | Termination can precede reachable work. A registered manifest alone did not protect it. |
+| TAX05 | Guard only public garbage_collect; resize calls gc_pstate directly. | Collection crosses the held transfer gap. |
+| TAX06 | Guard known kernel sites; omit _system/_num or late-bound imports. | Unaccounted collector/capacity path bypasses intended admission. |
+| TAX07 | Resize reacquires the exclusive gate already owned by itself. | Internal deadlock; increasing timeout does not make progress. |
+| TAX08 | Return false for Deferred at old GC ABI. | Allocation caller interprets no overflow and can allocate without the required collection. |
+| TAX09 | MemberCommitted uses relaxed publication; resolver reads ordinary fields before acquire. | No established visibility of list/commit fields; possible data race or stale disposition. |
+| TAX10 | Completion reused while an old resolver/notification still holds its address. | ABA can associate a new transfer with an old response/free authority. |
+| TAX11 | Close changes Serving before TPB06, which rejects all non-Serving completion. | Storage is already target-owned but root publication cannot finish; shutdown can deadlock. |
+| TAX12 | Timeout treats Pending as NotStarted and frees source. | C writer may already have linked target or still use header. |
+| TAX13 | Receipt sent first; registry allocation then fails. | Consumer resumes while the next epoch cannot discover target roots. |
+| TAX14 | Force cleanup ignores migrated headers or scanner pins. | cleanup_rc/free races live root scanning despite RC refcount or receipt. |
+| TAX15 | Count equal roots as equal trace work. | One large reachable graph dominates; no speedup follows from partition count. |
+| TAX16 | Facility drain waits under G for a resolver/queue signaller that needs G. | Claimed quiescence creates a dependency cycle instead of completing. |
+
+*** 6. Migration and Remaining Research Gates
+:PROPERTIES:
+:ID: d3c13851-8156-535f-b454-55e24fdff9bb
+:CUSTOM_ID: 6-migration-and-remaining-research-gates
+:END:
+
+1. Bind the full semantic/native cohort, exact ABI options and all root writers;
+   retain the inventory as a source-change alarm, not an execution certificate.
+2. Reconstruct one request/participant/body scope across GC, resize, shutdown,
+   sync priorities/combining, Scheme save/reload and old result ABI adapters.
+3. Extract collector work identity and add target-carrier seed planning with
+   correct active/idle accounting; preserve all later phases and foreign effects.
+4. Route RC ownership/mutation/cleanup and seal one discovery route per cell.
+   Prepare carrier/manifest/transaction capacity before any transfer commit.
+5. Add authoritative C-completion-to-G publication, admitted close descendants,
+   all-exit custody and physical drain. No implementation is authorized here.
+6. Retire old perprocessor ownership/scanning and wrappers only for a fully bound
+   cohort after native qualification; compare equivalent modern C and Zig costs.
+
+Full caller/root completeness, macro/TLS extraction, internal scheduler effects,
+cross-language ordering, exceptional exit containment, worker qualification,
+finite close/drain progress and positive net benefit remain *unresolved*.
+There are zero new native profiles, retired runtime paths or runtime receipts.
+The concrete missing deliverables are now named adapters/entry scopes and
+publication rules rather than an assumption that Zig or LLVM provides them.
+
+*** Collector Context and Combined-Request Refinement
+:PROPERTIES:
+:ID: 4da68d0c-af56-57b7-9169-c76c3ab0d4ff
+:CUSTOM_ID: collector-context-and-combined-request-refinement
+:END:
+
+The [[file:../../gc/studies/collector-work-context-design.org][collector-context study]] deepens TRA04--07
+and TAD02--06 with a 34-field inventory, distinct U/K/S/W/P/O domains, durable
+selection/result membership and a concrete phase-work closure protocol. It
+exposes that vendor GC only assigns its local capacity result on processor 0;
+a shared outcome is a required semantic/publication refinement, not an already
+proved consequence of the existing loop. Root/frame construction and worker
+copy arenas also require distinct owner identities. No independent worker or
+ABI-equivalence qualification is claimed by that continuation.

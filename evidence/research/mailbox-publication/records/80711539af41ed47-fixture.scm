@@ -1,0 +1,53 @@
+;;; Real built-in mailbox operations: the unpublished cell must survive GC while
+;;; its sender waits for the queue permit. GC must not acquire that permit.
+(##include "~~lib/_gambit#.scm")
+(##include "~~lib/_thread#.scm")
+(##namespace ("gambit#tests#smp#scheduler#mailbox#permit-roots#"
+              receiver mb permit sender deadline gc-before gc-after value expect))
+(define (expect actual expected)
+  (if (not (equal? actual expected)) (error "mailbox permit/root mismatch" actual expected)))
+(define receiver (current-thread))
+(define mb (##thread-mailbox-get! receiver))
+(define permit (macro-mailbox-mutex mb))
+(mutex-lock! permit)
+(define sender
+  (thread-start!
+   (make-thread
+    (lambda ()
+      ;; No global payload root: the cell/local roots in thread-send own this.
+      (thread-send receiver (vector 'unpublished (list 17 18 19)))))))
+(define deadline (+ 5 (time->seconds (current-time))))
+(let wait ()
+  (let ((state (thread-state sender)))
+    (if (not (and (thread-state-waiting? state)
+                  (eq? (thread-state-waiting-for state) permit)))
+        (if (> (time->seconds (current-time)) deadline)
+            (error "sender never reached queue permit")
+            (begin (thread-yield!) (wait))))))
+(define gc-before (f64vector-ref (##process-statistics) 6))
+(##gc)
+(define gc-after (f64vector-ref (##process-statistics) 6))
+(if (not (> gc-after gc-before)) (error "forced GC not completed under permit"))
+(mutex-unlock! permit)
+(define value (thread-receive 5 'timeout))
+(expect value '#(unpublished (17 18 19)))
+(if (eq? (thread-join! sender 5 'timeout) 'timeout)
+    (error "rooted sender did not complete after publication"))
+;; All selective cursor transitions use the same queue protocol.
+(for-each (lambda (x) (thread-send receiver x)) '(a b c))
+(expect (thread-mailbox-next 5 'timeout) 'a)
+(expect (thread-mailbox-next 5 'timeout) 'b)
+(##gc)
+(thread-mailbox-extract-and-rewind)
+(expect (thread-mailbox-next 5 'timeout) 'a)
+(thread-mailbox-rewind)
+(thread-send receiver 'd)
+(for-each (lambda (x) (expect (thread-receive 5 'timeout) x)) '(a c d))
+(expect (thread-receive 0 'empty) 'empty)
+(expect (with-exception-catcher
+         (lambda (e) (if (mailbox-receive-timeout-exception? e) 'timeout-exception (raise e)))
+         (lambda () (thread-receive 0)))
+        'timeout-exception)
+(thread-send receiver 'after-exception)
+(expect (thread-receive 5 'timeout) 'after-exception)
+(display "MAILBOX-PERMIT-ROOTS-PASS blocked-cell-gc selective-cursor timeout-cleanup\n")

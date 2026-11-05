@@ -1,0 +1,325 @@
+{
+  "memory": [
+    {
+      "key": "segment-entry",
+      "writer": "owner disables cancellation under existing entry custody",
+      "publication": "save state and disable before claim; SC baseline",
+      "reader": "same physical owner",
+      "observation": "check successful admission before legacy decrement",
+      "lifetime": "native asynchronous entry/foreign longjmp not covered by merely disabling Scheme interrupts"
+    },
+    {
+      "key": "legacy-decrement",
+      "writer": "sole owner writes vector false and decrements owned still count",
+      "publication": "ordinary stores under GC exclusion; then release progress",
+      "reader": "same executor and final custodian",
+      "observation": "acquire recorded progress; pending record is insufficient",
+      "lifetime": "thread cannot be abandoned between count update and progress record"
+    },
+    {
+      "key": "token-release",
+      "writer": "stable identity token already published and pinned",
+      "publication": "single Active-to-Released CAS acq_rel success",
+      "reader": "repeat requester or helper",
+      "observation": "acquire failure/load same generation; no second decrement",
+      "lifetime": "one atomic object supplies validity and native authority; ghost drop counter is not physical log"
+    },
+    {
+      "key": "gc-root-snapshot",
+      "writer": "owner publishes mutable roots and participates in GC epoch",
+      "publication": "release parked/root epoch; existing baseline requires audit",
+      "reader": "collector and resumed owner",
+      "observation": "acquire matching epoch/cut before scanning or resuming",
+      "lifetime": "no collector read of changing plain marker fields; pending request alone is not a cut"
+    },
+    {
+      "key": "query",
+      "writer": "directory admits reader before token dereference",
+      "publication": "SC gate admission; candidate acq_rel",
+      "reader": "query after lost reply",
+      "observation": "acquire released token identity",
+      "lifetime": "token storage and tombstones outlive readers and eligible retries"
+    },
+    {
+      "key": "caller-done",
+      "writer": "owner completes catch restoration and remaining native effects",
+      "publication": "release physical guard Done",
+      "reader": "outer stable custodian",
+      "observation": "acquire exact Done transaction",
+      "lifetime": "token Released is not this Done; thread loss leaves caller debt"
+    },
+    {
+      "key": "cancel-restore",
+      "writer": "stable custodian finishes mandatory ownership/Done publication",
+      "publication": "restore caller original cancellation state after no more vulnerable PSTATE accesses",
+      "reader": "pending cancellation may be delivered at or after restoration",
+      "observation": "no forced enabling when caller entered disabled",
+      "lifetime": "external guardian outlives nonreturning restoration; installed libpthread semantics unqualified"
+    },
+    {
+      "key": "retirement",
+      "writer": "closer closes directory and root registration admission",
+      "publication": "release close and reader decrement; SC baseline",
+      "reader": "VM/GC custodian",
+      "observation": "acquire final zero on same generation plus collector grace acknowledgement",
+      "lifetime": "neither token state nor atomic count permits early free"
+    },
+    {
+      "key": "quiescent-audit",
+      "writer": "old native writer stopped and all other reference mutators excluded",
+      "publication": "successful termination/GC/root handoff and private-credit receipt",
+      "reader": "stable VM custodian",
+      "observation": "ordinary count and marker reads only after happens-before/quiescence; no atomic cast over plain fields",
+      "lifetime": "same rooted generation, exact one-credit baseline, no alias increments; partial invalidation is not decrement evidence"
+    }
+  ],
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "mem.c:4210-4248; setup.c:3384-3420",
+      "actionName": "retireToken",
+      "lemmaName": "rootRetirementRequiresSettled",
+      "guardName": "s.tdone",
+      "duty": "Released token is narrower than physical guard Done; retain root/session through caller debt, reader drain and GC epoch retirement",
+      "status": "new token consumers and parent closure required"
+    },
+    {
+      "key": "execution-owner",
+      "anchor": "c_intf.c:6555-6562; mem.c:1461-1467; gambit.h.in:8531-8535",
+      "actionName": "enterSegment",
+      "lemmaName": "criticalNeedsCustody",
+      "guardName": "s.lroot",
+      "duty": "Alternative A retains session and scanned roots, suppresses cancellation before entering the no-GC/no-callback decrement-to-record interval",
+      "status": "source call body bounded; cancellation and escape closure not qualified"
+    },
+    {
+      "key": "gc-handshake",
+      "anchor": "setup.c:67-92; mem.c:6798-6800,6845-6854,7071",
+      "actionName": "collectCut",
+      "lemmaName": "requestDoesNotAuthorizeGC",
+      "guardName": "not(s.critical)",
+      "duty": "GC request is not collector entry permission; require parked/root and old-roster cut, or a bounded interval that completes before participating",
+      "status": "no spinning GC wait under root/registry lock"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "mem.c:684-699,4210-4248; setup.c:781-804",
+      "actionName": "retireVm",
+      "lemmaName": "outstandingBlocksVm",
+      "guardName": "not(s.lowner)",
+      "duty": "VM retirement excludes unknown guard custody, exported handles, current invocations and inherited processor/storage debt",
+      "status": "token receipt alone never permits shutdown"
+    },
+    {
+      "key": "token-authority",
+      "anchor": "mem.c:1487-1497,1683,4210-4248; _kernel.scm:1020-1065",
+      "actionName": "releaseToken",
+      "lemmaName": "repeatReleaseIdempotent",
+      "guardName": "s.troot",
+      "duty": "Alternative B uses one stable atomic Active-to-Released token as native authority and marker validity; scalar count becomes nonauthoritative or is removed for this ownership class",
+      "status": "requires allocator/scanner/return-to-C migration; no extra log beside old decrement"
+    },
+    {
+      "key": "unknown-keeper",
+      "anchor": "setup.c:3384-3420; c_intf.c:6555-6562",
+      "actionName": "abandonLegacy",
+      "lemmaName": "unknownKeepsKeeper",
+      "guardName": "not(s.ldead)",
+      "duty": "Stable VM guardian retains roots and session on unlogged legacy outcome; no timeout transfer or blind retry; confirmed death still needs root/roster handoff",
+      "status": "loss of process is outside in-memory recovery"
+    },
+    {
+      "key": "record-window",
+      "anchor": "mem.c:1461-1467; c_intf.c:6555-6562",
+      "actionName": "recordDrop",
+      "lemmaName": "legacyAmbiguity",
+      "guardName": "s.lp==2",
+      "duty": "Pending log alone cannot distinguish decrement-before-abandonment from abandonment-before-decrement; quiescent single-credit count audit supplies extra evidence only under explicit closure",
+      "status": "conditional no-abandonment, qualified exclusive-credit audit, or redesigned authority required"
+    },
+    {
+      "key": "release-query",
+      "anchor": "mem.c:1447-1467; gambit.h.in:9981-9988",
+      "actionName": "queryToken",
+      "lemmaName": "tokenReplyRecoverable",
+      "guardName": "s.troot",
+      "duty": "After lost reply acquire exact generation token; helper may reconstruct release receipt but cannot declare caller restoration or live catcher complete",
+      "status": "stable token storage, lookup admission and no ABA required"
+    }
+  ],
+  "gain": [
+    {
+      "key": "bounded-legacy-segment",
+      "avoided": "Retain current marker ABI and one required legacy still decrement",
+      "added": "Cancellation save/disable/restore, sole executor, pinned roots, progress publication and delayed GC participation",
+      "condition": "Qualify bounded interval and every escape; unlogged loss needs quarantine or separately admitted exclusive-credit audit"
+    },
+    {
+      "key": "atomic-authority",
+      "avoided": "Remove the independent decrement-versus-record ambiguity for token-managed native ownership",
+      "added": "Atomic token state, stable directory, active-token root scan, return-to-C identity read and retained tombstones",
+      "condition": "Only if every marker allocation/scanning/native-release/validity consumer migrates; keeping both authorities defeats claim"
+    },
+    {
+      "key": "unknown-custody",
+      "avoided": "Preserve roots and session until actual outcome and caller duties are known",
+      "added": "Retention may be unbounded without progress or externally qualified root/roster recovery",
+      "condition": "Stronger token release recovers accounting outcome only; physical caller debt remains"
+    },
+    {
+      "key": "modern-c-net-benefit",
+      "avoided": "Generated C contracts can share token directory, GC epoch and completion support across necessary components",
+      "added": "Representation/ABI migration, memory ordering and scan overhead remain in C and Zig",
+      "condition": "No speedup established; token path earns adoption by removing ambiguity and retiring old marker-native counting, not by adding another wrapper"
+    }
+  ],
+  "gate": [
+    {
+      "key": "native-interruption",
+      "qualified": false,
+      "duty": "Every actual native throw, pthread cancellation, signal action, thread-exit and embedding escape is classified; no absence claim from narrow grep"
+    },
+    {
+      "key": "gc-participant-cut",
+      "qualified": false,
+      "duty": "Root snapshot, marker/body exclusion, bounded poll deferral and old-roster participants close before collector access"
+    },
+    {
+      "key": "token-authority-migration",
+      "qualified": false,
+      "duty": "Managed markers have no second authoritative native scalar reference; allocator, root scanner, raw inc/dec and return-to-C use same generation token"
+    },
+    {
+      "key": "stable-token-lifetime",
+      "qualified": false,
+      "duty": "Pin directory before lookup, exclude generation/counter wrap, retain released identity until reader/query retirement; no raw access after expiry"
+    },
+    {
+      "key": "caller-debt",
+      "qualified": false,
+      "duty": "Release known does not settle catcher/register/continuation/native-resource obligations or prove a dead thread handed them off"
+    },
+    {
+      "key": "c11-source-refinement",
+      "qualified": false,
+      "duty": "Single atomic transition mapping, release/acquire reads-from, scanner epoch and cancellation-state restoration proven for concrete C ABI"
+    },
+    {
+      "key": "darwin-native",
+      "qualified": false,
+      "duty": "Public libpthread source and archived manual are platform evidence, not matching installed library, effective argv or native SMP acceptance"
+    }
+  ],
+  "profile": [
+    {
+      "key": "installed-darwin-source",
+      "driver": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/bin/gambuild-C",
+      "header": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/include/gambit.h",
+      "compiler": "/opt/homebrew/bin/gcc-16",
+      "declaredMode": "C; SINGLE_HOST; INLINE_JUMPS; TRUST_C_TCO; header default SINGLE_THREADED_VMS",
+      "macroParity": "Nine literal macro spans match template; effective branch and object relation remain open",
+      "sourceMatch": false,
+      "status": "static installed declarations; no effective argv or SMP object match"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "gc-handshake",
+      "prerequisite.key": "execution-owner",
+      "reason": "Shared roots and participation must cover collector cut"
+    },
+    "1": {
+      "dependent.key": "record-window",
+      "prerequisite.key": "execution-owner",
+      "reason": "Legacy record interval remains under ownership"
+    },
+    "2": {
+      "dependent.key": "unknown-keeper",
+      "prerequisite.key": "record-window",
+      "reason": "Ambiguous record cannot authorize repeating decrement"
+    },
+    "3": {
+      "dependent.key": "unknown-keeper",
+      "prerequisite.key": "execution-owner",
+      "reason": "Guardian retains stable root/session custody"
+    },
+    "4": {
+      "dependent.key": "token-authority",
+      "prerequisite.key": "execution-owner",
+      "reason": "Token alternative also requires stable root and lookup ownership, not execution of legacy decrement"
+    },
+    "5": {
+      "dependent.key": "release-query",
+      "prerequisite.key": "token-authority",
+      "reason": "Query reads the same authoritative released token"
+    },
+    "6": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "release-query",
+      "reason": "Release outcome precedes separate caller retirement"
+    },
+    "7": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "gc-handshake",
+      "reason": "Root storage retirement follows collector and reader grace cut"
+    },
+    "8": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "derived-credit",
+      "reason": "VM retirement waits for physical guard settlement"
+    },
+    "9": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "unknown-keeper",
+      "reason": "Unknown legacy outcome still blocks shutdown"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "RCC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/release_commit_custody.qnt",
+      "subjectScope": "safe: legacy decrement-record ambiguity, interruption custody, pending cancellation and GC, authoritative token retry and separate physical guard completion",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "RCC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/ReleaseCommitCustody.lean",
+      "subjectScope": "authoritative-token step/history safety, repeated-release idempotence, legacy indistinguishable outcomes and separate root/session debt",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "RCC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/release-commit-custody-design.org",
+      "subjectScope": "actual interrupt/poll/throw/marker/refcount/scanner paths; closure of cancellation and two alternative release architectures",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "RCC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/release-commit-custody-design.org",
+      "subjectScope": "C11 single-transition/refcount distinction, cancellation restore semantics, GC epoch and effective Darwin library/object refinement",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "RCC-S",
+      "prerequisite.obligationId": "RCC-H"
+    },
+    "1": {
+      "dependent.obligationId": "RCC-S",
+      "prerequisite.obligationId": "RCC-I"
+    },
+    "2": {
+      "dependent.obligationId": "RCC-S",
+      "prerequisite.obligationId": "RCC-E"
+    },
+    "3": {
+      "dependent.obligationId": "RCC-S",
+      "prerequisite.obligationId": "SGS-S"
+    }
+  }
+}

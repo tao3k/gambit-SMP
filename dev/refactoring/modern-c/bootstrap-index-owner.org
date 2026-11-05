@@ -1,0 +1,164 @@
+#+TITLE: Bootstrap failure — collector reference repair and index ownership
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+
+* FAIL Committed branch and candidate are separate observations :bootstrap:assurance:
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-index-owner
+:AUTHORITY: GambitHashIndexOwnership::branchBootstrap
+:BASE_REVISION: db7e3425152c7036aec4cc30b20dd188d034773a
+:BASE_STATUS: FULL-BOOTSTRAP-FAIL
+:SMP_PROGRESS: NO-INDEPENDENT-TWELVE-REQUIREMENT-MILESTONE-ESTABLISHED
+:END:
+
+[[file:../../../evidence/refactoring/modern-c/revisions/db7e3425152c7036aec4cc30b20dd188d034773a/bootstrap.json][The committed-source failure]] is an actual native failure, not a timeout:
+configuration/build span 326.383175 seconds; Make takes 246.052673 seconds and
+exits 2. The first-pass compiler cannot finish primitive setup. The next pass
+therefore cannot regenerate its C inputs. Announcing phase1–phase4 twice is
+not successful completion of those phases.
+
+No patch-repair milestone transfers into this branch. Input source binding is
+not the first runtime milestone. [[file:../../../evidence/refactoring/modern-c/progress.org][The independent matrix]] remains authoritative
+for the committed revision. A candidate outcome must retain its exact source-tree identity
+and must never overwrite that failure with a committed-HEAD PASS.
+
+* Source refinement and causal question :source:gc:
+
+The base revision contains all the failing primitive declarations in
+~gsc/_prims.scm~. ~make-prim-proc-table~ in ~gsc/_back.scm~ inserts canonical
+string keys with Scheme ~make-table~; ~targ-get-prim-info~ in ~gsc/_t-c-1.scm~
+retrieves them. The startup call in ~gsc/_t-c-2.scm~ happens before ~-v~ or ~-e~
+can be processed. A missing-primitive error is therefore not proof that its
+declaration or the compiler frontend is missing.
+
+The ownership chain is:
+
+1. ~lib/_system.scm~: ~checks-done~ chooses the semantic test/hash functions;
+   ~table-access~ uses those functions to choose physical slots.
+2. ~lib/_mem/object-scanning.inc~ repairs key/value references of GC tables.
+3. ~lib/_mem/wills.inc~ defaults multithreaded VMs to eager native rehash,
+   including when only one processor executes Scheme.
+4. ~lib/_mem/weak-tables.inc~ marks movable keys as address-moved and invokes
+   ~gc_hash_table_rehash_in_situ~. That routine uses the C address-hash algorithm;
+   the old metadata does not identify a Scheme-owned index.
+5. Subsequent Scheme lookup still uses the recorded semantic hash. Physical
+   presence, key equality and equal current hashes do not imply that the key
+   lies on that algorithm's probe chain.
+
+The eager-policy selection and worst-case key-moved path are already present
+in ~7c490c3a:lib/mem.c~, before the frame and source-organization commits. This
+is a source-level localization, not a claim that the older commit was executed
+under the current profile or that every older bootstrap necessarily failed.
+
+[[file:../../../vendor/gambit/tests/smp/gc/primitive-table.scm][The real primitive-database consumer]] reproduces the inconsistency in the
+base-runtime diagnostic. It reads 1,588 declaration rows, with 1,587 table
+bindings; 1,481 failed lookup rows still have physically enumerated equal keys
+with equal current hashes. That count is one observed failure, not a universal
+failure rate. Implicit GC can occur while the table is constructed.
+
+[[file:../../../vendor/gambit/tests/smp/gc/scheme-index-gc.scm][The focused GC control]] separates lookup before and after an explicit GC.
+[[file:../../../evidence/refactoring/modern-c/bootstrap-index-owner.json][The source-bound record]] retains the actual negative/positive outcomes,
+binary identities and full candidate bootstrap outcome; the fixture's existence
+does not count as execution.
+
+| Actual native observation | Before explicit GC | After explicit GC / completion |
+|---------------------------+--------------------+--------------------------------|
+| Retained base-runtime GSI, 32 fresh string keys | 0 missing | 29 missing; exit 1 |
+| Full-bootstrap candidate GSI, same 32-key fixture | 0 missing | 0 missing; exit 0 |
+| Full-bootstrap candidate, all 1,588 primitive declaration rows | 0 missing | 0 missing; exit 0 |
+| Full candidate from-scratch | Original profile, default heap, no -o exclusions | Two complete passes; exit 0; Make 408.624851s; whole 422.880377s / 600s |
+
+These are correctness and completion observations. The failed and successful
+timings do not establish a build-performance speedup.
+
+* Candidate responsibility boundary :design:
+
+[[file:models/sysml/hash-index-ownership.sysml][The existing SysML component]] owns the design. The explicit
+[[file:../../../evidence/refactoring/modern-c/index-owner-submission-source.json][four production-source changes]] refines ~creation~, ~repair~ and ~scheme~:
+
+- C and Scheme define the same persistent ~SCHEME_INDEX~ flag in the existing
+  flags word; the value 128 is bit 7, after the seven existing flag bits.
+- ~checks-done~ publishes that owner when ~test-fn~ selects Scheme access.
+- GC repairs references and weak entries, then clears only address-movement
+  debt for that owner. Existing ~NEED_REHASH~ from reconstruction survives.
+- Native identity indexes retain the existing eager route in this candidate.
+  There is no GSC-name exception, heap increase, lazy-mode switch, Scheme
+  callback in GC or general replacement of native traversal ownership.
+
+The working research tree already contains the broader index-ownership design.
+This candidate isolates a four-path projection against committed source so its
+effect is independently testable. It does not import the mixed working tree or
+the patch-repair series into branch acceptance.
+
+* Verification and limits :ascent:
+
+#+BEGIN: sysml-view :source models/sysml/hash-index-ownership.sysml :kind proof-scope
+~HI-BRANCH-BOOTSTRAP~ links the actual candidate record to the existing witness.
+~HI-QNT~ owns finite schedules/layout histories; ~HI-LEAN~ owns conditional
+semantic transport and the incompatible-algorithm law. Neither is rewritten
+as a process-receipt proof. ASCENT must keep base failure, candidate observation
+and whole-runtime admission as separate claims.
+#+END:
+
+The full-registry trajectory read hit its independent 60-second limit after
+the native and model checks completed. It remains TIMEOUT-UNRESOLVED. The
+focused read uses the existing Evidence-view API for this single registered
+branch view; its actual outcome is recorded in
+[[file:../../../evidence/refactoring/modern-c/bootstrap-index-owner-validation.json][the validation record]]. It does not claim that the full-registry read passed,
+and neither read grants execution or runtime admission.
+
+Incremental causal validation deliberately excluded unchanged shared-header
+dependencies for a small comparison. It is not complete bootstrap evidence.
+Full qualification runs unmodified ~make -j11 GAMBOPT=p1 from-scratch~ with
+the existing Bazel C23 profile and no dependency exclusions. All expected
+generated modules, both phase sequences, terminal exit, source identities and
+quiescent completion must match. The whole limit remains 600 seconds.
+
+| Item | Mechanism / measured observation | Added work or retained gap |
+|------+----------------------------------+----------------------------|
+| Semantic lookup | Prevent C address hashing from replacing Scheme slot placement | One owner decision in construction; one owner branch per reached table |
+| Root/GC work | Keep reference repair and weak deletion with GC | Existing scans remain; no claim of fewer roots or collections |
+| Avoided work | O(m) wrong C index rebuild per reached Scheme table of extent m | A work bound, not a measured speedup; explicit Scheme reconstruction remains |
+| Per-table storage | One spare bit in the existing flags word | No extra object field or root word; four source paths must agree |
+| Bootstrap | Recorded independently on committed base and explicit candidate | Candidate success cannot be relabelled as committed base success |
+| Native traversal | Existing native eager policy deliberately remains in this candidate | Full writer-owned native layout and suspended cursor proof remain later work |
+| SMP progress | No milestone credit inherited | Original GSI/GSC, stress, lifecycle, Gerbil and other whole gates remain independent |
+
+[[file:diagrams/bootstrap-index-owner.d2][D2]] shows the failing chain and the limited responsibility replacement.
+
+* Selected REV and the five submission gates :process:submission:
+:PROPERTIES:
+:AUTHORITY: GambitIndexOwnerDelivery
+:SCOPE: Four production paths and three vendor tests; immutable bootstrap prerequisite
+:END:
+
+[[file:models/sysml/index-owner-delivery.sysml][The selected submission model]] freezes four production paths and three vendor tests before its
+constructor controls. [[file:../../../evidence/refactoring/modern-c/index-owner-submission.json][The tree manifest]] checks all canonical bootstrap inputs
+and artifact identities against the executed candidate. The real vendor index
+and working research remain separate; an isolated Git index selects the exact
+tested bytes. No broader staged header, worker or CFFI work enters this REV. Native Scheme
+regressions live under vendor/gambit/tests/smp/gc and ship with the source commit.
+SMP Evidence retains observations and model links, not maintained runtime fixtures.
+
+| Gate | Required observation / answer |
+|------+-------------------------------|
+| Tests | Exact source tree and bootstrap equivalence; retained failing base control; full two-pass bootstrap; interpreted and compiled constructor/resize/copy/retained-weak/native-identity controls; no user hasher invoked by GC |
+| Learning | Reference relocation does not transfer semantic algorithm ownership; remove the wrong O(m) rebuild with a persistent bit and one collector dispatch; no measured speedup or general SMP repair claim |
+| Process | Bootstrap prerequisite after source organization, before this REV's independent original twelve-requirement campaign |
+| Models | Native SysML projects seven obligations to the five existing gates; existing ASCENT joins actual artifacts and rejects missing/stale/model-only evidence; existing QNT/Lean roles remain distinct |
+| Questions | Portable C, proper tail calls, shared object identity and multi-shot continuation are unchanged; their GC can transport roots without running or replacing Scheme hash algorithms; stable hash is a required semantic premise |
+
+The Gambit design being strengthened is the explicit boundary between portable
+runtime transport and Scheme semantics. This unit does not introduce a new
+stack representation, scheduler, worker population, continuation restriction or
+foreign ownership protocol. It therefore claims no new parallel scalability or
+continuation performance result. Unknown raw producers, old serialized images
+and native traversal ownership remain explicitly outside this submitted unit.
+
+[[file:../../../evidence/refactoring/modern-c/index-owner-controls.json][Constructor controls]] cover all four strong/weak-key/weak-value combinations
+with externally retained payloads, Scheme string/custom hash selection, resize,
+copy, repeated GC and the native identity-index route. They do not prove
+arbitrary weak reachability or concurrent same-table mutation.

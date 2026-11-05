@@ -1,0 +1,42 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "join-condvar-gc-cohort",
+  "scope": "Compile one source-reachable controlled join cohort against the retained runtime. The paired control releases the known thread lock before GC; the contended case retains it. A timeout is a diagnostic failure, not a deadlock verdict, original TFIB result, source repair or native admission. No runtime rebuild or bootstrap. The original 3600-second inactivity window is unchanged.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.patch",
+    "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json",
+    "models/gambit/native/join_condvar_gc_cohort.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 180,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 180,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json"}},
+    {"id": "release-control", "capability": "gambit.executable-test", "dependsOn": ["runtime"], "budgetSeconds": 120,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/join_condvar_gc_cohort.scm", "mode": "gsc",
+                   "processorTopology": "host-managed", "executionBudgetSeconds": 12,
+                   "stackSampleAfterSeconds": 1,
+                   "parameters": {"GAMBIT_SMP_JOIN_COHORT_MODE": 1},
+                   "stdout": "JOIN-CONDVAR-GC:PASS\n"}},
+    {"id": "retained-lock", "capability": "gambit.executable-test", "dependsOn": ["runtime", "release-control"], "budgetSeconds": 120,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/join_condvar_gc_cohort.scm", "mode": "gsc",
+                   "processorTopology": "host-managed", "executionBudgetSeconds": 12,
+                   "stackSampleAfterSeconds": 1,
+                   "parameters": {"GAMBIT_SMP_JOIN_COHORT_MODE": 2},
+                   "stdout": "JOIN-CONDVAR-GC:PASS\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["candidate", "runtime", "release-control", "retained-lock"], "budgetSeconds": 30,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

@@ -43,7 +43,7 @@ theorem zeroCountAndEmptyQueuesExcludeHiddenWork (ws : List Worker)
   have inactive := zeroCountExcludesActive ws countZero w hw
   have noPrivate : w.privateWork = false := by
     cases hp : w.privateWork with
-    | false => exact hp
+    | false => rfl
     | true =>
       have active := lifetime w hw hp
       rw [inactive] at active
@@ -70,9 +70,58 @@ theorem stageCostsStayWithinComposedBudget
   rw [LeanPoo.Functional.Transformation.resource_compose_cost]
   exact Nat.add_le_add firstBound secondBound
 
+-- Transfer-interface obligations, not implementation or weak-memory proofs.
+def ServiceReady (announced acknowledged : Bool) : Prop :=
+  announced = true ∧ acknowledged = true
+
+theorem announcementWithoutAcknowledgementIsNotReady :
+    ¬ ServiceReady true false := by simp [ServiceReady]
+
+def InactiveRootsReady (published mutating : Bool) : Prop :=
+  published = true ∧ mutating = false
+
+theorem rootsDoNotPermitConcurrentMutation (published : Bool) :
+    ¬ InactiveRootsReady published true := by simp [InactiveRootsReady]
+
+-- Reopening work invalidates zero-count readiness under the existing lifetime
+-- contract. This reuses the parameterized theorem instead of a second GC model.
+theorem reopenedWorkRevokesZeroCount (ws : List Worker) (w : Worker)
+    (member : w ∈ ws) (hasPrivateWork : w.privateWork = true)
+    (lifetime : ProducerLifetimeSafe ws) : activeCount ws ≠ 0 := by
+  intro zero
+  have inactive := zeroCountExcludesActive ws zero w member
+  have counted := lifetime w member hasPrivateWork
+  rw [inactive] at counted
+  contradiction
+
+def SameGeneration (captured current : Nat) : Prop := captured = current
+
+theorem reuseRevokesOldIdentity (captured current : Nat)
+    (currentIdentity : SameGeneration captured current) :
+    ¬ SameGeneration captured (current + 1) := by
+  simp only [SameGeneration] at *
+  omega
+
+def EntryBalanced (acquired released : Nat) (original delivered : Int) : Prop :=
+  acquired = released ∧ original = delivered
+
+theorem balancedNestedExitsCompose
+    (a1 a2 r1 r2 : Nat) (error1 error2 delivered1 delivered2 : Int)
+    (first : EntryBalanced a1 r1 error1 delivered1)
+    (second : EntryBalanced a2 r2 error2 delivered2) :
+    a1 + a2 = r1 + r2 ∧ error1 = delivered1 ∧ error2 = delivered2 := by
+  rcases first with ⟨h1, e1⟩
+  rcases second with ⟨h2, e2⟩
+  exact ⟨by omega, e1, e2⟩
+
 #print axioms zeroCountExcludesActive
 #print axioms zeroCountAndEmptyQueuesExcludeHiddenWork
 #print axioms missingLifetimeCounterexample
 #print axioms stageCostsStayWithinComposedBudget
+#print axioms announcementWithoutAcknowledgementIsNotReady
+#print axioms rootsDoNotPermitConcurrentMutation
+#print axioms reopenedWorkRevokesZeroCount
+#print axioms reuseRevokesOldIdentity
+#print axioms balancedNestedExitsCompose
 
 end GambitSMP.WorkAccounting

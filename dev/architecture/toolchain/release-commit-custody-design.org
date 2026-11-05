@@ -1,0 +1,366 @@
+#+TITLE: Release Commit, Native Interruption and Unknown-Outcome Custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+PROPERTY: SOURCE_AUTHORITY ReleaseCommitCustody
+
+* RESEARCH Decision and architectural alternatives
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-decision
+:MAINLINE: modern-generated-c
+:STATUS: conditional-models-source-open
+:END:
+
+The modern C design must distinguish two mechanisms. Alternative A preserves the
+legacy marker representation and relies on a qualified, bounded native interval
+that cannot abandon the decrement-to-record sequence. Alternative B removes that
+two-state ambiguity by making one generation-aware atomic token the authoritative
+native ownership and marker-validity state. B is a runtime representation and
+collector-consumer refactor, not a log wrapped around the existing decrement.
+Neither alternative alone settles the surrounding native caller or VM lifetime.
+
+A is a potential migration path, not an excuse to retain two authoritative
+ownership systems permanently. A qualified quiescent single-credit audit is also investigated below; therefore
+B is not claimed necessary for every admitted marker profile. B is an
+architectural research direction if its
+allocator, root scanner, return-to-C and native-alias migration gates can close.
+No runtime/compiler implementation or native/performance test is performed.
+
+Parent: [[file:stable-guard-settlement-design.org][Stable Guard Settlement]]. Its root
+registration, acquisition, nesting, exported continuation and old-roster duties
+remain prerequisites. Its receipt is frozen, and any current-source drift is
+recorded without upgrading inherited qualification.
+
+Canonical [[file:models/sysml/release-commit-custody.sysml][SysML]] defines eight component
+contracts, ten dependencies, nine memory/lifetime edges and seven open gates.
+Native queries generate [[file:release-commit-custody-matrix.org][Org matrix]] and
+[[file:diagrams/release-commit-custody.d2][D2]].
+[[file:../../modeling/ascent/release-commit-custody.rules.scm][ASCENT DSL]] joins exact
+component/guard/action/lemma/source identities and rejects an unsafe retry policy.
+[[file:../../../models/build/release_commit_custody.qnt][QNT]] models both alternatives;
+[[file:../../../models/build/ReleaseCommitCustody.lean][Lean]] proves the abstract token
+induction and the legacy indistinguishability argument. These are conditional
+models, not C11/source/native simulation or progress proofs.
+
+* RESEARCH Actual sources of interruption
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-source
+:EVIDENCE_KIND: current-source-and-platform-reading
+:END:
+
+| Mechanism | Actual source | What follows / does not follow |
+|---+---+---|
+| Marker release | c_intf.c:6555–6562; mem.c:1461–1467 | Vector invalidation followed by plain still-reference decrement; this body has no allocation, poll or Scheme call; whole-program no-abandonment does not follow |
+| Runtime throw | setup.c:840–868; gambit.h.in:9981–9988 | THROW can escape through current catcher; these functions are not called by the shown decrement body, but arbitrary native callers/handlers still need closure |
+| SIGINT route | os_tty.c:8700–8710; os_setup.c:3044–3049 | Handler calls user_intr, targeting processor 0 of VM 0 and raising pending INTR_USER; not direct proof of synchronous Scheme exception delivery at decrement |
+| Interrupt publication | setup.c:67–92 | intr_flag, stack trip, barrier and select abort request later handling; current plain fields/barriers are not a completed C11 race proof |
+| Scheme delivery boundary | gambit.h.in:8510–8535 | POLL jumps to handler_stack_limit if triggered; no POLL occurs in the shown decrement body |
+| GC participation | mem.c:6798–6800,6845–6854,7071; setup.c:1148 | Root/strong scanning and sync-op interrupts are distinct from merely publishing a request; whole participant closure remains inherited |
+| Native pthread cancellation | bounded source census in lib C/Scheme | No cancellation-call match in the inspected files does not rule out embedding code, interposition or host cancellation |
+| Native death / foreign longjmp | exported native boundaries and caller-supplied code | Source admission must exclude or explicitly account for these; disabling Scheme interrupts is insufficient |
+
+Source links: [[file:../../../vendor/gambit/lib/c_intf.c][C interface]],
+[[file:../../../vendor/gambit/lib/mem.c][memory manager]],
+[[file:../../../vendor/gambit/lib/setup.c][runtime setup and interrupts]],
+[[file:../../../vendor/gambit/lib/os_setup.c][OS interrupt mapping]],
+[[file:../../../vendor/gambit/lib/os_tty.c][TTY signals]],
+[[file:../../../vendor/gambit/lib/os_thread.c][native thread support]],
+[[file:../../../vendor/gambit/include/gambit.h.in][generated host contracts]].
+
+** Darwin cancellation evidence and its limit
+
+Apple's [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_setcancelstate.3.html][archived manual]] distinguishes deferred and asynchronous cancellation,
+pending requests while disabled, and restoration of the caller's original state.
+The current public [[https://github.com/apple-oss-distributions/libpthread/blob/main/src/pthread_cancelable.c][libpthread source]] has distinct cancel-state handling,
+including __pthread_canceled calls around state changes and cancellation-point
+handling. Restoring cancellation is therefore a boundary that may not return
+normally. A stable guardian must already own every obligation that survives it.
+
+This public source is not pinned to the installed libpthread/shared cache. The
+archive is historical; neither establishes actual installed ABI, generated code,
+thread cancelability or present native runtime behavior. Open Group fetches were
+unavailable during research; the inaccessible pages are not used as evidence.
+The design uses a conservative cancellation contract, with actual platform
+qualification left open rather than inferred from a default state.
+
+* RESEARCH Alternative A: a qualified bounded native interval
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-legacy
+:END:
+
+** Entry and exit contract
+
+1. Enter under an already valid native activation/session and scanned root fence.
+   Set aside guard/progress storage before allocation or callback. Host entry
+   itself must be admitted under cooperative/deferred cancellation or a qualified
+   native admission wrapper; a later disable cannot fix an earlier abandoned entry.
+2. Save the caller's cancellation state and disable native cancellation before
+   acquiring cleanup ownership. Failure to establish suppression rejects entry to
+   the decrement segment. Do not force-enable a caller that entered disabled.
+3. Establish sole marker-token authority and collector exclusion. Complete any
+   operation that may allocate, block, call foreign code, poll or throw first.
+4. Execute only valid marker invalidation, the one owned decrement and reliable
+   progress publication. No GC, poll, callback, native throw, cancellation point,
+   asynchronous longjmp or thread exit is admitted in this interval.
+5. Publish progress before lifting the interval. Preserve roots and session while
+   restoring catcher/registers and remaining resources. Publish physical guard
+   Done only after those obligations settle.
+6. From a stable outer custodian with no remaining vulnerable PSTATE accesses,
+   restore the original cancellation state. A pending cancellation may act here;
+   receipt/root/roster retirement cannot depend on subsequent ordinary C return.
+
+The segment has a fixed per-marker operation bound. An entire nested callback
+chain cannot be batched into an unbounded poll-free interval. No root/registry
+lock is held while waiting for GC; a pending GC request is serviced at the next
+admitted cut under the complete root/participant protocol.
+
+The source's tiny decrement body is useful evidence, not certification. EXT
+indirection, link-time substitutions, tracing/instrumentation, signal handlers,
+configuration and every surrounding call site must preserve the effect bound.
+A future private release helper could narrow that surface, but its declaration
+alone would not prove no-GC/no-throw behavior.
+
+** What happens when the premise fails
+
+If the executor disappears before reliable progress publication, the stable
+VM guardian retains the pending activation, acquired marker/root storage and
+session authority. It cannot repeat kill, infer success from elapsed time or
+remove the original processor from the roster without a qualified handoff.
+Confirmed OS-thread death is not a complete root snapshot or caller-restoration
+receipt. If those are unavailable, quarantine may retain memory indefinitely.
+Process termination is outside this in-memory recovery model.
+
+Using only the Pending log, the same observation can describe two worlds: the decrement
+has not run, or it ran and the executor disappeared before recording it. Retrying
+is correct in one world and duplicates release in the other. Skipping is correct
+in the other world and retains the native credit in the first. Lean captures this
+indistinguishability. An atomic fetch_sub makes the count update atomic but does
+not atomically record the separate outcome. A mutex or pthread cleanup handler
+also does not, by itself, remove this observation gap.
+
+** Restricted recovery by quiescent single-credit audit
+
+The log-only impossibility argument does not prove that every other source of
+information is useless. mem.c:1475–1480 exposes ___still_obj_refcount. If a marker
+has exactly the allocator's one controlled native credit, zero subsequent native
+increments/decrements from aliases, a stable rooted generation and a stopped old
+executor, a quiescent read can distinguish count 1 (credit not dropped) from
+count 0 (credit dropped). The VM custodian can then complete only the missing
+operation. This does not repeat the whole kill blindly.
+
+The concrete audit must check marker validity as well: invalid marker/count 1
+can mean the invalidation ran but the decrement did not. Invalid marker alone is
+not a decrement receipt. Under the exclusive one-credit protocol, live marker /
+count 0 or out-of-range counts are inconsistent and must be rejected. If other
+native references exist, total count 1 no longer identifies this token's release;
+the audit is not admitted without a separately verified accounting relation.
+
+Required independent evidence is stronger than thread-death notification: all
+reference mutators stopped or excluded; termination synchronization establishes
+visibility; complete roots and old-roster handoff permit the scanner cut; the
+marker remains in the same rooted storage generation; its allocation baseline
+and ownership class are known. Neither a timeout nor a failed/unknown join grants
+these facts. Do not cast the existing plain refcount to an atomic type while
+uncontrolled non-atomic writers remain.
+
+This path can retain legacy layout for a narrowly controlled marker class. Its
+recovery latency includes global/owner quiescence and root/alias verification;
+caller restoration debt still remains. The QNT audit admission is an explicit
+proof-premise transition, not a fact inferred from parked=true. Lean's count
+lemma uses the exact relation native_count=1-owned_drops and 0<=owned_drops<=1.
+Current source supplies a readable count, not the complete exclusivity proof.
+The audit model exposes the replacement decrement and its later record as
+separate steps too. If that custodian is lost, roots remain retained and writer
+quiescence must be re-established before a new count audit; no atomic two-store
+commit is assumed for the audit path.
+
+* RESEARCH Alternative B: one authoritative release state
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-token
+:STATUS: architectural-refactor-proposal
+:END:
+
+** Representation and linearization
+
+A stable token has immutable object/activation generation and a state Active or
+Released. The single atomic Active->Released transition removes that token's
+native hold and invalidates its native return authority. This transition is the
+release outcome. Repeated release of the same identity reads Released and returns
+the same logical result while its receipt remains eligible; it performs no second
+native decrement. Wrong-generation tokens are rejected before mutation.
+
+The QNT tdrops field and Lean drop count are ghost event accounting, not another
+C log written after the CAS. The actual representation must have one authority.
+A scalar count can be a recomputable census/cache only; if both the scalar and
+the token remain authoritative, B has merely recreated the original gap.
+
+** Required allocator and collector refactor
+
+The current still allocator initializes refcount=1 (mem.c:1487–1497,1683), and
+setup_still_objs_to_scan uses that scalar to seed roots (4210–4248). A new
+TokenManaged ownership class must instead derive native reachability from active
+tokens at the collector's epoch cut, plus normal Scheme roots and other admitted
+holds. LegacyRefcounted objects can retain their current separate semantics.
+Token-managed markers reject legacy raw inc/dec APIs and old direct kill tails.
+Their allocation/initialization is rooted and published through the parent
+RootRegistry protocol before any safepoint; ordinary refcount=1 cannot silently
+remain an additional unretired hold.
+
+The collector may scan active token entries once per root census. It must not
+sum active tokens afresh at each object access or scan historical tombstones as
+strong marker roots. Released identity records must not indefinitely keep their
+former proc/marker payload strongly reachable merely to answer queries. Logical
+native release is separate from physical sweep; Scheme continuation roots can
+still retain an invalidated marker normally.
+
+A MarkerSpec must specify which fields remain live after Released. Stale payload
+bits cannot be dereferenced after their root status changes; clearing or ignoring
+them requires an epoch-safe scan layout. Token metadata lifetime must cover
+Scheme marker handles, native readers and eligible queries, without a permanent
+self-root cycle. Exact metadata storage and tracing are open source-refinement
+obligations; an ordinary raw pointer to a freed token is not admissible.
+
+** Required return-to-C and FFI refactor
+
+The current return handler checks processor identity then vector slot 0
+(_kernel.scm:1020–1065). A token-managed path must retain wrong-processor semantics
+and consult the same authoritative token state before accepting a native return.
+The old slot-0 invalidation may be an epoch-safe mirror, but cannot independently
+permit returning after Released. Generated SFUN calls, conversion-recovery calls,
+continuation-restored frames and all native aliases must consume the same identity.
+A mixed path that checks only the old vector slot is rejected.
+
+This is why B is a substantive modern C runtime redesign: marker allocation,
+FrameSpec/MarkerSpec, root seeding, validity checks, FFI adapters and ownership
+retirement migrate together. It does not require replacing Scheme continuation,
+proper tail calls or the C ABI with Zig.
+
+** Known release is still not physical completion
+
+After a lost reply, an admitted helper can acquire the token state and recover the
+release result without repeating a side effect. It cannot thereby restore another
+thread's live catcher, conclude conversion cleanup ran, remove that processor,
+or publish physical guard Done. If the original executor is lost, the VM guardian
+keeps the caller debt, roots and session until an independent completion or
+handoff proves otherwise. B removes one accounting ambiguity, not all failure or
+liveness problems. Process crashes and persistence are outside the claim.
+
+* RESEARCH C11 memory and GC interaction
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-memory
+:STATUS: implementation-refinement-open
+:END:
+
+SysML MemoryEdge owns nine ordered relationships: segment entry, legacy progress,
+authoritative token release, root/GC snapshot, query admission, physical Done,
+cancellation restoration, retirement and qualified quiescent audit. SC is the initial abstraction.
+
+| Cut | Candidate modern C mapping | Required independent condition |
+|---+---+---|
+| Legacy interval | Owner-thread stores under scanner exclusion; release progress publication | Native cancellation suppressed; no nonlocal escape or safepoint |
+| Quiescent audit | Plain count read after verified writer termination/visibility and GC/root handoff | Exclusive one-credit baseline; same live generation; no remaining aliases |
+| Token release | Single-word immutable-generation state CAS; acq_rel success, acquire failure/query | Stable pinned record; no ABA or generation reuse; lock-free capability not assumed |
+| Token root snapshot | Collector observes authoritative state under one consistent root epoch | Late release after the cut may retain an extra cycle; newly acquired roots cannot miss that cut |
+| Native validity | Acquire same token identity before acceptance | Existing processor check preserved; no old validity-only consumer |
+| Physical Done | Release completed caller-restoration receipt; acquire by guardian | Token Released alone is insufficient |
+| Cancellation restore | Original caller policy restored after safe ownership publication | Return may be interrupted; root/session custodian already independent |
+| Directory retirement | Close admission, drain readers, acquire matching epoch grace receipt | Released does not itself permit free; metadata covers captured handles and queries |
+
+A memory-order CAS is atomic, but C11 does not promise all atomic representations
+are lock-free or async-signal-safe. No helper is invoked from an arbitrary signal
+handler, and no wide count-plus-log CAS capability is assumed. If a lock-backed
+implementation is used, owner abandonment while holding its lock is a distinct
+progress problem; the record remains owned rather than magically helpable.
+The token transition can be linearizable without proving whole-service lock-free
+progress or thread-failure tolerance.
+
+C11 [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570]] 5.1.2.4 and 7.17 supply the release/acquire and atomic-object
+framework. No fence orders two separate authoritative stores into one atomic
+commit. Section 7.13.2.1 limits saved C contexts and changed automatic locals.
+GCC's [[https://gcc.gnu.org/onlinedocs/gcc/Nonlocal-Gotos.html][builtin nonlocal-goto ABI]] must be qualified separately.
+Current Darwin declarations and literal macro parity remain static evidence;
+effective argv, matching installed libpthread, selected ABI and SMP object remain
+open. No C litmus/native execution or performance test is run.
+
+* RESEARCH Model refinement and preserved counterexamples
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-refinement
+:END:
+
+QNT models the legacy unlogged-decrement window, pending versus delivered
+cancellation, executor abandonment and guardian quarantine, GC request versus
+admitted cut, same-token retries by two requesters, stale identity, lost replies,
+and physical caller debt after known token release. Scheme continuation retention
+is represented by an independent root; the parent model contains nested
+activation/multi-shot mechanics. Current study does not simulate the combined
+product of all parent models or all C11 executions.
+
+confirmDeathHandoff is an abstract admitted receipt, not a timeout or a proof
+constructed from OS-thread death. The model deliberately leaves a dead token
+executor's caller debt unresolved even when release is known. Active root creation
+and allocation-failure behavior are inherited; this model begins with registered
+resources. One token generation and bounded requests do not prove arbitrary slot
+reuse, token sets, scanner epochs or raw-alias closure.
+
+Lean proves abstract token release preserves its event-count invariant, repeated
+release is idempotent, histories preserve safety, and a Pending legacy observation
+cannot determine the correct blind retry decision. Separate count lemmas show
+why an admitted single-credit audit has more information than that log. Keeper lemmas distinguish
+release accounting from physical root/session debt. These are not proofs that
+current C contains the proposed atomic token or that source instructions refine
+the models. Structural action/guard/theorem alignment is reported as such.
+
+Nine negative histories preserve: repeated legacy decrement, loss of unknown
+custody, cancellation delivered in the unlogged interval, premature physical Done,
+a split token/count authority, invalidation incorrectly treated as a decrement,
+duplicate token drop, treating Released as caller
+Done, and freeing a continuation-retained marker. Current ASCENT candidacy stays
+blocked; only the synthetic all-evidence fixture qualifies.
+
+* RESEARCH Benefits and added costs
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-benefits
+:END:
+
+| Mechanism | Benefit | Necessary added work | Positive condition / falsifier |
+|---+---+---+---|
+| A: bounded segment | Reuses legacy marker layout; avoids rewriting collector representation initially | Cancellation state save/disable/restore, sole executor, root/session pin, progress publication and bounded GC deferral | Fails admission if any unclassified escape can abandon decrement before recording |
+| A plus qualified audit | Recover missing legacy credit operation without blind retry or new marker representation | Termination visibility, complete root/GC handoff and exclusive count audit | Any alias reference mutation or unknown baseline defeats inference |
+| B: atomic authority | Removes separate decrement-record ambiguity; same-identity retry does not repeat native release | Token directory, atomic state access, new root census/layout, return-to-C adaptation and tombstone lifetime | Fails if scalar count or old vector validity remains an independent authority |
+| GC epoch cooperation | Correct roots across deferred interrupt and actual collector entry | Participant acknowledgement, root reload and grace cut | Request flag alone cannot justify scanning or reclaiming |
+| Unknown-result guardian | Keeps VM/root custody despite lost response or executor | Potentially unbounded retention; recovery/termination proof remains necessary | A timeout or Released-only receipt cannot settle caller debt |
+| Shared modern C support | Reuses root registry, identity directory and generated completion contracts | Each invocation still needs its own authority and settlement; broad ABI migration has new validation cost | Savings require retiring duplicated ownership policy, not maintaining two equivalent stacks |
+| Zig comparison | No extra mechanism is required to express either design in modern C | Zig still needs the same GC, token identity, interruption and lifetime contracts | No additional Zig net gain established |
+
+For B completed token acquisitions/releases, B logical release transitions remain
+necessary. If R duplicate requests arrive, the proposed token primitive performs
+B successful Active->Released transitions and up to R extra observations/failed
+CAS attempts, rather than R extra decrements. This is a conditional operation
+count, not measured throughput or a claim that current code already supports it.
+A still requires one owned decrement and reliable record per acquired marker.
+
+With A active guards, T retained token/receipt records, H exported handles and I
+invocations, metadata remains O(A+T+H+I), plus reader pins and unresolved retained
+payload. A token root census adds work proportional to the admitted active-token
+set; exact cache/scan costs are unknown. The existing scalar-seeded still list is
+not free, so net scanning benefit cannot be asserted without its complete
+replacement and occupancy model. No person-days or guessed speed ratio is used.
+
+Retirement order for B: close input/root publication -> managed marker ownership
+class -> collector root seed and layout -> generated call/return validity -> raw
+alias and legacy kill exclusion -> directory/caller/roster/storage completion.
+Only then may marker-specific scalar native counting and old kill policy retire.
+Legacy counting for unrelated still objects remains a separate contract, not a
+hidden second authority for the same managed marker. A can retire for migrated
+markers once B is qualified; no permanent dual wrapper is proposed.
+
+* RESEARCH Local receipts
+:PROPERTIES:
+:CUSTOM_ID: release-commit-custody-receipts
+:END:
+
+[[file:../../modeling/tools/release-commit-custody-study.py][Python orchestration]] invokes
+native SysML, QNT/Lean, ASCENT, D2 and Org checking without Babel.
+[[file:../../../evidence/research/release-commit-custody/checks.json][Checks]] and
+[[file:../../../evidence/research/release-commit-custody/input.json][source identity]]
+retain failed attempts and frozen-parent lineage. Local source/model checks are
+separate from actual native registration, runtime acceptance and measured gains.

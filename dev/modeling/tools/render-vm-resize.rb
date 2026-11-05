@@ -1,0 +1,15 @@
+require 'json';require 'digest'
+b='.cache/tasks/modern-c-frame-contract/cohort/resize-model';m=JSON.parse(File.read(b+'/native-projection.json'));a=JSON.parse(File.read('evidence/research/modern-c-bootstrap/resize-qualification-admission.json'))
+out="#+TITLE: Resize qualification: generated benefit and closure matrix\n#+LANGUAGE: en\n#+PROPERTY: header-args :eval never\n\n* Source and evidence authority\n:PROPERTIES:\n:AUTHORITY: GambitVMResizeQualification\n:STATUS: COMMIT-BLOCKED\n:END:\n\nNative SysML projection SHA256: =#{Digest::SHA256.file(b+'/native-projection.json').hexdigest}=.\nASCENT reports #{a['observed'].size} bounded observations for #{m['needs'].size} requirements; whole-runtime admission remains false.\n\n#+NAME: resize-mechanism-benefit-cost\n| Mechanism | Eliminated work/responsibility | Added support | Quantified bound | Admission limit |\n|---+---+---+---+---|\n"
+m['benefits'].each{|x|out<<'| '+%w[id eliminated added bound gate].map{|k|x[k].gsub('|','/').gsub("\n",' ')}.join(' | ')+" |\n"}
+out<<"\n#+NAME: resize-proof-closure\n| Requirement | Component | Method | Current observation | Scope / check |\n|---+---+---+---+---|\n"
+m['needs'].each{|x|out<<'| '+[x['id'],x['component'],x['method'],a['observed'].include?(x['id']) ? 'bounded receipt present; prerequisites still apply' : 'OPEN',x['scope']+'; '+x['check']].map{|v|v.gsub('|','/').gsub("\n",' ')}.join(' | ')+" |\n"}
+if File.exist?('evidence/research/modern-c-bootstrap/resize-layout.json')
+ l=JSON.parse(File.read('evidence/research/modern-c-bootstrap/resize-layout.json'));out<<"\n#+NAME: resize-abi-storage\n| Configured item | Bytes / count |\n|---+---|\n";%w[wordBytes maxProcessors ledgerBytes slotBytes contextBytes workerBytes carrierStrideBytes vmBytes].each{|k|out<<"| #{k} | #{l[k]} |\n"};out<<"\nThese are configured ABI sizes, not peak RSS or speed measurements. Ledger includes its slots; VM includes its embedded arrays. Do not add overlapping rows.\n"
+end
+File.write('dev/refactoring/modern-c/vm-resize-qualification-matrix.org',out)
+d="direction: right\nclasses: {\n  open: {style.fill: \"#fff0dc\"}\n  owner: {style.fill: \"#e8f1fb\"}\n}\n"
+m['contracts'].each{|x|d<<"#{x['id']}: #{JSON.generate(x['id']+"\n"+x['retired'])} {class: owner}\n"}
+m['edges'].each{|x|d<<"#{x['from']} -> #{x['to']}: custody / prerequisite\n"}
+d<<"authority: SysML needs and routes\npolicy: ASCENT exact identity and evidence class\nquint: QNT bounded histories\nlean: Lean conditional laws\nnative: Current-source native caller / bootstrap\ncopy: #{JSON.generate(m['questions'].find{|x|x['id']=='copy-once'}['id']+"\nOPEN: unique scans, fragments, pre-flip bound")} {class: open}\nwhole: \"Host-budget p11 + C refinement; OPEN / commit blocked\" {class: open}\nauthority -> policy\npolicy -> quint\npolicy -> lean\npolicy -> native\nquint -> grant: finite only\nlean -> publication: conditional only\nnative -> retirement: own evidence scope\ncensus -> copy\ncopy -> whole\nretirement -> whole\n"
+File.write('dev/refactoring/modern-c/diagrams/vm-resize-qualification.d2',d)

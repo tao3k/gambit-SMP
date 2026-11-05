@@ -1,0 +1,179 @@
+#+TITLE: Conditional Trace Separation Arguments and Counterexamples
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Conditional Trace Separation Arguments and Counterexamples :ffi:
+:PROPERTIES:
+:ID: f2b9710e-2d34-5858-9874-32feaeb30de6
+:CUSTOM_ID: conditional-trace-separation-arguments-and-counterexamples
+:SOURCE_PATH: docs/experimental/zig/tcl-trace-cancel-arguments.md
+:SOURCE_SHA256: 590deeb9b1b3c4b3a031d43848037de6619d49f42e23296299034c244293cd54
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+All proofs below are handwritten design arguments. No model, compiler, native
+scenario, theorem prover or performance run was executed. [[file:tcl-trace-cancel-design.org][Design]],
+[[file:tcl-trace-cancel-evidence.org][evidence]], [[file:../../../../../docs/experimental/zig/tcl-trace-cancel-cases.json][cases]],
+[[file:tcl-trace-cancel-benefit-matrix.org][matrix]], [[file:../../../../../docs/experimental/zig/tcl-trace-cancel-traceability.json][trace]].
+
+TP01. A whole-word snapshot is a cancellation writer.
+
+For K the two cancellation bits, original restore R_s(F)=s implies
+projection_K(R_s(F))=s&K. Choose any current F whose K projection differs from
+s: the restore overwrites that difference. This proves an algebraic failure of
+cancellation neutrality, independent of whether the concrete history is reachable
+through a particular public script. The same argument does not claim a lost
+bit reverses an ERROR return or discharges a pending async request. [TD04–TD06, TX04, TX07]
+
+TP02. Projection restoration preserves exactly its declared state domain.
+
+Let proposed R'_s(F)=(s&~K)|(F&K). Then projection_~K(R'_s(F))=s&~K and
+projection_K(R'_s(F))=F&K. With a canonical external CancelCell the second
+identity is stronger structurally: restore does not write cancellation at all.
+This preserves the original non-cancellation projection at that source point,
+but differs intentionally on K whenever s&K differs from F&K. It does not prove
+whole-program observer equivalence, preserve other flag mutations lost by the old
+snapshot, or justify reordering arbitrary cancellation transitions and restore.
+[TD07–TD09, TX04, TX09]
+
+TP03. Nested suppression is restored by induction only with stack ownership.
+
+Assume same-owner well-bracketed callbacks, original set/restore source points,
+and independent per-record guards. Each frame saves the previous I value, sets
+I=1 around its Tcl_EvalEx and restores its saved legacy projection on exit.
+The inner frame therefore restores I=1 while an outer callback is active, and
+the outermost restores its prior value. Induction over the admitted nesting
+depth preserves that interval behavior. Hardcoded I=0, global prohibition of
+direct command traces, or moving set earlier into preparation breaks a premise.
+Exceptional nonlocal escape that abandons a frame is not covered. [TD02, TD03, TD05, TD10, TX02–TX05]
+
+TP04. Separated trace exit cannot erase or revive cancellation by itself.
+
+Assume all cancellation readers/writers use the canonical cell, no writable
+shadow or source-snapshot writer remains, and trace exit changes only the legacy
+projection at the original point. Across any finite nested sequence of trace
+exits, the cell is unchanged except for explicit admitted install/check/reset
+operations between those exits. Induction on exit count proves no trace-caused
+cancellation replay/erasure. It does not say cancellation never clears: legitimate
+one-shot checks and guard-owned resets still do. [TD07–TD12, TX07, TO01]
+
+TP05. Equal bits alone cannot certify source/modern history equivalence.
+
+Suppose save sees C=1 from generation a, the callback consumes a and installs
+generation b with C=1. Old restore writes an equal bit value, but a saved bit
+does not identify either contributor or the now-current diagnostic. Comparing
+only before/after bits misses the consume/reinstall history. Exact equivalence
+requires the relevant operation/observation/result trace, not equality of the
+packed word or a reconstructed generation from old bits. [TD04, TD06, TD09, TX07, TL01]
+
+TP06. Callback readiness limits the claimed counterexample domain.
+
+TclInterpReady resets results and checks installed cancellation before ordinary
+command evaluation. Hence a proof that starts a trace callback with U already
+installed cannot also assume an arbitrary ordinary command then runs to clear
+U without another admitted transition. A forced private reset in an earlier
+legal hook could provide such a premise, but its legality/reachability remains
+unresolved. By contrast, a trace callback entered with no cancellation can later
+service an accepted request through actual async/event paths and return toward
+the saved-word restore. That is a source-composed distinguishing candidate,
+still not a measured native result. [TD06, TX04, TX07, TX08]
+
+TP07. Restore completion cannot be promoted to dispatcher/target completion.
+
+After the restore assignment, TraceExecutionProc still has real cleanup and may
+register/delete step traces and release its record. Its invoker restores scanning
+state, drops references and restores/discards result state, potentially releasing
+objects. Thus a witness issued at restore cannot establish those later effects
+or physical invoker return. A caller-side trace-dispatch closure receipt can
+release only its declared dependency; the parent evaluation still has a separate
+completion frontier. [TD11–TD13, TX02–TX06, TX08, TL02]
+
+TP08. A child completion cannot clear an outstanding ancestor snapshot.
+
+Assume every live trace invocation/dispatch registers a dependency before
+callback-capable preparation, and parent/child target lifetimes are explicit.
+In SourceSnapshot mode the outstanding outer restore remains a writer even if
+the inner evaluation returned. In separated mode it is no longer a cancellation
+writer but still owns native/result/record cleanup. Neither mode permits that
+child return to issue target-neutrality or reclaim the outer record/image.
+Only a whole-frontier validated final guard may perform its declared owned reset;
+source-point resets remain distinct. No circular receipt may authorize its own
+ancestor closure. [TD09–TD13, TX02, TX03, TX08, TO01, TL01, TL02]
+
+TP09. No full trace-semantic equivalence follows from state separation alone.
+
+For histories with no differing cancellation observations and otherwise matched
+state/callout/ordering/lifetime premises, the projection argument can support
+preserving the declared legacy trace behavior. For histories where old restore
+would erase/replay cancellation, separating the cell changes later readiness,
+catch bypass, callbacks or cleanup. The architecture must admit that behavior
+change explicitly or exclude that history; it cannot claim all old and new
+observations coincide. Source fixtures constrain normal trace behavior but do
+not prove mixed cancellation semantics. [TD03, TD06–TD09, TD14, TX07, TX11]
+
+TP10. Provider value needs the same semantic baseline.
+
+The thirteen necessary support families in TV01 are shared by generated C and
+Zig. Separating cancellation from trace snapshots removes replay authority in
+either provider. It does not remove record lifetimes, real callback execution,
+guard dependency records or ABI closure; Zig defer is insufficient for arbitrary
+native-frame escape. An incremental Zig benefit requires independently avoided
+necessary work exceeding its extra toolchain/interface/qualification work at
+equal behavior and capability. No such positive increment is established here.
+[TD15–TD18, TV01, TX08, TL02]
+
+*** Inert Distinguishing Histories and Positive Controls
+:PROPERTIES:
+:ID: b70b6536-9a7d-539c-af6a-ff368ab0f08c
+:CUSTOM_ID: inert-distinguishing-histories-and-positive-controls
+:END:
+
+| ID | History | Required conclusion / evidence class |
+|-
+| TC01 | Outer A saves K=0; callback installs U; old restore writes K=0 | Algebraic cancellation erasure; concrete servicing/return path still a premise |
+| TC02 | Save C=1; callback readiness consumes C; old restore writes C=1 | Conditional one-shot resurrection; justify entry state at trace source point |
+| TC03 | Save U=1; assume ordinary body command clears U without explaining readiness | Invalid reachability proof; U may reject the body first |
+| TC04 | Save U=1; legal pre-readiness hook/private forced reset clears U; old restore reinstalls it | Conditional U resurrection; hook/private domain unresolved |
+| TC05 | Outer A saves K=0; B saves K=0; B installs U then restores; A later restores | Two independent source writers, not one final reset |
+| TC06 | Inner direct trace clears I to zero on exit while outer callback still active | Wrongly enables interpreter-wide/step dispatch |
+| TC07 | All direct traces are disabled whenever I=1 | Changes different-command nested direct trace behavior |
+| TC08 | Same tcmdPtr reached while its busy bit is set | Skip that callback body, not proof all trace records are disabled |
+| TC09 | Later recursive command invocation occurs after trace callback returned | Existing recursion fixture expects tracing again; busy scope is not command activation lifetime |
+| TC10 | Command dispatch updates shared curFlags/curCode during nested skipped attempt | Outer frame must retain original local copies |
+| TC11 | Guard arm also sets busy/I before DString construction | New suppression timing; preparation hook behavior can differ |
+| TC12 | call==0 step-only setup classified as a full callback/snapshot | Invents evaluation and restoration which did not occur |
+| TC13 | Replace whole restore with only restoring I | Changes non-cancellation legacy projection beyond this design |
+| TC14 | Keep separate CancelCell but private code writes old C/U bits | Dual authority; reject separated profile |
+| TC15 | Consume generation a then install b; saved and current C are both one | Equal bits do not prove provenance/receipt equivalence |
+| TC16 | Clear K but retained token later installs a request | Not reuse neutrality; trace separation is insufficient |
+| TC17 | Trace restore removes U but traceCode remains ERROR | Must retain code/error propagation; no automatic OK claim |
+| TC18 | Later catch path sees cleared versus retained K | It may choose a different abnormal-return path; evaluate actual predicate, not comment alone |
+| TC19 | Child eval returns while outer trace frame has not restored | No target-neutrality, history reclaim or whole-target reset receipt |
+| TC20 | TraceExecutionProc returns; invoker still restores result state/decrements objects | Callback return is not dispatcher completion |
+| TC21 | Zero busy bit or list unlink used to release native image | Native/record scopes may remain active |
+| TC22 | Trace removes itself; another trace with same prefix is added | New record generation; old receipt cannot close replacement |
+| TC23 | Pending-scan trace deleted during callback | Preserve active cursor repair and reference ownership |
+| TC24 | Restore old legacy projection overwrites DELETED change | Cancellation split is no proof of whole lifecycle monotonicity |
+| TC25 | Raw request accepted during trace cleanup after provisional completion | Receipt cut invalidated; final settlement revalidates generation |
+| TC26 | Extra Tcl_Canceled/async poll added at trace exit to repair lost bits | Introduces a new consumption/priority point; not source-preserving |
+| TC27 | Native frame escaped by Scheme continuation; rely on Zig defer | No valid completion/cleanup proof for unadmitted native escape |
+| TC28 | Trace record/reference bookkeeping cannot be reserved | Reject before accepted native transition; do not lose live dependency |
+| TC29 | Same owner invokes a trace on another interpreter | Suppression/guard/debt remain target-specific |
+| TC30 | Upstream trace-34.6 body and expected step-log equality are read | Fixture preservation obligation, not a new passing test or cancellation proof |
+| TC31 | Finite nested trace history; matched source snapshots/returns and full custody recorded | Conditional SourceSnapshot positive control only |
+| TC32 | Finite separated history; all writers migrated, original recursion/order preserved, actual cleanup and final guard qualified | Conditional separated-domain positive control only |
+
+TC31/TC32 are not executed. No case is a native/script reachability receipt.
+TC01–TC05 distinguish algebraic possibilities from legal entry/readiness premises;
+the upstream fixtures supply independent expected normal behavior, not an oracle
+for untested mixed cancellation histories.

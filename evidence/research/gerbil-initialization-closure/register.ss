@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "gerbil-initialization-closure:cb31042419983a6906a338e651e1f370a3316eec3e5f9da6494423046ae2eb24" "gerbil-initialization-closure:cb31042419983a6906a338e651e1f370a3316eec3e5f9da6494423046ae2eb24" "support" "dev/architecture/toolchain/models/sysml/foundation-binding.sysml"))
+ (fact (factor "gerbil-initialization-closure:cb31042419983a6906a338e651e1f370a3316eec3e5f9da6494423046ae2eb24" "target-model-bundle-sha256" "cb31042419983a6906a338e651e1f370a3316eec3e5f9da6494423046ae2eb24"))
+ (fact (factor "gerbil-initialization-closure:cb31042419983a6906a338e651e1f370a3316eec3e5f9da6494423046ae2eb24" "native-output-sha256" "d1cd4517c34ac07844f953b75058325aeac2c28c6ce69e4ecfdf6c151e5aeedd"))
+ (fact (factor "gerbil-initialization-closure:cb31042419983a6906a338e651e1f370a3316eec3e5f9da6494423046ae2eb24" "planner-dsl-sha256" "429af24e465c5d85006181fe37df366e173a7985da80088f72ea37efe86b7770"))
+)

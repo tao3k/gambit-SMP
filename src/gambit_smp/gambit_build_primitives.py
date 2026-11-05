@@ -1,5 +1,6 @@
 """Build-system contracts, with no experiment dispatch or patch generation."""
 from pathlib import Path
+import json
 import re
 import shlex
 import shutil
@@ -26,6 +27,34 @@ def build_capacity(cpus):
 
 class BootstrapPhaseProgress:
     """A next phase closes the preceding attempt; final success is separate."""
+    def __init__(self, *, clock=time.monotonic, observation_path=None):
+        self.clock = clock
+        self.started = clock()
+        self.boundaries = []
+        self.observation_path = observation_path
+        self.streams = {"stdout": "", "stderr": ""}
+
+    def checkpoint(self, stdout, stderr):
+        if self.observation_path is None:
+            return
+        changed = False
+        for name, value in (("stdout", stdout), ("stderr", stderr)):
+            previous = self.streams[name]
+            if not value.startswith(previous):
+                raise ValueError("phase observer requires cumulative stream prefixes")
+            if len(value) > len(previous):
+                with self.observation_path.with_name("from-scratch.partial." + name).open("a") as output:
+                    output.write(value[len(previous):])
+                self.streams[name] = value
+                changed = True
+        if not changed and self.observation_path.exists():
+            return
+        pending = self.observation_path.with_suffix(".pending")
+        pending.write_text(json.dumps({"basis": "first observer receipt of make phase announcements; buffered output and polling may coalesce boundaries",
+            "boundaries": self.boundaries, "nativeStageDurationsMeasured": False,
+            "completionObserved": False}, indent=2) + "\n")
+        pending.replace(self.observation_path)
+
     def __call__(self, stdout, stderr):
         expected = (1, 2, 3, 4, 1, 2, 3, 4)
         reached = 0
@@ -35,6 +64,12 @@ class BootstrapPhaseProgress:
             if reached >= len(expected) or line != f"*** making phase{expected[reached]}":
                 break
             reached += 1
+        if reached > len(self.boundaries):
+            observed = self.clock() - self.started
+            for index in range(len(self.boundaries), reached):
+                self.boundaries.append({"pass": index // 4 + 1,
+                    "phase": expected[index], "firstObservedSeconds": observed})
+        self.checkpoint(stdout, stderr)
         return max(0, reached - 1)
 
 
@@ -83,6 +118,45 @@ def command(plan, compiler, source, output):
             any(arg in (";", "&&", "||", ">", "|") for arg in args)):
         raise ValueError("unexpected compiler/input/output recipe")
     return args
+
+
+def build_hosted_core(stages, source, budget, *, required_generated=None, bootstrap_compiler=None):
+    """Regenerate target C before compiling against a changed runtime ABI.
+
+    Use either this tree's interpreted igsc sources or a source-bound complete
+    AOT compiler. The host runtime is never linked into the target. The
+    following self-source pass remains a separate observation.
+    """
+    deadline = time.monotonic() + budget
+    scheme = {str(p.relative_to(source)): digest(p)
+              for folder in ("lib", "gsi", "gsc") for p in (source / folder).glob("*.scm")}
+    # Linker-generated _gambit*.c / *_*.c have no matching Scheme source.
+    # They belong to the cohort just as much as Scheme-to-C module products.
+    generated = (list(required_generated) if required_generated is not None else
+                 sorted(str(p.relative_to(source)) for folder in ("lib", "gsi", "gsc")
+                        for p in (source/folder).glob("_*.c")))
+    if not generated:
+        raise ValueError("explicit old generated-C inventory required")
+    boot = source / "gsc-boot"
+    shutil.copy2(bootstrap_compiler or source/"gsc/igsc.scm", boot)
+    boot.chmod(boot.stat().st_mode | 0o111)
+    boot_hash = digest(boot)
+    code, _, timed, _ = stages.run("hosted-bootclean", ["make", "bootclean"], source, min(10, budget))
+    remaining_old = [name for name in generated if (source/name).exists()]
+    if code != 0 or timed or remaining_old or digest(boot) != boot_hash:
+        return False, {"sourceRegenerationEstablished": False, "remainingOldC": remaining_old}
+    remaining = deadline-time.monotonic()
+    if remaining <= 0:return False, {"sourceRegenerationEstablished": False, "wholeBudgetExhausted": True}
+    ok, observation = build_seed_core(stages, source, remaining)
+    missing = [name for name in generated if not (source/name).is_file()]
+    stable = all(digest(source/name)==value for name,value in scheme.items())
+    ok = ok and not missing and stable
+    observation.update(sourceRegenerationEstablished=ok, scmRegenerationEstablished=ok,
+        sourceCompilerSha256=boot_hash, schemeInputs=scheme, schemeInputsStable=stable,
+        generatedSources=generated, missingGeneratedSources=missing,
+        generatedHashes={name:digest(source/name) for name in generated if (source/name).is_file()},
+        hostRuntimeLinkedIntoTarget=False, fullTwoPassBootstrapEstablished=False)
+    return ok, observation
 
 
 def build_seed_core(stages, source, budget):
@@ -136,26 +210,37 @@ def regenerate_module(stages, source, name, budget):
                 "runtimeAdmitted": False}
 
 
-def rebuild_source_core(stages, source, budget):
+def rebuild_source_core(stages, source, budget, *, incremental=False, retained_generation=None, checkpoint=None):
     deadline = time.monotonic() + budget
+    progress_timed = getattr(stages, "progress_mode", False)
     plan = build_capacity(available_processors())
     scheme = {str(path.relative_to(source)): digest(path)
               for folder in ("lib", "gsi", "gsc") for path in (source / folder).glob("*.scm")}
-    generated = sorted(name[:-4] + ".c" for name in scheme
-                       if Path(name).name.startswith("_") and (source / (name[:-4] + ".c")).is_file())
+    generated = sorted(str(p.relative_to(source)) for folder in ("lib", "gsi", "gsc")
+                       for p in (source/folder).glob("_*.c"))
+    if incremental and retained_generation:
+        generated = retained_generation['generatedSources']
     if not generated:
         raise ValueError("seed source must have an explicit generated-C inventory")
     compiler = source / "gsc/gsc"
     seed_hash = digest(compiler)
-    shutil.copy2(compiler, source / "gsc-boot")
-    code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
-    retained = [name for name in generated if (source / name).exists()]
-    if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
-        return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
-    remaining = deadline - time.monotonic()
+    if not incremental:
+        shutil.copy2(compiler, source / "gsc-boot")
+        code, _, timeout, _ = stages.run("bootclean", ["make", "bootclean"], source, min(10, budget))
+        retained = [name for name in generated if (source / name).exists()]
+        if code != 0 or timeout or retained or digest(source / "gsc-boot") != seed_hash:
+            return False, {"generatedCStillPresent": retained, "scmRegenerationEstablished": False}
+        if checkpoint is not None:
+            checkpoint(dict(generatedSources=generated, bootstrapCompilerSha256=seed_hash,
+                            schemeInputs=scheme))
+    remaining = budget if progress_timed else deadline - time.monotonic()
     if remaining <= 0:
         return False, {"scmRegenerationEstablished": False, "wholeBudgetExhausted": True}
-    code, log, timeout, _ = stages.run("source-core", core_command(plan), source, remaining)
+    argv = core_command(plan)
+    if progress_timed:
+        argv.insert(1, "--debug=b")
+    code, log, timeout, _ = stages.run("source-core", argv, source, remaining,
+        **({"progress": CoreBuildProgress()} if progress_timed else {}))
     missing = [name for name in generated if not (source / name).is_file()]
     stable = all(digest(source / name) == expected for name, expected in scheme.items())
     artifacts = {name: digest(source / name) for name in ("gsi/gsi", "gsc/gsc", "lib/libgambit.a")
@@ -163,8 +248,11 @@ def rebuild_source_core(stages, source, budget):
     errors = build_errors(log)
     ok = code == 0 and not timeout and not missing and stable and not errors and len(artifacts) == 3
     return ok, {"capacity": plan, "seedCompilerSha256": seed_hash, "schemeInputs": scheme, "schemeInputsStable": stable,
+        'generationMode': 'incremental' if incremental else 'cold-bootclean',
+        'bootstrapCompilerSha256': digest(source / 'gsc-boot'),
         "generatedSources": generated, "missingGeneratedSources": missing,
         "generatedHashes": {name: digest(source / name) for name in generated if (source / name).is_file()},
         "recursiveBuildErrors": errors, "artifacts": artifacts,
+        "watchdogKind": "completed-native-target-inactivity" if progress_timed else "wall-clock",
         "scmRegenerationEstablished": ok, "fullTwoPassBootstrapEstablished": False,
         "runtimeAdmitted": False, "releaseAdmitted": False}

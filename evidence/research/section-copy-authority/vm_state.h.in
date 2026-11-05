@@ -1,0 +1,355 @@
+/* Virtual machine state structure */
+
+typedef enum ___vm_resize_phase_enum
+  {
+    ___RESIZE_IDLE, ___RESIZE_REQUESTED, ___RESIZE_RESERVED,
+    ___RESIZE_INITIALIZING, ___RESIZE_READY, ___RESIZE_COMMITTED,
+    ___RESIZE_ABORTING, ___RESIZE_RETAINED
+  } ___vm_resize_phase;
+
+typedef enum ___vm_resize_slot_phase_enum
+  {
+    ___RESIZE_SLOT_EMPTY, ___RESIZE_SLOT_RESERVED, ___RESIZE_SLOT_INITIALIZED,
+    ___RESIZE_SLOT_CREATING, ___RESIZE_SLOT_CREATED, ___RESIZE_SLOT_PUBLISHED,
+    ___RESIZE_SLOT_JOINING, ___RESIZE_SLOT_RETAINED
+  } ___vm_resize_slot_phase;
+
+/* Native publication is not Scheme initialization. A slot identity survives
+ * until a successful join; unknown native outcomes never authorize reuse. */
+typedef enum ___startup_phase_enum
+  {
+    ___STARTUP_NONE, ___STARTUP_RESERVED, ___STARTUP_PUBLISHED,
+    ___STARTUP_NATIVE, ___STARTUP_SCHEME, ___STARTUP_READY,
+    ___STARTUP_RETURNED, ___STARTUP_FAILED, ___STARTUP_STOPPING,
+    ___STARTUP_CLOSED
+  } ___startup_phase;
+
+typedef struct ___vm_resize_slot_struct
+
+  {
+    ___msection *stack;
+    ___msection *heap;
+    ___vm_resize_slot_phase phase;
+    int entry; /* guarded by resize.gate: 0 parked, 1 run, -1 abort */
+    ___WORD generation; /* stable until known join and EMPTY phase */
+    ___VOLATILE ___WORD startup; /* acquire/release startup receipts */
+  } ___vm_resize_slot;
+
+typedef struct ___vm_resize_ledger_struct
+  {
+    ___vm_resize_phase phase; /* coordinator writes; existing collective reads */
+    ___WORD generation; /* never wraps; no identity allocation */
+    int initial;
+    int target;
+    int initialized;
+    int created;
+    int base_assigned;
+    int base_stacks;
+    int base_capacity;
+    int resume_sections; /* VM-unassigned budget for prepare_mem_pstate */
+    ___BOOL abort_isolated; /* immutable abort gate excludes Scheme writers;
+                            * native handles/PSTATE/gate still quarantined */
+    ___msection *base_alloc;
+    ___SCMOBJ thunk; /* VM root before any possible collection */
+    ___SCMOBJ result;
+    ___vm_resize_slot slots[___MAX_PROCESSORS];
+#ifndef ___SINGLE_THREADED_VMS
+    ___MUTEX_DECL(gate)
+    ___CONDVAR_DECL(changed)
+#endif
+    int gate_initialized;
+  } ___vm_resize_ledger;
+
+/* One bounded source root per origin, independent of processor membership.
+ * Sync trees transport serial*MAX_PROCESSORS+origin, never a movable pointer.
+ * Serials survive processor retirement; exhausted identities fail admission. */
+typedef enum ___resize_request_phase_enum
+  {
+    ___RESIZE_SOURCE_IDLE, ___RESIZE_SOURCE_WRITING,
+    ___RESIZE_SOURCE_QUEUED, ___RESIZE_SOURCE_SELECTED,
+    ___RESIZE_SOURCE_CONSUMED, ___RESIZE_SOURCE_RETAINED
+  } ___resize_request_phase;
+
+typedef struct ___resize_request_root_struct
+  {
+    ___VOLATILE ___WORD state; /* CAS publication; collectives exclude writers */
+    ___WORD serial;
+    ___SCMOBJ thunk; /* scanned by worker zero even outside active membership */
+  } ___resize_request_root;
+
+typedef struct ___virtual_machine_state_struct
+  {
+    ___aligned_processor_state_struct aligned_pstate[___MAX_PROCESSORS]; /* VM's processors */
+
+    ___execution_context execution_contexts[___MAX_PROCESSORS];
+    ___gc_participant gc_participants[___MAX_PROCESSORS];
+    ___gc_root_origin gc_origins[___MAX_PROCESSORS];
+    ___gc_root_task gc_root_tasks[___MAX_PROCESSORS];
+    ___collector_worker collector_workers[___MAX_PROCESSORS];
+    ___gc_round gc_round;
+    ___vm_resize_ledger resize;
+    ___resize_request_root resize_requests[___MAX_PROCESSORS];
+
+    ___VOLATILE int processor_count; /* number of processors in this VM */
+
+    ___WORD vm_scmobj[___SUBTYPED_BODY+___VM_SIZE+___PADDING_SIZE]; /* Scheme vm object */
+
+#ifdef ___ACTIVITY_LOG
+    ___vmstate_actlog actlog; /* activity log state */
+#endif
+
+#ifdef ___DEBUG_TICKETLOCK
+    ___VOLATILE ___WORD ticketlock_history_index;
+    ___ticketlock_location ticketlock_history[___TICKETLOCK_HISTORY_LENGTH];
+#endif
+
+    ___vmstate_os os; /* OS specific state */
+
+    ___vmstate_mem mem; /* memory management state */
+
+    ___write_authority write_authorities[___WRITE_AUTHORITY_CAPACITY];
+
+    ___SCMOBJ main_module_ref; /* symbol identifying the VM's main module */
+
+#ifndef ___SINGLE_VM
+
+    ___VOLATILE ___virtual_machine_state prev; /* circular list links */
+    ___VOLATILE ___virtual_machine_state next;
+
+    ___SCMOBJ *glos; /* Scheme global variables */
+
+#endif
+
+  } ___virtual_machine_state_struct;
+
+#define ___PROCESSOR_ID(ps,vms) \
+(___CAST(___aligned_processor_state_struct*,ps) - \
+ ___CAST(___aligned_processor_state_struct*,&(vms)->aligned_pstate[0].pstate))
+
+
+#define ___PSTATE_FROM_PROCESSOR_ID(id,vms) \
+(&(vms)->aligned_pstate[id].pstate)
+
+#if defined(__GNUC__) || defined(__clang__)
+#define ___STARTUP_INLINE static __inline__
+#elif defined(_MSC_VER)
+#define ___STARTUP_INLINE static __inline
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
+#define ___STARTUP_INLINE static inline
+#else
+#define ___STARTUP_INLINE static
+#endif
+
+___STARTUP_INLINE ___WORD ___gc_cas
+ (___VOLATILE ___WORD *p, ___WORD old_value, ___WORD new_value)
+{
+#ifdef ___SINGLE_THREADED_VMS
+  ___WORD prior = *p;
+  if (prior == old_value) *p = new_value;
+  return prior;
+#else
+  return ___COMPARE_AND_SWAP_WORD(p,old_value,new_value);
+#endif
+}
+
+___STARTUP_INLINE ___WORD ___gc_atomic_load (___VOLATILE ___WORD *p)
+{
+#ifdef ___SINGLE_THREADED_VMS
+  return *p;
+#else
+  return ___gc_cas(p,0,0);
+#endif
+}
+
+___STARTUP_INLINE int ___gc_origin_freeze
+ (___gc_root_origin *o, ___execution_context *context, ___WORD epoch)
+{
+  /* Caller supplies physical root-writer stop and exclusive round admission.
+   * This publication primitive cannot manufacture either certificate. */
+  if (epoch <= o->epoch || o->incarnation <= 0 ||
+      ___gc_cas(&o->state,0,1) != 0) return 0;
+  o->context = context;
+  o->epoch = epoch;
+  return ___gc_cas(&o->state,1,2) == 1;
+}
+
+___STARTUP_INLINE int ___gc_root_task_publish
+ (___gc_root_task *t, ___gc_root_origin *o, ___WORD epoch)
+{
+  /* Exclusive slot reuse; prior task readers have already drained. */
+  if (___gc_atomic_load(&o->state) != 2 || o->epoch != epoch) return 0;
+  t->origin = o; t->incarnation = o->incarnation; t->epoch = epoch;
+  t->phase = ___GC_ROOT_PREPARE;
+  t->claim = 0;
+  return ___gc_cas(&t->claim,0,1) == 0;
+}
+
+___STARTUP_INLINE int ___gc_root_task_claim
+ (___gc_root_task *t, ___WORD epoch, ___gc_root_phase phase, ___WORD owner)
+{
+  if (owner < 4 || t->epoch != epoch || t->phase != phase ||
+      t->incarnation != t->origin->incarnation ||
+      ___gc_atomic_load(&t->origin->state) != 2) return 0;
+  return ___gc_cas(&t->claim,1,owner) == 1;
+}
+
+___STARTUP_INLINE int ___gc_root_task_finish
+ (___gc_root_task *t, ___WORD epoch, ___gc_root_phase phase, ___WORD owner)
+{
+  return owner >= 4 && t->epoch == epoch && t->phase == phase &&
+    t->origin->epoch == epoch && t->incarnation == t->origin->incarnation &&
+    ___gc_atomic_load(&t->origin->state) == 2 &&
+    ___gc_cas(&t->claim,owner,2) == owner;
+}
+
+___STARTUP_INLINE int ___gc_root_task_advance
+ (___gc_root_task *t, ___WORD epoch, ___gc_root_phase completed)
+{
+  /* Exclusive coordinator, after every old-phase worker has drained. The
+   * done claim alone does not exclude late readers or discharge descendants. */
+  if (t->epoch != epoch || t->phase != completed ||
+      completed >= ___GC_ROOT_CLEANUP || t->origin->epoch != epoch ||
+      t->incarnation != t->origin->incarnation ||
+      ___gc_atomic_load(&t->origin->state) != 2 ||
+      ___gc_atomic_load(&t->claim) != 2) return 0;
+  t->phase = (___gc_root_phase)(completed+1);
+  return ___gc_cas(&t->claim,2,1) == 2;
+}
+
+___STARTUP_INLINE int ___gc_origin_thaw
+ (___gc_root_task *t, ___WORD epoch)
+{
+  /* Root completion alone does not supply whole-round resume permission. */
+  return t->epoch == epoch && t->phase == ___GC_ROOT_CLEANUP &&
+    t->origin->epoch == epoch &&
+    t->incarnation == t->origin->incarnation &&
+    ___gc_atomic_load(&t->claim) == 2 &&
+    ___gc_cas(&t->origin->state,2,0) == 2;
+}
+
+___STARTUP_INLINE int ___gc_cleanup_empty (const ___gc_cleanup_escrow *e)
+{
+  return e->pending == 0 && e->survivors == 0 && e->inflight == 0 &&
+         e->payload == 0 && e->release_fn == 0;
+}
+
+/* Copy authorization precedes any arena/section mutation. Do not hold this
+ * gate while scanning payload, acquiring frame access or waiting for a child.
+ * The sole nested order is frame access -> copy gate -> allocator/FIFO gates;
+ * FIFO consumers release their gate before acquiring frame/copy authority.
+ * A native writer that bypasses this protocol is not admitted by it. */
+___STARTUP_INLINE ___VOLATILE ___WORD *___gc_copy_gate
+   (___gc_round *round, ___WORD *header)
+{
+  return &round->copy_gates[
+    (___CAST(___UWORD,header) / ___WS) % ___GC_COPY_GATE_COUNT];
+}
+
+___STARTUP_INLINE void ___gc_copy_acquire (___VOLATILE ___WORD *gate)
+{
+  while (___COMPARE_AND_SWAP_WORD(gate,0,1) != 0)
+    ___CPU_RELAX();
+}
+
+___STARTUP_INLINE void ___gc_copy_release (___VOLATILE ___WORD *gate)
+{
+  ___FETCH_AND_CLEAR_WORD(gate);
+}
+
+___STARTUP_INLINE int ___gc_arena_reserve
+ (___gc_worker_arena *a, ___SIZE_TS words)
+{
+  if (a->handed_off || a->pending != 0 || words < 0 ||
+      words > a->limit-a->cursor) return 0;
+  a->pending = a->cursor;
+  a->cursor += words;
+  a->pending_past = a->cursor;
+  return 1;
+}
+
+/* Caller supplies the weak-descendant drain and exclusive resume-plan
+ * ownership. Epoch checks are not substitutes for that physical boundary.
+ * Retired copied prefixes and the final interval enter context accounting
+ * exactly once; the RC/still/root domain is never copied or rebound. */
+___STARTUP_INLINE int ___gc_arena_handoff
+ (___gc_worker_arena *a, ___gc_resume_space *r, ___WORD epoch)
+{
+  ___context_mem *m;
+  if (a->handed_off || a->pending || !a->section || !r->context ||
+      r->accepted || r->source_worker < 0 || a->epoch != epoch || r->epoch != epoch) return 0;
+  m = &r->context->mem;
+  m->heap_msection_ = a->section;
+  m->alloc_heap_start_ = a->base;
+  m->alloc_heap_ptr_ = a->cursor;
+  m->alloc_heap_limit_ = a->limit;
+  m->words_prev_msections_ += a->retired_words;
+  m->alloc_stack_limit_ = r->stack_floor;
+  a->handed_off = 1;
+  r->accepted = 1;
+  return 1;
+}
+
+/* A root domain without an assigned worker tail uses its already reserved
+ * stack section's disjoint bottom interval. No extra section is allocated.
+ * Caller supplies the same descendant/writer drain as arena_handoff. */
+___STARTUP_INLINE int ___gc_resume_without_arena
+ (___gc_resume_space *r, ___WORD epoch)
+{
+  ___context_mem *m;
+  if (!r->context || r->epoch != epoch || r->accepted || r->loan_used ||
+      r->source_worker != -1 ||
+      !r->stack_section || r->loan_limit-r->loan_base <= 2) return 0;
+  m = &r->context->mem;
+  m->heap_msection_ = r->stack_section;
+  m->alloc_heap_start_ = m->alloc_heap_ptr_ = r->loan_base;
+  m->alloc_heap_limit_ = r->loan_limit-2;
+  m->alloc_stack_limit_ = r->loan_limit;
+  r->stack_floor = r->loan_limit;
+  r->accepted = 1;
+  return 1;
+}
+
+___STARTUP_INLINE int ___gc_arena_settle
+ (___gc_worker_arena *a, ___WORD *begin, ___WORD *past, int cancel)
+{
+  if (a->pending == 0 || a->pending != begin ||
+      a->pending_past != past || a->cursor != past) return 0;
+  if (cancel) a->cursor = begin;
+  a->pending = 0; a->pending_past = 0;
+  return 1;
+}
+
+/* No allocation or safepoint. Reads pair with the existing full-barrier CAS
+ * adapter. A foreign caller still needs membership/root admission separately. */
+___STARTUP_INLINE ___WORD ___startup_load
+   ___P((___vm_resize_slot *slot), (slot)
+___vm_resize_slot *slot;)
+{
+#ifdef ___SINGLE_THREADED_VMS
+  return slot->startup;
+#else
+  return ___COMPARE_AND_SWAP_WORD(&slot->startup,0,0);
+#endif
+}
+
+___STARTUP_INLINE int ___startup_ready
+   ___P((___processor_state ps), (ps)
+___processor_state ps;)
+{
+  ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(ps);
+  ___vm_resize_slot *slot = &vm->resize.slots[___PROCESSOR_ID(ps,vm)];
+  ___WORD generation = ps->context->startup_generation;
+  if (generation == 0) return ___PROCESSOR_ID(ps,vm) == 0; /* primordial setup has no resize activation */
+  if (generation != slot->generation) return 0;
+#ifdef ___SINGLE_THREADED_VMS
+  if (slot->startup != ___STARTUP_SCHEME) return 0;
+  slot->startup = ___STARTUP_READY;
+  return 1;
+#else
+  return ___COMPARE_AND_SWAP_WORD(&slot->startup,___STARTUP_SCHEME,
+                                  ___STARTUP_READY) == ___STARTUP_SCHEME;
+#endif
+}
+
+#undef ___STARTUP_INLINE
+

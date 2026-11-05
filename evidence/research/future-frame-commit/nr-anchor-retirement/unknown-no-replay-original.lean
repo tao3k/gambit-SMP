@@ -1,0 +1,9 @@
+import NrAnchorRetirement
+open NrAnchorRetirementAst
+def witness : State := unknownCallbackExitNext (popCallbackNext (enqueueTokenNext (produceErrorTokenNext (initial))))
+example : produceErrorTokenGuard (initial) := by simp [produceErrorTokenGuard,initial]
+example : enqueueTokenGuard (produceErrorTokenNext (initial)) := by simp [enqueueTokenGuard,initial,produceErrorTokenNext]
+example : popCallbackGuard (enqueueTokenNext (produceErrorTokenNext (initial))) := by simp [popCallbackGuard,initial,produceErrorTokenNext,enqueueTokenNext]
+example : unknownCallbackExitGuard (popCallbackNext (enqueueTokenNext (produceErrorTokenNext (initial)))) := by simp [unknownCallbackExitGuard,initial,produceErrorTokenNext,enqueueTokenNext,popCallbackNext]
+example : Safe witness := by simp [Safe,witness,initial,produceErrorTokenNext,enqueueTokenNext,popCallbackNext,unknownCallbackExitNext,produceErrorTokenGuard,completeNoTokenGuard,enqueueTokenGuard,claimPrivateTokenGuard,popCallbackGuard,knownTokenConsumptionGuard,unknownCallbackExitGuard,reconcileKnownConsumptionGuard,finishLandingGuard,exitOwnerEnvGuard,acquireAnchorGuard,lookupFirstRecordGuard,lookupSecondRecordGuard,releaseRecordGuard,releaseAnchorGuard,closeRecordGateGuard,closeSendersGuard,closeRawRoutesGuard,retireRecordGuard,reuseSlotGuard,acceptFirstAckGuard,rejectFirstAfterReuseGuard]
+example : ¬ (popCallbackGuard witness) := by simp [Safe,witness,initial,produceErrorTokenNext,enqueueTokenNext,popCallbackNext,unknownCallbackExitNext,produceErrorTokenGuard,completeNoTokenGuard,enqueueTokenGuard,claimPrivateTokenGuard,popCallbackGuard,knownTokenConsumptionGuard,unknownCallbackExitGuard,reconcileKnownConsumptionGuard,finishLandingGuard,exitOwnerEnvGuard,acquireAnchorGuard,lookupFirstRecordGuard,lookupSecondRecordGuard,releaseRecordGuard,releaseAnchorGuard,closeRecordGateGuard,closeSendersGuard,closeRawRoutesGuard,retireRecordGuard,reuseSlotGuard,acceptFirstAckGuard,rejectFirstAfterReuseGuard]

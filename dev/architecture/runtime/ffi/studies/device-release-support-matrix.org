@@ -1,0 +1,190 @@
+#+TITLE: Shared Device Release Service: Modern C and Zig Net Benefit
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Shared Device Release Service: Modern C and Zig Net Benefit :ffi:
+:PROPERTIES:
+:ID: 3aa4d62f-9a61-5122-a38e-af3ec45bf351
+:CUSTOM_ID: shared-device-release-service-modern-c-and-zig-net-benefit
+:SOURCE_PATH: docs/experimental/zig/device-release-support-matrix.md
+:SOURCE_SHA256: 0ceb5df79233cc3b6d93a08c3ff513705caa9d13b12a99a4472c3ffd9835be76
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. [[file:foreign-release-worker-contract.org][Service/admission design]],
+[[file:foreign-release-worker-evidence.org][source and paper ledger]]. Theory only;
+no implementation, native test, time/LOC-to-effort conversion or positive net
+bound. C-full and Z-full provide the same full runtime capabilities. C-ZT can
+use independent Zig tool/build services without changing this C runtime core.
+
+*** 1. Why This Component Is Necessary
+:PROPERTIES:
+:ID: b1fde559-927c-501b-bdf3-2e84f611bd82
+:CUSTOM_ID: 1-why-this-component-is-necessary
+:END:
+
+The existing shared core is ~device_cleanup~ / ~device_release~ / device-group
+operations in ~os_io.c~. Ten wrapper registrations already converge on one
+adapter, plus GC/explicit release, setup rollback and group shutdown. Files,
+TCP/UDP and process/directory I/O are actual system consumers, not invented
+workloads [FR-S05/S07/S09/S10]. This service must either be reused under proved
+assumptions or have its lifecycle authority replaced before independent cleanup
+can mutate lists, wait, call virtual methods and release storage.
+
+Select *DeviceReleaseCoordinator* as the comparison unit: one native ownership,
+close-stage, executor and disposition service over those existing leaves.
+It does not replace every foreign function, all OS I/O, all GC or LLVM. Deferred
+queue support is included only where a demanded, effect-qualified deferred path
+needs it. A generic all-purpose scheduler/container is not presumed necessary.
+The criterion is full ownership/progress reconstruction for this service, not
+minimal patching of its old error paths.
+
+[[file:../diagrams/device-release-service.svg][One shared service and matched language alternatives]]
+[[file:../diagrams/device-release-service.d2][D2 source]].
+
+*** 2. Same-Scope Design Alternatives
+:PROPERTIES:
+:ID: d584c622-f676-5459-82e5-fef16e2f0a1d
+:CUSTOM_ID: 2-same-scope-design-alternatives
+:END:
+
+| Concern | Modern C: C-full | Zig: Z-full | What actually remains |
+|-
+| Policy and schema | Scheme/runtime-issued policy; generated enums, structs, typed adapter declarations; opaque ResourceId API | Same policy/schema; native enum/union/struct declarations or generated products | Effect/affinity/origin policy cannot be guessed by either language. Existing Scheme release-function generation is reused [FR-S04]. |
+| Lifecycle | One shared C coordinator, explicit state/result struct, controlled transition functions; no per-consumer state machine copies | One shared Zig coordinator, tagged states/results and error handling | Claim, ownership transfers, reader/borrower drain and partially completed effects need the same transition/refinement law. Neither handle type is automatic affine ownership. |
+| Leaf operations | Reuse current close/release vtables and mature native library functions; generated typed adapters | Reuse the same C leaves initially or move selected physical adapters; C ABI bridge remains where needed | C++ destructors/ABI, OS status/close behavior and SSL callbacks are not removed by an extern declaration. Keeping C leaves is bounded reuse, not completed retirement of their implementation. |
+| Waits and executor | Explicit WaitContext + admitted OS wait/owner executor; intrusive/list/queue support reused where sufficient | Same WaitContext and native executor; std facilities only if their exact semantics fit | GC lock/wait graph, implicit PSTATE replacement, cancellation, affinity and shutdown remain. No language gives a free asynchronous close service. |
+| Private construction | Existing C cleanup helper, one ~goto fail~/ownership funnel; generated wrapper registration/rollback | ~defer~/~errdefer~ for ordinary scopes, explicit ownership transfer/disarm and async custody | Lexical convenience may save repeated local failure plumbing; late completion, unknown longjmp/throw and callback borrow graphs remain manual. |
+| Error/disposition | C result ~{status, payloadDisposition, completedEffects}~ and generated switches | Zig tagged result/error representation retaining payload disposition | Bare C int or bare Zig error union loses needed disposition. On error neither may unconditionally retry or free. |
+| Physical retirement | Delete migrated old list/close-state ownership and implicit select scratch path after consumer closure | Same architectural retirement, with Zig owning replacement coordinator | Common modernization benefit, not Zig-specific saving. Old leaves retained behind the new service still cost review and qualification. |
+
+Any new C policy/type generator is a costed option, not an existing free
+facility: charge its emitter development, schema changes, generated-output
+validation and qualification to C-full. Likewise charge Zig comptime/schema
+machinery and compiler-upgrade review to Z-full. The already present Scheme
+default-release generator is actual reuse. Compare the least-cost justified C
+choice among an existing helper, a failure funnel and new generation; neither
+an idealized free generator nor deliberately duplicated handwritten C is a fair
+control. Those cost intervals remain missing in this slice.
+
+A mature C implementation is credited shared cleanup and generation before any
+language advantage is counted. The current ten registration expressions call
+*one* shared body, not ten independent bodies to replace. Naming ten clients
+therefore cannot multiply one-body retirement or shared-service savings.
+
+*** 3. Support and Maintenance Matrix
+:PROPERTIES:
+:ID: 9d59ba3c-f75c-5a18-984f-e34e27115eb4
+:CUSTOM_ID: 3-support-and-maintenance-matrix
+:END:
+
+| ID / maintenance obligation | Already reusable support | C-full work after reuse | Z-full work after reuse | Exclusive saving established? |
+|-
+| DRS01 release registration adapters | ~_ptree2.scm~ caches/generates default release functions; one device wrapper callback | Generate policy/registration products and one C adapter family | Same semantic generator/products; native typed association | No: avoided C adapter must survive generation/reuse to qualify. |
+| DRS02 ordinary constructor rollback | Existing centralized ~device_cleanup~ helper and per-caller call sites | Generated/funneled rollback with explicit publication ownership | Lexical errdefer plus explicit handoff/disarm | Candidate local edge-plumbing reduction only; no positive effort bound supplied. Count is not duplicated cleanup algorithm. |
+| DRS03 disposition/claim state | Existing group/stage/refcount mechanics as source semantics | New common synchronized control cell and typed result | Same control cell/result and synchronization law | No language-specific removal of resource identity, claim or partial failure support. |
+| DRS04 native users/drain | Existing pump references, Scheme psettings retention and library APIs | Explicit borrow/issuer closure and executor drain | Same closure/drain; pointer ownership still manual | No: neither lexical cleanup nor type names discover raw aliases. |
+| DRS05 wait/affinity | Existing device close/select leaves | Separate implicit PSTATE scratch, define explicit wait context and progress | Same explicit context and progress; optional Zig native wrappers | No: necessary modernization in both. |
+| DRS06 origin/error delivery | Existing four origin behaviors | One dispatch/result policy with GC/explicit/rollback/shutdown adapters | Same policy/consumer adaptations | Shared construction/error handling may differ locally; semantic authority and diagnostics remain. |
+| DRS07 platform/provider upgrades | Existing OS/OpenSSL APIs and bounded C/C++ islands | Requalify changed leaves, call graph and profile effects | Same leaf qualification plus Zig/ABI/binding changes as applicable | No LLVM/C interop bonus attributed to language selection. |
+| DRS08 common service construction | Existing intrusive group list and shared helper; reusable project/native primitives | One private storage/queue owner only if actually needed | One private typed owner with lexical setup cleanup | Potential support union candidate, but compare generated/simple C, not a mandatory handwritten generic C container. |
+
+**** Change-event accounting
+:PROPERTIES:
+:ID: 34da619f-c673-58bd-b22a-b34ac6cca656
+:CUSTOM_ID: change-event-accounting
+:END:
+
+These are designed review/change surfaces, not measured effort counts:
+
+| Event | Modern C review surface | Zig review surface | Required conclusion |
+|-
+| Add another device using unchanged lifecycle | One leaf/effect policy + generated binding + consumer ownership qualification | Same leaf/policy + typed/generated binding + consumer qualification | No copy of shared core in either path. |
+| Change close error to retain an alive payload | One common outcome/state policy; affected adapter/user review | Same common policy and affected review | New tagged outcome prevents conflation only if callers obey it. |
+| Add an owner-affine cleanup operation | Shared executor/wait/dependency policy + origin adapter changes | Same executor/wait/dependency changes | No automatic Zig thread-affinity or deadlock proof. |
+| Add a library callback during SSL cleanup | Library effect review + roots/code pins + admission change | Same review/pins/admission change | Language-local cleanup syntax does not remove the fanout. |
+| Add a constructor acquisition before wrapper publication | Generated C/failure-funnel ownership update | Lexical errdefer/handoff ownership update | Only this remaining local construction difference is a candidate incremental saving. |
+| Upgrade compiler/provider ABI | C/SDK/required C++ bridge qualification | Same required native ABI plus Zig/tool/binding qualification | Price additional tool/release obligations; no unmeasured portability saving. |
+
+*** 4. Net-Benefit Conditions and Countermodels
+:PROPERTIES:
+:ID: 91228c5f-6b13-56d6-acd2-387a16f13ffe
+:CUSTOM_ID: 4-net-benefit-conditions-and-countermodels
+:END:
+
+Use effort over a declared support horizon as one dimension. Runtime pause,
+resource-close latency, retained bytes*time and build work remain separate.
+Let K be the disjoint union of necessary private construction/change support
+remaining after Scheme generation, one shared C coordinator, mature libraries,
+existing leaf cleanup and common native primitives are credited.
+
+#+BEGIN_SRC text :eval never
+ZigIncrementLower = sum over k in K [ lower(Ceffort(k)) - upper(Zeffort(k)) ]
+                   - upper(Z-only migration + tooling + bindings + residual support)
+#+END_SRC
+
+Do not enter the same service setup, ordinary cleanup body or future change twice
+for its ten clients. Do not enter common lifecycle/GC/LLVM architecture benefits
+in this incremental sum. C-ZT offers an independent tool/build control; those
+benefits do not establish that this runtime component should be rewritten.
+
+A positive case requires a necessary local support body/change family that
+cannot be removed by the selected C generator/funnel/shared service, demonstrably
+leaves Z-full's maintenance set, and has conservative savings above the extra
+Z-only cost. A generic container is not justified merely because Zig can express
+one. Today this component supplies no strictly positive Zig-only effort lower
+bound; that is an evidence gap, not proof that such a bound can never exist.
+
+| ID / countermodel | Consequence |
+|-
+| DRX01 shared C service + generated registration covers all additional construction | No demonstrated avoided C support remains; positive Z-only costs defeat the proposed justification. |
+| DRX02 only existing adapter call sites shrink | Less syntax does not quantify correctness/upgrade effort; asynchronous state/waits/real-user support remains unchanged. |
+| DRX03 one coordinator replaces ten calls to one old helper | At most one shared-body retirement; ten-fold multiplication is invalid. |
+| DRX04 old implicit wait/list authority stays beneath a Zig wrapper | No lifecycle-authority retirement; extra layer/ABI/dual qualification cost remains. |
+| DRX05 callback/close requires the stopped managed owner | Independent GC cleanup can deadlock; language selection cannot rescue architectural admission. |
+| DRX06 deferred cleanup lowers GC-path work but retains unbounded fds/images/payloads | Memory epoch completion is not total resource-service benefit; bounded progress/retention and scarce-resource policy are required. |
+
+There is a sharper conditional negative result: for the same service when
+post-reuse K is empty and added Zig costs are strictly positive, the Zig effort
+increment is strictly negative. Source does not prove K is empty for every
+future requirement. The honest current decision is **modernization service
+justified as a design obligation; Zig selection and both positive net bounds
+unresolved**.
+
+*** 5. Retirement and Order of Work
+:PROPERTIES:
+:ID: 8bad18d7-d741-58ce-8394-977f60479880
+:CUSTOM_ID: 5-retirement-and-order-of-work
+:END:
+
+| ID | Real authority/support that can retire for a selected cohort | Dependency before retirement | Retained support |
+|-
+| DRR01 wrapper flag as the only effective release authority | ResourceId/claim and all four origin migration; duplicate owning wrappers excluded/represented | Public wrapper invalidation semantics and bounded legacy ABI |
+| DRR02 cleanup group unlink treated as final custody | Explicit active/pending user and native disposition ledger; group/shutdown callers migrated | Actual list/device mechanics until replaced and OS cleanup obligations |
+| DRR03 implicit PSTATE wait ownership in migrated cleanup | Explicit WaitContext/executor, effects and progress admission | Platform wait API/abort semantics and any unmigrated runtime waits |
+| DRR04 ignored cleanup result as the only available lifetime record | Origin-specific error result plus payload/effect disposition; failure retention and no unsafe retry | Conversion primary-error law, managed exception delivery and legacy diagnostics scope |
+| DRR05 per-constructor manual registration rollback plumbing | Necessary repeated support shown after Scheme/generator/C funnel reuse; all relevant constructors consume issued policy | Leaf-specific acquisition semantics and all post-publication async cleanup |
+
+These are replacement conditions, not a claim that the current code explicitly
+implements those old authorities as formal contracts. First close effects/users
+and origin semantics; then claim/wait/disposition design; then qualify workers
+and every affected consumer; only then count actual retired support. This is
+full service reconstruction, with retained libraries and GC semantics, not an
+instruction to implement a minimal patch. No original path is retired by this
+research. No architecture generation suffix is introduced.
+
+The [[file:device-release-wait-cost-matrix.org][wait/task/drain support matrix]]
+expands DRS02--DRS08 into WSU01--WSU12, one concrete native buffer/wake builder,
+six change events and five retirement dependencies. Wake/cancel ordering,
+accepted ownership and descendant drain remain necessary in either language;
+new C generation and Zig helper/tool maintenance are both costed alternatives.

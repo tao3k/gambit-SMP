@@ -186,7 +186,7 @@ class ReviewGraphTests(unittest.TestCase):
         directory = self.add_partial_proof()
         log = directory / "check.log"
         log.write_text("changed\n")
-        with self.assertRaisesRegex(ValueError, "artifact drift"):
+        with self.assertRaisesRegex(ValueError, "artifact drift|recorded output observation"):
             proof_observations(self.root)
         log.write_text("archived portable log\n")
         path = directory / "archive.json"

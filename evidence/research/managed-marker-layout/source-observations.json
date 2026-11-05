@@ -1,0 +1,126 @@
+[
+  {
+    "caller": "marker-constructor",
+    "sourceAnchors": "lib/c_intf.c:6509-6545;lib/mem.c:1778-1821",
+    "finding": "make_sfun_stack_marker calls make_vector then copies proc/RC data; source TODO warns procedure can move first",
+    "hazard": "Native C local is not an explicit root; data_rc is read only after allocation today",
+    "proposedReplacement": "Register proc or frozen closure data/code lease in root domain before any safepoint; typed constructor replaces vector for managed cohort",
+    "nativeWitness": false
+  },
+  {
+    "caller": "typed-layout-authority",
+    "sourceAnchors": "include/gambit.h.in:2875-2950;lib/_gambit#.scm:31-72;lib/sys.scm:1533-1573",
+    "finding": "5 subtype bits; 16/17 absent locally, byte-vector predicate uses 16<x",
+    "hazard": "Candidate 17 falls into byte-vector classification; candidate 16 default GC scan would treat raw bytes as roots",
+    "proposedReplacement": "Select candidate16 conditionally; generated shared tables, exact body descriptor, feature admission and full subtype consumer audit required",
+    "nativeWitness": false
+  },
+  {
+    "caller": "still-allocation-commit",
+    "sourceAnchors": "lib/mem.c:1487-1500,1560-1709;lib/_kernel.scm:38-73",
+    "finding": "Generic allocator may GC, links still object, sets initial count1; caller fills body later; inline slow path decrements generic still result",
+    "hazard": "Changing initial count to0 without joint root/list gate exposes uninitialized or unrooted object; generic inline allocation cannot construct new marker",
+    "proposedReplacement": "Private allocation/accounting + valid header/body + pre-reserved root/list commit, zero raw count; no caller-filled generic new marker",
+    "nativeWitness": false
+  },
+  {
+    "caller": "zero-count-queue",
+    "sourceAnchors": "lib/mem.c:3625-3651,4210-4251",
+    "finding": "Setup marks zero-count still -1; explicit mark_array CAS can enqueue regardless refcount",
+    "hazard": "Mark-before-late-setup is overwritten; duplicate/late setup can lose queued work",
+    "proposedReplacement": "Retain per-list setup ownership then all-list barrier, root enumeration, CAS queue and completion debt",
+    "nativeWitness": false
+  },
+  {
+    "caller": "typed-scan-consumer",
+    "sourceAnchors": "lib/mem.c:4020-4180",
+    "finding": "FOREIGN skipped; ordinary default scans all body words; FRAME uses liveness map",
+    "hazard": "FOREIGN wrapper loses proc edge; default scans arbitrary key bytes as SCMOBJ",
+    "proposedReplacement": "Dedicated marker scan of body[0..1] only; reject wrong exact size/subtype and preserve relocation updates",
+    "nativeWitness": false
+  },
+  {
+    "caller": "processor-root-enumeration",
+    "sourceAnchors": "lib/mem.c:3969-3987,6780-6865,7003-7031",
+    "finding": "mark_rc runs only P0 branch; setup and mark separated by real BARRIER",
+    "hazard": "Per-PSTATE root chain for processor1 cannot become VM-wide merely by reusing mark_rc name",
+    "proposedReplacement": "VM root-domain registry covers all admitted contexts, pending constructors and quarantine; distinct independent-worker task/view protocol",
+    "nativeWitness": false
+  },
+  {
+    "caller": "return-route-and-live-check",
+    "sourceAnchors": "lib/_kernel.scm:1020-1072,1824-1849;lib/_thread.scm:3127-3151",
+    "finding": "Kernel raw vector slot1 routes processor before slot0 false check; hook may migrate Scheme thread",
+    "hazard": "New representation cannot preserve raw offsets or equate processor id with native live owner",
+    "proposedReplacement": "Checked classifier/route then exact key original-owner claim, preserving hook/error ordering and Scheme semantics",
+    "nativeWitness": false
+  },
+  {
+    "caller": "conversion-error-procedure",
+    "sourceAnchors": "lib/_kernel.scm:149-178;include/gambit.h.in:10043-10059",
+    "finding": "Kernel raw temp3 vector0 feeds conversion handler; SFUN reuses same marker through error loop",
+    "hazard": "Missing raw read in migration loses error procedure or applies wrong one-return restriction",
+    "proposedReplacement": "Checked rooted procedure accessor; per-delivery identity; close only original activation guard exit",
+    "nativeWitness": false
+  },
+  {
+    "caller": "matching-call-and-run",
+    "sourceAnchors": "lib/setup.c:3276-3420;gsc/_ptree2.scm:2902-3030,3145-3187",
+    "finding": "___call stores marker in two-slot return frame, catches matching object only; ___run and generated SFUN create/kill",
+    "hazard": "Object equality currently matches native destination; serialized/copied key cannot create a live C frame",
+    "proposedReplacement": "Preserve frame GC-map marker slot and exact object match plus key/owner claim; no native-stack reification from key",
+    "nativeWitness": false
+  },
+  {
+    "caller": "kill-counter-release",
+    "sourceAnchors": "lib/c_intf.c:6551-6564;lib/mem.c:1441-1484,1730-1739",
+    "finding": "kill false store then raw --; exports read/inc/dec fields without profile gate; release_scmobj decrements still",
+    "hazard": "Zero-count cohort raw decrement wraps or makes a nonzero seed; invalid memory cannot be checked safely",
+    "proposedReplacement": "Retire old kill/debit only for controlled cohort, profile-gate raw exports and generic release, require valid rooted handle",
+    "nativeWitness": false
+  },
+  {
+    "caller": "continuation-serialization",
+    "sourceAnchors": "lib/_system.scm:3570-3615,3750-3788;lib/_io.scm:10650-10725,12120-12140;gsc/_t-c-2.scm:3442,3841",
+    "finding": "Binary serializer visits live continuation/frame slots; writer explodes continuation; unsafe subtype/vector mutators generated directly",
+    "hazard": "Copy/deserialize marker key is not authority; private raw subtype mutation can corrupt descriptor",
+    "proposedReplacement": "Explicit unsupported-live-native-marker serialization; opaque printing; reject or revoke raw access capability, no managed cohort for unaudited unsafe module",
+    "nativeWitness": false
+  },
+  {
+    "caller": "sweep-and-teardown",
+    "sourceAnchors": "lib/mem.c:4387-4451,4932-4935;include/gambit.h.in:13224-13230",
+    "finding": "Sweep uses mark, teardown frees all still/RC; global-state ABI exposes marker create/kill",
+    "hazard": "Record removal is not object death; teardown defeats extra root or native reader",
+    "proposedReplacement": "Captured key persists after metadata; no direct free; root-domain drain/transfer before teardown, module feature admission required",
+    "nativeWitness": false
+  },
+  {
+    "caller": "dynamic-closure-root",
+    "sourceAnchors": "lib/os_dyn.c:744-790,1045-1058;lib/mem.c:702-825",
+    "finding": "c_closure_self global with thread-local TODO; alloc/register/data RC API has distinct native list and data field",
+    "hazard": "Reading mutable global after GC can select different callback and P0-only RC scan is insufficient",
+    "proposedReplacement": "Freeze actual trampoline closure/code borrow and root proc before allocation; reject foreign-thread/unqualified alias path",
+    "nativeWitness": false
+  },
+  {
+    "caller": "actual-host-callbacks",
+    "sourceAnchors": "examples/tcltk/tcltk.scm:124-194,221-228,269-276;tests/server.scm:15-35;tests/mem.scm:274-303",
+    "finding": "Tcl command callback and dynamic function conversions instantiate real SFUN entry chains",
+    "hazard": "Native-library lifetime, deletion and continuation escape are not fixed by marker type",
+    "proposedReplacement": "Shared generated C service must carry root/activation/transport duties through each real callback; external ABI remains explicit admission gate",
+    "nativeWitness": false
+  },
+  {
+    "caller": "bootstrapped-raw-consumer",
+    "sourceAnchors": "vendor/gambit/lib/_kernel.c:10845,11745-11759",
+    "finding": "Checked-in generated C contains actual vector reads too; must regenerate/reject old consumer; Scheme-source edit alone insufficient.",
+    "nativeWitness": false
+  },
+  {
+    "caller": "byte-predicate-actual-consumer",
+    "sourceAnchors": "vendor/gambit/lib/_system.scm:1170-1220",
+    "finding": "macro-subtype-bvector? reaches byte reads in hashing; numeric17 is not an innocuous free tag.",
+    "nativeWitness": false
+  }
+]

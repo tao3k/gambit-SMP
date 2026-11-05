@@ -1,0 +1,352 @@
+#+TITLE: Stable Guard Registration, Marker Custody and Single Settlement
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+PROPERTY: SOURCE_AUTHORITY StableGuardSettlement
+
+* RESEARCH Decision
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-decision
+:MAINLINE: modern-generated-c
+:STATUS: conditional-models-source-open
+:END:
+
+Modern C needs a generated, VM-owned stable completion protocol. Its fundamental
+unit is one physical native activation and one acquired marker-reference token,
+not a captured continuation. Root protection starts before marker allocation.
+Normal completion and admitted exceptional landing share one settlement state.
+Unknown acknowledgement means query/retain, not repeat kill or change executor.
+
+This study refines [[file:outer-completion-landing-design.org][Outer Completion Landing]].
+The parent receipt remains frozen; current hashes are checked independently and
+any drift is reported without upgrading inherited source qualification. This
+run observes header/setup drift against the parent; static macro span parity
+does not erase those whole-file identity changes. The
+inherited historical-clue source mismatch is not retried or treated as approval.
+No runtime/compiler implementation, native test or performance experiment runs.
+
+Canonical [[file:models/sysml/stable-guard-settlement.sysml][SysML]] owns eight component
+contracts, ten dependency edges, eight memory/lifetime edges, four gains and seven
+open qualification gates. An earlier full DEV load failed on unrelated
+=dev/architecture/runtime/gc/models/sysml/write-authority-gate.sysml= while it
+contained ASCENT syntax. That failed receipt is retained. The file was
+subsequently changed outside this study into a SysML package; final validation
+loads the complete current DEV set again, without exclusion. Input hashes are
+recorded separately from the earlier failed/excluded snapshots. Native queries generate [[file:stable-guard-settlement-matrix.org][Org matrix]]
+and [[file:diagrams/stable-guard-settlement.d2][D2]].
+[[file:../../modeling/ascent/stable-guard-settlement.rules.scm][ASCENT DSL]] checks exact
+bindings, hashes/scopes and the same-executor cleanup policy; it does not infer
+source correctness. [[file:../../../models/build/stable_guard_settlement.qnt][QNT]]
+models the proposed protocol. [[file:../../../models/build/StableGuardSettlement.lean][Lean]]
+proves abstract safety preservation, not a C11 or QNT-to-source simulation.
+
+* RESEARCH Current source and the non-idempotent cleanup boundary
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-source
+:EVIDENCE_KIND: current-source-inspection
+:END:
+
+| Producer or consumer | Source anchor | Consequence for the proposed protocol |
+|---+---+---|
+| Marker allocation | c_intf.c:6511–6546 | make_vector may allocate/GC; proc_or_false root TODO remains; marker out-parameter written only on success |
+| Allocation slow path | mem.c:1487–1497,1647–1648,1676–1684,1712–1727 | Non-NULL ps allocates still object, initially refcount 1; may collect before returning; caller must initialize before next allocation |
+| Vector initialization | mem.c:1778–1814 | Marker vector is initialized to false; fixnum error is not an allocated marker |
+| Closure source | os_dyn.c:639–672,744–787,1056–1059; c_intf.c:2915–2933 | c_closure_self is global with TLS TODO; dynamic C-closure code is architecture-conditional and unsupported conversion reports an error |
+| Marker kill | c_intf.c:6555–6562; mem.c:1461–1467 | Store false is repeatable only under valid storage/exclusion; following plain refcount decrement is not idempotent or atomic |
+| Lexical caller | setup.c:3395–3420; gambit.h.in:10043–10059 | run/SFUN success tail kills marker; propagated escape can skip that tail |
+| Catch restoration | setup.c:3384–3390; gambit.h.in:9981–9988 | Restored outer catcher and fp/PSR0 accesses still require session ownership |
+| Generated cleanup | _ptree2.scm:2902–3012; gambit.h.in:10376–10398 | Existing conversion cleanup remains necessary; AT_END is inside success arm, not all-path finally |
+| RC registration | mem.c:306,723–739,3969–3987,6845–6849 | RC head is PSTATE-scoped; mark_rc is called under processor-0 branch, so wrapping guard payload in current RC is not VM-wide root coverage |
+| Still scan | mem.c:4210–4248,6798–6800 | Nonzero still refcount schedules scanning, but it cannot protect a movable proc before marker allocation or by itself prove processor-exit storage handoff |
+| RC destruction | mem.c:684–699 | cleanup_rc frees its list; active guard roots cannot remain silently owned by a departing processor |
+| Return-to-C | _kernel.scm:1020–1065 | Wrong processor check precedes invalid marker check; continuation restoration may execute Scheme before rejected native return |
+
+Source files: [[file:../../../vendor/gambit/lib/c_intf.c][C interface]],
+[[file:../../../vendor/gambit/lib/mem.c][allocator and collector]],
+[[file:../../../vendor/gambit/lib/setup.c][native calls]],
+[[file:../../../vendor/gambit/include/gambit.h.in][header]],
+[[file:../../../vendor/gambit/gsc/_ptree2.scm][generator]],
+[[file:../../../vendor/gambit/lib/_kernel.scm][Scheme handlers]].
+
+The source establishes actual allocation, write and consumer paths, not a proof
+that every indirect native caller is registered. EXT/function-table users, raw
+native aliases and external embedders remain subject to explicit admission.
+
+* RESEARCH Stable records, roots and acquisition failure
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-registration
+:END:
+
+** Record and identity contract
+
+The immutable descriptor contains NativeActivationId, VM/session generation,
+parent activation, current owner-thread identity, root-slot addresses, generated
+restoration description and settlement identity. State, root-slot values and
+cleanup progress are mutable synchronized fields, not an immutable snapshot of
+movable Scheme values. A lookup pins the stable directory before dereferencing
+the record. Atomic raw-pointer load followed by refcount increment is insufficient
+when the record can already have been freed.
+
+The session root domain contains mutable slots for proc/closure payload, marker,
+conversion roots and exceptional result. The collector updates those slots; the
+mutator reloads them after GC. A stale C local is not repaired merely because an
+equivalent Scheme value is rooted elsewhere. This matters both for explicit
+proc_or_false and for the closure-self RC path at c_intf.c:6535–6538: that path must
+identify and retain the actual closure and payload source before allocation.
+
+The dynamic C-closure path needs extra admission discipline. os_dyn.c stores
+closure self in a global scalar, with an explicit thread-local TODO. A future
+thread-local scalar would still need a saved per-activation value across nested
+callbacks. Capture the actual closure identity and its rooted payload at native
+entry before allocation or reentry; do not reread ambient closure-self later.
+The source enables dynamic code only for listed x86-32, ppc-32 and sparc branches;
+there is no arm64 branch in that selection. Without C_CLOSURE_CODE_SIZE the
+constructor returns zero, and c_intf conversion reports STOC_FUNCTION_ERR.
+This is not evidence that dynamic C closures run on the installed Darwin profile.
+Static c-define callbacks such as Tcl tcltk_call are a separate path. A particular
+nested overwrite execution is not asserted without its architecture and schedule.
+
+One guard owns the allocator's one native still-reference token. Registering a
+scannable marker slot does not add a second still reference in this design.
+Scheme continuation references are ordinary GC reachability, not new native drop
+authority. If another admitted native holder adds a reference, it needs a separate
+token and synchronized reference accounting. The model's ref field counts this
+one owned credit, not arbitrary total reference counts of an aliased object.
+
+** Registration order and allocation outcomes
+
+| Cut | Required state and handoff | Failure custody |
+|---+---+---|
+| Before entry | Caller has valid current VM/context and scanned input roots | If unavailable, reject before executing allocation/callback; no fabricated guard receipt |
+| Reserve | Obtain stable slab slot without Scheme allocation/GC while caller-root fence holds | Pool exhaustion leaves caller responsible; slab growth occurs outside the vulnerable entry interval |
+| Register roots | Initialize slots to safe false values, transfer rooted input, obtain scanner-epoch registration acknowledgement | Partial/unknown registration retains caller fence and pending session; do not allocate marker or free slot |
+| Publish descriptor | Release-publish identity and initialized slot descriptors after registration | Lost response is queried by same identity; it is not a second registration |
+| Allocate marker | Allocation may GC; afterward reload proc from registered slot | Error fixnum gives no marker token, so no kill/decrement is permitted |
+| Commit acquisition | In no-safepoint/no-throw tail, store actual marker in slot, initialize payload and processor tag, record token, publish Acquired | Unknown private result is not a clean allocation failure; retain/quarantine session until resolved, without guessing a pointer |
+| Enter callback | Only a fully initialized, recorded marker enters ___call | Abnormal native exit must find stable descriptor and token at its admitted landing |
+
+The current make_sfun_stack_marker API must change: it reads proc_or_false after
+allocating and only delivers marker via a caller-local out-parameter at the end.
+A modern generated entry should operate through registered slots and publish the
+acquisition to its stable record before any next safepoint or callback. The
+post-allocation commit tail must not be interruptible by arbitrary native longjmp.
+Until that condition is proved, an unknown allocation outcome remains unresolved.
+This is a required source refactor, not an assertion that current code is safe.
+
+No root/registry lock may be held across allocation waiting for GC. Registration
+completes at a scanner-epoch cut; then a GC-capable allocation proceeds while its
+roots are visible. Nonzero-processor root coverage requires the shared VM root
+adapter; current RC allocation alone does not establish it.
+
+* RESEARCH Exceptional takeover and one settlement
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-single-settlement
+:PROOF_STATUS: safety-conditional-liveness-open
+:END:
+
+#+begin_example
+Registered -> Published -> Acquired or AllocationFailed -> Landed
+  -> Cleaning(executor identity, pinned session)
+  -> MarkerInvalidated -> OwnedStillReferenceDropped
+  -> CallerRestored -> Done(receipt)
+  -> AdmissionClosed -> ReadersDrained -> RootsRetired -> SessionReleased
+#+end_example
+
+AllocationFailed takes a no-marker cleanup edge; it never passes through kill.
+The normal tail and a legal exceptional custodian compete for the same Pending
+state. Successful CAS elects one executor; failed CAS is an observation, not
+permission to touch marker storage. An exceptional custodian handles skipped
+activation records in unwind order under the same owner thread after landing at
+a live registered catcher. It cannot longjmp into a catcher whose physical C
+activation has ended or move a live jump buffer to another OS thread.
+
+** The execution segment that cannot be abandoned
+
+The elected executor pins root registration and session through marker
+invalidation, the one owned still decrement, progress recording and the later
+Done publication. Marker invalidation and the decrement need scanner exclusion;
+they cannot race ordinary collector reads/writes. No allocation, safepoint,
+callback, reentry, cancellation, native throw or signal-handler longjmp is allowed
+between the non-idempotent decrement and its reliable progress record. GC and
+managed cancellation requests remain pending until an allowed boundary. Arbitrary
+foreign signal/longjmp code is outside this admission contract.
+
+This is not crash recovery. If a thread can disappear between decrement and
+recording it, the state cannot distinguish "drop executed" from "drop not yet
+executed" using a guard CAS alone. Retrying may double-decrement; skipping may
+retain a reference. Such a platform requires an indivisible/helpable token-release
+primitive coupled to the accounting system, or must retain the unresolved record
+and deny session/VM retirement. That alternative is not supplied by current C or
+Zig, and is not proved here.
+
+Unknown response while Cleaning retains that executor and its pins. Other parties
+may query; they cannot steal cleanup or repeat kill. After release-published Done,
+queries acquire the same transaction receipt. Duplicate requests return the same
+settlement result while that receipt is retained, without repeating marker
+operations. After acknowledged receipt retirement, an expired generation may
+only be rejected; it cannot be interpreted as a new activation or promise the
+forgotten exact result. Progress recording itself
+must use preallocated state, not allocate a receipt on the failure path.
+
+At-most-once drop is a safety property. Exactly one drop on every acquired marker
+is guaranteed at Done; eventual Done additionally requires executor progress and
+completion of all caller/roster duties. Bounded model histories do not prove that
+liveness assumption. No timeout authorizes reclaiming an unknown outcome.
+
+** Nested callbacks and multi-shot restoration
+
+Each child has a different physical activation ID, marker token and root slots.
+Child Done does not release the parent session. Parent cleanup requires child
+responsibilities settled or explicitly transferred; unknown child settlement
+retains parent custody. An ancestor continuation escape may skip several lexical
+SFUN tails, so the stable parent/child chain, not C locals in skipped frames,
+identifies their pending tokens.
+
+A restored Scheme continuation has a fresh invocation lease and valid current
+processor/root context in its VM. It neither reopens a Done physical guard nor
+reexecutes that guard's decrement. Marker invalidation prevents returning into
+the expired native activation; it does not erase Scheme frames/denv semantics.
+The parent study retains the actual wrong-processor-before-invalid-marker check.
+Internally reachable Scheme cycles must not become unconditional external VM
+roots; explicit exported handles and active invocations retain VM authority until
+settled. A new invocation is allowed to retain VM after the original guard has
+retired, provided separate arena/root/roster obligations are met.
+
+* RESEARCH C11 memory-order graph and lifetime
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-memory
+:STATUS: designed-not-implementation-proved
+:END:
+
+The eight authoritative edges are in SysML MemoryEdge and the generated matrix.
+Use SC as the initial admission baseline. Weaker orders below are candidate
+refinements, not measured optimizations or claims about current plain fields.
+
+| Object | Writer and publication | Reader and required observation | Lifetime / exclusion |
+|---+---+---+---|
+| Descriptor | Initialize immutable identity/slot descriptors; release-store Published | Acquire reads same generation/transaction | Stable directory pin precedes dereference; published root values remain mutable |
+| Cleanup state | CAS Pending->Cleaning with acq_rel success, acquire failure | Loser observes actual current state and rechecks identity | Failure order cannot be release/acq_rel; weak failure grants no ownership |
+| Acquisition | Store initialized marker/token then release Acquired | Admitted custodian acquires same activation record | Commit tail has no safepoint/throw; root already scanned |
+| Done | Record completed decrement/restoration then release Done | Query/final custodian acquires exact Done receipt | Root slots and session outlive receipt publication |
+| Admission gate | Close and reader-pin admission serialize on same generation-aware gate; SC baseline | Pin succeeds before record reads; late admission fails | No separate check-open then unchecked increment; prevent generation/counter wrap |
+| Last reader | Reads finish before release decrement | Closer acquires drained state after closing admission | Corresponding RMW/read-from chain still needs implementation proof; directory itself remains alive |
+| Marker drop | Sole executor invalidates and decrements under scanner exclusion, before release Done | No second executor may repeat this step | No safepoint, callback, native throw or asynchronous longjmp in this segment |
+| GC/root/marker | Mutator parks with published slots; collector relocates; owner resumes after same epoch | Resume reloads slots, not stale saved local | Scanner exclusion and GC participation are required; atomic descriptor does not make plain slot accesses race-free |
+
+SysML also records marker invalidation/drop before Done as an ordinary-write
+sequence under exclusive owner and collector exclusion. The table separates
+acquisition from descriptor publication for clarity; both are within the
+canonical root/publication component's obligations.
+
+C11 draft [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570]]
+5.1.2.4 and 7.17 require matching release/acquire observations and define CAS
+success/failure ordering. An acquire elsewhere does not prove a lifetime handoff.
+Section 7.13.2.1 limits longjmp and changed nonvolatile locals. Persistent guard
+state avoids depending on such locals. GCC [[https://gcc.gnu.org/onlinedocs/gcc/Nonlocal-Gotos.html][builtin nonlocal goto]]
+uses a distinct ABI; effective Darwin selection and register preservation remain
+unqualified. Wide lock-free gate CAS is not assumed: portable modern C may use a
+small directory lock outside GC waits and callbacks. A lock-free representation
+needs its own size/alignment/atomic capability proof.
+
+* RESEARCH Formal chain, negative controls and remaining obligations
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-refinement
+:END:
+
+QNT separates reservation, scanned-root registration, descriptor publication,
+allocation success/failure, cleanup claim, invalidation, still drop, caller
+restoration, Done, closed admission, reader drain and retirement. A relocation
+step changes the modeled payload identity; allocation must reload the current
+root. Nested activations and repeated continuation invocations are explicit.
+The relocation step assumes scanner exclusion and complete registered root
+coverage; it does not establish those facilities in Gambit.
+
+The model's publication and CAS steps are sequentially consistent abstractions.
+It does not model every C11 execution or force termination. Allocation commit is
+atomic in this abstraction: partial private allocation and interrupted decrement
+are not admitted transitions. Those are explicit source-refinement gates, not
+implicitly solved failure cases. QNT uses one borrowed reader per record and one
+generation per slot; arbitrary reader counts and slot reuse remain proof duties.
+
+Lean defines a projection with acquired credit, drop count, pending work,
+executor, root/session custody and completion. Guarded steps preserve its safety
+invariant and trace induction extends that result. It proves that failure cannot
+authorize a drop, a count of one rejects another drop, and Done keeps roots until
+separate retirement. It does not prove the relation to the whole QNT state or
+source instructions. Acquisition, nested stack and lifetime details omitted by
+that projection remain explicit obligations.
+
+| Component contract | QNT guard / effect | Lean obligation | Source refinement |
+|---+---+---+---|
+| execution-owner | reserve; no Scheme allocation before input roots | reserveSafe | Stable slot reservation and actual caller-root fence |
+| root-publication | registered before publishGuard | registerBeforePublish | Nonzero processor root scan; moving updates and epoch handoff |
+| marker-acquire | published before allocateSuccess; failure owns no token | acquiredIsNotFailure / noKillAfterAllocationFailure | Slot-based proc reload and no-throw post-allocation commit |
+| abnormal-takeover | unique executor claim; childClear | claimInstallsExecutor | Exact catcher landing and abandoned-descendant chain |
+| single-drop | acquired credit and drops=0 before dropStill | oneDrop / duplicateDropRejected | Sole executor, GC exclusion and nonabandonment |
+| completion-receipt | restoration debt cleared before Done | finishKeepsRoots | Preallocated exact receipt and no later caller PSTATE access |
+| derived-credit | close admission; drain reader; retireGuard | rootsOutliveDone | Directory lifetime, no ABA/wrap, real root unregister acknowledgement |
+| storage-commit | no sessions/handles/invocations before retireVm | vmExcludesHandles | Parent RC/still, processor roster, native shutdown closure |
+
+Eight negative histories preserve the consequences of missing roots, duplicate
+drop, kill after allocation failure, premature Done, lost executor ownership,
+parent cleanup before child, freeing root storage with a live reader and writing
+a stale relocated payload. Positive histories exercise success, allocation and
+reservation failure, nesting, unknown replies before/after drop, relocation,
+reader drain and multi-shot restoration.
+
+ASCENT additionally rejects missing cleanup policy and a policy permitting retry
+by any executor. The current candidate remains blocked on source/platform gates;
+only a synthetic all-evidence fixture can qualify. Binding a theorem name and
+guard string is a structural alignment check, not proof that the C statement
+satisfies that theorem's hypotheses.
+
+* RESEARCH Benefits, costs and replacement conditions
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-benefits
+:END:
+
+| Change | Conditional benefit | Added runtime/support work | Falsifier or retirement condition |
+|---+---+---+---|
+| Root before allocation | Protect movable proc/closure through allocation GC | Per-activation scanned slots, epoch acknowledgement and reload | Nonzero processor omission or stale local invalidates benefit |
+| Unified cleanup state | One authority across normal and admitted exceptional exits | At least one cleanup claim and terminal publication per accepted activation | Any old kill path bypassing the shared token prevents retirement |
+| Owned still credit | Zero drops on failed acquisition; one at Done on success | Pin and nonabandonment; unresolved outcomes retain memory | Executor loss cannot be repaired by blind retry |
+| Closed directory | Prevent root/session release while lookups remain | Reader pin/unpin, close and drain; record/tombstone retention | ABA, wrap or bare-pointer access defeats lifetime guarantee |
+| Shared slab/root domain | Amortize domain setup and avoid allocation on cleanup path | Capacity admission and slot reset; per-activation lifecycle remains | No saving if shared consumers do not replace independent support |
+| Continuation leverage | Retain multi-shot Scheme ability with independent native lifetime | Exported-handle/invocation roots and current-context admission | Reusing the old physical guard or pinning original processor forever is invalid |
+| Modern C versus Zig | Same generated protocol can reuse C ABI, Scheme semantics and GC | Both need root adapter, atomics, scanner exclusion and qualification | No demonstrated Zig-specific positive net saving |
+
+Let A be peak active guards, H exported handles, I invocations and R admitted
+record readers. Metadata is O(A+H+I+R+T), where T is retained receipt/tombstone metadata, plus unresolved retained objects and
+preallocated capacity. T needs an explicit acknowledgement/expiry contract;
+unbounded retry retention has no finite memory bound. Expiry may reject a stale
+identity but may not erase unresolved resource custody. For B successful marker acquisitions, exactly B owned
+still decrements are required at completed settlement: they are not overhead
+that can be optimized away. Registration failures acquire no token. Duplicate
+requests should add lookups, not native decrements.
+
+For N necessary clients sharing a domain with setup cost D, at most (N-1)D setup
+work is avoided against N independent equivalent domains. Positive support-work
+balance requires that saving plus actually removed duplicated support exceed
+shared admission, pinning, publication, root-update and retention cost. No
+hypothetical person-days, timing ratio or allocation-byte estimate is used.
+Existing CFUN conversion cleanup remains required and contributes zero newly
+removed work unless an equivalent generated replacement truly retires it.
+
+Replacement order: qualify caller-root and VM scanner adapter -> slot-based marker
+constructor -> generated common marker-token ownership -> admitted normal/abnormal
+landing -> Done and directory retirement -> caller/roster/storage completion.
+Only then may old normal-tail-only marker ownership policy retire. Semantic
+conversion cleanup, fp/PSR0 restoration, wrong-processor checks and GC root work
+remain necessary. Broad macro deletion is not justified by this design.
+
+* RESEARCH Local receipts
+:PROPERTIES:
+:CUSTOM_ID: stable-guard-settlement-receipts
+:END:
+
+[[file:../../modeling/tools/stable-guard-settlement-study.py][Python orchestration]] uses
+native SysML, QNT, Lean, ASCENT, D2 and Org without Babel execution.
+[[file:../../../evidence/research/stable-guard-settlement/checks.json][Checks]] and
+[[file:../../../evidence/research/stable-guard-settlement/input.json][source identity]]
+record local scope, preserved parent receipt and unresolved qualification.
+Darwin installed driver/header parity remains static text evidence, not effective
+argv, a matched SMP object, runtime correctness or measured build improvement.

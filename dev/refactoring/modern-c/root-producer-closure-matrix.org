@@ -1,0 +1,110 @@
+#+TITLE: Physical Root and Producer Closure Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRootProducerClosure
+:STATUS: conditional-formal-results; source-bridge-open
+:END:
+
+** Root
+
+| key | sourcePath | needle | identity | worker | condition |
+|---+---+---+---+---+---|
+| vm-body | vendor/gambit/lib/mem.c | mark_array (work, ___BODY0_AS(___VM_SCMOBJ(___vms),___tSUBTYPED), | VM body cells | worker 0 | VM epoch and fixed body layout |
+| resize-request | vendor/gambit/lib/mem.c | mark_array (work, &___vms->resize.thunk, 1); | address of resize.thunk | worker 0 | Keep current serialized request root |
+| intern-tables | vendor/gambit/lib/mem.c | mark_array (work, &___GSTATE->symbol_table, 1); | symbol and keyword table cells | worker 0 | Both table roots; symbol names are derived graph fields |
+| global-cells | vendor/gambit/lib/mem.c | int lo = (id * ___GLO_SUBLIST_COUNT) / np; | GLOCELL or VM glos element | floor interval per worker | Single VM partitions sublists; not equal cell counts |
+| stack-frames | vendor/gambit/lib/mem.c | ___frame_root_cursor cursor = ___frame_root_begin (frame); | descriptor-selected FP_STK addresses | context participant worker | RETI/RETN decode and monotone gcmap runs; link forwarding handled separately |
+| context-registers | vendor/gambit/lib/mem.c | mark_array (work, context->r, sizeof(context->r)/sizeof(*context->r)); | r element | context participant worker | Every register slot rewritten; equal values do not merge slots |
+| saved-and-cache | vendor/gambit/lib/mem.c | mark_array (work, context->saved, sizeof(context->saved)/sizeof(*context->saved)); | saved and type_cache elements | context participant worker | Disjoint arrays; physical layout qualification still required |
+| context-startup | vendor/gambit/lib/mem.c | mark_array (work, &context->startup_thunk, 1); | startup_thunk and entry_marker addresses | context participant worker | Existing startup and marker adapters retained |
+| processor-body | vendor/gambit/lib/mem.c | mark_array (work, ___BODY0_AS(___CONTEXT_PROCESSOR_SCMOBJ(context),___tSUBTYPED), | processor Scheme body cells | context participant worker | Current thread reaches denv through ordinary graph traversal |
+| rc-data | vendor/gambit/lib/mem.c | mark_array (work, &h->data, 1); | RC node data address | context participant worker | Each context list scanned; external writer freeze is a separate admission obligation |
+| externally-held-still | vendor/gambit/lib/mem.c | if (base[___STILL_REFCOUNT] == 0) | positive-refcount still object seed | context allocation-region worker | Not a synthetic Scheme slot; seed list produces object fields |
+| continuation-graph | vendor/gambit/lib/mem.c | mark_captured_continuation (work, &body[___CONTINUATION_FRAME]); | captured frame link and denv fields | winning copier or lock owner then chunk scanner | Graph roots are not a second flat root table; special frame copy lock applies |
+| weak-and-local-roots | vendor/gambit/lib/mem.c | mark_array (work, &will, 1); | temporary will and weak graph slots | weak phase worker | Strong root closure excludes later process_wills and foreign cleanup |
+
+** Flow
+
+| key | sourcePath | needle | nextNode | custody | diagramLabel |
+|---+---+---+---+---+---|
+| forward | vendor/gambit/lib/mem.c | ___COMPARE_AND_SWAP_WORD(&body[-1], | copying | Winner retains initialization and first-field Tail; losers rewrite their own slot | winner owns payload |
+| initialize | vendor/gambit/lib/mem.c | *alloc++ = *body++; | publish | Payload initialized before completed chunk publication | initialized payload |
+| publish | vendor/gambit/lib/mem.c | heap_chunks_to_scan_tail = new_tail; | claim | FIFO lock plus content/link visibility; not forwarding CAS | release FIFO publish |
+| claim | vendor/gambit/lib/mem.c | scan_complete_heap_chunk (work, ptr+1); | scan | Dequeued chunk remains owned by active scanner after unlock | transfer scan custody |
+| scan | vendor/gambit/lib/mem.c | mark_array (work, body+1, words-1); | idle | Current generic movable scan skips first field assigned to winner Tail; prior direct PAIR macro is retired | skip Tail field |
+| private | vendor/gambit/lib/mem.c | ptr = alloc_heap_chunk_start; | idle | Private incomplete chunk scanned locally before idle | drain private work |
+| idle | vendor/gambit/lib/mem.c | if (--(*workers_count) == 0) | strong-cut | Last-use local drain and steal precede mutex count decrement | last active decrement |
+| strong-cut | vendor/gambit/lib/mem.c | process_wills (work); | weak-cut | Weak producers and second termination round remain mandatory | weak work reopens scan |
+| weak-cut | vendor/gambit/lib/mem.c | free_unmarked_still_objs (work); | cleanup | Foreign release side effects are outside strong termination proof | cleanup remains |
+| frame-lock | vendor/gambit/lib/mem.c | MISC_MEM_LOCK();
+
+      next_frame: | publish | Special frame-copy producer requires the MISC_MEM_LOCK path audited independently | frame copier lock |
+| synchronous-binding | vendor/gambit/lib/mem.c | if (work->context != ___ps->context || work->carrier != ___ps) | idle | Current runtime enforces worker context and native carrier identity | carrier binding |
+| round-counters | vendor/gambit/lib/mem.c | scan_workers_count[0] = np; | idle | Setup initializes separate strong and weak active counts | two round counters |
+| object-ready | vendor/gambit/lib/mem.c | publish_object_scan (work, copy_header); | publish | Current concurrent source separately publishes initialized-object scan authority; not proved by this study | publish scan readiness |
+| object-authority | vendor/gambit/lib/mem.c | GC_SCAN_OWNED,GC_SCAN_DONE | scan | Current object scan state transition excludes duplicate graph-field mutation; chunk ownership remains distinct | object scan completion |
+
+** Obligation
+
+| key | status | scope |
+|---+---+---|
+| slot-identity | open | Source families enumerated; no exhaustive generated slot certificate or arbitrary FFI closure |
+| alias-coverage | conditional-proved | Physical slot quotient preserves updates; object-value dedup counterexample |
+| worker-assignment | conditional-proved | Disjoint exhaustive provider sets imply unique owner; current floor partitions preserved |
+| producer-custody | bounded-checked | One winner one chunk two roles; Tail and dequeued work remain active |
+| c11-publication | open | Current volatile barriers and lock macros need effective-config C11 refinement |
+| typed-ir-bridge | open | Actual Quint typed IR retained; manual Lean mirror not extraction proof |
+| whole-gc-closure | open | Still lists frame copier weak phases foreign release and external writers not fully simulated |
+| object-scan-authority | open | New concurrent source READY OWNED DONE transitions and duplicate-task behavior need separate QNT refinement; current one-chunk model assumes one consumer |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| resize reuse | 0 extra general directory for existing request | Retain existing VM thunk and context adapters | No new concurrent provider requirement |
+| slot canonicalization | D-C duplicate descriptors only; never equal-valued distinct slots | O(D) expected indexing plus O(C) stable metadata and generation validation | Duplicate descriptors measured and avoided visits exceed index plus freeze cost |
+| worker balance | At most max(load_i)-ceil(total/W) removable unit-cost imbalance | Enumeration scheduling and cross-worker locality cost | Existing globals already partitioned; recursive graph skew remains |
+| publisher counter fusion | 0 additional counter RMW per synchronous publication | Keep active worker until initialization Tail and local drain settle | Every publisher covered by active carrier; detached producers invalidate fusion |
+| generic manifest | Repeated independent provider discovery and N adapters can share one protocol | Snapshot freeze pin generation and retirement per provider | R*(saved discovery+saved coordination) > setup+R*(freeze+index+leases+extra visits) |
+| modern C baseline | No second language needed for this protocol | Generated descriptors C11 atomics and source qualifications remain | Zig not justified by root partitioning alone |
+| current scan authority | Repeated graph-field mutation from duplicate chunk/frontier tasks | Per-object UNPUBLISHED to READY to OWNED to DONE transitions plus section lookup and CAS retries | Current concurrent runtime change only; model-source refinement and performance remain unqualified |
+
+** Binding
+
+| actionName | lemma | condition |
+|---+---+---|
+| publish | publishPreserves | Payload before FIFO visibility |
+| claim | claimPreserves | Lock-step head removal transfers custody |
+| idleProducer | idlePreserves | Tail and private chunk block idle |
+
+** Parameter
+
+| key | sourcePath | needle | value |
+|---+---+---+---|
+| registers | vendor/gambit/include/gambit.h.in | #define ___NB_GVM_REGS 5 | 5 |
+| saved | vendor/gambit/include/gambit.h.in | ___WORD saved[3]; | 3 |
+| type-cache | vendor/gambit/include/gambit.h.in | ___WORD type_cache[2]; | 2 |
+| processor-body | vendor/gambit/include/gambit.h.in | #define ___PROCESSOR_SIZE 22 | 22 |
+| vm-body | vendor/gambit/include/gambit.h.in | #define ___VM_SIZE 20 | 20 |
+
+** Diagramedge
+
+| fromNode | toNode | label |
+|---+---+---|
+| copying | initialize | winner copies payload |
+| forward | tail | winner reserves first field |
+| tail | idle | settled Tail required |
+| publish | tail | Tail may remain pending |
+
+** Proof routing
+
+| ID | kind | subject | scope |
+|---+---+---+---|
+| RPC-history | interleaving | dev/refactoring/modern-c/models/quint/root_producer_closure.qnt | one-copy two-role custody and two canonical root slots |
+| RPC-induction | induction | dev/refactoring/modern-c/models/lean/RootProducerClosure.lean | physical-slot coverage and three selected guarded transitions |
+| RPC-source | source-refinement | dev/refactoring/modern-c/root-producer-closure-design.org | bounded source inventory; full runtime refinement unresolved |
+| RPC-bridge | expression-refinement | dev/refactoring/modern-c/models/quint/root_producer_closure.qnt | actual typed IR to manual Lean semantic mirror unresolved |

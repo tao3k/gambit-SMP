@@ -1,0 +1,162 @@
+#+TITLE: Source Pin, Carrier Enrollment and Stable Guard Handoff
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3
+
+* RESEARCH Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: decision
+:BASELINE: C23
+:AUTHORITY: GambitSourcePinHandoff
+:STATUS: conditional-two-pin-safety; native-issuers-open
+:END:
+
+A source pin is a native lifetime/admission lease, not a promise that the Scheme object cannot move. It must be issued against stable source metadata before dereferencing a potentially retired client_data pointer. A private carrier is not yet a root: its registration requires collector acknowledgement for the relevant round, or a refresh from the still-owned source. Only then may an allocating stable guard rely on that carrier.
+
+This extends [[file:restore-entry-issuers-design.org][the restore issuer study]]. [[file:models/sysml/source-pin-handoff.sysml][SysML]] owns component responsibilities, source anchors, proof routes, memory-order obligations and benefit rows. Python invokes the native SysML tool; its projection produces [[file:source-pin-handoff-matrix.org][Org matrices]] and [[file:diagrams/source-pin-handoff.d2][D2]]. The [[file:../../modeling/ascent/source-pin-handoff.rules.scm][ASCENT DSL]] checks exact source hashes and component/action/theorem/obligation joins. No new runtime or native test is introduced.
+
+* RESEARCH Three lifetimes in the actual source
+:PROPERTIES:
+:CUSTOM_ID: lifetimes
+:END:
+
+| Resource | Actual consumer / writer | What existing code establishes | What it does not establish |
+|---+---+---+---|
+| Native RC header and links | register_rc, addref_rc, release_rc, cleanup_rc | Explicit native retention, linking, decrement/free and bulk cleanup | Stable lookup before first retain; arbitrary-thread exclusion; exact pin settlement |
+| Scheme payload slot | data_rc, set_data_rc, mark_rc | Actual data field read/write and GC update of that field | That a raw C copy is updated, a private carrier is enrolled, or semantic setters are frozen |
+| Still object / backing arena | release_scmobj, still refcount, retired still transfer | Separate still ownership and storage transfer mechanisms | Native header retention alone keeps all backing storage and scan descriptors alive |
+
+[[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][scheme_call_cmd]] reads data_rc and passes the returned value into generated Scheme entry. scheme_delete_cmd separately releases the Scheme object and the native RC block. These shown paths have no explicit new SourcePinId or carrier receipt. The installed vector is a still object, with its procedure field potentially referring to movable data; this source example does not prove a dangling movable vector at every callback.
+
+[[file:../../../vendor/gambit/lib/memory/rc-allocation.inc][RC retain/release]] uses ordinary header count and list operations. addref_rc dereferences a header that must already be alive; atomically incrementing a field later would not solve the initial freed-pointer lookup. Holding the native block would preserve its registered data slot only if origin membership, scan synchronization, semantic writes and cleanup were also controlled. A native refcount is therefore a possible implementation ingredient, not the complete new pin certificate.
+
+cleanup_rc frees the chain without consulting the proposed per-entry leases. All callers of bulk cleanup and all escaped raw pointers must participate in closure, or managed source admission must remain unavailable. The concrete Tcl and dynamic C-closure producers initialize data_rc, but the exposed setter API prevents inferring a whole-program immutable payload from those two callers alone.
+
+[[file:../../../vendor/gambit/lib/memory/rc-roots.inc][mark_rc]] visits the actual context-owned header chain and updates h->data. [[file:../../../vendor/gambit/lib/memory/root-origins.inc][mark_execution_roots]] obtains the origin context from a task and scans its roots; a collector worker is not the source lifetime owner. The frozen-origin comment and the separate VM resize-request roots provide usable design precedents, not an existing generic carrier registry.
+
+[[file:../../../vendor/gambit/lib/memory/capacity-resize.inc][can_retire_pstate]] currently refuses external RC/native borrowers without a freeze receipt. transfer_retired_still has successful-join and closed-collective preconditions. The destructive [[file:../../../vendor/gambit/lib/memory/memory-lifecycle.inc][cleanup_mem_pstate]] frees still storage before cleanup_rc. Its VM cleanup caller still carries an other-processors TODO; the [[file:../../../vendor/gambit/lib/setup.c][PSTATE cleanup wrapper]] also reaches this memory endpoint before OS cleanup. These functions cannot be reused as active-lease release helpers without a separate whole-domain quiescence receipt. This is an identified qualification gap, not a proved failing native execution. Keep that fail-closed behavior until an explicit source/scan/storage handoff replaces it; neither a successful join nor a new root pointer alone permits arena destruction.
+
+** Tcl command storage and client data differ
+
+The publicly inspected [[https://raw.githubusercontent.com/tcltk/tcl/core-8-6-branch/generic/tclBasic.c][Tcl core-8-6-branch tclBasic.c]] invokes the command deletion callback before eventual Command-structure cleanup. Command refcount retention therefore cannot automatically certify extension client_data retention. This is a branch-source observation, not byte-pinned correspondence to the local Tcl library. The Gambit callback itself need not reread client_data after its Scheme call, so immediate deletion alone is not a proved use-after-free in the current example. The new carrier protocol must prove its own continued slot/header accesses independently.
+
+* RESEARCH Stable source identity and nonallocating pin
+:PROPERTIES:
+:CUSTOM_ID: pin
+:END:
+
+#+NAME: source-identities
+#+BEGIN_EXAMPLE
+SourceId = (VM, SourceSlotId, generation, payloadLineage)
+PinId = (SourceId, borrowerId, ownerGeneration)
+CarrierId = (RootSlotId, registrationGeneration, collectorRound)
+Handoff = (PinId, CarrierId, GuardId, reservationOperationId)
+#+END_EXAMPLE
+
+The source control record must pre-exist callback entry in stable VM/owner storage. A qualified Tcl-owner adapter can serialize dispatch, logical deletion and source lookup on the interpreter owner. A truly cross-thread path instead needs an admitted stable-handle lookup and C23 protocol. Reinterpreting an arbitrary ClientData address as an atomic header does not establish either path.
+
+Pin acceptance and admission close need one linearization decision: an owner-serialized transition, or a validated combined gate/count atomic state. Checking OPEN and incrementing later permits deletion in between. A finite count or generation must reject before overflow/reuse; no stale raw borrower can silently attach to a new source. Atomic lock freedom and platform instructions are admission conditions, not guaranteed by choosing C23.
+
+The pin fast path allocates no native block, Scheme object, registry node or error string. It consumes an already reserved per-context/VM record, or refuses optimized admission before dereferencing the payload or performing effects. Reservation capacity has to cover admitted nesting. Exhaustion requires a separately qualified existing-owner path or defined resource failure; silently discarding a legitimate Scheme invocation is not a valid fallback. No such allocator or fallback is implemented here.
+
+A pin does not freeze relocation. Reading a source slot or initializing a target slot must occur under the mutator/collector root-access protocol. A foreign thread outside that protocol cannot race an ordinary h->data load against GC writes just because it holds a native reference. No metadata lock is held over allocation, Scheme, deletion drain or a GC rendezvous. An accepted native owner remains an old-roster participant until custody is handed off.
+
+* RESEARCH Private carrier and collector-round acknowledgement
+:PROPERTIES:
+:CUSTOM_ID: enrollment
+:END:
+
+#+NAME: carrier-protocol
+#+BEGIN_EXAMPLE
+stable lookup -> accept exact source pin -> enter qualified root-access interval
+ -> copy into reserved PRIVATE slot, retaining source scan coverage
+ -> enroll under current collector round, or wait without a collector-needed lock
+ -> if GC intervened before enrollment: refresh from source, then retry enrollment
+ -> ENROLLED target acknowledged -> allocating guard reservation
+ -> reload from ENROLLED target after any GC -> commit exact GuardId
+ -> observe commit/query receipt -> return exact source pin
+#+END_EXAMPLE
+
+The collector may update the source while the target remains private. Private bytes must not be dereferenced or used as authoritative Scheme values until revalidated. Release/acquire publishes bytes but does not add a root to an already frozen manifest. Enrollment either joins the relevant root set before freezing, or waits for the next valid root-access cut and reloads from the still-live source. Releasing the source before that acknowledgement would leave the collector with neither an updated target nor a live source guarantee.
+
+The model's epoch is an abstract relocation revision, not a native pointer comparison. It conservatively treats a GC round as possibly changing the payload representation. GC relocation preserves semantic payload identity; application set_data_rc replacement is different. For the admitted init-only source subset, semantic replacement must be closed during a lease. General mutation needs a managed versioned setter preserving old borrowed payload roots, or must deny the optimization receipt. The current raw API does not provide that closure.
+
+Once enrolled, the carrier must itself be enumerated and updated by every relevant root scan, even if the original processor exits. An owner-bound registered RC slot can sometimes remain the root without a second carrier copy, provided all source lifetime and collector conditions hold. Do not force extra slots into static/native-only or already-qualified owner paths merely to satisfy this design.
+
+* RESEARCH Nested callbacks, deletion and unknown outcomes
+:PROPERTIES:
+:CUSTOM_ID: custody
+:END:
+
+| Event | Required owner and retained custody | When release is allowed |
+|---+---+---|
+| Pin races deletion close | Stable source owner | Accepted-before-close pins survive; later pins receive no managed admission |
+| Nested callback accepted | Its own PinId and carrier | Parent return does not discharge child pin; source cannot retire while child owns it |
+| Delete during callback | Deletion adapter logically closes admission | Defer native header and Scheme-owner release; do not synchronously wait inside deleteProc for that callback |
+| GC while target is private | Source pin and registered source slot | Refresh and enroll before target use or source release |
+| Guard allocation definitely fails before commit | Source plus carrier until exact failed outcome classified | Release only through a known failure/abort handoff; preserve source if target is dropped |
+| Commit request/reply is unknown | Stable reservation owner; source pin plus enrolled carrier | Query the same operation; no blind replacement reservation or guessed failure |
+| Successful commit, acknowledgement lost | Target guard owns committed record; source conservatively retains pin | Exact commit query supplies receipt; return same PinId once |
+| Outer execution returns or unwinds | Stable completion owner | Prior guard protocol must attest binding/catcher restoration and marker closure |
+| GC scan / VM retirement | Root-domain and storage owners | Scan readers drain and backing storage remains owned; pin count alone is insufficient |
+
+Physical source deletion and target-root retirement are separate. After all source pins return, the source may disappear while committed carriers keep their payload rooted. A target carrier cannot retire until its execution is terminal and any admitted scan reader has drained. The QNT model represents collector exclusion by a frozen interval; a real implementation needs that interval's concrete C23/rendezvous refinement.
+
+No source-owner drain waits for callbacks while holding a lock needed by their allocation/GC path. UNKNOWN retention is deliberately conservative and can block retirement indefinitely. There is no liveness, bounded-retention, crash-durable commit or arbitrary-depth nesting proof in this study.
+
+* RESEARCH Real issuer mapping and retirement gates
+:PROPERTIES:
+:CUSTOM_ID: issuers
+:END:
+
+| Receipt | Responsible issuer in the proposed architecture | Located existing mechanism | Current gap |
+|---+---+---+---|
+| SourcePinAccepted | Stable source-domain owner before native dispatch | data_rc/addref_rc/register_rc | None validates full stable identity, close race and collector participation |
+| CarrierEnrolled | VM root registry / collective root-origin owner | Context RC scanner and frozen origin tasks | No generic carrier/round acknowledgement identified |
+| GuardCommitted | Stable host-entry reservation owner | Rooted helper reload and partial managed startup | Exact source/carrier-bound reservation service absent |
+| ReservationOutcome | Same exact commit owner | Earlier mathematical ledger protocol | No real complete native lookup signer identified |
+| SourceRetired | Source owner plus scanner and storage owners | RC/still release and conservative processor refusal | Writer/borrower/scan/storage closure incomplete |
+
+Scheme/GVM supplies intent, FrameSpec and live-value declarations. Modern C owns stable native records, root access, admission and completion. Existing scanners and fail-closed retirement checks can be reused. Old direct deletion, uncoordinated payload setter/cleanup and frame-local ownership inference retire only after all actual callers migrate. This study retires zero native paths.
+
+* RESEARCH Formal chain, negative controls and limits
+:PROPERTIES:
+:CUSTOM_ID: formal
+:END:
+
+[[file:models/quint/source_pin_handoff.qnt][QNT]] models two fixed independent pins, a source admission gate, logical deletion, private/enrolled carriers, GC freeze/update, guard reservation, unknown outcomes, exact acknowledgements and retirement. Four GC completion cases cover neither/outer/nested/both carriers enrolled. Private targets may become stale; enrollment checks equality and refresh restores it. Twelve histories inspect normal, nested, stale, failure, unknown, duplicate-return and drain cuts without running a native callback.
+
+[[file:models/lean/SourcePin.lean][Lean]] proves each modeled action preserves safety and gives reachable-state induction. Derived properties exclude source retirement with either pin, reject stale enrollment and late admission, preserve nested custody under duplicate outer return, and keep source plus target on unknown reservation. Earlier failed induction diagnostics are retained: the invariant needed explicit pre-commit pin ownership and the copy guard needed to exclude existing guard state. Proof-tactic failures are distinguished from source counterexamples.
+
+The restricted typed-IR projection generates [[file:models/lean/SourcePinAst.lean][the Lean AST]] after checking bindings, field kinds and the full step roster. Four corrupted-IR controls must reject. Removing the outer-pin deletion guard or stale-candidate enrollment check breaks preservation. These negative controls show the checks matter in this model, not that the current native source implements the model.
+
+[[file:models/lean/SourcePinBridge.lean][CarrierAdmission]] connects a registered target and its relocation revision to the prior bootstrap model. It derives guard-reservation eligibility, matching collector revision and prior reservation-step safety when the prior safety premises hold. It does not prove all origin scanners, arbitrary aliases, raw payload writers, two-way native execution traces or finite generation reuse.
+
+ASCENT routes source, roots, guard and storage components through actual action/lemma/source anchors and exact scoped receipts. Current proof receipts cover formal safety and the explicit bridge. Six needs remain open: source pin/deletion adapters, native reservation/completion, collector enrollment, semantic writers and cleanup, platform refinement, and backing storage retirement. Synthetic all-premises qualification is not source evidence. See [[file:../../../evidence/research/source-pin-handoff/checks.json][checks]] for the evidence boundary.
+
+* RESEARCH Net benefit and falsification matrix
+:PROPERTIES:
+:CUSTOM_ID: benefit
+:END:
+
+| Mechanism | Potentially removed work | Added cost | Positive condition / refutation |
+|---+---+---+---|
+| Reuse an existing admitted RC root | Unnecessary duplicate root-slot copying | Source pin and participation checks | Existing source remains scanned/owned; otherwise no reuse receipt |
+| Shared reserved carrier | Per-wrapper rooting and recovery code that actually retires | Slot reserve, enrollment acknowledgement, refresh and scanning | Duplicate old paths removed; source identity and collector cuts qualified |
+| Deferred logical deletion | Synchronous callback/GC drain cycle | Deferred task/record lifetime and owner progress | Delete adapter never waits while holding needed owner state |
+| Exact nested pins | Repeated or cross-entry release accounting | One bounded record per accepted borrow | No raw bypass, count overflow or unbounded unhandled nesting |
+| Unknown-result custody | Re-execution and guessed failure cleanup | Query, retained source, target and guard memory | Exact owner survives; unbounded UNKNOWN retention can defeat benefit |
+| Resource normalization retirement | At most one redundant traversal D | All marginal pin, refresh, enrollment, scan, query and reclaim work | D exceeds added work and all real issuer/writer/storage gates close |
+
+Use symbolic accounting rather than invented speedup numbers:
+
+#+BEGIN_EXAMPLE
+DeltaW = removedTraversalWork + actuallyRetiredOldSupport
+         - [P*c_pin + C*c_enroll + R*c_refresh + Q*c_query
+            + extraGcScanWork + deferredDeleteWork + reclamationWork]
+RetainedMemory includes U * (sourceLease + carrier + guard + reachablePayload),
+plus reserved capacity for admitted nesting.
+#+END_EXAMPLE
+
+P counts accepted pins, C enrolled target carriers, R refreshes after intervening GC, Q exact queries and U unresolved reservations. The model measures none of these native costs. If every entry duplicates an already sufficient root, if pinning serializes producers, if both old/new bookkeeping remain or if U grows without bound, positive net benefit is not established. No runtime speedup, safe complete VM retirement or second-normalization retirement is claimed.

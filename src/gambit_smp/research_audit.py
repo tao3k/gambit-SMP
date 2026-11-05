@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from gambit_smp import evidence_index as index
-from gambit_smp.framework import digest
+from gambit_smp.framework import digest, evidence_file
 from gambit_smp.protocol_source_audit import ARITIES as SOURCE_ARITIES
 
 ROOT = index.ROOT
@@ -51,7 +51,31 @@ def local(root, name):
     root = resolved_root(root)
     path = (root / name).resolve()
     path.relative_to(root)
+    evidence_file(name, path)
     return path
+
+
+def historical_source(root, record):
+    """Check immutable source bytes without binding a historical claim to HEAD."""
+    import hashlib
+    from gambit_smp.task_processes import check_output
+    if (set(record) != {"schema", "repository", "revision", "file", "sha256"}
+            or record["schema"] != "gambit-historical-source.v1"):
+        raise ValueError("exact historical source descriptor required")
+    revision = record["revision"]
+    if len(revision) != 40 or any(c not in "0123456789abcdef" for c in revision):
+        raise ValueError("fixed historical source revision required")
+    repository = local(root, record["repository"])
+    name = Path(record["file"])
+    if name.is_absolute() or ".." in name.parts or not name.parts:
+        raise ValueError("historical source path outside repository")
+    import os
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    raw = check_output(["git", "-C", str(repository), "show", revision + ":" + name.as_posix()],
+                       env=environment, timeout=10)
+    if hashlib.sha256(raw).hexdigest() != record["sha256"]:
+        raise ValueError("historical source digest mismatch")
+    return raw
 
 
 def load_audit(root, base):
@@ -96,6 +120,8 @@ def load_audit(root, base):
             inputs[evidence["path"]] = actual
             if source.suffix == ".json":
                 record = json.loads(source.read_text())
+                if isinstance(record, dict) and record.get("schema") == "gambit-historical-source.v1":
+                    historical_source(root, record)
                 if isinstance(record, dict) and record.get("schema") == "gambit-component-observation-archive.v1":
                     from gambit_smp.native_archive import validate
                     inputs.update(validate(root, evidence["path"]))
@@ -325,5 +351,9 @@ def main():
     return 0 if args.check else 2 if decision == "DENY" else 3
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('audit')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('audit', main))

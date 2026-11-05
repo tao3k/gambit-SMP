@@ -1,0 +1,220 @@
+#+TITLE: GC, Control and Foreign Model Correspondence
+#+SETUPFILE: org/setup.org
+#+CATEGORY: modeling
+
+* RESEARCH GC and control model relation ledger
+:PROPERTIES:
+:ID: 88a7a3ba-dd8c-5ec2-92bd-c2e3c7ccb9f4
+:CUSTOM_ID: model-correspondence
+:OWNER: modeling with module owners
+:STATUS: design-only
+:EVIDENCE_CLASS: design-and-source-correspondence
+:END:
+
+This ledger binds exact existing source symbols. It records proposed conditional correspondences; there is no automatic SysML to Quint to Lean translation. Existing formal source is indexed, not copied or modified. No Quint exploration or Lean proof execution was performed for this document update.
+
+- [[file:../architecture/runtime/interfaces/index.org][Semantic interface owner]]
+- [[file:standards.org][Required relation and composition rules]]
+- [[file:formal-bindings.json][Derived source hashes, selected symbols and import closure]]
+
+#+BEGIN: sysml-view :kind contracts :source architecture/runtime/interfaces/models/sysml/model-relations.sysml
+#+NAME: correspondence-summary
+| Contract | Owner / phase | Quint | Lean | Evidence class | Composition |
+|---+---+---+---+---+---|
+| ROOT-HANDOFF | dev/architecture/runtime/execution; Final root-value handoff before scanner admission; no whole-VM census implied | [[file:../../models/gambit/host_root_participation.qnt][host_root_participation]] | [[file:../../models/gambit/lean/HostRootParticipation.lean][HostRootParticipation]] | historical-report-conditional-only | unresolved |
+| CONTROL-ORIGIN | dev/architecture/runtime/control; Inventory sealed before root cut; resolution only after saved-frame traversal | [[file:../../models/gambit/continuation_saved_stack_origin.qnt][continuation_saved_stack_origin]] | [[file:../../models/gambit/lean/SavedStackRetirementWindow.lean][SavedStackRetirementWindow]] | Lean-report-only-QNT-source-characterization | unresolved |
+| RETIRE-WINDOW | dev/architecture/runtime/gc; After strong/weak/cleanup and target-user drain; before backing reuse | [[file:../../models/gambit/saved_stack_retirement_window.qnt][saved_stack_retirement_window]] | [[file:../../models/gambit/lean/SavedStackRetirementWindow.lean][SavedStackRetirementWindow]] | historical-report-conditional-only | unresolved |
+| GC-WORK-CLOSURE | dev/architecture/runtime/gc; Bounded item/phase work; whole collection and target permission require separate refinements | [[file:../../models/library/gc/CollectionContract.qnt][CollectionContract]] | [[file:../../models/gambit/lean/WorkAccounting.lean][WorkAccounting]] | source-guard-excludes-withdrawn-trace | unresolved-producer-phase-permit-refinement |
+#+END:
+** OPEN ROOT-HANDOFF
+:PROPERTIES:
+:ID: ecfd6e88-7396-5631-9284-39314395f456
+:CUSTOM_ID: root-handoff
+:REFINEMENT_STATUS: proposed-not-mechanized
+:EVIDENCE_CLASS: source-correspondence-only
+:DEPENDS_ON: complete-source-coverage-and-memory-refinement
+:MODEL_ELEMENT: GambitRuntimeModelRelations::relations::rootHandoff
+:END:
+
+*** Exact symbols
+[[file:../../models/gambit/host_root_participation.qnt][Quint source]]: ~freezeRootState~, ~releaseExecution~, ~observeRoots~, ~finalRootObserved~, ~readerEligible~, ~participationCompletion~.
+[[file:../../models/gambit/lean/HostRootParticipation.lean][Lean source]]: ~frozenHandoffComposesRelocation~, ~recordPublicationIsNotParticipation~.
+
+*** Projection and limits
+p.handed is one bounded logical root token. p.frozen and p.parked concern final-value handoff, distinct from earlier h record publication. For relocation, abstract original and relocated addresses through stable logical identity; literal p.observed == p.handed is not the Lean address equation.
+
+*** Preconditions
+Complete live-slot inventory; host stops relevant writes before handoff; scan sees final writes; relocation mapping and identity abstraction are sound. QNT atomic actions and abstract release/acquire do not prove C weak-memory behavior.
+
+*** Conditional conclusion
+Given frozen(slot)=source(slot) and observed(slot)=relocate(handed(slot)), Lean composes observed=relocate(source) for each live slot. The QNT relation covers the selected handoff slice.
+
+*** Counterexample / invalid shortcut
+A record can be published while the host still performs its last root store; a reader admitted early can miss it. Equal values by accident do not establish acknowledgement.
+
+*** OPEN Unclosed obligations
+No mechanized QNT-to-Lean projection, complete host writer census or C memory-order refinement. Temporal completion additionally assumes model progress and weak fairness.
+
+** OPEN CONTROL-ORIGIN
+:PROPERTIES:
+:ID: 7f9c0ede-6da7-5ebf-aa3f-2e6c1d5c256a
+:CUSTOM_ID: control-origin
+:REFINEMENT_STATUS: proposed-not-mechanized
+:EVIDENCE_CLASS: source-correspondence-only
+:DEPENDS_ON: complete-source-coverage-and-memory-refinement
+:MODEL_ELEMENT: GambitRuntimeModelRelations::relations::controlOrigin
+:END:
+
+*** Exact symbols
+[[file:../../models/gambit/continuation_saved_stack_origin.qnt][Quint source]]: ~saveCurrent~, ~restoreNext~, ~scanCurrentRoots~, ~queueSavedContinuation~, ~scanSavedContinuation~, ~linkOwnership~, ~rootCoverage~, ~savedFrameRetained~, ~traversalOrigin~.
+[[file:../../models/gambit/lean/SavedStackRetirementWindow.lean][Lean source]]: ~nonConsumingUsePreservesRawOrigin~, ~completeOriginsBoundLastRawAccess~.
+
+*** Projection and limits
+s.savedPrevious denotes a retained raw frame origin, not a heap destination. s.breakNext is the current active link after restore; s.rootCopied covers that current link only. A copied continuation container does not imply its saved frame chain has been traversed.
+
+*** Preconditions
+Every actual raw origin is represented in the declared origin inventory; nonconsuming uses preserve it; raw frame backing stays live until traversal/forwarding. The QNT slice has two selected threads and finite origin IDs.
+
+*** Conditional conclusion
+The selected save/restore/GC path retains the previous origin beyond current-root scan and the root barrier. Lean states inventory completeness and nonconsuming preservation as premises, not inferred source facts.
+
+*** Counterexample / invalid shortcut
+Scan the restored current thread, then reclaim the previous stack before queued continuation traversal: the current-root barrier leaves a raw origin that is still needed.
+
+*** OPEN Unclosed obligations
+No whole-continuation heap graph refinement, concurrent frame-write proof or complete FFI/native origin inventory.
+
+** OPEN RETIRE-WINDOW
+:PROPERTIES:
+:ID: 3303418d-a0fc-5c8e-bda4-a9f9cdc8bd57
+:CUSTOM_ID: retire-window
+:REFINEMENT_STATUS: proposed-not-mechanized
+:EVIDENCE_CLASS: source-correspondence-only
+:DEPENDS_ON: complete-source-coverage-and-memory-refinement
+:MODEL_ELEMENT: GambitRuntimeModelRelations::relations::retirementWindow
+:END:
+
+*** Exact symbols
+[[file:../../models/gambit/saved_stack_retirement_window.qnt][Quint source]]: ~freezeProducers~, ~witnessQueue~, ~transferQueue~, ~finishStrong~, ~finishWeak~, ~finishCleanup~, ~windowSafe~, ~queueCoverage~, ~fullPhaseCoverage~, ~windowCompletion~.
+[[file:../../models/gambit/lean/SavedStackRetirementWindow.lean][Lean source]]: ~emptyWitnessNeedsStableWindow~, ~foreignFrameClosureDoesNotEmptySchemeQueue~, ~phaseCompletionOrdersReuse~.
+
+*** Projection and limits
+w.checked ranges over current/run/timeout/device/interrupt roles, not processor count. w.frozen is scoped producer quiescence; w.transferred retains custody obligations. Strong, weak and cleanup booleans abstract ordered completion events, not concrete atomic flags.
+
+*** Preconditions
+All real producers and transferred target custody covered; no arrival after the empty witness; complete phase order before backing reuse. Weak fairness is a model assumption, not an OS guarantee.
+
+*** Conditional conclusion
+With a stable no-arrival window an empty set remains empty; ordered strong/weak/cleanup completion precedes reuse. The source-cohort QNT predicate requires queue coverage and scoped freeze.
+
+*** Counterexample / invalid shortcut
+Trust an earlier empty read, infer Scheme emptiness from no foreign frame, or reuse after strong work while cleanup remains: each drops a distinct premise.
+
+*** OPEN Unclosed obligations
+No concrete shutdown/failure interleaving or native last-use proof; actual producer closure and phase/event mapping remain unresolved.
+
+** OPEN GC-WORK-CLOSURE
+:PROPERTIES:
+:ID: 515f48ad-247b-5006-8a69-b90a8888c169
+:CUSTOM_ID: gc-work-closure
+:REFINEMENT_STATUS: proposed-not-mechanized
+:EVIDENCE_CLASS: source-correspondence-only
+:DEPENDS_ON: complete-source-coverage-and-memory-refinement
+:MODEL_ELEMENT: GambitRuntimeModelRelations::relations::workClosure
+:END:
+
+*** Exact symbols
+[[file:../../models/library/gc/CollectionContract.qnt][Quint source]]: ~publish~, ~acquire~, ~scan~, ~finish~, ~closureSafe~, ~Safe~.
+
+*** Projection and limits
+privateWork/queued/scanning are abstract work obligations; done is collection completion. The model has one object, two roots and stopped mutators; it cannot stand for the complete independent-worker design.
+
+*** Preconditions
+All actual work classes project into the accounting; publication, initialization and forwarding obey the selected model; no hidden producer after closure.
+
+*** Conditional conclusion
+The chosen phase abstraction must not finish while private, queued or scanning work remains; its guard excludes the prior direct trace. This is a required connection, not a complete worker proof.
+
+*** Counterexample / invalid shortcut
+Count only the visible queue and ignore private or in-flight scanning work, then publish a terminal result early.
+
+*** Conditional Lean accounting support
+The generated binding now names WorkAccounting.zeroCountAndEmptyQueuesExcludeHiddenWork and reopenedWorkRevokesZeroCount. They are conditional support, not a proof of the complete mapping. In-flight scanning has no explicit Worker field; scanning-to-counted and complete worker enumeration must be supplied separately.
+
+*** RESEARCH Direct trace withdrawn; broader completion refinement open
+The earlier finish/rescan trace is disabled by the rescan guard in the same bound source. [[file:../architecture/runtime/interfaces/gc-completion-design.org::#prior-trace-correction][The correction and current design]] distinguish source exclusion from formal requalification. Phase-scoped producers, legitimate weak work, full-cycle completion and target-specific reclamation now have separate necessary predicates. No current-source terminal-reopen failure is claimed.
+
+*** OPEN Unclosed obligations
+No Lean theorem is claimed for the complete collector completion mapping. Worker-team termination, resize merging and weak-memory refinement remain OPEN.
+
+** Cross-VM candidate quarantine
+[[file:../../models/library/gc/ContinuationVMTransfer.qnt][ContinuationVMTransfer]] explicitly models a candidate compatible-VM transfer, not an existing Gambit API. Its presence does not admit native cross-VM migration, linear foreign-resource duplication or general continuation transfer. It remains outside the proposed interface interpretations above.
+
+** Change propagation
+A selected source or transitive import hash change makes this ledger's source binding stale. Re-read the affected definitions and all consuming relations. Do not refresh source/proof/native acceptance as one status. A successful syntax or structural check cannot close an OPEN refinement.
+
+#+BEGIN: columnview :id local :format "%ITEM %OWNER %PRODUCER %CONSUMER %REFINEMENT_STATUS"
+#+END:
+
+** OPEN External Lean dependency identity
+The local import closure reaches ~LeanPoo.Functional.TransformationResources~ through ~WorkAccounting~. The package declaration pins LeanPoo to ~d8adf138948c854e7564234bc046387b4a5ee63b~. This update binds that declaration but does not fetch, inspect or prove the external dependency. Full proof-environment closure remains unresolved.
+
+** Shared argument and closure frontier
+[[file:../architecture/runtime/interfaces/gc-control-contract.org][GC/control identity, ownership, source slice, terminal counterexample and closure assessment]] contains the shared conditional argument. [[file:proof-obligations.org][The obligation ledger]] is generated from SysML and separates local conditional support from compositional closure.
+
+** Producer-to-child refinement detail
+:PROPERTIES:
+:CUSTOM_ID: producer-custody-refinement
+:MODEL_ELEMENT: GambitProducerCustody
+:EVIDENCE_CLASS: source-refinement-plan
+:END:
+
+[[file:../architecture/runtime/interfaces/producer-custody-design.org::#formal-projection][The producer refinement map]] expands the actual copy/publish/dequeue/scan sequence hidden inside atomic finishScan, canonical winner custody and the native-resource task domain absent from selected QNT/Lean slices. [[file:../architecture/runtime/interfaces/producer-custody-map.org][The derived caller inventory]] separates lexical completeness from generated/indirect producer closure. The shared obligation ledger remains authoritative; neither this plan nor structural predicates discharge the native lifetime and memory-order premises.
+
+** Source-to-atomic refinement boundary
+:PROPERTIES:
+:CUSTOM_ID: atomic-custody-refinement
+:MODEL_ELEMENT: GambitAtomicRefinement
+:EVIDENCE_CLASS: source-grounded-refinement-plan
+:END:
+
+[[file:../architecture/runtime/interfaces/atomic-refinement-design.org][The source/action study]] identifies a direct-projection gap: current finishScan first discovers a fresh child while also settling its parent, whereas native nested marking can publish the child before parent scan return. Native count-positive wake also differs from the selected QNT queued-work wake guard. These are mapping obligations, not native failure traces. [[file:../architecture/runtime/interfaces/atomic-refinement-map.org][The derived tables]] distinguish existing actions from proposed discoverChild/finishParent and batching/seek changes. No formal source or proof report is replaced.
+
+** Discovery and fragment induction
+:PROPERTIES:
+:CUSTOM_ID: child-discovery-preservation
+:MODEL_ELEMENT: GambitChildDiscovery
+:EVIDENCE_CLASS: action-preservation-design
+:END:
+
+[[file:../architecture/runtime/interfaces/child-discovery-design.org][The child-discovery contract]] separates collection canonical keys, phase fragments and exact reference slots. Canonical CAS enrollment precedes edge acknowledgement; finishParent settles only its own fragment after all assigned edges and physical visit are known. [[file:../architecture/runtime/interfaces/child-discovery-map.org][The derived guard/scenario/preservation map]] preserves legacy fault meanings and required sharing/cycle histories. No QNT/Lean source change or native refinement result is asserted.
+
+** Copy acceptance before settlement
+:PROPERTIES:
+:CUSTOM_ID: copy-handoff-preservation
+:MODEL_ELEMENT: GambitCopyHandoff
+:EVIDENCE_CLASS: source-grounded-partial-order-design
+:END:
+
+[[file:../architecture/runtime/interfaces/copy-handoff-design.org][Copy handoff]] binds Tail escrow to the live source activation/cell, separates local readiness from remote visibility, and allows copy settlement under qualified private-cursor custody before later publication. [[file:../architecture/runtime/interfaces/copy-handoff-map.org][The SysML-derived routes and preservation cases]] prohibit counting an earlier prefix as acceptance of a not-yet-claimed target. No QNT/Lean update, helping/recovery implementation or native refinement proof is asserted.
+
+** Private cursor and Tail lifetime preservation
+:PROPERTIES:
+:CUSTOM_ID: custody-lifetime-preservation
+:AUTHORITY: GambitCopyHandoff
+:END:
+[[file:../architecture/runtime/interfaces/custody-lifetime-design.org][The lifecycle argument]] and [[file:../architecture/runtime/interfaces/custody-lifetime-map.org][derived transitions/receipt rules]] bind the same canonical copy model to the existing QNT and Lean roots. Exact activation-frame coverage, accepted transfer, one-shot receipt consumption and queue/container retirement remain open. Hypothetical mid-copy processor exit is reachability-unresolved, not an executed native counterexample.
+
+** Migratable frontier and decision preservation
+:PROPERTIES:
+:CUSTOM_ID: migration-cut-preservation
+:AUTHORITY: GambitCopyHandoff
+:END:
+[[file:../architecture/runtime/interfaces/migration-cut-design.org][The migration-cut argument]] and [[file:../architecture/runtime/interfaces/migration-cut-map.org][derived cut/state/atomic-step tables]] connect the same SysML owner to the existing QNT and Lean roots. Local scan cursors, detached claims and pending caller increments need full restoration. Publication, freeze, terminal reject and commit require concrete serialization; outcome knowledge remains separate from actual decision. No model code or proof execution is added.
+
+** PAIR continuation preservation
+:PROPERTIES:
+:CUSTOM_ID: pair-resume-preservation
+:AUTHORITY: GambitCopyHandoff
+:END:
+[[file:../architecture/runtime/interfaces/pair-resume-design.org][The real PAIR chain]] and [[file:../architecture/runtime/interfaces/pair-resume-map.org][source-linked tags/step controls]] bind the same owner to the existing QNT/Lean roots. CAR/CDR partition, exactly one caller advance, again-only resumption and claimed origin-sentinel lifetime need explicit frame preservation. Proposed tags are not existing native migration hooks.

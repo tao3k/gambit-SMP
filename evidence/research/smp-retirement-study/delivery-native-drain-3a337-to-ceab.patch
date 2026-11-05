@@ -1,0 +1,1025 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -3455,6 +3455,10 @@
+    ___P((struct ___native_owner_struct *owner),());
+ static int delivery_pass_busy_hold
+    ___P((___processor_state ps),());
++static struct ___native_owner_struct *native_lookup_root_pin
++   ___P((int *busy),());
++static void native_lookup_unpin
++   ___P((struct ___native_owner_struct *owner),());
+ 
+ static ___SCMOBJ delivery_finish_accepted_pass
+    ___P((___processor_state ps),
+@@ -3473,7 +3477,14 @@
+     return ___DELIVERY_RETRY;
+   if (!___STRUCTUREP(vm) || !delivery_trylock (vm))
+     {
+-      delivery_note_pass_lock_busy (root_instance_owner);
++      int root_busy = 0;
++      struct ___native_owner_struct *root = native_lookup_root_pin (&root_busy);
++
++      if (root != 0)
++        {
++          delivery_note_pass_lock_busy (root);
++          native_lookup_unpin (root);
++        }
+       return ___DELIVERY_RETRY;
+     }
+   context = ___FIELD(STRUCTURE,vm,3);
+@@ -4299,9 +4310,11 @@
+ 
+   if (delivery_pass_mode ("pass-busy"))
+     return delivery_pass_busy_hold (ps);
+-  if (!___STRUCTUREP(vm))
++  if (!___STRUCTUREP(vm) || !delivery_trylock (vm))
+     return 0;
+-  return delivery_trylock (vm);
++  /* The hook must not return the VM lock to Scheme. */
++  delivery_unlock (vm);
++  return 1;
+ }
+ 
+ int ___delivery_vm_unhold
+@@ -4312,10 +4325,10 @@
+   ___WORD ___temp;
+   ___SCMOBJ vm = ___VM_SCMOBJ(___VMSTATE_FROM_PSTATE(ps));
+ 
+-  if (!___STRUCTUREP(vm))
+-    return 0;
+-  delivery_unlock (vm);
+-  return 1;
++  /* Hold no longer spans the return to Scheme. */
++  (void)ps;
++  (void)vm;
++  return 0;
+ }
+ 
+ int ___delivery_scan_resume
+@@ -9061,6 +9074,11 @@
+    ___P((struct ___native_owner_struct *owner,
+          ___U32 scope,
+          ___native_op_result *r),());
++static ___SCMOBJ destroy_finish_claimed
++   ___P((struct delivery_claim_ctx *ctx,
++         ___native_op_result *r),());
++
++int ___delivery_obs_root_held = 0;
+ 
+ unsigned long long ___delivery_obs_pass_busy_slot = 0;
+ unsigned long long ___delivery_obs_pass_busy_epoch = 0;
+@@ -9103,7 +9121,7 @@
+ ___processor_state ps;)
+ {
+   ___WORD ___temp;
+-  struct ___native_owner_struct *owner = root_instance_owner;
++  struct ___native_owner_struct *owner;
+   ___SCMOBJ vm;
+   ___SCMOBJ consumer;
+   ___SCMOBJ token;
+@@ -9115,13 +9133,17 @@
+   int spins = 0;
+   int matched = 0;
+   int accepted;
+-
++  int root_busy = 0;
++
++  owner = native_lookup_root_pin (&root_busy);
+   if (owner == 0)
+     return 0;
+   slot = owner->key.record_slot;
+   epoch = owner->key.record_epoch;
+   vm_epoch = owner->key.vm_epoch;
+   instance = owner->key.instance_epoch;
++  native_lookup_unpin (owner);
++  owner = 0;
+   vm = ___VM_SCMOBJ(___VMSTATE_FROM_PSTATE(ps));
+   if (!___STRUCTUREP(vm) || !delivery_trylock (vm))
+     return 0;
+@@ -9176,6 +9198,7 @@
+       fprintf (stderr,
+                "PASS-LOCK-KEEP slot=%llu epoch=%llu vm_epoch=%llu\n",
+                slot, epoch, vm_epoch);
++      delivery_unlock (vm);
+       return 0;
+     }
+   delivery_unlock (vm);
+@@ -9277,7 +9300,8 @@
+ static void native_owner_clear
+    ___P((struct ___native_owner_struct *owner),());
+ static int native_journal_publish
+-   ___P((struct ___native_owner_struct *owner),());
++   ___P((struct ___native_owner_struct *owner,
++         int as_root),());
+ static int native_journal_drop
+    ___P((struct ___native_owner_struct *owner),());
+ static int ___native_owner_charge
+@@ -9352,7 +9376,7 @@
+     journal_fail = gate_env_once ("startup-run-journal");
+   /* The publish-failure path never links this activation. A cut takes
+      that same branch without leaving a journal slot behind. */
+-  if (journal_fail || !native_journal_publish (activation))
++  if (journal_fail || !native_journal_publish (activation, 0))
+     {
+       run_outcome_fail (outcome, RUN_SITE_JOURNAL);
+       ___native_owner_uncharge (___vms, ___ps);
+@@ -9774,7 +9798,8 @@
+ static void native_owner_clear
+    ___P((struct ___native_owner_struct *owner),());
+ static int native_journal_publish
+-   ___P((struct ___native_owner_struct *owner),());
++   ___P((struct ___native_owner_struct *owner,
++         int as_root),());
+ static int native_journal_drop
+    ___P((struct ___native_owner_struct *owner),());
+ 
+@@ -9826,7 +9851,7 @@
+       return 0;
+     }
+   owner->charged = 1;
+-  if (!native_journal_publish (owner))
++  if (!native_journal_publish (owner, 0))
+     {
+       ___native_owner_uncharge (___vms, ___ps);
+       free (owner);
+@@ -9897,7 +9922,7 @@
+   worker->original_status = joined;
+   if (joined != ___FIX(___NO_ERR))
+     {
+-      worker->op_claim = 0;
++      __atomic_store_n (&worker->op_claim, 0, __ATOMIC_RELEASE);
+       return joined;
+     }
+   worker->os_joined = 1;
+@@ -9906,7 +9931,7 @@
+   ___COMPARE_AND_SWAP_WORD (&worker->phase,
+                             ___OWNER_RETIRED_TAIL,
+                             ___OWNER_JOINED);
+-  worker->op_claim = 0;
++  __atomic_store_n (&worker->op_claim, 0, __ATOMIC_RELEASE);
+   return ___FIX(___NO_ERR);
+ }
+ 
+@@ -10088,9 +10113,12 @@
+ }
+ 
+ static int native_journal_publish
+-   ___P((struct ___native_owner_struct *owner),
+-        (owner)
+-struct ___native_owner_struct *owner;)
++   ___P((struct ___native_owner_struct *owner,
++         int as_root),
++        (owner,
++         as_root)
++struct ___native_owner_struct *owner;
++int as_root;)
+ {
+   int i;
+   if (!native_journal_try_lock ())
+@@ -10108,8 +10136,10 @@
+         owner->key.vm_epoch = native_vm_epoch;
+         owner->key.record_slot = (___U64)i;
+         owner->key.record_epoch = native_slot_epoch[i];
+-        owner->api_readers = 0;
++        __atomic_store_n (&owner->api_readers, 0, __ATOMIC_RELAXED);
+         native_journal_slot[i] = owner;
++        if (as_root)
++          root_instance_owner = owner;
+         native_journal_unlock ();
+         return 1;
+       }
+@@ -10144,6 +10174,8 @@
+       return 0;
+     }
+   native_journal_slot[slot] = 0;
++  if (root_instance_owner == owner)
++    root_instance_owner = 0;
+   if (native_slot_epoch[slot] != ~(___U64)0)
+     native_slot_epoch[slot] += 1;
+   native_journal_unlock ();
+@@ -10181,6 +10213,8 @@
+     }
+   __atomic_store_n (&owner->api_readers, 0, __ATOMIC_RELEASE);
+   native_journal_slot[slot] = 0;
++  if (root_instance_owner == owner)
++    root_instance_owner = 0;
+   if (native_slot_epoch[slot] != ~(___U64)0)
+     native_slot_epoch[slot] += 1;
+   native_journal_unlock ();
+@@ -10249,6 +10283,48 @@
+   return native_lookup_pin (key, &busy);
+ }
+ 
++static int native_root_identity_holds
++   ___P((struct ___native_owner_struct *owner),
++        (owner)
++struct ___native_owner_struct *owner;)
++{
++  ___U64 slot;
++
++  if (owner == 0)
++    return 0;
++  slot = owner->key.record_slot;
++  if (slot == 0 || slot >= ___NATIVE_JOURNAL_SLOTS)
++    return 0;
++  return native_journal_slot[slot] == owner &&
++         owner->key.instance_epoch == native_instance_epoch &&
++         owner->key.vm_epoch == native_vm_epoch &&
++         owner->key.record_epoch == native_slot_epoch[slot];
++}
++
++static struct ___native_owner_struct *native_lookup_root_pin
++   ___P((int *busy),
++        (busy)
++int *busy;)
++{
++  struct ___native_owner_struct *owner;
++
++  if (busy != 0)
++    *busy = 0;
++  if (!native_journal_try_lock ())
++    {
++      if (busy != 0)
++        *busy = 1;
++      return 0;
++    }
++  owner = root_instance_owner;
++  if (!native_root_identity_holds (owner))
++    owner = 0;
++  else
++    __atomic_fetch_add (&owner->api_readers, 1, __ATOMIC_ACQ_REL);
++  native_journal_unlock ();
++  return owner;
++}
++
+ ___EXP_FUNC(___SCMOBJ,___native_instance_begin)
+    ___P((___global_state instance,
+          ___native_op_result *r),
+@@ -10267,28 +10343,54 @@
+                            ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+       return ___FIX(___INVALID_OP_ERR);
+     }
+-  if (root_instance_owner != 0 &&
+-      root_instance_owner->phase != ___OWNER_DONE)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
+-                           root_instance_owner->phase, root_instance_owner->key,
+-                           root_instance_owner->progress,
+-                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  if (root_instance_owner != 0)
+-    {
+-      struct ___native_owner_struct *previous = root_instance_owner;
+-      if (!native_journal_drop (previous))
+-        {
+-          native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
+-                               previous->phase, previous->key, previous->progress,
+-                               ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-          return ___FIX(___INVALID_OP_ERR);
+-        }
+-      free (previous);
+-      root_instance_owner = 0;
+-    }
++  {
++    int root_busy = 0;
++    struct ___native_owner_struct *previous = native_lookup_root_pin (&root_busy);
++
++    if (previous == 0 && root_busy)
++      {
++        native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
++                             0, native_handle_none (), 0,
++                             ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++        return ___FIX(___INVALID_OP_ERR);
++      }
++    if (previous != 0)
++      {
++        ___native_handle key = previous->key;
++        ___U32 phase;
++        ___U64 progress;
++
++        if (___COMPARE_AND_SWAP_WORD (&previous->op_claim, 0, 1) != 0)
++          {
++            native_lookup_unpin (previous);
++            native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
++                                 0, key, 0,
++                                 ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++            return ___FIX(___INVALID_OP_ERR);
++          }
++        phase = previous->phase;
++        progress = previous->progress;
++        if (phase != ___OWNER_DONE)
++          {
++            __atomic_store_n (&previous->op_claim, 0, __ATOMIC_RELEASE);
++            native_lookup_unpin (previous);
++            native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
++                                 phase, key, progress,
++                                 ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++            return ___FIX(___INVALID_OP_ERR);
++          }
++        if (!native_journal_drop_owned (previous))
++          {
++            __atomic_store_n (&previous->op_claim, 0, __ATOMIC_RELEASE);
++            native_lookup_unpin (previous);
++            native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
++                                 0, key, 0,
++                                 ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++            return ___FIX(___INVALID_OP_ERR);
++          }
++        free (previous);
++      }
++  }
+   owner =
+     ___CAST(struct ___native_owner_struct*,
+             malloc (sizeof (struct ___native_owner_struct)));
+@@ -10300,7 +10402,7 @@
+       return ___FIX(___HEAP_OVERFLOW_ERR);
+     }
+   native_owner_clear (owner);
+-  if (!native_journal_publish (owner))
++  if (!native_journal_publish (owner, 1))
+     {
+       free (owner);
+       native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_LIMIT,
+@@ -10308,7 +10410,6 @@
+                            ___FIX(___NO_ERR), ___FIX(___IMPL_LIMIT_ERR));
+       return ___FIX(___IMPL_LIMIT_ERR);
+     }
+-  root_instance_owner = owner;
+   native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_OK,
+                        ___OWNER_PRIVATE_BOOTSTRAP, owner->key, owner->progress,
+                        ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+@@ -10344,19 +10445,24 @@
+                            ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+       return ___FIX(___INVALID_OP_ERR);
+     }
++  {
++    ___native_handle key = owner->key;
++
++    if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
++      {
++        native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
++                             0, key, 0,
++                             ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++        native_lookup_unpin (owner);
++        return ___FIX(___INVALID_OP_ERR);
++      }
++  }
+   if (owner->phase != ___OWNER_PRIVATE_BOOTSTRAP)
+     {
+       native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BAD_PHASE,
+                            owner->phase, owner->key, owner->progress,
+                            ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-      native_lookup_unpin (owner);
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
+-                           owner->phase, owner->key, owner->progress,
+-                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___INVALID_OP_ERR);
+     }
+@@ -10392,7 +10498,7 @@
+         return err;
+       }
+     owner = ctx.owner;
+-    owner->op_claim = 0;
++    __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+     ctx.claim_held = 0;
+     ctx.copied_original = owner->original_status;
+     ctx.copied_cleanup = owner->cleanup_status;
+@@ -10953,7 +11059,7 @@
+   if (gate_arm_create_fail)
+     {
+       gate_arm_create_fail = 0;
+-      reserved->op_claim = 0;
++      __atomic_store_n (&reserved->op_claim, 0, __ATOMIC_RELEASE);
+       reserved->create_state = ___CREATE_NO_OS_CONSUMER;
+       if (!reserved->reservation_claimed)
+         ___native_owner_cancel_unclaimed (reserved->ps);
+@@ -10962,7 +11068,7 @@
+   err = ___thread_create (thread);
+   if (err != ___FIX(___NO_ERR))
+     {
+-      reserved->op_claim = 0;
++      __atomic_store_n (&reserved->op_claim, 0, __ATOMIC_RELEASE);
+       if (!reserved->reservation_claimed)
+         {
+           reserved->create_state = ___CREATE_NO_OS_CONSUMER;
+@@ -10977,7 +11083,7 @@
+     }
+   reserved->create_state = ___CREATE_STARTED;
+   reserved->os_handle_valid = 1;
+-  reserved->op_claim = 0;
++  __atomic_store_n (&reserved->op_claim, 0, __ATOMIC_RELEASE);
+   if (gate_schedule_mode == 2)
+     {
+       while (__atomic_load_n (&reserved->startup_acked, __ATOMIC_ACQUIRE) == 0)
+@@ -11295,11 +11401,24 @@
+                            ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+       return ___FIX(___INVALID_OP_ERR);
+     }
++  {
++    ___native_handle key = owner->key;
++
++    if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
++      {
++        native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
++                             0, key, 0,
++                             ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++        native_lookup_unpin (owner);
++        return ___FIX(___NO_ERR);
++      }
++  }
+   if (owner->phase == ___OWNER_DONE)
+     {
+       native_result_write (r, ___NATIVE_DISP_DONE, ___NATIVE_REASON_OK,
+                            ___OWNER_DONE, native_handle_none (), owner->progress,
+                            owner->original_status, owner->cleanup_status);
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___NO_ERR);
+     }
+@@ -11308,6 +11427,7 @@
+       native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_BUSY,
+                            owner->phase, native_handle_none (), owner->progress,
+                            owner->original_status, owner->cleanup_status);
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___INVALID_OP_ERR);
+     }
+@@ -11316,6 +11436,7 @@
+       native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BAD_PHASE,
+                            owner->phase, owner->key, owner->progress,
+                            owner->original_status, ___FIX(___NO_ERR));
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___INVALID_OP_ERR);
+     }
+@@ -11327,6 +11448,7 @@
+       native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_CLOSED,
+                            owner->phase, owner->key, owner->progress,
+                            owner->original_status, ___FIX(___INVALID_OP_ERR));
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___INVALID_OP_ERR);
+     }
+@@ -11338,21 +11460,14 @@
+       native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
+                            owner->phase, owner->key, owner->progress,
+                            owner->original_status, ___FIX(___NO_ERR));
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___INVALID_OP_ERR);
+     }
+-  if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BUSY,
+-                           owner->phase, owner->key, owner->progress,
+-                           owner->original_status, owner->cleanup_status);
+-      native_lookup_unpin (owner);
+-      return ___FIX(___NO_ERR);
+-    }
+   {
+     ___SCMOBJ began = destroy_begin_mutate (owner, scope, r);
+ 
+-    owner->op_claim = 0;
++    __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+     native_lookup_unpin (owner);
+     return began;
+   }
+@@ -11415,7 +11530,7 @@
+   int readiness;
+ 
+   if (ctx == 0 || ctx->owner == 0 || !ctx->claim_held || !ctx->borrow_live ||
+-      ctx->owner->op_claim != 1)
++      __atomic_load_n (&ctx->owner->op_claim, __ATOMIC_ACQUIRE) != 1)
+     {
+       native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
+                            0, native_handle_none (), 0,
+@@ -11548,27 +11663,40 @@
+   if (!native_result_prefix_ok (r))
+     return ___FIX(___INVALID_OP_ERR);
+   owner = native_lookup (ticket);
+-  if (owner == 0 || owner->phase != ___OWNER_DESTROY_OWNED)
+-    {
+-      native_lookup_unpin (owner);
++  if (owner == 0)
++    {
+       native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
+                            0, native_handle_none (), 0,
+                            ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+       return ___FIX(___INVALID_OP_ERR);
+     }
++  {
++    ___native_handle key = owner->key;
++
++    if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
++      {
++        native_result_write (r, ___NATIVE_DISP_LIVE_TICKET, ___NATIVE_REASON_BUSY,
++                             0, key, 0,
++                             ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++        native_lookup_unpin (owner);
++        return ___FIX(___NO_ERR);
++      }
++  }
++  if (owner->phase != ___OWNER_DESTROY_OWNED)
++    {
++      native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
++                           owner->phase, owner->key, owner->progress,
++                           owner->original_status, owner->cleanup_status);
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
++      native_lookup_unpin (owner);
++      return ___FIX(___INVALID_OP_ERR);
++    }
+   if (owner->progress >= DELIVERY_PROGRESS_DONE)
+     {
+       native_result_write (r, ___NATIVE_DISP_DONE, ___NATIVE_REASON_OK,
+                            ___OWNER_DONE, native_handle_none (), owner->progress,
+                            owner->original_status, owner->cleanup_status);
+-      native_lookup_unpin (owner);
+-      return ___FIX(___NO_ERR);
+-    }
+-  if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_LIVE_TICKET, ___NATIVE_REASON_BUSY,
+-                           owner->phase, owner->key, owner->progress,
+-                           owner->original_status, owner->cleanup_status);
++      __atomic_store_n (&owner->op_claim, 0, __ATOMIC_RELEASE);
+       native_lookup_unpin (owner);
+       return ___FIX(___NO_ERR);
+     }
+@@ -11620,63 +11748,48 @@
+ ___native_op_result *r;)
+ {
+   struct ___native_owner_struct *owner;
+-  ___SCMOBJ copied_original;
+-  ___SCMOBJ copied_cleanup;
+-  ___U64 copied_progress;
++  struct delivery_claim_ctx ctx;
++  ___SCMOBJ err;
+   if (!native_result_prefix_ok (r))
+     return ___FIX(___INVALID_OP_ERR);
+   owner = native_lookup (ticket);
+-  if (owner == 0 || owner->phase != ___OWNER_DESTROY_OWNED || !owner->metadata_live)
+-    {
+-      native_lookup_unpin (owner);
++  if (owner == 0)
++    {
+       native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
+                            0, native_handle_none (), 0,
+                            ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+       return ___FIX(___INVALID_OP_ERR);
+     }
+-  if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_LIVE_TICKET, ___NATIVE_REASON_BUSY,
+-                           owner->phase, owner->key, owner->progress,
+-                           owner->original_status, owner->cleanup_status);
+-      native_lookup_unpin (owner);
+-      return ___FIX(___NO_ERR);
+-    }
+-  copied_original = owner->original_status;
+-  copied_cleanup = owner->cleanup_status;
+-  copied_progress = owner->progress;
+-  if (copied_cleanup != ___FIX(___NO_ERR) ||
+-      !owner->final_debit ||
+-      owner->live_children != 0 ||
+-      __atomic_load_n (&owner->api_readers, __ATOMIC_ACQUIRE) != 1)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_LIVE_TICKET,
+-                           ___NATIVE_REASON_PREFIX_RETAINED,
+-                           owner->phase, owner->key, copied_progress,
+-                           copied_original, copied_cleanup);
+-      owner->op_claim = 0;
+-      native_lookup_unpin (owner);
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  if (root_instance_owner == owner)
+-    root_instance_owner = 0;
+-  owner->op_claim = 0;
+-  if (!native_journal_drop_owned (owner))
+-    {
+-      if (root_instance_owner == 0)
+-        root_instance_owner = owner;
+-      native_lookup_unpin (owner);
+-      native_result_write (r, ___NATIVE_DISP_LIVE_TICKET,
+-                           ___NATIVE_REASON_BUSY,
+-                           ___OWNER_DESTROY_OWNED, ticket, copied_progress,
+-                           copied_original, copied_cleanup);
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  free (owner);
+-  native_result_write (r, ___NATIVE_DISP_DONE, ___NATIVE_REASON_OK,
+-                       ___OWNER_DONE, native_handle_none (), copied_progress,
+-                       copied_original, copied_cleanup);
+-  return ___FIX(___NO_ERR);
++  {
++    ___native_handle key = owner->key;
++
++    if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
++      {
++        native_result_write (r, ___NATIVE_DISP_LIVE_TICKET, ___NATIVE_REASON_BUSY,
++                             0, key, 0,
++                             ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++        native_lookup_unpin (owner);
++        return ___FIX(___NO_ERR);
++      }
++  }
++  ctx.owner = owner;
++  ctx.key = owner->key;
++  ctx.borrow_live = 1;
++  ctx.claim_held = 1;
++  ctx.consumed = 0;
++  ctx.copied_original = owner->original_status;
++  ctx.copied_cleanup = owner->cleanup_status;
++  ctx.copied_progress = owner->progress;
++  ctx.copied_phase = owner->phase;
++  err = destroy_finish_claimed (&ctx, r);
++  if (!ctx.consumed)
++    {
++      if (ctx.owner != 0 && ctx.claim_held)
++        __atomic_store_n (&ctx.owner->op_claim, 0, __ATOMIC_RELEASE);
++      if (ctx.borrow_live && ctx.owner != 0)
++        native_lookup_unpin (ctx.owner);
++    }
++  return err;
+ }
+ 
+ #endif
+@@ -14420,16 +14533,7 @@
+            ___delivery_abandon_commits);
+ }
+ 
+-static void delivery_drain_cohort_sync ___PVOID
+-{
+-  ___processor_state ___ps = ___PSTATE;
+-  ___sync_op_struct sop;
+-
+-  sop.op = OP_NOOP;
+-  sop.arg[0] = 0;
+-  sop.arg[1] = 0;
+-  on_all_processors (___PSP &sop);
+-}
++
+ 
+ struct delivery_claim_probe
+   {
+@@ -14445,6 +14549,25 @@
+   pack->result.struct_bytes = sizeof (pack->result);
+   pack->result.reserved = 0;
+   ___vm_destroy_step (pack->key, &pack->result);
++  return 0;
++}
++
++static void *delivery_root_hold_main (void *arg)
++{
++  volatile int *stop = ___CAST(volatile int*,arg);
++  int busy = 0;
++  struct ___native_owner_struct *owner = native_lookup_root_pin (&busy);
++  int spins = 0;
++
++  if (owner == 0)
++    {
++      __atomic_store_n (&___delivery_obs_root_held, 0, __ATOMIC_RELEASE);
++      return 0;
++    }
++  __atomic_store_n (&___delivery_obs_root_held, 1, __ATOMIC_RELEASE);
++  while (stop != 0 && *stop == 0 && spins < 200000000)
++    spins++;
++  native_lookup_unpin (owner);
+   return 0;
+ }
+ 
+@@ -14463,7 +14586,8 @@
+   ___U32 copied_phase;
+   ___native_handle copied_key;
+ 
+-  if (ctx == 0 || ctx->owner == 0 || !ctx->borrow_live || !ctx->claim_held)
++  if (ctx == 0 || ctx->owner == 0 || !ctx->borrow_live || !ctx->claim_held ||
++      __atomic_load_n (&ctx->owner->op_claim, __ATOMIC_ACQUIRE) != 1)
+     {
+       native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
+                            0, native_handle_none (), 0,
+@@ -14492,12 +14616,8 @@
+                            copied_original, copied_cleanup);
+       return ___FIX(___INVALID_OP_ERR);
+     }
+-  if (root_instance_owner == owner)
+-    root_instance_owner = 0;
+   if (!native_journal_drop_owned (owner))
+     {
+-      if (root_instance_owner == 0)
+-        root_instance_owner = owner;
+       ctx->copied_original = copied_original;
+       ctx->copied_cleanup = copied_cleanup;
+       ctx->copied_progress = copied_progress;
+@@ -14525,6 +14645,61 @@
+ }
+ 
+ #ifndef ___SINGLE_THREADED_VMS
++/* Sealed P0 native drain. Reloads the VM on every attempt. No allocation,
++   Scheme call, interrupt clear, or barrier. Lock contention is a trylock
++   miss counted on the caller's spins. Unknown roots and faults retain. */
++static int native_drain_accepted_pass
++   ___P((struct delivery_claim_ctx *ctx,
++         int *spins),
++        (ctx,
++         spins)
++struct delivery_claim_ctx *ctx;
++int *spins;)
++{
++  ___processor_state ps = ___PSTATE;
++
++  if (ctx == 0 || ctx->owner == 0 || ctx->owner->vm == 0 || spins == 0)
++    return 0;
++  if (!delivery_destroy_ticket_holds (ctx->owner->vm))
++    return 0;
++  if (__atomic_load_n (&___delivery_obs_cross_entered, __ATOMIC_ACQUIRE) &&
++      !__atomic_load_n (&___delivery_obs_cross_release, __ATOMIC_ACQUIRE))
++    __atomic_store_n (&___delivery_obs_cross_release, 1, __ATOMIC_RELEASE);
++  /* Observe the flag. Do not clear it and do not enter the barrier. */
++  fprintf (stderr, "NATIVE-DRAIN pending-sync=%d\n",
++           ps->intr_flag[___INTR_SYNC_OP] != ___FIX(0));
++  for (;;)
++    {
++      int accepted = 0;
++      int readiness = delivery_drain_readiness (ctx->owner->vm, &accepted);
++      ___SCMOBJ finished;
++      int roots;
++
++      if (*spins >= 200000000 || ctx->owner->vm->delivery_fault)
++        return 1;
++      if (readiness == DRAIN_UNSUPPORTED)
++        return 1;
++      if (readiness == DRAIN_READY && !accepted)
++        return 0;
++      finished = delivery_finish_accepted_pass (ps);
++      fprintf (stderr,
++               "PASS-FINISH status=%ld admission=%llu\n",
++               (long)finished,
++               (unsigned long long)
++               __atomic_load_n (&ctx->owner->vm->delivery_admission,
++                                __ATOMIC_ACQUIRE));
++      roots = delivery_roots_locked (ctx->owner->vm);
++      if (finished == ___DELIVERY_COMMITTED && roots == 1)
++        return 0;
++      if (finished != ___DELIVERY_RETRY && finished != ___DELIVERY_COMMITTED)
++        return 1;
++      if (roots == 0 && finished == ___DELIVERY_COMMITTED)
++        return 1;
++      if (ctx->owner->vm->delivery_fault || ++*spins >= 200000000)
++        return 1;
++    }
++}
++
+ static void cleanup_impl
+    ___P((struct delivery_claim_ctx *ctx),
+         (ctx)
+@@ -14536,7 +14711,8 @@
+     fprintf (stderr, "GATE retained-deferred ok=1 hits=%d\n",
+              ___gate_retained_hits);
+   if (ctx == 0 || ctx->owner == 0 || !ctx->claim_held ||
+-      !ctx->borrow_live || ctx->owner->op_claim != 1)
++      !ctx->borrow_live ||
++      __atomic_load_n (&ctx->owner->op_claim, __ATOMIC_ACQUIRE) != 1)
+     {
+       char *msgs[2];
+       msgs[0] = "cleanup failed with retained runtime resources";
+@@ -14631,77 +14807,40 @@
+                  pack.result.disposition,
+                  pack.result.reason);
+       }
+-    {
+-      int owe_service = 0;
+-      int did_sync = 0;
+-
++    if (gate_env_once ("root-hold"))
++      {
++        pthread_t holder;
++        int started;
++        static volatile int root_hold_stop;
++
++        root_hold_stop = 0;
++        started = pthread_create (&holder, 0, delivery_root_hold_main,
++                                  (void *)&root_hold_stop);
++        if (started == 0)
++          {
++            int spins_hold = 0;
++            while (!__atomic_load_n (&___delivery_obs_root_held, __ATOMIC_ACQUIRE) &&
++                   spins_hold < 200000000)
++              spins_hold++;
++          }
++        fprintf (stderr, "ROOT-BORROW-HELD started=%d held=%d\n",
++                 started,
++                 __atomic_load_n (&___delivery_obs_root_held, __ATOMIC_ACQUIRE));
++        (void)holder;
++      }
++    if (native_drain_accepted_pass (ctx, &spins))
++      {
++        owner_result.reason = ___NATIVE_REASON_PREFIX_RETAINED;
++        owner_result.disposition = ___NATIVE_DISP_LIVE_TICKET;
++        delivery_note_refusal ("step", &owner_result);
++        ___fatal_error (msgs);
++        return;
++      }
++    {
+       for (;;)
+         {
+           int roots;
+ 
+-          if (owe_service)
+-            {
+-              ___SCMOBJ finished = ___DELIVERY_RETRY;
+-
+-              owe_service = 0;
+-              __atomic_store_n (&___delivery_obs_gc_service_owed, 0,
+-                                __ATOMIC_RELEASE);
+-              if (ctx->owner != 0 &&
+-                  ctx->claim_held &&
+-                  delivery_destroy_ticket_holds (ctx->owner->vm) &&
+-                  ctx->key.vm_epoch ==
+-                    delivery_close.key.vm_epoch &&
+-                  ctx->key.instance_epoch ==
+-                    delivery_close.key.instance_epoch &&
+-                  ctx->key.record_slot ==
+-                    delivery_close.key.record_slot &&
+-                  ctx->key.record_epoch ==
+-                    delivery_close.key.record_epoch)
+-                finished = delivery_finish_accepted_pass (___PSTATE);
+-              fprintf (stderr,
+-                       "PASS-FINISH status=%ld admission=%llu\n",
+-                       (long)finished,
+-                       (unsigned long long)
+-                       __atomic_load_n (&___GSTATE->vmstate0.delivery_admission,
+-                                        __ATOMIC_ACQUIRE));
+-              roots = delivery_roots_locked (&___GSTATE->vmstate0);
+-              if (roots < 0)
+-                {
+-                  delivery_note_pass_lock_busy (ctx->owner);
+-                  if (++spins >= 200000000)
+-                    {
+-                      owner_result.reason = ___NATIVE_REASON_PREFIX_RETAINED;
+-                      owner_result.disposition = ___NATIVE_DISP_LIVE_TICKET;
+-                      delivery_note_refusal ("step", &owner_result);
+-                      ___fatal_error (msgs);
+-                      return;
+-                    }
+-                  continue;
+-                }
+-              if (___GSTATE->vmstate0.delivery_fault ||
+-                  (roots == 0 && finished != ___DELIVERY_COMMITTED &&
+-                   finished != ___DELIVERY_RETRY))
+-                {
+-                  owner_result.reason = ___NATIVE_REASON_PREFIX_RETAINED;
+-                  owner_result.disposition = ___NATIVE_DISP_LIVE_TICKET;
+-                  delivery_note_refusal ("step", &owner_result);
+-                  ___fatal_error (msgs);
+-                  return;
+-                }
+-              if (roots == 0 && finished == ___DELIVERY_RETRY)
+-                {
+-                  if (++spins >= 200000000)
+-                    {
+-                      owner_result.reason = ___NATIVE_REASON_PREFIX_RETAINED;
+-                      owner_result.disposition = ___NATIVE_DISP_LIVE_TICKET;
+-                      delivery_note_refusal ("step", &owner_result);
+-                      ___fatal_error (msgs);
+-                      return;
+-                    }
+-                  continue;
+-                }
+-              continue;
+-            }
+           err = destroy_step_claimed (ctx, &owner_result);
+           if (owner_result.disposition == ___NATIVE_DISP_LIVE_TICKET &&
+               owner_result.reason == ___NATIVE_REASON_BUSY)
+@@ -14727,20 +14866,26 @@
+                     }
+                   continue;
+                 }
+-              /* Production BUSY services once, independent of the
+-                 diagnostic release flag. The holder-still-locked spin
+-                 above does not enter the barrier. No SCMOBJ is live
+-                 across this sync. The next iteration owes one
+-                 nonallocating finish before any further sync. */
+-              if (!did_sync)
++              /* The accepted pass is drained above, without a barrier.
++                 A later BUSY is the same native retry. Pending SYNC stays
++                 pending until this obligation is settled or retained. */
++              if (native_drain_accepted_pass (ctx, &spins))
+                 {
+-                  did_sync = 1;
+-                  delivery_drain_cohort_sync ();
+-                  owe_service = 1;
+-                  __atomic_store_n (&___delivery_obs_gc_service_owed, 1,
+-                                    __ATOMIC_RELEASE);
+-                  continue;
++                  owner_result.reason = ___NATIVE_REASON_PREFIX_RETAINED;
++                  owner_result.disposition = ___NATIVE_DISP_LIVE_TICKET;
++                  delivery_note_refusal ("step", &owner_result);
++                  ___fatal_error (msgs);
++                  return;
+                 }
++              if (++spins >= 200000000)
++                {
++                  owner_result.reason = ___NATIVE_REASON_PREFIX_RETAINED;
++                  owner_result.disposition = ___NATIVE_DISP_LIVE_TICKET;
++                  delivery_note_refusal ("step", &owner_result);
++                  ___fatal_error (msgs);
++                  return;
++                }
++              continue;
+               roots = delivery_roots_locked (&___GSTATE->vmstate0);
+               if (roots < 0)
+                 {
+@@ -14875,21 +15020,27 @@
+   struct ___native_owner_struct *owner;
+   struct delivery_claim_ctx ctx;
+ 
+-  /* Ownerless public entry. Acquire this call's own claim or refuse.
+-     Never read another caller's stack. */
+-  if (root_instance_owner == 0)
+-    return;
+-  owner = native_lookup (root_instance_owner->key);
+-  if (owner == 0 || owner != root_instance_owner)
+-    {
+-      native_lookup_unpin (owner);
+-      return;
+-    }
+-  if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
+-    {
+-      native_lookup_unpin (owner);
+-      return;
+-    }
++  /* Ownerless public entry. Pin the published root under the journal
++     lock, then CAS. A miss is a retained refusal, not a completed drain. */
++  {
++    int root_busy = 0;
++    char *msgs[2];
++
++    msgs[0] = "cleanup failed with retained runtime resources";
++    msgs[1] = 0;
++    owner = native_lookup_root_pin (&root_busy);
++    if (owner == 0)
++      {
++        ___fatal_error (msgs);
++        return;
++      }
++    if (___COMPARE_AND_SWAP_WORD (&owner->op_claim, 0, 1) != 0)
++      {
++        native_lookup_unpin (owner);
++        ___fatal_error (msgs);
++        return;
++      }
++  }
+   ctx.owner = owner;
+   ctx.key = owner->key;
+   ctx.borrow_live = 1;
+@@ -14900,12 +15051,18 @@
+   ctx.copied_progress = owner->progress;
+   ctx.copied_phase = owner->phase;
+   cleanup_impl (&ctx);
+-  if (!ctx.consumed && ctx.claim_held && ctx.borrow_live && ctx.owner != 0)
+-    {
+-      ctx.owner->op_claim = 0;
+-      ctx.claim_held = 0;
+-      native_lookup_unpin (ctx.owner);
+-      ctx.borrow_live = 0;
++  if (!ctx.consumed)
++    {
++      if (ctx.claim_held && ctx.owner != 0)
++        __atomic_store_n (&ctx.owner->op_claim, 0, __ATOMIC_RELEASE);
++      if (ctx.borrow_live && ctx.owner != 0)
++        native_lookup_unpin (ctx.owner);
++      {
++        char *msgs[2];
++        msgs[0] = "cleanup failed with retained runtime resources";
++        msgs[1] = 0;
++        ___fatal_error (msgs);
++      }
+     }
+ #else
+   if (___cleanup_checked () != ___FIX(___NO_ERR))
+@@ -14938,6 +15095,9 @@
+   if (___ps != 0)
+     ___THROW (___FIX (status + 1));
+ #endif
++  /* No catcher and no saved context. Take this call's own claim or
++     refuse. Do not read another owner's stack. */
++  ___cleanup ();
+   ___exit_process (status);
+ #else
+   ___cleanup ();
+@@ -16311,7 +16471,7 @@
+       ctx->owner == 0 ||
+       !ctx->claim_held ||
+       !ctx->borrow_live ||
+-      ctx->owner->op_claim != 1 ||
++      __atomic_load_n (&ctx->owner->op_claim, __ATOMIC_ACQUIRE) != 1 ||
+       !ctx->owner->bootstrap_bound ||
+       setup_body_active)
+     return ___FIX(___INVALID_OP_ERR);

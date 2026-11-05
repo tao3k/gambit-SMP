@@ -1,0 +1,206 @@
+#+TITLE: MC-SCOPE Source Protocol and the Patched SMP Refactoring Baseline
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: OPEN IMPLEMENTED | QUALIFIED RETIRED
+
+* Governing direction
+[[file:../../../refactoring/modern-c/modernization-target.org][The whole modernization target]] governs this candidate. Its architecture-adoption
+predicate remains false; no further entry activation is justified by local gate
+checks. The patch-stack layout is not the replacement architecture.
+
+* IMPLEMENTED First source patch, not complete modernization
+:PROPERTIES:
+:CUSTOM_ID: native-scope-gate
+:MAINLINE: modern-c
+:VENDOR_BRANCH: modern-c
+:COMMIT: 02a3b4ba70b72387757501d555a6f1b1e592e213
+:STATUS: source-primitive-implemented; activation-and-native-acceptance-open
+:END:
+The vendor =modern-c= commit contains actual C support, VM initialization,
+build/test integration and its QNT/Lean sources. No implementation Org is added
+to that commit. The untracked earlier action board is historical working material.
+The [[file:models/sysml/native-scope-gate.sysml][SysML authority]] owns the layout, source/model duties, dependency graph,
+benefit boundaries and four remaining milestone targets; the
+[[file:native-scope-gate-matrix.org][matrix]] and [[file:diagrams/native-scope-gate.d2][D2]] are its projections.
+
+The first patch is complete only within this boundary:
+
+- [[file:../../../../vendor/gambit/include/gambit.h.in][gambit.h.in]] defines a one-word native record and 64 VM slots.
+- [[file:../../../../vendor/gambit/lib/native_scope.c][native_scope.c]] implements prepared candidate, full-header CAS, permit
+  acquisition/close/release, class drain queries and checked generation handoff.
+- [[file:../../../../vendor/gambit/lib/native_scope.h][native_scope.h]] states storage, actor/role and last-use requirements.
+- [[file:../../../../vendor/gambit/lib/setup.c][setup.c]] initializes records exclusively before VM/processor publication.
+- [[file:../../../../vendor/gambit/lib/makefile.in][runtime makefile]] includes the module in all normal object lists;
+  [[file:../../../../vendor/gambit/tests/makefile.in][tests makefile]] exposes the native control target. Formal sources now live in DEV.
+- [[file:../../../../vendor/gambit/tests/native-scope.c][C controls]], [[file:models/quint/native_scope_gate.qnt][QNT]] and [[file:models/lean/NativeScopeGate.lean][Lean]] are the code and model companions. Formal files were relocated
+  byte-for-byte from the original vendor commit; historical receipts retain
+  their original paths and identities. C controls were compiled/linked,
+  not executed in this turn. QNT/Lean checks are formal evidence only.
+
+It does not yet allocate/route activation slots, register actor identities or
+roots, switch generated SFUN/CFUN, change marker cleanup, resolve failed joins,
+replace GC participation or enable a managed native entry. It contains no Scheme
+payload cells. Runtime paths retired: zero. With only this patch active, VM
+storage increases and no whole-runtime speed or memory benefit is established.
+
+* Existing repairs are the baseline
+:PROPERTIES:
+:CUSTOM_ID: native-scope-patched-baseline
+:END:
+The main repository [[file:../../../../../../README.md][README]] already enables multiple VMs and SMP and describes
+stable global segments and the private global-setup PSTATE fix. The relevant
+shared patches are [[file:../../../../../../patches/gambit-v19-multiple-vms-global-capacity.patch][global capacity]] and [[file:../../../../../../patches/gambit-v19-multiple-vms-global-setup-state.patch][global setup state]].
+The latter already fixes the exact missing =___ps= compilation failure found in
+an unpatched vendor multiple-VM profile. That failure is not an unsolved production
+SMP defect and is not a benefit attributable to this refactoring.
+
+The retained [[file:../../../../evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md][checkpoint audit]], [[file:../../../../docs/smp-threaded-vm-milestone.md][milestone history]] and
+[[file:../../../../evidence/research/processor-interrupt-collective-wait/runtime-mutex-return-source.lock.json][26-source identity lock]] preserve the 8/12 qualification and its four remaining
+contracts. The [[file:../../../../patches/fixtures/runtime-mutex-return-cumulative.patch][cumulative source patch]] already contains VM admission CAS,
+PSTATE frame counts, registry readers, cleanup/retirement custody and explicit
+startup membership. In particular =___sfun_frame_enter= atomically reserves the
+VM gate, updates the frame count, and releases its transient reservation.
+
+Therefore this patch does not discover or repair a missing atomic VM gate. Its
+new contract is per-record activation identity, control/data role separation,
+spent-role idempotence and generation-checked helper handoff. The old VM gate
+cannot be retired by substituting this per-record word: scope creation/reuse,
+all live activations, old handlers and VM storage readers still need canonical
+VM-epoch admission. Permanent double tracking would add cost without modernization.
+
+The new source locations were adjusted so both the shared capacity patch and the
+cumulative patch apply to the vendor changes. An isolated overlay applies the
+cumulative repair plus the existing main private-global-setup patch with zero
+fuzz; patched multiple-VM SMP objects compile. This is source/compile compatibility,
+not inherited 8/12 native qualification for the changed source. No active repair
+checkpoint, lease or production patch file is modified.
+
+* Fixed layout and atomic state machine
+** Bit budget and representable range
+#+NAME: native-scope-word
+| Bits | Meaning | Invariant |
+|------+---------+-----------|
+| 0 | closed | CAS closes future registered role acquisition |
+| 1..8 | live roles | Each granted role remains until its actual last use |
+| 9..16 | spent roles | Monotone for a generation; released role cannot be reused |
+| 17..24 | actor | Exclusive pre-registered activation id 1..255 |
+| 25..WORD_WIDTH-2 | generation | Checked increment; exhaustion refuses |
+| WORD_WIDTH-1 | sign | Zero; C shifts/conversions remain representable |
+
+A record has no pointers or Scheme roots. The compiler asserts one WORD of
+storage. Default 64 slots require 256 bytes for 32-bit WORD or 512 bytes for
+64-bit WORD, before any possible surrounding-VM ABI padding effects. Current
+Darwin arm64 object compilation checks the 64-bit layout; no 32-bit native
+qualification is claimed. The generation maxima are 63 and 274877906943.
+These are real finite limits, not a hidden wrapping counter.
+
+Roles 0..3 cover control writers and 4..7 data writers. The owner initially holds
+roles 0 and 4; three delegates remain per class. Each role has one producer per
+generation. Permits track write lifetime; they do not serialize overlapping
+plain-field writes. A declared write set must be disjoint, exclusive or protected
+by its own atomic/lock protocol. Last-use, role assignment and immutable helper
+intent are caller proof obligations, not facts manufactured by this primitive.
+
+** Linearization and unknown results
+:PROPERTIES:
+:CUSTOM_ID: native-scope-linearization
+:END:
+1. Prepare the candidate tag from the previous exact tag and exclusive actor
+   identity. Retain that intent in stable storage before invoking handoff.
+2. Handoff CAS succeeds only on the exact previous tag, closed gate and empty
+   live set. One CAS advances generation and installs both owner class permits.
+   There is no open unaccounted owner before a lost response.
+3. Acquire reads the whole word and CASes the same word with live/spent role bits.
+   Close in between invalidates the CAS. A stale reader retries all guards; a
+   separate open check followed by an increment is not used.
+4. Close CAS sets the closed bit and preserves existing permits. It stops future
+   acquisition, not already running writes, callbacks or an OS thread.
+5. Release clears exactly one live bit for the current tag and retains its spent
+   bit. Repeating release is a no-op; the role cannot be reused in that generation.
+   A stale-generation release cannot clear the successor's corresponding bit.
+6. A successor again needs the previous helper's own drained closed header.
+   Original owner closure is insufficient. Unknown writer outcome leaves its
+   bit live. No dead flag, timeout, ignored/failed join or arbitrary reset clears it.
+
+Snapshot/class-quiescent results are instantaneous observations of registered
+permits. They are not reservations, physical-stop receipts, result ACKs, root
+freeze receipts or permission to destroy the VM. A =STALE= result says nothing
+about historical delivery. A =REPLAY= tag observation authorizes no second native
+initialization. Separate result/scan/reader custody still governs reclamation.
+
+The first implementation reuses Gambit's backend full-barrier RMW/CAS operations
+and handles the explicitly sequential backend without PSTATE scratch fields.
+This removes service dependence on a processor just for atomics; it does not
+redesign the shared synchronization backend. The emulated mutex backend has no
+arbitrary lock-owner-death recovery. Full-barrier reads generate cache-line
+traffic; hardware retry count and starvation are unbounded by these models.
+A later C11 acquire/release backend needs independent C/ISA refinement first.
+
+* Why refactoring can address the remaining four contracts
+:PROPERTIES:
+:CUSTOM_ID: native-scope-modernization-value
+:END:
+The objective is to replace implicit ownership and global phase coupling in real
+consumers. Passing one gate primitive cannot establish the following outcomes.
+The SysML milestone targets keep the separate causal chains explicit:
+
+- Lifecycle: transactional member construction/rollback, canonical actor and
+  source custody, real last-use/termination evidence and delayed cleanup must
+  replace PSTATE-lifetime assumptions. Existing retained cleanup is already a
+  repair; new credit requires eliminating duplicate distributed state and
+  qualifying the still-open natural recovery/old-handler paths.
+- GC/FFI: precise FrameSpec roots, a complete RootRegistry, safe constructor and
+  marker publication, and native park/reload participation must connect all
+  writers to GC. Then generational collection can skip proven unchanged mature
+  graphs. This patch supplies no root cell, barrier or minor-GC saving.
+- Gerbil: the retained structure type-field fault has unresolved causes. Find
+  its actual producer/ownership violation before attributing it to GC/SMP or
+  selecting a fix. A guard that hides bad objects or a new native scope is not
+  a source-causal crash repair. Complete downstream builds/tests remain required.
+- Performance: the numerical C compilation cap and whole release latency/build
+  gates require compiler/build/runtime work decomposition. Generated native
+  contracts, correct smaller units, dependency snapshots and AOT reuse must
+  eliminate actual expansion/compilation; CAS safety does not shorten GCC parse
+  work or certify a whole-consumer speedup.
+
+Net benefit requires replacing the old responsibilities, not indefinitely
+maintaining the new scope service beside all old VM/PSTATE counters. The matrix
+states each retirement condition and the remaining original acceptance inventory.
+The milestone remains 8/12. Neither a model pass, object build nor this source
+commit increments it. A fundamental solution is a source-refined replacement
+and complete observable acceptance, not a promise that refactoring guarantees
+all four outcomes regardless of unknown crash causes.
+
+* Evidence chain and validation boundary
+:PROPERTIES:
+:CUSTOM_ID: native-scope-assurance
+:END:
+The native SysML projection links component needs to QNT actions, conditional
+Lean laws, actual sources and the four milestone targets. The
+[[file:../../../modeling/ascent/native-scope-gate.rules.scm][ASCENT DSL]] joins artifact digest, method/check, exact scope and prerequisite
+receipts. Its [[file:../../../modeling/ascent/history/native-scope-gate.request.scm][archived executable request]] has an independent code-compilation relation;
+that relation cannot supply missing source/GC/physical-stop/native receipts.
+Wrong scope, missing history, stale model digest and stale code digest remain
+explicit controls. Synthetic all-scoped facts exercise routing only.
+
+The QNT model decomposes full-header read and CAS, includes eight spent/live
+roles, owner plus successive helpers, stale release and finite generation
+exhaustion. Its audit flag records illegal temporal acquisitions in deliberately
+unsafe controls; it is not a fabricated source witness. The Lean file proves
+selective conditional laws, not all-transition induction, integer/bit encoding
+injectivity, C weak-memory simulation or Gambit source completeness.
+
+Initial direct compilations omitted =HAVE_CONFIG_H= and are retained as limited
+checks. Actual multiple-VM Make compilation reproduced the already-fixed global
+setup error on the unpatched vendor. The baseline reproduces it too. Subsequent
+single-VM SMP and patched multiple-VM SMP object checks are recorded separately.
+Header warning promotion in the patched overlay required excluding its existing
+unused =___local_gstate= parameter warning; no source warning was hidden in the
+new primitive. Native controls were compiled and linked, not run. No bootstrap,
+original SMP inventory, Gerbil suite, benchmark or release measurement was run.
+
+Primary support: [[https://gcc.gnu.org/onlinedocs/gcc-14.3.0/gcc/_005f_005fsync-Builtins.html][GCC legacy atomic builtins]] describe backend ordering, not client
+last-use completeness; [[https://www.open-std.org/Jtc1/sc22/wg14/www/docs/dr_008.html][WG14 setjmp interpretation]] supports stable nonlocal-exit
+journals, not a thread synchronization guarantee. Installed target qualification
+still needs its own evidence.

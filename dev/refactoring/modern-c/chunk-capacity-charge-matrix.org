@@ -1,0 +1,176 @@
+#+TITLE: Chunk Capacity Charges — Source Closure and Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitChunkCapacityCharge
+:STATUS: conditional-formal-model; native-and-C11-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| threshold-limit | vendor/gambit/lib/mem.c | alloc_heap_chunk_limit = work->context->mem.alloc_heap_ptr_ + ___MSECTION_CHUNK; | Fresh threshold starts after preceding marker |
+| threshold-object | vendor/gambit/lib/mem.c | if (alloc >= alloc_heap_chunk_limit) | Object and captured-frame paths are the only threshold close callers |
+| no-fit | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_-alloc < required | The early close caller is reserve_copy, before obtaining the next grant |
+| close-marker | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; | Empty close still consumes marker; count it even if no chunk is queued |
+| prepare-prefix | vendor/gambit/lib/mem.c | *work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; /* link of msection's first chunk */ | Prefix word is not copied payload or a threshold charge |
+| prepare-slack | vendor/gambit/lib/mem.c | work->context->mem.alloc_heap_limit_ -= 2; | Two end markers do not imply two chunk births |
+| cancel-private | vendor/gambit/lib/mem.c | return begin; | Cancellation restores grant begin only; earlier close/prepare remains charged |
+| cancel-after-fit | vendor/gambit/lib/mem.c | alloc = cancel_copy(work,&grant); | Lost object forwarding never refunds a section/node already started |
+| frame-grant | vendor/gambit/lib/mem.c | grant = reserve_copy(work,alloc,words,0); | Frame body and extra slots consume allocation spans |
+| padding | vendor/gambit/lib/mem.c | work->copy_padding_words_ += (grant->past-grant->begin)-(grant->words+1); | A counts committed physical spans including padding, not just Scheme payload |
+| counter-check | vendor/gambit/lib/mem.c | work->copy_reserved_words_-work->copy_cancelled_words_ != | Post-weak diagnostic is not a prospective capacity certificate |
+| initial-visits | vendor/gambit/lib/mem.c | nb_msections_assigned = np*2; | Initial prepare calls are already included in L |
+| frozen | vendor/gambit/lib/mem.c | participant->phase = ___GC_ROOTS_FROZEN; | Candidate preflight collective is after frozen barrier before setup side effects |
+| flip | vendor/gambit/lib/mem.c | tospace_offset = fromspace_offset; | Pool plan must be accepted before flip and all setup mutations |
+| strong-done | vendor/gambit/lib/mem.c | garbage_collect_mark_strong_phase (work); | Following real barrier does not reset worker cursors or node occupancy |
+| weak-producers | vendor/gambit/lib/mem.c | process_wills (work); | Weak tracing resumes same allocator state and may allocate further |
+| restore-stack | vendor/gambit/lib/mem.c | while (p1 != start)\n    *--p2 = *--p1; | move_continuation copies stack data; it is not a heap chunk birth |
+| restore-heap | vendor/gambit/lib/mem.c | if (alloc_heap_ptr > alloc_heap_limit - ___MSECTION_FUDGE) | Post-GC restoration next_heap_msection has no prepare_heap_msection caller; cannot invent a node charge |
+| custom | vendor/gambit/lib/mem.c | return custom_msection_alloc (); | Uncertified repeated visits invalidate finite list-derived L |
+| shared-fallback | vendor/gambit/lib/mem.c | result = ms; | Current allocator can use one stack section as heap; no double ownership assumed |
+| shared-stop | vendor/gambit/lib/mem.c | if (stack_msection == heap_msection) | After sharing exhaustion, default allocator terminates; no infinite legitimate fallback lease |
+| K | vendor/gambit/lib/mem.h | #define ___MSECTION_BIGGEST     255 | Selected source K; effective build-profile mapping open |
+| H | vendor/gambit/lib/mem.h | #define ___MSECTION_SIZE        131072 | Half section H=65536 is a conservative span ceiling |
+| native-gate | vendor/gambit/include/gambit.h.in | __sync_val_compare_and_swap(p,oldval,newval) | Existing adapter is not portable C11 qualification |
+
+** Call
+
+| key | callerName | callee | siteCount | effect |
+|---+---+---+---+---|
+| object-end | mark_array | end_heap_chunk | 1 | Threshold closure then immediate start |
+| frame-end | mark_captured_continuation_locked | end_heap_chunk | 1 | Threshold closure after frame commit; backfill custody independent |
+| early-end | reserve_copy | end_heap_chunk | 1 | No-fit, including zero-span chunk |
+| object-start | mark_array | start_heap_chunk | 1 | New node birth after threshold end |
+| frame-start | mark_captured_continuation_locked | start_heap_chunk | 1 | New node birth after threshold end |
+| lease-start | prepare_heap_msection | start_heap_chunk | 1 | Exactly one initial or later lease birth |
+| initial-prepare | setup_stack_heap_vmstate | prepare_heap_msection | 1 | Loop repeats P times; site count is not dynamic event count |
+| next-prepare | reserve_copy | prepare_heap_msection | 1 | One per successful no-fit visit; prepare failure keeps custody |
+| stack-setup-exclusion | ___setup_mem_pstate | next_stack_msection | 1 | Only literal direct stack-section advance caller; exclude concurrent processor setup from admitted tracing profile |
+
+** Charge
+
+| key | mechanism | bound | excluded | status |
+|---+---+---+---+---|
+| birth-topology | Every start is threshold successor or prepare entry | starts = T + L | No extra P when L includes initial prepares | Lexical caller inventory closed in pinned mem.c; effective call graph open |
+| threshold | Disjoint committed spans since each start | 255*T <= A; T <= floor(A/255) | Uncommitted losing CAS reservations, markers and raw source payload count | Conditional invariant induction proved; physical interval injection open |
+| partial-and-empty | Early close changes marker and closes current lease; prepare creates next node | end = T + E; L = E + open for one slice | No second node for a marker; no refund on canceled next grant | Modeled closure and exact lexical callers; exception segment refinement open |
+| per-lease | Threshold spans do not cross lease close; phase cut does not close a lease | B_data <= sum_i(floor(U_i/255)+1) | No separate worker increment beyond initial leases | Lean list-sum bound conditional on per-lease charge relation |
+| fixed-default | N frozen sections, P initial heap and P initial stack; at most N-2P fresh heap visits plus P stack fallbacks | L<=N; B_total<=258*N+D for H=65536 | Custom allocator, concurrent resize/extension, stack reassignment or GC reentry | Derived under explicit profile; native issuer not yet implemented |
+| phase-carry | Strong and weak share cursor, span, lease and node identities | 254+1 threshold requires one whole charge; preserve prior starts and visits | Separately flooring phase byte totals or resetting open span | Cut preservation and negative control proved |
+| restoration | Actual move_continuation only changes stack cursor; later heap restore does not prepare a chunk | No invented additional start from these two endpoints | Future redesign may add a new producer class only with explicit budget | Source-specific classification; future users still matter for lifetime |
+
+** Receipt
+
+| key | issuer | condition | failure | gap |
+|---+---+---+---+---|
+| preflight-cut | Frozen-roster coordinator plus lease/pool owners | After roots-frozen barrier, before any setup flip or still-list mutations; all participants share decision | OOM/rejection collectively retains old parity and roots; no processor-only return | Existing path has no such allocation receipt or collective branch |
+| manifest | Storage owner | N stable, acyclic unique section list, finite default path, no custom allocator, no intervening stack reassignment | Unknown producer/profile or capacity overflow rejects signature | Raw struct availability is not proof of ownership or absence of external writer |
+| capacity | Pool owner plus charge-class auditor | Per-lease U, K/profile, starts before forwarding, checked bytes, D dummy records, allocation success | Post-forward failure retains node/copy/Tail; cannot roll back accepted graph | No native allocation-plan implementation or C11 handoff proof |
+| weak-continuity | Every worker allocator owner plus stage coordinator | Same epoch, same section/start/cursor, accumulated spans, retained nodes and grants/Tail accounted | Do not re-sign a fresh pool or refund old markers at strong cut | Model carries physical counters; exact source snapshot and completion proof open |
+| reclaim | Existing pool lifecycle coordinator | Capacity closure plus work completion, users closed, head detached, receipts and borrowers gone | Unknown result retains old epoch; reentry may prevent completion | Capacity proof does not replace old last-user and generation obligations |
+
+** Memory
+
+| key | ordering | obligation | gap |
+|---+---+---+---|
+| owner-counters | Owner-private committed cursor and local charge counters | Do not add a global atomic on every payload word; materialize stable snapshot at collective cut | No native local-counter layout generated |
+| preflight-publish | Initialize immutable plan then release; every participant acquire and acknowledge same generation | Failure branch must be collective before setup, not coordinator-only early return | Exact BARRIER/atomic adapter and failure semantics open |
+| phase-carry | All worker final local writes before release acknowledgement; next phase consumes after acquire | Cut snapshot includes open-span remainder, current node, physical interval and outstanding tasks | Phase enum alone does not prove publication or initialization closure |
+| birth-ledger | Reserve child node and task before parent settlement / forwarding; synchronize queue via gate | Threshold or lease birth is paired with exactly one root or derived old-pool reserve | Native indivisible segment and task identity open |
+| overflow | Checked native cardinality and byte arithmetic before admission | Mathematical integer division and list lengths do not prove size_t safety | Generation wrap remains fail/retain; no silent rollover |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| tighter-bound | Remove duplicated initial-worker allowance when visits include initial prepares | Retain exact per-lease budget and caller classification | Against preceding bound saves up to P data-record allowances at equal L |
+| finite-budget | Dense one-node-per-word ceiling unnecessary under qualified topology | At three 8-byte pointer fields, >=24*(258*N+D) bytes reserved for selected full-section plan | 258N+D is a capacity choice under profile; actual stride/pins add overhead |
+| normalized-space | Fields for 258 nodes per full half-section: 6192 bytes, ~1.181% of 524288 bytes | Dummy records, pool metadata, retained epochs and allocator rounding additional | Arithmetic only, not actual live heap fraction or measured resident memory |
+| no-rollback-tax | Cancellation reuses current open-node reservation; no new record per failed copy CAS | Stable grant ownership and charge-preserving rollback | Earlier no-fit/prepare remains retained even if next copy loses |
+| phase-reuse | No second node pool and no repeated threshold charge at strong/weak transition | One local stable snapshot and existing collective reuse where proven | Never remove barriers based solely on arithmetic |
+| net-benefit | Ordinary C classifiers and bounded native pool can avoid heap-wide atomic conversion | Plan validation, per-start reservation, queue records, memory pressure and lifetime coordination | Positive only if saved work exceeds all transport and extra-GC costs; no timings claimed |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| frozen-roster | manifest | Freeze finite leases and complete producer classes |
+| manifest | capacity-plan | Sum per-lease threshold and prepare budgets; checked allocation |
+| capacity-plan | collective-admit | All participants see the same success or failure before flip |
+| collective-admit | copy-owner | One open node reservation precedes forwarding |
+| copy-owner | threshold-close | Committed spans uniquely charge a new successor node |
+| copy-owner | early-close | Partial or empty close retains prior node and marker |
+| early-close | lease-prepare | Preparing next lease issues one new node |
+| threshold-close | same-pool-ledger | Pair birth with root/child reserve exactly once |
+| lease-prepare | same-pool-ledger | No separate acceptance on queue publication |
+| same-pool-ledger | weak-continuity | Carry old occupancy plus unfinished physical span |
+| weak-continuity | retire-cut | Allocation close and old last-user obligations both required |
+
+** Obligation
+
+| key | status | scope | gap |
+|---+---+---+---|
+| callers | checked-snapshot | All literal start/end/prepare callers in pinned mem.c | Lexical evidence does not verify preprocessed arbitrary C callbacks |
+| charge | conditional-proved | Typed AST all-step invariants, floor and per-lease arithmetic | Inject real intervals and visit permissions without alias/reuse |
+| composition | conditional-proved | Guarded charge/pool product and paired root/child births | C instruction-level coupling, interrupted segments and identity mapping open |
+| default-profile | conditional-source-argument | N frozen, default allocator, fixed stacks during strong/weak | Prove no external writers or native GC reentry; reject uncertified profile |
+| C11 | open | Owner snapshots and collective release/acquire decisions | No weak-memory execution checker or machine-code receipt |
+| net-benefit | open | Memory bounds and per-birth cost terms | No runtime implementation native test or performance qualification |
+
+** Binding
+
+| actionName | lemma | targetStep | simulation |
+|---+---+---+---|
+| chunk_capacity_charge.reserveOne | CapacityCharge.reserveOnePreserves | chunk_node_pool.stutter | CapacityChargeComposition.reserveOneCouples |
+| chunk_capacity_charge.reserveNear | CapacityCharge.reserveNearPreserves | chunk_node_pool.stutter | CapacityChargeComposition.reserveNearCouples |
+| chunk_capacity_charge.reserveOvershoot | CapacityCharge.reserveOvershootPreserves | chunk_node_pool.stutter | CapacityChargeComposition.reserveOvershootCouples |
+| chunk_capacity_charge.publishForward | CapacityCharge.publishForwardPreserves | chunk_node_pool.stutter | CapacityChargeComposition.publishForwardCouples |
+| chunk_capacity_charge.commit | CapacityCharge.commitPreserves | chunk_node_pool.stutter | CapacityChargeComposition.commitCouples |
+| chunk_capacity_charge.cancel | CapacityCharge.cancelPreserves | chunk_node_pool.stutter | CapacityChargeComposition.cancelCouples |
+| chunk_capacity_charge.closeThreshold | CapacityCharge.closeThresholdPreserves | chunk_node_pool.reserve | CapacityChargeComposition.thresholdRoot |
+| chunk_capacity_charge.observeNoFit | CapacityCharge.observeNoFitPreserves | chunk_node_pool.stutter | CapacityChargeComposition.observeNoFitCouples |
+| chunk_capacity_charge.closeEarly | CapacityCharge.closeEarlyPreserves | chunk_node_pool.stutter | CapacityChargeComposition.closeEarlyCouples |
+| chunk_capacity_charge.advanceVisit | CapacityCharge.advanceVisitPreserves | chunk_node_pool.reserve | CapacityChargeComposition.visitRoot |
+| chunk_capacity_charge.cutToWeak | CapacityCharge.cutToWeakPreserves | chunk_node_pool.stutter | CapacityChargeComposition.cutToWeakCouples |
+| chunk_capacity_charge.closeCapacity | CapacityCharge.closeCapacityPreserves | chunk_node_pool.stutter | CapacityChargeComposition.closeCapacityCouples |
+
+** Proof
+
+| key | lemma | scope |
+|---+---+---|
+| birth-count | CapacityCharge.exactBirthCount | No extra worker count beyond visits |
+| floor-bound | CapacityCharge.tightCeiling | Whole-epoch threshold budget |
+| per-lease | CapacityCharge.leaseSumBound | Conditional sum of per-lease floor budgets |
+| threshold-space | CapacityCharge.thresholdHasSpace | Threshold event has successor node capacity |
+| visit-space | CapacityCharge.visitHasSpace | Remaining lease has node capacity |
+| cut-carry | CapacityCharge.cutCarriesState | Strong cut leaves physical counters unchanged |
+| cancel | CapacityCharge.cancellationKeepsTopology | Cancel refunds grant, not prior node birth |
+| fraction-control | CapacityCharge.separatelyRoundedPhasesLoseCarry | Concrete 254+1 phase rounding counterexample |
+| product | CapacityChargeComposition.reachableGood | Actual old pool plus source-charge abstraction |
+| threshold-child | CapacityChargeComposition.thresholdChild | Derived child birth after root close |
+| visit-child | CapacityChargeComposition.visitChild | Derived no-fit successor birth |
+| retire-control | CapacityChargeComposition.lifetimeCutNecessary | No pool completion while source allocation admission remains open |
+
+** Seam
+
+| producer.moduleId | consumer.moduleId | contract | modelNeed |
+|---+---+---+---|
+| collector | collector | Physical charge to old pool task reservation | CC-composition |
+| collector | control | Frozen cohort collective capacity decision | CC-source |
+| collector | native | Native allocator profile and snapshot publication | CC-platform |
+
+** Scoped proof routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| CC-history | interleaving | dev/refactoring/modern-c/models/quint/chunk_capacity_charge.qnt | Threshold early empty cancellation and strong-weak carry histories |
+| CC-induction | induction | dev/refactoring/modern-c/models/lean/CapacityCharge.lean | Actual typed AST step safety and conditional charge arithmetic |
+| CC-composition | induction | dev/refactoring/modern-c/models/lean/CapacityChargeComposition.lean | Guarded product with exact preceding NodePool AST |
+| CC-projection | restricted-projection | dev/refactoring/modern-c/models/lean/CapacityChargeAst.lean | Typed binding identity plus literal-coefficient multiplication |
+| CC-source | source-refinement | dev/refactoring/modern-c/chunk-capacity-charge-design.org | Physical disjoint leases and actual collective receipt issuer open |
+| CC-platform | native-memory-order | dev/refactoring/modern-c/chunk-capacity-charge-design.org | C11 cut publication generation native arithmetic open |

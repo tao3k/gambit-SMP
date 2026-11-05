@@ -1,0 +1,130 @@
+[
+  {
+    "caller": "synchronous-tcl-native-frame",
+    "sourceAnchors": "examples/tcltk/tcltk.scm:124-175,221-228",
+    "finding": "scheme_call_cmd -> tcltk_call(data_rc,argv+1) -> Scheme apply -> result C string installed in Tcl",
+    "hazard": "Deferral/replay loses synchronous result, borrowed native args and original return stack",
+    "proposedReplacement": "Retain same native activation/input/result/code leases; park only at admitted Scheme/generated boundary",
+    "nativeWitness": false
+  },
+  {
+    "caller": "sfun-conversion-before-call",
+    "sourceAnchors": "include/gambit.h.in:10043-10064;gsc/_ptree2.scm:2902-3030,3145-3187",
+    "finding": "SFUN fetches PSTATE, allocates marker, converts and calls ___call; conversion errors can call Scheme handler",
+    "hazard": "An entry gate in ___call is after marker allocation and raw root effects",
+    "proposedReplacement": "Scheme generator emits origin/safe-point/exit plan; modern C ingress owns full conversion activation and root census",
+    "nativeWitness": false
+  },
+  {
+    "caller": "gvm-materialization",
+    "sourceAnchors": "gsc/_t-c-1.scm:2132-2168;include/gambit.h.in:6801-6803,6983-6991,7058-7091;lib/_kernel.c:9017-9020,12117-12120",
+    "finding": "W_ALL selects generated M/P macros; supplied kernel output writes selected heap/fp/registers; R macros reload",
+    "hazard": "Materializes specific GVM locals, not all arbitrary C roots or complete object initialization",
+    "proposedReplacement": "SafePointSpec records actual required fields and maps; prove generated spill coverage and post-GC reload",
+    "nativeWitness": false
+  },
+  {
+    "caller": "heap-and-stack-safepoints",
+    "sourceAnchors": "lib/_kernel.scm:270-285,306-338,1960-1978;include/gambit.h.in:8514-8554",
+    "finding": "Stack/heap checks save RA and GVM regs, W_ALL, run limit/GC, R_ALL and restore RA",
+    "hazard": "Reaching POLL/limit request is not itself completion of spill/root/initialization duties",
+    "proposedReplacement": "Receipt cut after completion plan, not check predicate; use FrameSpec and exact resume PointId",
+    "nativeWitness": false
+  },
+  {
+    "caller": "sync-op-participation",
+    "sourceAnchors": "lib/_kernel.scm:1428-1444;lib/setup.c:1049-1149,1182-1200",
+    "finding": "sync interrupt saves RA/W_ALL -> service_sync_op -> barrier/combined operation loop; result delivered before R_ALL",
+    "hazard": "Current processor is both execution context and collector participant; interrupt request alone cannot authorize independent worker",
+    "proposedReplacement": "Split context freeze, participant acknowledgment and worker scan authority; preserve merged operation result/round identity",
+    "nativeWitness": false
+  },
+  {
+    "caller": "partial-rest-frame",
+    "sourceAnchors": "lib/_kernel.scm:536-575,908-942",
+    "finding": "Rest/keyword CONS loop W_ALL -> heap_limit -> R_ALL, then explicitly builds complete frames before GC",
+    "hazard": "W_ALL before frame repair is a real inadmissible receipt location",
+    "proposedReplacement": "Carry constructor progress/root plan through complete-frame cut or scan-safe shell; do not park at every W_ALL",
+    "nativeWitness": false
+  },
+  {
+    "caller": "still-and-marker-construction",
+    "sourceAnchors": "lib/mem.c:1487-1500,1677-1693,1778-1821;lib/c_intf.c:6509-6564",
+    "finding": "Still allocation links storage before caller field init; make marker allocates before copying input procedure with root TODO",
+    "hazard": "Unknown initialization or unrooted moving input cannot be cured by park flag",
+    "proposedReplacement": "Generated InitSpec with scan-safe fields and root-before-allocation; retain construction escrow until complete",
+    "nativeWitness": false
+  },
+  {
+    "caller": "continuation-stack-scanner",
+    "sourceAnchors": "lib/mem.c:3898-3966",
+    "finding": "mark_continuation reads ps.fp, return-specific frame size/link/gcmap and captured continuation",
+    "hazard": "Native C stack is not this scanner; stale frame map/cursor or changed stack break loses roots",
+    "proposedReplacement": "Frozen FrameSpec-backed topology and live native frame; collector updates described stack/heap root cells",
+    "nativeWitness": false
+  },
+  {
+    "caller": "register-saved-and-processor-roots",
+    "sourceAnchors": "lib/mem.c:6511-6574,6844-6867",
+    "finding": "mark_registers/saved/type_cache/processor scan actual PSTATE arrays after continuation",
+    "hazard": "Freeze snapshot of SCMOBJ values becomes stale after relocation; descriptions and backing must survive",
+    "proposedReplacement": "Exclusive updateable cells plus post-scan R_ALL/handle reload; participant-independent root adapter",
+    "nativeWitness": false
+  },
+  {
+    "caller": "rc-all-domain-root-gap",
+    "sourceAnchors": "lib/mem.c:684-825,3969-3987,6844-6850",
+    "finding": "RC data cells in per-PSTATE list are passed by address to mark_array; mark_rc selected in P0 branch",
+    "hazard": "Nonzero RC coverage and raw data_rc setters/borrowers not solved by current P0 scan",
+    "proposedReplacement": "All-domain RootRegistry enumerates stable RC backing and controlled access; freeze link topology and release old readers",
+    "nativeWitness": false
+  },
+  {
+    "caller": "queue-native-issue-cut",
+    "sourceAnchors": "lib/setup.c:170-204,365-393,396-419",
+    "finding": "Publisher spans queue unlock to PSTATE wakeup; service removes task before native execute_fn",
+    "hazard": "Empty queue/closed entry misses claimed callback, late postlude and nested cleanup work",
+    "proposedReplacement": "Import early ingress, publisher lease and dequeue-to-claim protocol; nested activation debt stays counted",
+    "nativeWitness": false
+  },
+  {
+    "caller": "device-wait-not-universal-park",
+    "sourceAnchors": "lib/_kernel.scm:4503-4519;lib/os_io.c:1472-1503,1532-1549",
+    "finding": "condvar select wrapper W_ALL before os select, R_ALL after return; select-abort writes wakeup pipe",
+    "hazard": "Blocking syscall and wakeup do not establish root-view acceptance or arbitrary syscall interruption",
+    "proposedReplacement": "Qualify native wait lock/effect/borrow profile; return to participating boundary or explicit no-managed-access native wait",
+    "nativeWitness": false
+  },
+  {
+    "caller": "native-catcher-and-return",
+    "sourceAnchors": "lib/setup.c:3276-3391;include/gambit.h.in:9981-9987;lib/_kernel.scm:1020-1072",
+    "finding": "___call saves marker/frame and installs stack catcher; return checks processor and live marker then unwinds",
+    "hazard": "Moving to helper thread, repeated entry or destroying stack invalidates native return rights",
+    "proposedReplacement": "Preserve same native thread/catcher lease, original call count and exception guard; no collector longjmp",
+    "nativeWitness": false
+  },
+  {
+    "caller": "nested-exit-and-cleanup",
+    "sourceAnchors": "include/gambit.h.in:10043-10064;lib/setup.c:3393-3420,4665-4672;examples/tcltk/tcltk.scm:178-194",
+    "finding": "SFUN kill/propagate path, ___run catcher and Tcl delete release resources across native boundaries",
+    "hazard": "Parked activation is not completed; deletion or inner return cannot retire outer root/catcher backing",
+    "proposedReplacement": "Activation stack census, exit-vs-scan arbitration, deferred resource disposition and outer native-frame retention",
+    "nativeWitness": false
+  },
+  {
+    "caller": "round-completion-and-reload",
+    "sourceAnchors": "lib/mem.c:4525-4567,7003-7085;lib/os_thread.c:697-710",
+    "finding": "GC barriers, cleanup/resize/fudge then notify GC before prepare fp/hp/limits; binding function sets TLS/affinity",
+    "hazard": "Notification or TLS pointer is not fresh context/root authorization",
+    "proposedReplacement": "Whole-round/context/binding/root reload then atomic fresh permit; scanned root alone not complete round",
+    "nativeWitness": false
+  },
+  {
+    "caller": "owner-teardown-and-join",
+    "sourceAnchors": "lib/setup.c:924-980,4834-4875;lib/mem.c:4928-4964;lib/os_thread.c:546-592",
+    "finding": "PSTATE cleanup frees RC/still/OS state; thread join comes later and errors do not preserve canonical envelope",
+    "hazard": "Death/failed join cannot prove arbitrary in-flight store stopped or native stack recoverable",
+    "proposedReplacement": "Retain VM root/resource debt; known stop may allow cleanup but never resurrect dead native invocation; unknown refuses receipt/resume",
+    "nativeWitness": false
+  }
+]

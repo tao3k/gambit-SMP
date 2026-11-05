@@ -1,0 +1,27 @@
+direction: down
+classes: {
+  scheme: {style.fill: "#E5F1FB"; style.stroke: "#28618A"}
+  transition: {style.fill: "#FFF1D9"; style.stroke: "#A36918"}
+  runtime: {style.fill: "#E7F4E8"; style.stroke: "#397344"}
+  native: {style.fill: "#EEE8FC"; style.stroke: "#6A4698"}
+}
+g3: "Scheme G3 completion\nOP03 debt + OP04 materialize live values\nAccount for boxing; exact incoming frame / closure env\nOP06 private RETI point + FrameSpec" {class: scheme}
+emit: "Zig realizes the frozen check / state plan\nOne C/native FrameLayout\nNo hidden collecting spill or new resume point" {class: native}
+g3 -> emit
+test: "OP07 heap / poll predicate\nNone differs from Some(0)\nPreserve masking and check order" {class: transition}
+emit -> test
+ipre: "Slow edge: IPRE\ntemp1 = private resume RA\nR03 stack-limit / R04 heap-limit\nNo GC before full frame construction" {class: transition}
+test -> ipre: "triggered"
+full: "OP09: IFULL\nAlign CFS, push ALL GVM registers + actual RA\nR0 = runtime internal-return marker\nProtocol roots remain live" {class: runtime}
+ipre -> full
+publish: "OP10: PUBLISHED\nStore frame RA, write back state\nComplete frame chain and required root carriers" {class: runtime}
+full -> publish
+service: "OP11-OP12: runtime service\nMay collect / move / dispatch Scheme interrupts\nReload state + current RA after ordinary return" {class: runtime}
+publish -> service
+escape: "Explicit exceptional / nonlocal edges\nOverflow raise may return and retry\nScheme reentry / capture / escape\nNo generic returning-C-error substitute" {class: transition}
+service -> escape
+restore: "OP13: R14 internal-return\nPreserve R1 in temp2 for force result\nPop actual RA + registers; undo alignment" {class: runtime}
+service -> restore: "ordinary return / admitted stack-only resume"
+resume: "Private resume PointId\nCaller state / cache obligations restored\nMarker role is NOT this RETI point" {class: scheme}
+restore -> resume
+test -> resume: "fast edge, no saved extension"

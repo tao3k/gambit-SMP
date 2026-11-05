@@ -1,3 +1,4 @@
+from gambit_smp.task_processes import check_output as _task_check_output
 #!/usr/bin/env python3
 """Validate a downloaded PR's complete diff inventory without applying it."""
 import argparse
@@ -23,7 +24,7 @@ def role(name):
 
 def inventory(directory):
     files = json.loads((directory / "files.json").read_text())
-    output = subprocess.check_output(["git", "apply", "--numstat", str((directory / "full.diff").resolve())], text=True)
+    output = _task_check_output(["git", "apply", "--numstat", str((directory / "full.diff").resolve())], text=True)
     rows = list(csv.reader(io.StringIO(output), delimiter="\t"))
     actual = {name: (int(added), int(deleted)) for added, deleted, name in rows}
     if len(actual) != len(rows) or len(files) != len(actual):
@@ -59,6 +60,9 @@ def main():
     counts = {kind: sum(row["role"] == kind for row in rows) for kind in {row["role"] for row in rows}}
     print("UPSTREAM-INVENTORY-OK", len(rows), json.dumps(counts, sort_keys=True))
 
+
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('upstream-audit')(main)
 
 if __name__ == "__main__":
     main()

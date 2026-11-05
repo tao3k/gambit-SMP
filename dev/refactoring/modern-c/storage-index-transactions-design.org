@@ -1,0 +1,167 @@
+#+TITLE: C23 Unified Storage Index — Concurrent Reservation and Custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:t
+
+* RESEARCH Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: storage-index-transactions
+:BASELINE: C23
+:ARCHITECTURE_AUTHORITY: GambitStorageIndexTransactions
+:STATUS: conditional-formal; native-integration-open
+:END:
+
+Modern C remains the runtime implementation baseline. This study designs a VM-facing storage service inside a process allocator authority. It extends [[file:registry-slot-issuance-design.org][registry and SlotKey issuance]] from one applicant to two interleaved applicants. It does not implement a registry, change Gambit, qualify Darwin atomics, or run a native test.
+
+The central decision is one transaction authority for reservation occupancy, root-bundle publication, operation results and exact source-lease settlement. A reference C23 owner mutex serializes short metadata mutations; preparation of independently rooted, disjoint candidates can proceed outside that lock. An immutable-snapshot CAS implementation is an alternative with additional obligations, not a free consequence of the atomic model. A single global CAS is not mandated for the whole runtime.
+
+The native [[file:models/sysml/storage-index-transactions.sysml][SysML package]] owns source anchors, component/action/proof routes, obligations, C memory requirements, graph edges and cost rows. Python invokes the native SysML evaluator, checks exact source hashes, runs actual ASCENT rules and formal tools, then projects [[file:storage-index-transactions-matrix.org][the matrix]] and [[file:diagrams/storage-index-transactions.d2][D2]]. There is no Python SysML parser. Validation is scoped to this self-contained package, not all DEV.
+
+* RESEARCH What the modular source actually supplies
+:PROPERTIES:
+:CUSTOM_ID: storage-index-source-boundary
+:END:
+
+The current physical implementation is [[file:../../../vendor/gambit/lib/_mem/rc-allocation.inc][rc-allocation.inc]]. Allocation adds a header; registration writes =tail->next = h=; =set_data_rc= writes =h->data = val=; decrement-to-zero and =cleanup_rc= can free the header. The [[file:../../../vendor/gambit/include/_gambit/memory_state.h.in][RC layout]] has links, refcount and Scheme data, without the proposed storage identity, interval reservation or durable operation ledger. Header composition comes from [[file:../../../vendor/gambit/include/makefile.in][HEADER_CONFIG]]; memory fragments are included by [[file:../../../vendor/gambit/lib/mem.c][mem.c]]. All 69 composition inputs bound by the parent receipt are hash-checked here; this is lexical provenance, not generated-header qualification.
+
+Actual root relocation writes the =h->data= cell through [[file:../../../vendor/gambit/lib/_mem/rc-roots.inc][mark_rc]]. The final [[file:../../../vendor/gambit/lib/_mem/collection-round.inc][collection barrier]] drains stopped root views. The descriptor claim in [[file:../../../vendor/gambit/include/_gambit/vm_state.h.in][vm_state.h.in]] reads origin/incarnation before claiming: generation comparison cannot make a freed origin safe to dereference. Existing root task publication is a useful restricted predecessor, not an arbitrary-storage pin implementation.
+
+The real Tcl adapter [[file:../../../vendor/gambit/examples/tcltk/tcltk.scm][tcltk.scm]] installs a vector with =set_data_rc=, passes a raw RC pointer as client data, reads it on callback and releases it on deletion. The exported setter table in [[file:../../../vendor/gambit/lib/setup.c][setup.c]] also admits indirect callers. Therefore private copies of Scheme payloads alone cannot free the raw header. Bulk [[file:../../../vendor/gambit/lib/_mem/memory-lifecycle.inc][PSTATE cleanup]] must not bypass accepted borrowers. These are actual migration points, not evidence that a new transaction owner already exists.
+
+* RESEARCH Identity and interval semantics
+:PROPERTIES:
+:CUSTOM_ID: storage-index-identities
+:END:
+
+#+NAME: storage-identity-domains
+| Identity | Issuer and exact meaning | Must not substitute |
+|----------+--------------------------+---------------------|
+| AllocationKey | Process allocator domain, StorageId, storage generation | Raw address or VM namespace alone |
+| OwnedExtent | AllocationKey, checked offset/count, alignment, parent provenance | Ordering or subtracting unrelated C pointers |
+| SlotKey | AllocationKey and schema field coordinate | Scheme object identity; distinct cells both require GC update |
+| ReservationId | Unique request attempt and exclusive claimed extent | Root-entry identity or known canonical subview |
+| OperationId | Stable request issuer and sequence, immutable request digest | Storage generation or a new retry allocation |
+| SourceLeaseKey | Source identity, binding generation, LeaseId and operation | Bare decrement, storage address, or payload equality |
+| IndexRevision | Whole affected transaction domain state revision | Allocation incarnation, GC round or semantic payload version |
+
+Exclusive interval occupancy covers pending, live, closing and drained-but-unsettled claims. It does not prohibit multiple legal aliases of the same canonical allocation. A proven subview resolves to its parent's allocation identity; it does not create another exclusive allocation claim. Unowned exact/partial overlaps reject issuance. Adjacent nonempty intervals can be independent only under an allocator/arena partition certificate. Zero-sized RC payload still has a nonempty root-bearing header extent; zero-length byte requests cannot conceal this allocation.
+
+Checked offset arithmetic uses a signed allocation extent and schema coordinates. Bounds, overflow, alignment, ownership domain and lifetime must be validated before native pointer formation. Same-address reuse requires a new generation after all old claims drain; unrelated VM names do not authorize two owners for one allocation.
+
+* RESEARCH Transaction protocol and linearization obligations
+:PROPERTIES:
+:CUSTOM_ID: storage-index-transactions-protocol
+:END:
+
+#+NAME: storage-transaction-contract
+| Transition | Inside the owner transaction | Outside and custody |
+|------------+------------------------------+---------------------|
+| Observe | Obtain pinned revision and allocation generation | Snapshot is advisory; never a reservation |
+| Reserve | Revalidate open admission, provenance, checked interval, revision/generation, all occupied claims; insert reservation plus exact source lease | Winner owns the interval before preparation; conflicting loser keeps its private source protection until definite rejection |
+| Prepare | No metadata publication yet | Source already scan-visible before any allocation; privately rooted carrier and descriptor are prepared; failures retain the reservation until definite abort |
+| Publish | Validate same reservation; publish complete root bundle and immutable operation result as one observable state | Commit may succeed without a response; source and target owner retain custody |
+| Query/retry | Locate exact OperationId and matching request digest; return existing result | No repeat registration; same ID/different digest is an error; absent record is not proof of noncommit without a retained issuer fence |
+| Revoke | Close new lookup/borrow admission; preserve existing users, scans and result | Revoke is not physical unlink, free or source-lease return |
+| Drain | Verify observed result and exact accepted-user/scan completion | Unknown users or result retain stable owner responsibility |
+| Settle/unlink | Validate exact lease and generation; record completion, return source lease and remove occupancy atomically | Duplicate settlement returns prior result; no second decrement; source writes resume only if source remains open and every lease is settled |
+| Reuse | Require all backing users, native pins, source leases, scans and descriptor grace settled; advance checked generation | Preserve replay records or obtain a separate replay-window closure receipt before reclaiming them |
+
+For a new allocation index entry, reservation is the overlap-exclusion linearization point. Publication is the externally usable bundle/result linearization point. Revocation closes entry admission; a lookup admitted before that point must be included in drain. Settlement and occupancy removal share one transaction so a new overlapping reservation cannot observe a free extent while the old source lease still carries unresolved responsibility. The source allocation cannot be reclaimed merely because an individual index entry unlinks.
+
+Cancellation of a pending request races with publication under the same owner: either definite abort precedes publication, or cancellation becomes revoke of the committed entry. A timeout or lost reply decides neither case. An abort receipt is valid only when publication is excluded and the result is recorded under the exact operation identity. No Scheme callback, allocation or nonlocal continuation transfer may occur inside this short commit region. If an executor disappears at an unknown native instruction, poison/retain the transaction domain pending an independent recovery proof; C23 mutexes alone do not provide owner-death or crash recovery.
+
+A lock-based reference may discard a stale snapshot and recompute the full overlap predicate inside the lock. The model instead requires a fresh revision, a deliberately stronger admission condition that also supports an optimistic refinement. Revision equality without pinned lifetime and complete occupancy is insufficient. Sharding must preserve one authority for cross-shard extents: deterministic domain assignment or ordered multi-domain transactions is required. A per-VM index alone cannot prove cross-VM exclusion.
+
+* RESEARCH C23 publication, GC and source writer coordination
+:PROPERTIES:
+:CUSTOM_ID: storage-index-c23
+:END:
+
+The [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf][WG14 N3096 C23 working draft]], especially 5.1.2.4, 7.17 and the thread mutex clauses, is a public language-model source, not a claim of current Darwin compiler/library conformance. Successful owner lock handoff orders protected metadata. Any reader bypassing that mutex requires a separately proved atomic publication and lifetime protocol. Ordinary and atomic access to the same concurrently mutable field cannot be mixed arbitrarily.
+
+For a snapshot alternative, fully initialize a privately rooted bundle, pin the expected index snapshot, validate overlap against it, then use release/acquire or stronger successful CAS ordering. Failed CAS must leave private allocations and leases owned and trigger revalidation. Its returned expected pointer must not be dereferenced without acquire visibility and safe pinning. Failure ordering cannot be release or acq_rel; spurious weak-CAS failure is not a definitive conflict. Publishing the root list and receipt by separate CAS operations does not implement one abstract commit.
+
+Descriptor immutability covers identity/schema, not the Scheme root cell which GC updates. A scanner needs exact slot identity, stable backing, exclusive update ownership and a registration cut for every GC round. Either join a round before its producer-close cut, or retain source coverage and defer activation until the next admissible round. A target merely reachable from an unscanned native pointer is not a rooted target. GC relocation is distinct from a semantic =set_data_rc= write. The alias lease freezes semantic source binding but must permit collector-authorized slot relocation.
+
+Never wait for a GC that needs this owner while holding its index lock. Private preparation and scan admission need a nonallocating rooted carrier/reservation handoff before the first allocation. The new finite model treats this as a trusted =prepare= premise; it does not prove the actual GC root, payload or collector-view product. Existing =__sync_val_compare_and_swap= alternatives in [[file:../../../vendor/gambit/include/_gambit/activity_log.h.in][activity_log.h.in]] do not establish the C23 field ABI or effective Darwin selection.
+
+* RESEARCH Lost replies, generation reuse and custody
+:PROPERTIES:
+:CUSTOM_ID: storage-index-unknown-custody
+:END:
+
+#+NAME: unknown-custody-matrix
+| Situation | Stable custodian | Evidence required before release |
+|-----------+------------------+----------------------------------|
+| Reserve response lost | Allocator/index owner plus submitting source owner | Exact query or fenced definite no-commit; no blind second ReservationId |
+| Preparation fails | Source owner and reservation owner | Abort recorded before any possible publication; release private roots after abort is known |
+| Publish response lost | Registry commit owner retains bundle/result; source retains its lease | Same-operation observed result; no timeout inference |
+| Revoke response lost | Same registry owner continues admission closure/drain | Exact query; accepted users still included |
+| Last source settlement response lost | Stable exact-key ledger records settled result | Retry returns recorded result without decrementing a new lease |
+| Generation exhausted | Retired allocation authority retains the old identity | Refuse issuance or allocate a genuinely new identity domain; never wrap |
+| Native cleanup outcome unknown | VM/arena custodian remains alive | All foreign/raw borrower and GC/storage receipts; no unconditional cleanup_rc |
+| Owner/process crash | No generic recovery signer established | Remains unresolved; in-process formal idempotence is not crash durability |
+
+Tombstones cannot be reclaimed just because the interval is reusable. A delayed query may still require the old outcome after generation advances. Full request digest comparison and a nonreused issuer sequence prevent a retry from accidentally naming another operation. ReplayWindowClosed must exclude every old requester/continuation/native retry before tombstone retirement. No such generic signer is identified here.
+
+* RESEARCH Actual models and proof boundaries
+:PROPERTIES:
+:CUSTOM_ID: storage-index-formal
+:END:
+
+[[file:models/quint/storage_index_transactions.qnt][QNT]] models two fixed OperationIds with independent snapshots, preparation, borrow/scan and settlement state. A claims [0,8); B claims [4,12) or certified adjacent [8,16). Coordinates are abstract owner-domain offsets, not measured RC addresses. The global generation abstracts a single backing cohort; this is not an arbitrary allocator product.
+
+States are 0 unused, 1 reserved, 2 live, 3 closing, 4 drained/aborted but still occupied, 5 settled/unlinked. Lease custody persists through 1–4. Publication leaves acknowledgement unknown. =query= represents successful observation; a lost query response is stutter, not evidence of knowledge. Revocation permits existing scan/borrow completion but no new admission. Source writes require both leases absent. Reuse retains old per-operation state, advances generation and rejects old settlements. Each actor reserves at most once; new arbitrary operations after reuse are outside the finite protocol.
+
+The restricted typed-IR projector produces [[file:models/lean/StorageIndexAst.lean][Lean AST]] and [[file:models/lean/StorageIndex.lean][all-action preservation plus reachable-state induction]]. [[file:models/lean/StorageIndexAlgebra.lean][Generic interval insertion and lease identity theorems]] separately cover arbitrary list length and exact generation/operation identity. They do not establish a simulation of an arbitrary concurrent native index. The JSON parser/projector and Quint-to-Lean expression interpretation remain trusted; four corruption controls test rejection, not parser verification.
+
+Three explicit histories cover pending overlap, adjacent interleaving and lost publish reply through reuse. Random bounded traces are supplementary; safety induction is the unbounded-step result for this finite-identity abstraction. No fairness, eventual drain, bounded retry or capacity result follows.
+
+Four concrete mutants prove a safe predecessor and the mutated action guard, then prove the desired postcondition false: ignoring pending overlap; draining an unknown publication result; clearing the source lease during revoke; and reusing generation unchanged. The deliberately asserted unsafe property must fail alone. These are counterexamples, not merely unsuccessful induction searches. A first proof tactic failure is retained separately and is not a runtime counterexample.
+
+[[file:../../modeling/ascent/storage-index-transactions.rules.scm][ASCENT DSL]] joins exact SysML component/action/source/proof/obligation identities. Ten scenarios include wrong owner, stale source digest, missing action, lemma, route, algebra, formal receipt and wrong scope. Only an explicitly synthetic complete-receipt scenario may pass full admission. Actual source/platform/root/writer/lifetime/execution obligations stay open. A linked route is an identified proof obligation, not a source-to-native refinement theorem.
+
+* RESEARCH Net benefit and migration gates
+:PROPERTIES:
+:CUSTOM_ID: storage-index-benefit
+:END:
+
+#+NAME: storage-work-cost-model
+| Quantity | Baseline work or exposure | Proposed work | Positive-return condition |
+|----------+---------------------------+---------------+---------------------------|
+| Repeated same-operation submissions r | Up to r independent side-effect attempts if caller retries blindly; not a measured existing frequency | One reservation/publication plus r-1 exact queries | Saved repeated preparation/registration exceeds query and record maintenance |
+| n occupied extents per domain | No complete canonical overlap authority found in current RC list | O(n) reference checks per reserve; balanced interval index requires additional proof | Duplicate checks/scans and ownership ambiguity eliminated exceed index lookup/update/retention cost |
+| k source-sharing aliases | Existing raw setter cannot enforce a safe freeze | k exact live lease records; writer proceeds only when all settle | Alias sharing is useful enough to justify blocked writer time; copy branch may shorten freeze at added storage/root cost |
+| Disjoint preparation jobs p | No inferred current scheduling count | Up to p independent preparations subject to GC/session isolation; metadata transactions serialize | Useful parallel preparation exceeds owner contention and GC synchronization; no p-fold claim |
+| Unresolved operations u | Unsafe cleanup or indefinite caller-local retention risks | Stable owner retains u bundles and tombstones until known | Available capacity admits retained u; otherwise admission backpressure, not optimistic free |
+| Retry settlement d times | A blind decrement can consume another obligation | One successful exact settlement; d-1 read/validation outcomes | Correctness improvement unconditional under premises; time savings depend on real duplicate frequency |
+
+For one consistent workload, define avoided work A in CPU work units, added transaction/index work T, query work Q, GC integration work G, retry/reclamation work R and contention work C. CPU-work improvement requires A > T+Q+G+R+C. Live-byte and blocked-time budgets are separate constraints, not added as if they were CPU units. If unknown outcomes never resolve or a global lock dominates, there is no proved performance net benefit. No source evidence supplies frequencies or durations here; no speed ratio is asserted.
+
+Modern C and Zig both need the same allocator authority, interval/provenance validation, GC adapter, exact operation ledger and cleanup/continuation boundary. Zig syntax or allocators do not remove these obligations. Its additional net return remains unproved. Modernization value here is a single auditable ownership service that can replace contradictory per-caller assumptions and support parallel preparation; implementation language alone does not deliver it.
+
+#+NAME: storage-retirement-gates
+| Old responsibility | Replacement and mandatory gate | Current status |
+|--------------------+--------------------------------+----------------|
+| Plain RC insertion as generic root admission | Owner transaction plus complete root-bundle/GC activation cut | Cannot retire yet |
+| Raw setter as managed semantic write | Source lease mediation and complete exported/indirect caller inventory | Cannot retire yet |
+| Refcount zero as physical release authority | Exact key settlement plus native borrow, descriptor and GC grace receipts | Cannot retire yet |
+| cleanup_rc unconditional destruction of active carriers | VM-owned retained domain and scan-visible storage handoff | Cannot retire yet |
+| Caller-local retry without operation record | Nonreused operation identity, immutable request and queryable result | Proposed managed callers only; actual ABI unqualified |
+
+Migration order: allocator provenance and transaction authority; nonallocating source/root protection; scan-visible candidate preparation; coupled root/result publication; mediated setters and raw borrowers; exact drain/settlement; then retired-context cleanup and generation reuse. Old public C APIs remain outside managed admission until adapted or explicitly refused. No compatibility promise is made by weakening the new ownership contract.
+
+* RESEARCH Reproduction and closure receipts
+:PROPERTIES:
+:CUSTOM_ID: storage-index-reproduction
+:END:
+
+#+BEGIN_SRC python
+# From the repository environment; formal/design tools only.
+# .venv/bin/python dev/modeling/tools/storage-index-transactions-study.py
+#+END_SRC
+
+See [[file:../../../evidence/research/storage-index-transactions/checks.json][scoped checks]], [[file:../../../evidence/research/storage-index-transactions/input.json][source and log bindings]], [[file:../../../evidence/research/storage-index-transactions/ascent-results.json][ASCENT controls]] and [[file:../../../evidence/research/storage-index-transactions/artifacts.json][artifact hashes]]. Formal receipt scope never authorizes runtime retirement.
+
+The linearization design follows [[https://www.cs.cmu.edu/~wing/publications/HerlihyWing90.pdf][Herlihy and Wing, Linearizability (1990)]], especially the distinction between an operation's invocation, effect and response. This motivates explicit commit despite missing response; it does not prove this native implementation. C23 rules supply language constraints; Gambit source supplies the actual consumers; neither source replaces the missing cross-layer simulation.

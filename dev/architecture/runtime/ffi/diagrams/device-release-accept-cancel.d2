@@ -1,0 +1,32 @@
+direction: down
+classes: {
+  retained: {style.fill: "#e8f1fb"; style.stroke: "#346a98"}
+  proposed: {style.fill: "#eee8fb"; style.stroke: "#7053a1"}
+  gate: {style.fill: "#fff0d9"; style.stroke: "#ad7629"}
+}
+title: "One acceptance cut; cancellation does not erase accepted custody\nProposed transition table under service lock L" {shape: text}
+prepared: "Prepared AttemptRecord\nRegistered AttemptId + issuer + reservation\nCreator still owns private payload" {class: proposed}
+cancelled: "WSO06 AbortSubmission wins\nPreacceptCancelled: Accept forbidden\nCreator rollback remains counted" {class: proposed}
+accepted: "WSO07 Accept wins\nResource claim + TaskId + queue + custody\nReason / notification debt / pins committed" {class: proposed}
+prepared -> cancelled: "abort first under L"
+prepared -> accepted: "accept first under L"
+resolve: "Interrupted response\nResolve SAME AttemptId\nDo not submit destructive retry" {class: gate}
+accepted -> resolve
+run: "WSO08 / WSO09\nLater cancel: detach observer / cooperative stop\nTask keeps stage and release obligation" {class: proposed}
+accepted -> run
+result: "Known status + native disposition\n+ partial external effects\nUnknown stays retained with dependencies" {class: proposed}
+run -> result
+observer: {
+  label: "Independent observer cut / under L"
+  direction: down
+  ready: "Attached / Ready"
+  detach: "Detached before delivery claim\nNo new callback for this observer" {class: proposed}
+  claim: "DeliveryClaimed first\nInvoker holds outcome + root/reentry custody" {class: proposed}
+  ready -> detach: "detach wins"
+  ready -> claim: "claim wins"
+}
+result -> observer.ready
+observer.claim -> managed: "outside L"
+managed: "Gambit root / owner / continuation contract\nLater cancel cannot revoke live stack/pins" {class: retained}
+alias: "Required C-layer reconstruction\nRaw FOREIGN_PTR_FIELD and wrapper clearing\nmust resolve one authority / proven alias frontier\nNo movable heap mutation under L" {class: gate}
+prepared -> alias: "current ABI is not atomic with Accept"

@@ -7,7 +7,8 @@ import re
 
 from gambit_smp.framework import ROOT, digest
 from gambit_smp.gc_wait_source import matched
-from gambit_smp.protocol_evidence import portable, relative
+from gambit_smp.protocol_evidence import relative
+from gambit_smp.output_observations import recorded, observe, binding
 
 
 def validate(root, record):
@@ -51,9 +52,8 @@ def checked(root, path):
     validate(root, record)
     for row in [record["compile"], *record["results"]]:
         log = relative(path.parent, row["log"])
-        if digest(log) != row["logSha256"]:
-            raise ValueError("component log digest differs")
-        if "actual" in row and json.loads(log.read_text()) != row["actual"]:
+        output = recorded(root, log, row["logSha256"], outputs=record.get("outputs"))
+        if "actual" in row and output.get("structured") != row["actual"]:
             raise ValueError("component log differs from recorded output")
     return record
 
@@ -83,11 +83,13 @@ def facts(root, checked_models):
         inputs.update(record["inputs"])
         for row in record["results"]:
             log = relative(path.parent, row["log"])
-            inputs[log.relative_to(root).as_posix()] = digest(log)
+            if not record.get("outputs"):
+                inputs.update(binding(root, log, row["logSha256"]))
             result.append((entry["model"], "POSIX-source-schedule-" + str(row["point"]),
-                           digest(path), digest(log)))
+                           digest(path), row["logSha256"]))
         compile_log = relative(path.parent, record["compile"]["log"])
-        inputs[compile_log.relative_to(root).as_posix()] = digest(compile_log)
+        if not record.get("outputs"):
+            inputs.update(binding(root, compile_log, record["compile"]["logSha256"]))
     return result, inputs
 
 
@@ -104,23 +106,24 @@ def main():
     saved["rawReceiptSha256"] = digest(args.from_dir / "receipt.json")
     logs = [(saved["compile"], "compile.log")]
     logs.extend((row, "point-" + str(row["point"]) + ".log") for row in saved["results"])
-    contents = {}
+    saved["outputs"] = {}
     for row, name in logs:
         raw = (args.from_dir / name).read_text()
         if "actual" in row and json.loads(raw) != row["actual"]:
             raise ValueError("raw log contradicts result")
-        contents[name] = portable(raw)
+        saved["outputs"][name] = observe((args.from_dir / name).read_bytes())
         row.update(log=name, rawLogSha256=digest(args.from_dir / name))
+        row["logSha256"] = row["rawLogSha256"]
     args.out.mkdir(parents=True, exist_ok=False)
-    for name, content in contents.items():
-        (args.out / name).write_text(content)
-    for row, name in logs:
-        row["logSha256"] = digest(args.out / name)
     (args.out / "receipt.json").write_text(json.dumps(saved, indent=2) + "\n")
     checked(ROOT, args.out / "receipt.json")
     print("SOURCE-COMPONENT-EVIDENCE-OK; runtimeAdmitted=false")
     return 0
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('publish-source-observation')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('publish-source-observation', main))

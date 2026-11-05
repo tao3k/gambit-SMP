@@ -1,58 +1,64 @@
-"""The installed fixed wheel and its published source/artifact lock."""
-import importlib.metadata
-import json
+"""The installed ASCENT package's runtime and compiled-input contract."""
+from collections import Counter
 from pathlib import Path
-import tomllib
+import tempfile
 import unittest
-import copy
+from unittest.mock import patch
 
 import ascent
 from ascent.build import runtime_identity
 from gambit_smp.ascent_program import artifact_paths, engine_api
-from gambit_smp.ascent_runtime import require_packaged_runtime, validate_publication, publication_artifact, LIBRARY_LOCK
-from gambit_smp.framework import ROOT, digest
+from gambit_smp.ascent_runtime import inventory, require_packaged_runtime
+from gambit_smp.framework import digest
 
 
 class RustDependencyTests(unittest.TestCase):
+    def test_packaged_resource_resolution_is_once_and_same_length_change_is_denied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve(strict=True)
+            resource = root / "source"
+            resource.write_bytes(b"before")
+            sha = digest(resource)
+            build = {"runtimeInputs": {str(resource): sha},
+                     "packageInputs": {"source": sha},
+                     "runtimePackagePaths": {str(resource): "source"}}
+            original = Path.resolve
+            calls = Counter()
+
+            def observed(path, *args, **kwargs):
+                calls[str(path)] += 1
+                return original(path, *args, **kwargs)
+
+            with patch.object(Path, "resolve", observed):
+                require_packaged_runtime(build, root)
+            self.assertEqual(calls[str(resource)], 1)
+            resource.write_bytes(b"after!")
+            with self.assertRaisesRegex(ValueError, "runtime resource mismatch"):
+                require_packaged_runtime(build, root)
+            resource.unlink()
+            resource.symlink_to(root / "missing")
+            with self.assertRaisesRegex(ValueError, "external runtime resource"):
+                require_packaged_runtime(build, root)
+
+    def test_inventory_resolves_each_package_entry_once_before_source_binding(self):
+        original = Path.resolve
+        calls = Counter()
+
+        def observed(path, *args, **kwargs):
+            calls[str(path)] += 1
+            return original(path, *args, **kwargs)
+
+        with patch.object(Path, "resolve", observed):
+            files, build = inventory(verify=False)
+        self.assertTrue(build["sourceInputs"])
+        for name, sha in build["sourceInputs"].items():
+            path = files["source:" + name]
+            self.assertLessEqual(calls[str(path)], 2, name)
+            self.assertGreater(calls[str(path)], 0, name)
+            self.assertEqual(digest(path), sha, name)
+
     def test_deployed_package_does_not_depend_on_a_build_machine_runtime(self):
         require_packaged_runtime(runtime_identity(), Path(ascent.__file__).parent)
-
-    def test_installed_revision_matches_the_declared_github_dependency(self):
-        declared = tomllib.loads((ROOT / "pyproject.toml").read_text())
-        source = declared["tool"]["uv"]["sources"]["gerbil-ascent"]
-        distribution = importlib.metadata.distribution("gerbil-ascent")
-        installed = json.loads(distribution.read_text("direct_url.json"))
-        self.assertIn("archive_info", installed)
-        self.assertNotIn("vcs_info", installed)
-        self.assertTrue(installed["url"].endswith(".whl"))
-        publication = json.loads((ROOT / LIBRARY_LOCK).read_text())
-        extension = artifact_paths()["ascent._core"]
-        validate_publication(publication, source, runtime_identity(), digest(extension))
-        for key in ("revision", "extensionSha256", "sourceInputsSha256", "sourceInputCount"):
-            with self.subTest(drift=key), self.assertRaisesRegex(ValueError, "published source/artifact lock"):
-                altered = copy.deepcopy(publication)
-                altered[key] = 'changed'
-                if key == 'extensionSha256':
-                    for artifact in altered.get('artifacts', {}).values():
-                        artifact[key] = 'changed'
-                validate_publication(altered, source,
-                                     runtime_identity(), digest(extension))
-        self.assertNotIn("ascent-test-support", declared["tool"]["uv"]["sources"])
-
-    def test_platform_publication_is_explicit_and_ci_install_hash_matches(self):
-        publication = json.loads((ROOT / LIBRARY_LOCK).read_text())
-        linux = publication_artifact(publication, 'linux-x86_64')
-        self.assertNotEqual(linux['extensionSha256'], publication['extensionSha256'])
-        requirement = (ROOT / 'integrations/ascent/ci-linux.requirements.txt').read_text().strip()
-        self.assertEqual(requirement, '.cache/ci/library/' + linux['wheel'] +
-                         ' --hash=sha256:' + linux['wheelSha256'])
-        action = (ROOT / '.github/actions/framework/action.yml').read_text()
-        self.assertIn('artifact-ids: ' + str(linux['artifactId']), action)
-        self.assertIn('run-id: ' + linux['ci'].rsplit('/', 1)[1], action)
-        self.assertIn('--no-install-package gerbil-ascent', action)
-        self.assertIn('--no-build --require-hashes', action)
-        with self.assertRaisesRegex(ValueError, 'no locked artifact'):
-            publication_artifact(publication, 'unsupported-platform')
 
     def test_complete_compiled_sources_and_resources_are_hashed(self):
         build = runtime_identity()

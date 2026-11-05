@@ -1,0 +1,389 @@
+#+TITLE: Root Completeness, Real Users and Collector Work Assignment
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: runtime
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Root Completeness, Real Users and Collector Work Assignment :runtime:
+:PROPERTIES:
+:ID: ed393432-745e-593a-8198-23ba6deb0088
+:CUSTOM_ID: root-completeness-real-users-and-collector-work-assignment
+:SOURCE_PATH: docs/experimental/zig/shared-runtime-root-custody-design.md
+:SOURCE_SHA256: 708b1dcb6ca1ad8a622342afd0f9f549d4e2c00db29ec6c4315dcdc4af3ae35e
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Architecture research only. This study refines PA03/PA05
+and the PA04 collector boundary in the [[file:shared-runtime-proof-argument.org][conditional argument]].
+Read the [[file:shared-runtime-root-custody-evidence.org][source ledger]],
+[[file:shared-runtime-root-custody-matrix.org][cost and retirement matrix]] and
+[[file:../../../../../docs/experimental/zig/shared-runtime-root-custody-traceability.json][trace map]].
+No implementation, native test, compiler, model executor, prover or solver ran.
+The arguments below are handwritten and conditional; source correspondence is
+not whole-program completeness or a positive economic certificate.
+
+*** 1. Architectural Decision
+:PROPERTIES:
+:ID: e2f0a1ca-4d15-5ce7-b2a3-6eb03db455d0
+:CUSTOM_ID: 1-architectural-decision
+:END:
+
+Keep Gambit's language-level liveness, closure, tail-call, continuation and
+foreign-effect policy in Scheme. Export their decisions before C rendering.
+Give the native plane physical frame/map production, owned construction and
+resource/worker services under that policy. Retain the selected collector's
+object traversal and movement semantics until independently replaced. This is
+substantial separation of runtime authorities, not a new wrapper around C macros.
+It follows the original Gambit front/back communication principle [RC-P01],
+without assuming the historical PVM is today's complete ABI.
+
+Use three different identity sets: execution contexts M(e), root contributors
+K(e), collector workers W(e). Add a fourth: heap/storage shards H(e). A parked
+context need not execute GC; its roots and heap ownership still exist. Request admission fixes required
+contributor/storage domains, not a final list of physical sections: a member
+can allocate more sections before acknowledging. Seal actual H(e) only after
+those writers stop, together with the final root/storage cut. Workers
+need scanning/allocation scratch, but are not the identity of the context whose
+stack or saved slots they scan. The current ~___ps~ conflates these roles in
+several paths [RC-S05/S06]. No global substitution of ~processor_count~ is valid.
+
+The strongest new source findings are:
+
+* A bitmap constructor/decoder path can be followed through Scheme, C descriptor
+  packaging and ~mark_frame~. Its correctness is separable from the harder proof
+  that all live references and every collecting edge were supplied.
+* The RC header has one traced ~data~ slot. Native string bytes, callback state,
+  OpenSSL state and executable/map lifetime require different contracts.
+* Actual consumers include Tcl command callbacks/deletion, TLS server accept,
+  foreign release functions during GC, native returns and GC queue thieves.
+  A refcount, successful join or provider ~remove~ alone does not cover them all.
+
+*** 2. Safepoint Description Completeness
+:PROPERTIES:
+:ID: fb548352-6d29-5bd8-a362-3a5bf45108a4
+:CUSTOM_ID: 2-safepoint-description-completeness
+:END:
+
+[[file:../diagrams/shared-runtime-root-coverage.svg][Semantic coverage and physical decoding]]
+[[file:../diagrams/shared-runtime-root-coverage.d2][D2 source]].
+
+**** 2.1 Separate four obligations
+:PROPERTIES:
+:ID: bbb95b6f-5590-5abf-9deb-84be4a2d6769
+:CUSTOM_ID: 21-separate-four-obligations
+:END:
+
+For an admitted program/profile, let E be all edges capable of collecting,
+parking, callback/reentry or transferring control. Let Live(e) be references that
+must survive edge e, including bases for derived aliases. Let D(e) be the supplied
+descriptor and Decode(D) its valid writable locations under the current layout.
+
+1. *Edge coverage:* E is derived independently from the full operation/callee,
+   primitive, ForeignPlan and runtime-helper inventory. Each edge either has a
+   descriptor or a proved non-collecting/effect-bounded interval. Unknown indirect
+   callees are conservative collecting/callback edges or are outside admission.
+2. *Semantic coverage:* every required value in Live(e) has a custodian/location;
+   captured-variable liveness includes its closure environment. Root count alone
+   is insufficient. No allocating conversion may run before its arguments are safe.
+3. *Representation correspondence:* the issued locations are exactly those
+   interpreted by the selected map decoder; padding/unboxed slots are not scanned
+   as tagged pointers. Extra conservatively live locations contain valid words.
+4. *Temporal/reload coverage:* storage and map remain valid for the scan; writes
+   reach the actual locations; every later use reloads/relocates before managed
+   access. A saved pointer in a Zig local is no more discoverable than one in C.
+
+A manifest generated only from the maps cannot prove item 1. It would enumerate
+its own omissions. A backend must account for every selected operation and call
+edge using a separately reviewed effect inventory, including helper expansion
+and failure paths. This is a design acceptance rule, not an existing exporter.
+
+**** 2.2 Source correspondence and admission matrix
+:PROPERTIES:
+:ID: 5bcf6dd8-4ac4-5282-82ec-ca1c8145c19e
+:CUSTOM_ID: 22-source-correspondence-and-admission-matrix
+:END:
+
+| ID | Edge/root family and observed chain | Reuse | Required separation / unresolved obligation |
+|-
+| SDC01 | Heap/SSB/poll checks: materialize frame -> stack adjustment/check -> internal return label [RC-S02] | Existing liveness/cache logic and check semantics | Scheme emits checkpoint policy; backend implements layout/check. Direct check helper assumes callers materialized; it is not a standalone completeness proof. SSB support in the target does not establish a generational collector profile. |
+| SDC02 | Branch/switch/jump: entry/exit frame updates and end-of-block checks; jump inliner is an alternate path [RC-S02] | Existing control/liveness decision | Account for each inliner, fallthrough, exceptional edge and unchecked bounded path. Reviewing generic jump code does not close inlined primitive helpers. |
+| SDC03 | Ordinary/task/internal returns: frame slots, link and bitmap; internal frames additionally cover saved GVM registers/return [RC-S03] | FrameSpec semantics; ~frame-live?~ closure rule | Export kind, logical slot order, fs, link, live set and alignment inputs once. Prove physical encoding including IFD/OFD threshold, target word packing and RETI expansion. |
+| SDC04 | Scheme -> C procedure: move register arguments to frame; save return; all-live CFUN return map [RC-S02] | Argument ordering, all-live tagged frame and matching return | All-live is valid only for initialized tagged slots. Conversion-created values, blocking, callbacks and raw aliases need ForeignPlan effects and roots. |
+| SDC05 | C -> Scheme marker/~___call~ and unwind [RC-S07] | Foreign frame/marker identity and C control island | Root procedure before marker allocation; load closure value from its protected carrier; bind correct VM/context before conversions. Keep every crossed raw-longjmp frame inside C. Every failure/return/unwind has an explicit disposition. |
+| SDC06 | Runtime C temporaries: ~GC_SAVE1/2/3~ -> ~ps->saved~ -> ~mark_saved~ -> restore and clear [RC-S04] | Existing bounded helper discipline | Enumerate actual callers and nested saved-slot ownership before retiring it. Fixed scratch slots cannot become freely nested extents by renaming. Full helper caller/effect census remains open. |
+| SDC07 | Active/captured continuation: frame links/maps, copied frames and later continuation movement [RC-S04] | Selected collector's frame/object graph traversal | Pin code/map dependencies; distinguish active-stack borrow from relocated captured frames. No persistent flat physical-slot vector across frame movement. Tail/capture semantics stay in Scheme/runtime. |
+| SDC08 | Registers, saved slots, type cache, processor object, VM object, symbol/key and globals [RC-S05] | Existing root kinds and traversal semantics | Independent contributors exist beyond active stacks. Change processor-index root dispatch; preserve writer freeze and root strength. Do not assume one RC registry replaces these domains. |
+| SDC09 | RC ~data~, still external references, weak refs/wills and foreign cleanup [RC-S04/S05/S08] | Existing managed payload and phase semantics | Trace only declared managed fields; preserve strong/weak/finalizer ordering. Native callback/destructor and map/code use are lifetime edges, not extra strong Scheme roots. |
+
+This is a family-level selected-source correspondence, not a count of all
+safepoints, all primitives, all C helper callers or every target profile. PA03
+remains open for an admitted whole cohort until those independent inventories
+close. There is no native admission based on nine checked-looking table rows.
+
+**** 2.3 A local encoding argument, and what it does not prove
+:PROPERTIES:
+:ID: ffc02604-0426-5721-8ef5-36a6a3e03838
+:CUSTOM_ID: 23-a-local-encoding-argument-and-what-it-does-not-prove
+:END:
+
+~targ-build-gc-map~ visits the ordered slot list and adds 2^i iff the supplied
+predicate is true [RC-S03]. By induction on its loop, after k entries the
+accumulator is the sum of exactly the selected bits below k. This proves the
+abstract bit construction for that predicate, not its semantic completeness.
+The consumer starts slot index 1 and consumes bit 0 first; thus producer index i
+corresponds to logical frame slot i+1, after the producer's explicit reversal and
+frame extension. ~mark_frame~ passes contiguous set-bit runs to ~mark_array~.
+
+The intervening representation is substantive: return kind/fs/link/gcmap are
+packaged in ~_t-c-1.scm~; ~_t-c-3.scm~ chunks maps into 32-bit pieces; the header
+packs pairs on a 64-bit word, distinguishes IFD/OFD and expands RETI frame size.
+Only if those transformations and FrameSpec address mapping commute does the
+local bit argument imply correct actual locations. Bounds, signed shifts,
+endianness, descriptor lookup, alignment, map length and target setup remain
+physical refinement obligations. We have traced the path; we have not checked
+all configured instances or proved the compiler's liveness analysis.
+
+For the proposed backend require, for each selected point and stable interval:
+
+#+BEGIN_SRC text :eval never
+requiredLiveLocations(e) subset-of Decode(PhysicalMap(FrameSpec(e)))
+all decoded locations initialized and writable according to their root kind
+reloadUses(e) refer to relocated locations, never stale pre-edge aliases
+#+END_SRC
+
+FR uses explicit roots and Gambit frame products. SP is separately admitted LLVM
+statepoint/stack-map lowering with base/derived relocation and continuation
+compatibility; it is not enabled by importing a C header [RC-P02]. No requirement
+forces all transitive frame/object fields into an O(R)-sized flat root vector.
+Use stable-entry segments for PT03; mapped-frame traversal has an exclusive
+iterator/coordinate law under collector custody.
+
+*** 3. Resource-Specific Real-User Closure
+:PROPERTIES:
+:ID: d72156a9-e30f-56cf-870f-6ab0006c4346
+:CUSTOM_ID: 3-resource-specific-real-user-closure
+:END:
+
+[[file:../diagrams/shared-runtime-resource-users.svg][Issuers, users and reclamation]]
+[[file:../diagrams/shared-runtime-resource-users.d2][D2 source]].
+
+**** 3.1 What the local caller census establishes
+:PROPERTIES:
+:ID: de047627-04db-55b2-8447-70ebc28a16eb
+:CUSTOM_ID: 31-what-the-local-caller-census-establishes
+:END:
+
+Selected symbol searches covered ~vendor/gambit/lib~, ~gsc~, ~include~ and
+~examples~; exact examples/definitions are in RC-S07--S12. Public exported
+function pointers widen the caller boundary: this is not a closed-world census
+of downstream native applications or dynamically supplied destructors.
+
+| ID / resource | Real issuer -> actual consumer -> terminal operation | Required closure / remaining hole |
+|-
+| RUC01 context/frame/saved extent | ~___call~/runtime helper -> native return, nested invocation, stack/map walker -> matching return/restore; candidate retired processor -> joined donor transfer -> cleanup [RC-S04/S07/S13] | Pin active native return, captured continuation/map, ticket and scanner separately. Join ends a host thread; does not discharge a thief or retained callback. An independent VM root carrier need not retain the old context unless it uses its storage/maps. |
+| RUC02 managed RC data slot | alloc/register -> ~set_data_rc~ -> ~mark_rc~/~data_rc~ -> release/unlink; cleanup frees remaining headers [RC-S08] | Header membership and value custody are different from payload bytes. Native consumers and ticket readers must drain; plain refcount/list operations are not a cross-thread protocol. Retire only migrated managed slots, not all native RC. |
+| RUC03 Tcl command and result string | allocate RC + still vector -> publish with ~Tcl_CreateCommand~ -> ~scheme_call_cmd~; ~scheme_delete_cmd~ releases vector/header. Result string -> Tcl result -> ~release_string~ callback [RC-S09/P05] | Registration owns a future invocation right; each admitted invocation must pin callback state/image before deletion can release registration. Check NULL registration rollback, replacement, interpreter destruction, reentrant deletion and copied/changed client data. Source shows intended normal chain, not all those exits or installed Tcl semantics. |
+| RUC04 function pointer / C closure | static c-define host or ~make_c_closure~ -> native host -> converter/marker -> ~release_function~/~c_closure_release~ [RC-S07/S10] | Static host path is not RC-backed. Dynamic code exists only for selected architecture branches. Global ~c_closure_self~ has a thread-local TODO. An arbitrary raw function-pointer copy has no observable last-use; require a host registration/revocation contract or retain its image. Do not infer Darwin arm64 support. |
+| RUC05 TLS wrapper and server borrow | native wrapper -> foreign Scheme object/release_fn; server stores ~tls_context_p~ -> accept uses it for ~SSL_new~; Scheme server port retains ~client-psettings~ with tls-context [RC-S11] | Scheme retention is part of the normal path and must be credited. It is not a native server's independent retain of the wrapper. Close/accept/native-device bypass and external callers still need explicit borrow/lease drain. SSL_CTX library refcounts do not retain the containing Gambit wrapper. |
+| RUC06 image / map / release function | module setup + symbol/entry export -> execution, native return, continuation RA, GC decoder, foreign release callback -> dynamic unload [RC-S03/S04/S07/S10/S12] | Every function/map/RA must resolve to an owning image or permanent runtime image. Closing new symbol lookup is insufficient when registered callbacks/destructors or continuations can still enter/use it. Provider removal follows runtime last-use, not vice versa [RC-P06]. |
+| RUC07 heap chunk / worker scratch / shard | heap-chunk producer -> local scan or thief -> queue/active scan completion; still lists -> trace/cleanup; VM resize -> donor transfer [RC-S06/S13] | Track queue references, claimed tasks, copying/forwarding scratch, weak work and shard accounting. Empty queue does not mean no executing scanner or unpublished producer. Failed join/unknown native mutator retains safety quarantine; storage retention alone does not authorize another collection. |
+| RUC08 foreign finalizer record | foreign-object construction -> still-object strong/weak processing -> ~release_foreign~ -> arbitrary release_fn then header free [RC-S08/S11] | GC itself is a real native-code user. ~release_foreign~ clears fields before calling, preventing a simple second release, but error/callback/nonlocal behavior remains a separate contract. Pin callback image and destructor inputs through all exits; running on a new GC worker is not automatically permitted. |
+
+**** 3.2 Resource-indexed closure argument
+:PROPERTIES:
+:ID: 12e7987f-bb14-575b-b942-3de6fa625e7c
+:CUSTOM_ID: 32-resource-indexed-closure-argument
+:END:
+
+For a particular resource r, require a stable resolution/admission directory.
+~Uses(r)~ contains issued execution/return, root-map, callback-registration,
+active-invocation, native-library, task/queue and cleanup dependencies as applicable.
+It need not contain unrelated users of another context or VM resource.
+
+A registration is a pin for *future issuance*, not only an executing callback.
+A child pin must be issued while its parent is still held, in the same authorized
+admission/transfer protocol; then the parent can be returned. Close revokes all
+independent issuers and withdraws independent public resolution (for example,
+by a protected directory tombstone). Preexisting resolution readers drain only
+after that withdrawal; a transient zero reader count before withdrawal is not
+a free condition. Directory/tombstone storage has its own reader/reuse lifetime.
+Existing issuers may create a derived use only under a
+still-accounted parent and the specified close policy. No raw-pointer-to-handle
+lookup may race freeing its directory entry; lookup readers themselves require
+protection until validation/pin acquisition, including identity reuse/ABA.
+
+Suppose r is closed for independent issuance/resolution, all issued/dependent
+uses and preexisting protected resolution readers have drained, and no external
+unregistered issuer exists. A later use would
+require either an outstanding earlier pin, a valid independent issuer or a child
+of an outstanding parent. These contradict the respective premises. Thus no
+later admitted use exists. This is PT05 instantiated to the caller families,
+not proof that today's public raw ABI obeys the premises. Native hosts that
+cannot enumerate/revoke copied callbacks cannot earn early reclamation; retain
+or exclude that resource from the reclaimable cohort. No timeout constitutes
+last-use evidence. Dependency cycles need explicit teardown or retain/quarantine;
+reference counting alone is not a cycle-collection proof.
+
+**** 3.3 Worked source-backed closure cases
+:PROPERTIES:
+:ID: eaf4ae74-130f-54de-b31e-ab6ffe0ee0c1
+:CUSTOM_ID: 33-worked-source-backed-closure-cases
+:END:
+
+*Tcl registration and reentrant deletion.* The source registers ~cd~ only after
+installing its still vector in RC ~data~. The call callback reads that data into
+~tcltk_call~; the delete callback releases the vector and header. A correct new
+adapter must acquire an invocation use while registration is live, protect the
+loaded Scheme value before any allocating conversion, and retain callback code
+until return. Deletion closes future registration entry and returns that pin;
+it cannot revoke a value/code use already handed to the invocation. Once the
+value has its independent rooted invocation custodian and the callback no longer
+reads ~cd~, that invocation need not retain the old header specifically. Native
+return/code lifetime still remains. This is resource-specific handoff, not a
+requirement to retain every registration object until VM shutdown. The source
+normal chain supplies these actual resources; active-call versus deletion
+synchronization, NULL registration cleanup and host API guarantees remain to
+refine. The theorem applies only after those premises are supplied [RC-S09/P05].
+
+*TLS normal Scheme path.* The call to ~##os-device-tcp-server-open~ receives the
+TLS context from psettings. On success ~##make-tcp-server-port~ stores those same
+psettings as ~client-psettings~; its declared field includes ~tls-context~
+[RC-S11]. Assuming the ordinary object traversal law and a live server port,
+this is a concrete strong reachability chain to the foreign TLS wrapper while
+server accept dereferences it. It must be preserved by semantic export/root
+coverage. A raw native device outside that port's custody cannot use this proof:
+it needs its own wrapper-use pin. Nor can OpenSSL's own SSL_CTX reference count
+substitute for the wrapper's allocation lifetime. The normal Scheme reachability
+subcase is thus accounted for; native bypass, explicit release, concurrent close
+and accept remain separate closure cases, not a claimed reproduced defect.
+
+*GC image dependency.* A foreign still object can become unreachable as a
+Scheme value and yet its stored release function will be invoked during
+~free_unmarked_still_objs~. Therefore the release record must hold an image use
+until release completes (or has a safe retained failure disposition). This is
+a native image dependency, not an extra strong root that keeps the otherwise
+dead Scheme foreign object alive. GC map
+readers similarly hold map/image uses until their last decode; continuations
+retain return/map dependencies for later execution or traversal. If all other
+image uses drain but any one of these remains, per-image free is forbidden.
+If the directory is closed and all of them drain under the issuer law above,
+PT05 permits releasing that image without waiting for unrelated VM users.
+This proves the proposed dependency condition by those actual call classes;
+the complete raw-ABI/image-association census is still unproved [RC-S04/S08/S12].
+
+**** 3.4 Foreign cleanup is a worker-admission boundary
+:PROPERTIES:
+:ID: bec241eb-0395-5739-8601-6a30dc8da6db
+:CUSTOM_ID: 34-foreign-cleanup-is-a-worker-admission-boundary
+:END:
+
+~free_unmarked_still_objs~ and shutdown ~free_still_objs~ invoke
+~___release_foreign~, which calls a stored function pointer [RC-S08]. Therefore
+"all mutators acknowledged" does not prove "collector calls no native code".
+Before moving that cleanup to independent workers, classify each destructor:
+
+* Pure native bounded release with required library/thread affinity satisfied:
+  may run on an admitted cleanup worker, outside G, with dependencies pinned.
+* Owner-affine release: schedule to its authorized executor; retain the resource
+  and image while pending. If completion is needed before heap reuse, GC waits.
+* Callback/managed allocation/nonlocal transfer/unknown effect: preserve the
+  existing admitted island or reject this worker/profile combination. Deferring
+  such finalization is a new semantic design, not a free scheduling optimization.
+
+Clear-before-call is not an exactly-once successful-destruction proof on failure.
+Do not retry an unknown partially completed destructor automatically. OCaml's
+custom-finalizer restrictions illustrate why release effects need an explicit
+contract; they are not imported as Gambit's current law [RC-P03].
+
+*** 4. Collector Worker Reconstruction
+:PROPERTIES:
+:ID: 63406c30-f535-5d86-9478-65ef47664a3a
+:CUSTOM_ID: 4-collector-worker-reconstruction
+:END:
+
+[[file:../diagrams/shared-runtime-worker-assignment.svg][Separate contributors, workers and heap shards]]
+[[file:../diagrams/shared-runtime-worker-assignment.d2][D2 source]].
+
+| ID | Existing coupled responsibility [RC-S05/S06/S13] | Proposed owner / required change |
+|-
+| GWD01 | processor-count tree collective and operation combining | Request coordinator seals M/K/W and required storage domains; final H follows writer quiescence, as final R does. Mutator acknowledgement, service executor and GC worker barriers are separate. Preserve resize/interrupt/priority semantics. |
+| GWD02 | ~mark_continuation/registers/saved/...~ get both source roots and scan state from ~___ps~ | Contributor descriptor supplies root source; worker supplies collector scratch. Adapt both arguments. One exclusive active-stack traversal lane per contributor; preserve frame-link updates and later move ordering. |
+| GWD03 | P0 VM/symkey/RC work; processor-index global partitions | Explicit VM/global/carrier tasks with root-kind-aware assignment. Candidate all-processor RC repair is credited, but new independent carriers need independent enumeration. |
+| GWD04 | stack/heap msections and scan queues initialized per processor; scan counters = np | Separate execution allocation shards from worker copy/scan arenas. After acknowledgements freeze actual H(e), assign all old shard duties, reserve worker scratch outside G. Extra worker arenas and relocation of allocation cursors are charged costs. |
+| GWD05 | local still/movable scanning, chunk FIFO locks, stealing and publication barriers | Epoch/phase-owned work queues + active scanners + authorized producers. Reuse traversal/forwarding algorithms only after their source-of-root/scratch/shard assumptions are refined. |
+| GWD06 | two active-worker counters, condvar wakeup, phase barriers | Strong and weak termination separately require no queued, executing or pending-to-publish work and no live producer that can escape accounting. Seal root-task issuance before termination; prove in-flight custody, wakeup and memory ordering. A counter renamed W does not suffice. |
+| GWD07 | process_wills, move_continuation, hash tables, still-object cleanup | Preserve phase dependency and cleanup effects; assign owner/shard-affine tasks explicitly. Completion includes all required relocations/destructors or a designed retained failure state. |
+| GWD08 | per-processor accounting, heap resize/P0, prepare_mem_pstate and retired-donor transfer | Reduce over storage shards, not just workers or active contexts. Rebind allocation state before resume. Retire context only after ticket, scanner, return and queue dependencies drain; preserve failed-join quarantine. |
+
+All root-task preparation, arena reservation, map access, queue processing,
+waiting and destructor execution stays outside the short metadata gate G. A
+sealed epoch needs native scratch reservation/failure custody without recursively
+requiring the managed collection it is trying to perform. Commit publishes only
+prepared identities/assignments and pins.
+
+The target is an independently schedulable worker service, not a demand to copy
+OCaml's collector or rewrite a proven algorithm in Zig. Existing Gambit parallel
+GC is already value in the baseline. OCaml's paper separately discusses stopping
+mutators, forwarding and root/object work balance; those separate obligations
+apply here without transferring its pauses or scaling numbers [RC-P04].
+
+A phase may finish only under a conservation invariant: every issued task is
+queued, exclusively executing, transferred under a parent use, or terminal;
+all root producers are sealed and graph producers are accounted before observing
+zero outstanding work. Moving an item between queues must never create an
+unaccounted gap. A worker cannot disappear mid-epoch; failure before movement can
+retain/abort safely under policy, while failure after partial relocation cannot
+release mutators as though collection succeeded. Actual forwarding races,
+termination and weak-memory correctness remain PA04/PA07 obligations.
+
+*** 5. Migration and Theoretical Closure Order
+:PROPERTIES:
+:ID: 66294a76-92b2-5152-b5ea-d51aac14fbf0
+:CUSTOM_ID: 5-migration-and-theoretical-closure-order
+:END:
+
+This is a dependency order for the full reconstruction, not a reduced scope:
+
+1. Independently enumerate effects/edges and actual user issuers for a declared
+   profile. Export Scheme semantic policy and identify permanent/raw ABI islands.
+2. Specify FrameSpec-to-decoder correspondence, pre-allocation root custody and
+   all-exit invocation/return law. Preserve valid existing frame/collector logic.
+3. Introduce source-independent root contributors and resource-specific admission,
+   pin transfer and close/drain design. Reconcile native hosts, destructors and
+   maps before claiming any old RC/context/image authority can retire.
+4. Refine GWD01--GWD08 together: worker scratch, root source, storage shards,
+   queue conservation, phase effects, resume and shutdown. Do not detach workers
+   while still borrowing current per-processor ownership assumptions.
+5. Admit direct native products against the same runtime contract, with FR/SP
+   separately justified. Retire selected C emission/control/layout authorities
+   only after their actual consumers migrate. Residual C ABI/islands are costed.
+6. Close positive total modernization and separate Zig increment bounds using
+   the accompanying matrix before any later empirical stage is proposed.
+
+PA03 now has a concrete producer/packager/consumer path and edge-family checklist;
+PA05 has concrete source issuers/users/terminal paths and external boundary holes;
+PA04 has eight necessary reconstruction duties. None is globally discharged.
+Remaining theory work is the independent full operation/helper/host census,
+physical map/frame correspondence, queue/forwarding/cleanup refinement and
+bounded support economics. No model flag or document count closes those gaps.
+
+*** Foreign Release Refinement
+:PROPERTIES:
+:ID: 5a95c9b6-701b-5850-aabd-2ffda5b370e0
+:CUSTOM_ID: foreign-release-refinement
+:END:
+
+The [[file:../../ffi/studies/foreign-release-worker-contract.org][foreign release contract]] refines
+RUC08/GWD07 with four release origins, concrete device waits/implicit OS-state
+uses, nine worker-admission obligations and independent native release custody.
+The [[file:../../ffi/studies/device-release-support-matrix.org][device service matrix]] compares one
+necessary shared coordinator after existing C/Scheme reuse. No original source
+path, model premise or economic gate is newly admitted by that study.

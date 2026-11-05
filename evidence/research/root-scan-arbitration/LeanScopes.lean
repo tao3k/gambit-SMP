@@ -1,0 +1,23 @@
+import «RootScanArbitration»
+#print axioms GambitSMP.RootScanArbitration.claimConserves
+#print axioms GambitSMP.RootScanArbitration.publishConserves
+#print axioms GambitSMP.RootScanArbitration.ackConserves
+#print axioms GambitSMP.RootScanArbitration.quarantineConserves
+#print axioms GambitSMP.RootScanArbitration.requeueConserves
+#print axioms GambitSMP.RootScanArbitration.stepConserves
+#print axioms GambitSMP.RootScanArbitration.traceConserves
+#print axioms GambitSMP.RootScanArbitration.emptyQueueNotComplete
+#print axioms GambitSMP.RootScanArbitration.unknownDebtBlocksClose
+#print axioms GambitSMP.RootScanArbitration.rootAckInsufficient
+#print axioms GambitSMP.RootScanArbitration.childDebtBlocksReturn
+#print axioms GambitSMP.RootScanArbitration.unknownWriterBlocksReturn
+#print axioms GambitSMP.RootScanArbitration.returnRequestPreservesDebt
+#print axioms GambitSMP.RootScanArbitration.stopWithoutCheckpointRejected
+#print axioms GambitSMP.RootScanArbitration.unknownTransferRetainsCustody
+#print axioms GambitSMP.RootScanArbitration.sourcePinRequired
+#print axioms GambitSMP.RootScanArbitration.staleGenerationRejected
+#print axioms GambitSMP.RootScanArbitration.cursorRestoreNoRepeatedPrefix
+#print axioms GambitSMP.RootScanArbitration.waitPathDecreases
+#print axioms GambitSMP.RootScanArbitration.rankedWaitsHaveNoCycle
+#print axioms GambitSMP.RootScanArbitration.workerCannotWaitForReturn
+#print axioms GambitSMP.RootScanArbitration.generationAdvanceRejectsOld

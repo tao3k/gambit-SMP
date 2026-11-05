@@ -1,0 +1,230 @@
+{
+  "caller": [
+    {
+      "key": "rc-register",
+      "anchor": "mem.c:277,306,723-754,3969-3986,6845-6849",
+      "condition": "Current PSTATE registration versus processor-0 RC scan is not a VM-wide root contract"
+    },
+    {
+      "key": "c-closure",
+      "anchor": "os_dyn.c:744-769,1047-1058; c_intf.c:6511-6546",
+      "condition": "Real C closure stores Scheme proc in RC data; callback self and marker protection remain separate qualified boundaries"
+    },
+    {
+      "key": "tcl-client",
+      "anchor": "examples/tcltk/tcltk.scm:188-194,298-326",
+      "condition": "Tcl retains RC client data plus still vector; deletion releases both; scan observations alone do not prove current object death"
+    },
+    {
+      "key": "resize-exit",
+      "anchor": "setup.c:918-978,4665-4706; mem.c:4432-4449,4659,4928-4934",
+      "condition": "Processor setup/cleanup initializes/frees RC chains; committed VM roots and their still-object storage must survive creator processor; root registration alone is insufficient"
+    },
+    {
+      "key": "gc-phase",
+      "anchor": "mem.c:6591-6645,6845-6858,7002-7038",
+      "condition": "Existing GC phase barriers and root partitions are source seams; registry membership is not processor_count"
+    }
+  ],
+  "protocol": [
+    {
+      "key": "register",
+      "anchor": "proposed VM contract; mem.c:723-754",
+      "condition": "Reserve initialized slot; producer root protects payload until atomic VM-root/index receipt handoff; wrong VM rejects"
+    },
+    {
+      "key": "seal",
+      "anchor": "proposed contract; mem.c:7002-7016",
+      "condition": "Close new permits, drain/cancel preaccepted updates and dereferences, then freeze slot membership and scanner tickets"
+    },
+    {
+      "key": "scan",
+      "anchor": "mem.c:3984,6626,6642-6644; proposed adapter",
+      "condition": "Exactly covered slots scanned via mutable root locations; relocation updates values; registered readers hold lifetime not raw addresses"
+    },
+    {
+      "key": "retire",
+      "anchor": "proposed contract; mem.c:760-791,4928-4934",
+      "condition": "Close slot admission; retain until scanner tickets, update permits, read leases and unresolved receipt holders all retire"
+    },
+    {
+      "key": "processor-lifetime",
+      "anchor": "setup.c:930-978; proposed VM contract",
+      "condition": "Committed slot ownership belongs to VM, not creator PSTATE; local-only pending roots and still storage need separate handoff before processor cleanup"
+    }
+  ],
+  "route": [
+    {
+      "key": "registration",
+      "anchor": "mem.c:723-754; os_dyn.c:764-769",
+      "qntAction": "commitRegister",
+      "leanLemma": "vmMatch",
+      "condition": "All publishers retain producer root until slot and registration receipt are authoritative"
+    },
+    {
+      "key": "quiescence",
+      "anchor": "mem.c:7002-7016; proposed GC entry seam",
+      "qntAction": "startScan",
+      "leanLemma": "acceptedUpdateMayDrain",
+      "condition": "Closing prevents new writers but permits accepted writers to finish before snapshot freeze"
+    },
+    {
+      "key": "coverage",
+      "anchor": "mem.c:3969-3986,6845-6858",
+      "qntAction": "endScan",
+      "leanLemma": "coverageUnion",
+      "condition": "Nonzero processor roots included by VM membership; scanner assignment exactly covers snapshot"
+    },
+    {
+      "key": "retirement",
+      "anchor": "mem.c:760-791,4928-4934; proposed epoch gate",
+      "qntAction": "reclaim",
+      "leanLemma": "scanBlocksReclaim",
+      "condition": "Reader retirement alone cannot unlink a slot still held by current GC snapshot or unknown acknowledgement"
+    },
+    {
+      "key": "resize",
+      "anchor": "setup.c:918-978; mem.c:4432-4449",
+      "qntAction": "departOne",
+      "leanLemma": "creatorExitPreservesSlot",
+      "condition": "PSTATE departure does not revoke VM slot identity; backing storage needs separate handoff"
+    }
+  ],
+  "gain": [
+    {
+      "key": "vm-root-ownership",
+      "avoided": "Per-processor root transfer tied to compiler task migration after VM handoff",
+      "added": "VM registry, payload admission, epoch/scanner tickets and GC slot adapters",
+      "condition": "Only committed VM-owned slots decouple from processor exit; no elimination of root scanning"
+    },
+    {
+      "key": "stable-scan",
+      "avoided": "Repeated uncertain RC-chain discovery and unqualified worker coverage",
+      "added": "Closed snapshot, partition/coverage evidence and update/deref draining",
+      "condition": "Exact membership can bound scan work; quiescence delays and slot bookkeeping count"
+    },
+    {
+      "key": "independent-service",
+      "avoided": "Global processor-zero affinity for newly managed compiler holders",
+      "added": "Per-VM handle/lease identity and callback/native migration",
+      "condition": "Parallel benefit requires actual independent work and all native writers admitted; no automatic multicore gain"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "root",
+      "qntScope": "prepareRegister;commitRegister;departOne",
+      "leanScope": "vmMatch;creatorExitPreservesSlot;storageBlocksExit",
+      "sourceDuty": "Actual C closure/Tcl/native producer/root transfer and teardown simulation"
+    },
+    {
+      "key": "phase",
+      "qntScope": "beginUpdate;closeGC;commitUpdate;startScan",
+      "leanScope": "acceptedUpdateMayDrain;noNewWriter;coverageUnion",
+      "sourceDuty": "Actual barrier/participant/slot freeze relation and independent worker coverage"
+    },
+    {
+      "key": "reclaim",
+      "qntScope": "requestRetire;reclaim;ackRegister",
+      "leanScope": "scanBlocksReclaim;leaseBlocksReclaim;unknownBlocksReclaim",
+      "sourceDuty": "All leases/GC tickets/unknown outcomes and root registration lifetime closed"
+    },
+    {
+      "key": "value",
+      "qntScope": "readSlot;endScan",
+      "leanScope": "slotAfterScan;costPositive",
+      "sourceDuty": "Moving reference restoration, C memory order and work/span/retention measurement"
+    }
+  ],
+  "gate": [
+    {
+      "key": "producer-closure",
+      "qualified": false,
+      "condition": "Resolved C closure/Tcl/FFI/compiler publishers and borrowers completely admitted"
+    },
+    {
+      "key": "vm-ownership",
+      "qualified": false,
+      "condition": "Actual per-VM slots and registration receipts survive PSTATE exit with source protection"
+    },
+    {
+      "key": "gc-seal",
+      "qualified": false,
+      "condition": "New permit closure and preaccepted update/deref draining cannot deadlock with actual GC"
+    },
+    {
+      "key": "scan-coverage",
+      "qualified": false,
+      "condition": "Registry snapshot and scanner partitions cover every admitted nonzero root and update correct slot"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "Epoch tickets/read leases/unresolved outcomes/continuations/native holds fully drained"
+    },
+    {
+      "key": "source-replacement",
+      "qualified": false,
+      "condition": "Old RC/global root authorities retired only after all required users migrate"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "C weak memory/root maps/host attestation/native qualification and measured benefit remain open"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "VR-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/vm_root_registry.qnt",
+      "subjectScope": "vm_root_registry:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "VR-I",
+      "kind": "induction",
+      "subjectPath": "models/build/VMRootRegistry.lean",
+      "subjectScope": "VMRootRegistry:vmMatch;acceptedUpdateMayDrain;noNewWriter;coverageUnion;scanBlocksReclaim;leaseBlocksReclaim;unknownBlocksReclaim;creatorExitPreservesSlot;storageBlocksExit;slotAfterScan;costPositive",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "VR-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/vm-root-registry-design.org",
+      "subjectScope": "VR-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "VR-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/vm-root-registry-design.org",
+      "subjectScope": "VR-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "VR-S",
+      "prerequisite.obligationId": "VR-H"
+    },
+    "1": {
+      "dependent.obligationId": "VR-S",
+      "prerequisite.obligationId": "VR-I"
+    },
+    "2": {
+      "dependent.obligationId": "VR-S",
+      "prerequisite.obligationId": "VR-E"
+    },
+    "3": {
+      "dependent.obligationId": "VR-S",
+      "prerequisite.obligationId": "BR-S"
+    }
+  }
+}

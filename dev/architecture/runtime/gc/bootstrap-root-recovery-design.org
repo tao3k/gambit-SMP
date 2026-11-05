@@ -1,0 +1,351 @@
+#+TITLE: Modern C Bootstrap Registration Recovery, Source ACK and Parent Restoration
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :exports code
+#+TODO: OPEN PREMISE | CHECKED
+
+* Decision and authority
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-decision
+:STATUS: CONDITIONAL-HISTORIES-SOURCE-AND-C-ORDER-OPEN
+:AUTHORITY: models/sysml/bootstrap-root-recovery.sysml
+:COMPONENT: host-roots
+:SHARED_COMPONENT: gc-work
+:END:
+
+A lost registration return must recover the /same logical operation/. It must
+not allocate another descriptor, infer failure from an absent reply, or erase
+the source's natural Scheme roots. The modern-c first cut therefore needs a
+canonical per-VM request/lease record, metadata-only query, idempotent source
+ACK, guarded exit/restoration and a retired-key admission fence.
+
+The central distinction is between the extra source /lease/, its physical
+view /pin/, the natural Scheme /frame map/, and a restored parent's /new pin/.
+ACK settles only the exact extra lease. It cannot clear a Scheme argument slot,
+unregister the whole frame, decrement unrelated still ownership, or revoke a
+later frame binding. Final result/status acceptance is a separate duty.
+
+[[file:models/sysml/bootstrap-root-recovery.sysml][SysML]] owns the identities, source routes, transitions, dependencies, guard
+predicates, research gates and cost rows. [[file:bootstrap-root-recovery-matrix.org][The matrix]] and [[file:diagrams/bootstrap-root-recovery.d2][D2 topology]] derive from
+native evaluation. This study fills bounded histories deliberately left open in
+[[file:resize-bootstrap-admission-design.org][the preceding resize/admission study]], whose historical evidence is preserved.
+[[file:../../../../evidence/research/bootstrap-root-recovery/checks.json][The receipt]] binds exact source/model identities and actual Evidence queries.
+No runtime implementation, native test, benchmark or runtime retirement occurs.
+
+* Real producer and exit paths
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-source
+:END:
+
+** The selected CFUN supplies a mapped location
+
+[[file:../../../../vendor/gambit/lib/_kernel.scm::2353][The resize c-lambda]] takes scheme-object and int. [[file:../../../../vendor/gambit/gsc/_ptree2.scm::2850][The argument generator]] aliases
+the Scheme object to CFUN_ARG(1). [[file:../../../../vendor/gambit/lib/_kernel.c::6258][Tracked kernel C]] confirms that alias and
+uses a no-cleanup CFUN body. Its [[file:../../../../vendor/gambit/lib/_kernel.c::26338][generated caller]] spills arguments and RA,
+and its [[file:../../../../vendor/gambit/lib/_kernel.c::30819][return descriptor]] has fs=3/link=2/map=7. Natural roots therefore
+remain in the precise Scheme frame independently of a new service's extra pin.
+Tracked output is source evidence, not proof of freshness or installed ABI.
+
+[[file:../../../../vendor/gambit/gsc/_ptree2.scm::2902][c-make-function]] chooses cleanup from argument-conversion types;
+[[file:../../../../vendor/gambit/gsc/_ptree2.scm::3238][build-c-lambda]] uses that choice to emit BEGIN_CFUN_BODY or its CLEANUP form.
+That is not a complete native-effect/exit plan. The current signature's lack of
+conversion cleanup cannot justify omitting a future root-registration guard.
+The selected tracked body has an AT_END expansion for ordinary control flow;
+[[file:../../../../vendor/gambit/include/gambit.h.in::10375][the cleanup macros]] place AT_END inside the TRY body. Do not treat that macro
+as proof of cleanup after every nonlocal exit. A canonical progress record and
+post-catcher exit funnel must own the new service independently of conversion
+cleanup selection.
+
+** Registration effect and caller observation can diverge
+
+[[file:../../../../vendor/gambit/lib/setup.c::1155][current_vm_resize]] puts the raw thunk into a local sop; sync processing
+copies back the result and marks the operation NOOP. [[file:../../../../vendor/gambit/lib/setup.c::1050][The loop]] can subsequently
+throw the collected processor-0 error. A missing normal return is therefore
+not evidence of no effect. The current code does not implement this proposed
+canonical registration service; these are real call/exit windows that it must
+cover, not a claim that an existing registration API already loses replies.
+
+Replace pointer-bearing request copies with stable transaction identity, as
+previously designed. Separate typed request and completion views rather than
+letting one arg[0] silently mean thunk, request identity and error code at
+unrelated stages. Canonical identity must survive the original local sop and
+C activation. Registration acceptance means root custody; it does not by itself
+mean OS-thread success, collector membership or completed Scheme execution.
+
+** Outer catcher and native return checks
+
+[[file:../../../../vendor/gambit/lib/setup.c::3276][call]] restores its local catcher and may rethrow to run's outer catcher,
+skipping normal-only marker cleanup. [[file:../../../../vendor/gambit/include/gambit.h.in::9979][The C setjmp macros]] require stable VM/native
+progress outside modified nonvolatile locals. The future scope must transfer
+key/source-view custody and close publication before physical unwind; it must
+then preserve the original error/continuation disposition through cleanup.
+
+[[file:../../../../vendor/gambit/lib/_kernel.scm::1026][The return-to-C handler]] checks processor identity and whether marker[0]
+is false before throwing UNWIND_C_STACK back to call. Restoring Scheme cannot
+resurrect an unwound C stack or bypass a dead marker. Both actual run families
+(main startup and processor startup) need the shared scope contract, while the
+worker retains separate creation/member/stop obligations.
+
+* Identity, query and dedup contract
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-identity
+:END:
+
+#+NAME: bootstrap-root-recovery-identity-roles
+| Identity or record | Meaning | Excluded shortcut |
+|--------------------+---------+-------------------|
+| RequestKey | VM identity, logical native invocation, operation sequence and non-reused request generation | Physical fp, C thread ID, callsite alone, moving SCMOBJ bits or retry number |
+| OriginSpec | Operation kind/target and exact logical source frame, slot and extra lease identity | Hashing mutable Scheme payload or a raw location to infer semantic identity |
+| DescriptorId | Canonical stable control record for one accepted registration | A second descriptor per uncertain reply |
+| QueryReceipt | Key, descriptor identity, status/revision and lifetime binding | Raw payload-read permission or a usable cached SCMOBJ |
+| SourceLease | Extra origin transfer duty for this request | Natural Scheme frame, unrelated still refcount or newer parent pin |
+| ParentBinding | Independent logical frame/view generation, PointId and loaded epoch | Reusing an old C stack/frame address after resume |
+| Retirement fence | Persistent within-VM old-key rejection after record free | Largest observed ID, timeout or wrapping IDs with stale producers |
+
+Reserve or insert-or-find the canonical record under a valid mapped source view,
+with safe empty slots before root publication. Reserve control/cancellation and\nterminal-status capacity before the first effect; do not require a new malloc\nto record cancellation after an allocation/return failure. If that reservation\nfails, the original mapped source remains responsible and no effect is admitted.\nThe bounded model assumes that native metadata reservation; concrete allocation\nfailure and capacity admission remain source obligations. Matching identity and immutable
+intent returns the same record. Conflicting intent is rejected without changing
+it. Payload movement updates the registered cell; it does not create a new
+logical operation or require an address-based fingerprint.
+
+Query pins the control record, reads metadata only, and can then release that
+query pin. Source ACK later resolves the key again and revalidates its descriptor,
+revision, current root/effect custody and exact lease under the control domain.
+A cached receipt is not a dangling-pointer dereference capability. If mutation
+or cancellation changed the revision, requery; never infer authority from the
+old response. Query does not reevaluate Scheme arguments or reconstruct a thunk.
+
+Absence before delayed delivery does not prove no effect. Keep the source view,
+retry the same key, or publish an authoritative terminal cancellation/tombstone
+which prevents a later accept. A terminal fence, unlike an absent table entry,
+can justify a no-future-effect result. Lost reserve/accept replies keep source
+and VM ownership overlapped until an exact canonical disposition is known.
+Dedup here is memory-resident within one live VM; process-crash durability is
+not claimed. Same-request retries are not exactly-once application execution or
+a promise that an unanswered operation eventually completes.
+
+* Source ACK, GC close and physical release
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-ack
+:END:
+
+#+NAME: bootstrap-root-recovery-ack-stages
+| Stage | Required evidence | What may change | What remains |
+|-------+-------------------+-----------------+--------------|
+| Accepted source ACK | Exact current request/descriptor/revision, registered current root, stopped old/nested borrower | One extra source lease records ACK once | Natural Scheme slots/map; old physical pin if readers still hold it |
+| Terminal source ACK | Canonical no-future-effect/cancel disposition, no active consumer and exact source lease | Same single lease settlement | Result delivery obligation and tombstone/readers |
+| ACK reply lost | Canonical same lease already ACKed | Return settled status idempotently | No second decrement or unrelated pin release |
+| Physical old-pin release | Logical ACK plus old source scanners/raw borrowers drained | Release that old pin only | New restored-parent pin, natural frame roots, descriptor/result backing |
+
+The existing [[file:../../../../vendor/gambit/lib/mem.c::3898][frame scanner]] remains responsible for language roots until the
+actual GVM frame lifecycle ends. No new ACK API may clear arg1, remove its gcmap,
+or drop the whole denv/continuation graph. Consequently this design claims /zero/
+natural-frame scan entries removed by ACK. Its possible memory benefit is only
+release of the extra service pin/retention when that pin is independently safe.
+
+The register-before-close case keeps the descriptor in the pinned root snapshot.
+The close-before-register case leaves a safe empty pending record and the frozen
+mapped source authoritative. Query can inspect metadata during either case;
+accept requires the open, current-epoch source view. A logical ACK of an already
+accepted root can occur during GC because it reads control custody, but physical
+source-pin release waits for that source snapshot's readers to drain. Query
+returns no raw Scheme value. Any later value access requires a separate current
+root borrow and epoch/context authorization.
+
+GC updates and epoch publication must refine the actual scanner's synchronization.
+A rootEpoch flag or release store alone cannot prove that a cell has been
+relocated or that readers are gone. No registry lock may span GC rendezvous,
+Scheme callback, native wait or cleanup. Unknown old/nested borrower state
+refuses ACK/handoff; a timeout cannot manufacture a stopped writer.
+
+* Parent frame restoration and exceptional exit
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-restore
+:END:
+
+[[file:../../../../vendor/gambit/lib/mem.c::4529][prepare_mem_pstate]] assigns the restored allocation stack pointer to ps->fp.
+CFUN_ARG subsequently resolves through current PSFP. The new service must retain
+logical frame/slot identity and reacquire the current address/value after
+restoration. It must not hold a raw SCMOBJ pointer through frame movement.
+
+[[file:../../../../vendor/gambit/lib/_kernel.scm::3512][Continuation frame writes]] and denv setters preclude assuming immutable
+captured layouts without writer admission. [[file:../../../../vendor/gambit/lib/_thread.scm::5047][continuation-return-aux]] and
+[[file:../../../../vendor/gambit/lib/_thread.scm::4990][continuation-graft-aux]] take the direct continue path when dynamic-wind
+contexts match. Thus [[file:../../../../vendor/gambit/lib/_thread.scm::4794][dynamic-wind]] hooks alone cannot be the service's complete
+entry/exit/restore guard. The source inventory, serialization rebuilders,
+native aliases and every actual use still need refinement.
+
+Distinguish three cases:
+
+1. Same live native invocation resumes after participating park: preserve RequestKey; rebind FrameSpec/PointId and epoch, then reload before use.
+2. Scheme semantics genuinely invokes the operation again: allocate a fresh admitted logical invocation/key, even if source code and Scheme values match.
+3. The original C activation unwound: do not revive its marker/catcher or treat continuation restoration as returning into it. Old request resolution remains VM owned; any permitted new native entry is a new invocation.
+
+The original SourceLease and a restored-parent binding pin have different
+identities. An old ACK may settle the old lease after a restoration, but cannot
+target the newer pin. No new raw read is authorized until the restored binding
+and loaded epoch match. The bounded model covers one same-live-parent restore;
+it does not prove arbitrary continuation graphs, nested depth or a multi-key
+binding allocator.
+
+Before exceptional physical exit, the stable scope transfers the complete source
+view/key duty to VM escrow and closes future publication/Scheme admission. For a
+pending request, cancel it authoritatively; a delayed arrival must see the
+terminal record. For an accepted request, retain the root and any consumer
+custody while cancellation/stop drains. A fresh, validated VM-owned accepted
+receipt may settle the old source lease without waiting for consumer completion;
+this avoids pinning an unwound source solely for a child that already has VM
+root custody. The descriptor itself remains until that child/consumer and its
+readers are settled. No root/stop fact is inferred from run return or creator
+failure. Original Scheme/native error and effects already committed remain
+explicit, not relabeled as if the operation never happened.
+
+* Terminal result, delayed producers and metadata retirement
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-retire
+:END:
+
+Source ACK is not result ACK. Keep the terminal outcome until its actual acceptor
+owns the copied control status or independently rooted result. The model treats
+that outcome as opaque control metadata; correct native Scheme payload/error
+handoff remains a source obligation. Unknown delivery keeps the record/result
+retained. An original caller which unwound needs a designated VM completion
+acceptor, not fabricated delivery to a dead C local.
+
+After terminal outcome and source-lease settlement, a key may close future
+registration attempts while remaining queryable. Physical record free additionally
+requires query, scanner and incoming-delivery readers drained, no consumer,
+source pin released, result delivery acknowledged and a persistent retired-key
+admission fence. Cached queries must revalidate; an in-flight delivery cannot
+dereference freed metadata. A late retry after free returns retired/settled and
+cannot recreate a root. Detailed outcomes need not remain forever /only after/
+the proven outcome handoff; the remaining fence is not a substitute for an
+undelivered result.
+
+For a real multi-key table, retirement needs a proved contiguous retired prefix
+plus explicit holes/active intervals or equivalent generation capability table.
+A maximum observed ID cannot retire lower active IDs. Wrap/reuse is refused
+unless stale producers are excluded. The one-key QNT frontier is a bounded
+projection; the arbitrary-key prefix/holes/wrap proof and concrete memory
+reclamation mechanism remain open. This is a concrete countercondition on
+bounded maintenance cost, not optional bookkeeping.
+
+* Models, source refinement and evidence chain
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-formal
+:END:
+
+[[file:../../../../models/gambit/bootstrap_root_recovery.qnt][QNT]] covers one key, up to three deliveries, one moving epoch and one live
+parent restoration: reserve/accept reply loss, pending/accepted query, absence
+with delayed arrival, duplicate and mismatched intent, source ACK loss/replay,
+GC close/source reader retention, old ACK versus restored pin, nested borrower
+closure, VM-owned exception cancellation, separate result ACK, terminal queries,
+late delivery drain and post-purge stale-key rejection. Its atomic complete-view,
+canonical control, scanner and external consumer-drain observations are premises.
+Raw C memory, allocator faults, actual source writers, arbitrary keys/GC rounds
+and liveness under unknown outcomes are not proved. Samples are finite, not
+exhaustive. Registration delivery here abstracts local effect/observation
+interleaving; it does not propose a network RPC subsystem.
+
+[[file:../../../../models/gambit/lean/BootstrapRootRecovery.lean][Lean]] checks selected coverage/ACK/pin, receipt/key/revision, restore/exit,
+dedup/frontier and byte arithmetic laws. Full Step/Trace induction, the
+source-to-QNT stuttering simulation and safety reflection must still establish
+all actual transition premises. Source ACK's unchanged natural map/new pin and
+retained physical pin are explicit record-operation laws, not a claimed proof
+that current C already performs those operations.
+
+SysML has 13 local/imported needs, 30 typed proof dependencies, identity-field
+and source-route rows, transition references to real QNT actions/Lean laws,
+seven evaluated ACK cuts, and three research gates. The GC ordering need and
+imported membership need belong to gc-work; entry/lease/restore duties belong
+to host-roots. The [[file:../../../modeling/ascent/bootstrap-root-recovery.rules.scm][actual ASCENT DSL]] consumes those native facts and matches
+method, artifact, digest, check and exact scope conjunctively. Its
+[[file:../../../modeling/ascent/bootstrap-root-recovery.request.scm][maintained request]] is source-bound through bundle/native-output/DSL factors.
+Five real Evidence queries include current, missing-history, wrong-scope,
+stale-digest and a synthetic all-scoped control. Synthetic policy input does
+not qualify C, whole runtime or the full historical graph. Imported source
+needs remain open atomic premises in this scoped extension.
+
+The initial history which tried accepting a pending registration after parent
+exit was rejected once exit closed publication. It was replaced by VM-held
+view/cancel/terminal-query settlement; the failed test log is retained. A Lean
+case-split authoring error is retained separately. Neither is a native failure.
+The former absent registration-loss histories are now covered /within this
+bounded model/; the predecessor receipt is not retroactively rewritten.
+
+* First modern-c source modification slice
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-first-cut
+:STATUS: DESIGNED-NOT-IMPLEMENTED
+:END:
+
+#+NAME: bootstrap-root-recovery-source-cut
+| Source owner | Required modification | Retirement/admission condition |
+|--------------+-----------------------+--------------------------------|
+| Scheme builtin and _ptree2.scm native-entry plan | Emit logical invocation/key, source origin and explicit exit effects after argument conversion; cleanup needs are independent of conversion type | Selected generated CFUN and exceptional paths deliver stable key/view before first effect; no c-code hidden writer |
+| _t-c-2/_t-c-3 frame producer; gambit.h.in internal interfaces | Generate/reuse FrameSpec, PointId and logical slot binding; separate SourceLease from natural frame and restored pin | Slot-address reacquisition and all-root/writer coverage; binary/header consumer inventory closed |
+| setup.c current_vm_resize, sync request/result handling | Carry stable canonical identity through local/tree copies; separate request and completion contracts; query same key after missing normal return | Retire raw movable sop thunk ownership only when every producer/consumer migrated; external raw entry separately admitted |
+| VM canonical service and mem.c scan/close adapters | Insert-or-find immutable intent; safe empty pending state; lookup pin; current-revision ACK; source-reader-delayed release | Same acceptance/close domain and all-context scan closure; no payload read from query receipt |
+| setup.c call/run/propagate_error and generated exit funnel | VM takes key/view/cleanup duty before unwind, closes future publication and preserves original disposition | Post-catcher canonical cleanup covers normal/failure/continuation paths; no sole AT_END or wind-hook reliance |
+| Parent restore and every actual continuation/FFI borrower | Validate new binding/epoch and keep new pin independent from old ACK | No use of old physical fp, resurrected C marker or untracked alias; unknown borrower refuses handoff |
+| Completion/retirement plus RB member/child service | Separate root/source ACK, original result acceptance, child/drain and terminal key fence; exact reader-safe free | Source ACK alone never permits result/record/OS-resource reclamation; arbitrary-key frontier/wrap proof still required |
+
+This is a connected modern C runtime/generator contract, not a wrapper over
+unchanged raw ownership. Source/ordering gates must close before any old path
+retires. Zig does not remove these semantic duties and has no proved incremental
+net benefit in this slice. No runtime source is changed by this research.
+
+* Benefit and peak boundary
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-benefit
+:END:
+
+For R deliveries of one logical operation, a correct canonical service creates
+at most one record and accepted root. It still performs O(R) intent/status
+checks; table lookup/resize, lock contention and progress bounds are not free.
+Illustrative word=8, R=8 gives 64 versus 8 root-slot bytes against a hypothetical
+correct duplicate-cell design. It is not a measured current duplication, eight
+retries in the finite model, allocator size or total performance improvement.
+
+ACK removes zero natural Scheme root slots/maps and no restored-parent pin.
+One extra source lease is acknowledged at most once. Query materializes no
+Scheme payload in this control-only design. Extra view retention can end only
+when its own scanner/borrower gates close; it may have no net value-lifetime
+saving while the same object remains naturally reachable in Scheme.
+
+Use disjoint physical backing classes:
+
+\[
+P=\max_t(B_{unique}+H_{active}+H_{tombstones}+V_{old}+V_{new}
+ +Q_{pins}+Fence+Native_{unique}).
+\]
+
+Count the Scheme value once across source/descriptor/result aliases. Old/new
+view metadata, canonical/tombstone records, query-reader bookkeeping and fence
+storage are separate; inline counters already counted in a record are not
+counted again as separate pin allocations. Native child/PSTATE and unknown resources stay under the
+imported child ledger; do not add them again as generic escrow. No bounded peak
+or net CPU improvement follows without bounded live requests, result settlement,
+producer fencing and source-view release. A record budget L only bounds L*H of
+that record class if admission also preserves waiting roots; it does not bound
+all Scheme/native memory. Later release cannot erase an earlier peak.
+
+* Primary evidence and lessons
+:PROPERTIES:
+:CUSTOM_ID: bootstrap-root-recovery-references
+:END:
+
+[[https://cs.brown.edu/~mph/HerlihyW90/p463-herlihy.pdf][Herlihy and Wing, Linearizability (1990)]] separates concurrent invocation,
+effect and response. It motivates explicit linearization cuts for insert,
+cancel, query, ACK and retirement here. We do not claim a linearizability proof
+of the future C implementation; pending operations need explicit completion or
+cancellation semantics rather than assuming no response means no effect.
+
+[[https://armael.deuxfleurs.page/publis/melocoton.pdf][Melocoton (OOPSLA 2023)]] formalizes roots and representation/view reconciliation;
+[[https://ocaml.org/manual/5.2/intfc.html][the OCaml C-interface manual]] explains collector-updated registered locations
+and synchronized native access. The Gambit-specific response is to reuse its
+precise frames while separating extra source leases, copied C values and new
+bindings. Those works do not prove Gambit's continuation or SMP adapters.
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][C11 draft N1570]], 5.1.2.4, 6.2.4 and 7.13.2.1, constrains the eventual C memory,
+storage lifetime and longjmp progress representation. Specification/author
+papers were read as research evidence, not native qualification.

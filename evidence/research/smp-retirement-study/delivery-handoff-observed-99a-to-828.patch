@@ -1,0 +1,308 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -2760,6 +2760,87 @@
+             __ATOMIC_ACQUIRE);
+ }
+ 
++static ___WORD delivery_vector_load
++   ___P((___SCMOBJ obj,
++         int index,
++         int order),
++        (obj,
++         index,
++         order)
++___SCMOBJ obj;
++int index;
++int order;)
++{
++  ___WORD ___temp;
++
++  return __atomic_load_n
++           (___CAST(___VOLATILE ___WORD*,&___FIELD(VECTOR,obj,index)),
++            order);
++}
++
++static void delivery_vector_store
++   ___P((___SCMOBJ obj,
++         int index,
++         ___SCMOBJ value,
++         int order),
++        (obj,
++         index,
++         value,
++         order)
++___SCMOBJ obj;
++int index;
++___SCMOBJ value;
++int order;)
++{
++  ___WORD ___temp;
++
++  __atomic_store_n
++    (___CAST(___VOLATILE ___WORD*,&___FIELD(VECTOR,obj,index)),
++     value,
++     order);
++}
++
++/* One 1→2. Acq_rel publishes the phase; it does not publish a later store. */
++static int delivery_phase_cas_1_to_2
++   ___P((___SCMOBJ token),
++        (token)
++___SCMOBJ token;)
++{
++  ___WORD ___temp;
++  ___WORD expected = ___FIX(1);
++
++  return __atomic_compare_exchange_n
++           (___CAST(___VOLATILE ___WORD*,&___FIELD(VECTOR,token,0)),
++            &expected,
++            ___FIX(2),
++            0,
++            __ATOMIC_ACQ_REL,
++            __ATOMIC_ACQUIRE);
++}
++
++static void delivery_pass_release_unsettled
++   ___P((___virtual_machine_state vms,
++         ___SCMOBJ pass),
++        (vms,
++         pass)
++___virtual_machine_state vms;
++___SCMOBJ pass;)
++{
++  ___WORD ___temp;
++  ___WORD armed;
++  int pending;
++
++  if (!___VECTORP(pass) || ___INT(___VECTORLENGTH(pass)) < 1)
++    return;
++  armed = delivery_vector_load (pass, 0, __ATOMIC_ACQUIRE);
++  pending = ___INT(___VECTORLENGTH(pass)) > 1 &&
++            ___FIELD(VECTOR,pass,1) != ___FAL;
++  if (armed == ___FIX(0) && !pending)
++    return;
++  if (delivery_cas_vector (pass, 0, ___FIX(1), ___FIX(0)))
++    ___delivery_leave (vms);
++}
++
+ static int delivery_destroy_ticket_holds
+    ___P((___virtual_machine_state ___vms),
+         (___vms)
+@@ -3158,7 +3239,7 @@
+       delivery_unlock (vm);
+       return ___DELIVERY_RETRY;
+     }
+-  if (___FIELD(VECTOR,token,3) != ___FAL)
++  if (delivery_vector_load (token, 3, __ATOMIC_ACQUIRE) != ___FAL)
+     {
+       delivery_unlock (vm);
+       return ___DELIVERY_COMMITTED;
+@@ -3169,9 +3250,7 @@
+       !___delivery_pass_deferred_published (token) ||
+       !___VECTORP(pass) ||
+       ___INT(___VECTORLENGTH(pass)) < 1 ||
+-      __atomic_load_n
+-        (___CAST(___VOLATILE ___WORD*,&___FIELD(VECTOR,pass,0)),
+-         __ATOMIC_ACQUIRE) != ___FIX(1))
++      delivery_vector_load (pass, 0, __ATOMIC_ACQUIRE) != ___FIX(1))
+     {
+       delivery_unlock (vm);
+       return ___DELIVERY_RETRY;
+@@ -3179,9 +3258,12 @@
+   ___FIELD(STRUCTURE,vm,3) = ___FAL;
+   ___FIELD(VECTOR,context,1) = ___FAL;
+   ___FIELD(VECTOR,context,2) = ___FAL;
+-  ___FIELD(VECTOR,token,3) = ___TRU;
+-  ___FIELD(VECTOR,token,2) = ___FAL;
+-  ___FIELD(VECTOR,token,4) = ___FAL;
++  /* Release-clear the published words, then release-store closed.
++     An acquire of closed sees the clears. Slot 2's #f pairs with the
++     acquire in ___delivery_pass_deferred_published. */
++  delivery_vector_store (token, 2, ___FAL, __ATOMIC_RELEASE);
++  delivery_vector_store (token, 4, ___FAL, __ATOMIC_RELEASE);
++  delivery_vector_store (token, 3, ___TRU, __ATOMIC_RELEASE);
+   if (delivery_cas_vector (pass, 0, ___FIX(1), ___FIX(0)))
+     *owed = 1;
+   delivery_unlock (vm);
+@@ -3207,7 +3289,7 @@
+   if (!___VECTORP(context) || ___INT(___VECTORLENGTH(context)) < 4 ||
+       !___VECTORP(token) || ___INT(___VECTORLENGTH(token)) < 5)
+     return ___DELIVERY_INVALID;
+-  if (___FIELD(VECTOR,token,3) != ___FAL)
++  if (delivery_vector_load (token, 3, __ATOMIC_ACQUIRE) != ___FAL)
+     return ___DELIVERY_COMMITTED;
+   /* Epilogue has published phase 2, and destroy has not sealed this VM.
+      Leave the pass for the ticket-backed drain. No global latch. */
+@@ -3227,6 +3309,64 @@
+   return status;
+ }
+ 
++___SCMOBJ ___delivery_pass_epilogue
++   ___P((___processor_state ps,
++         ___SCMOBJ context,
++         ___SCMOBJ token),
++        (ps,
++         context,
++         token)
++___processor_state ps;
++___SCMOBJ context;
++___SCMOBJ token;)
++{
++  ___WORD ___temp;
++  ___virtual_machine_state vms = ___VMSTATE_FROM_PSTATE(ps);
++  ___WORD published;
++
++  /*
++   * No allocation, Scheme entry, setjmp, poll, or heap check.
++   * The caller receives only this scalar and must not touch the vectors.
++   * Only this leaf may move phase 1→2 and release-store deferred.
++   */
++  if (!___VECTORP(context) || ___INT(___VECTORLENGTH(context)) < 4 ||
++      !___VECTORP(token) || ___INT(___VECTORLENGTH(token)) < 5 ||
++      ___FIELD(VECTOR,context,0) != token)
++    return ___DELIVERY_INVALID;
++  if (delivery_vector_load (token, 3, __ATOMIC_ACQUIRE) != ___FAL)
++    return ___DELIVERY_COMMITTED;
++  /* Slot 4 is release-stored by the body before this call. Finish
++     clears it only after deferred is visible, so this load is before
++     that publication. */
++  published = delivery_vector_load (token, 4, __ATOMIC_ACQUIRE);
++  if (delivery_phase_cas_1_to_2 (token))
++    {
++      if (published != ___FAL)
++        {
++          delivery_vector_store (token, 2, ___TRU, __ATOMIC_RELEASE);
++          return ___delivery_pass_finish_try (ps, context, token);
++        }
++      {
++        ___SCMOBJ pass = ___FIELD(VECTOR,context,3);
++
++        ___FIELD(VECTOR,context,1) = ___FAL;
++        ___FIELD(VECTOR,context,2) = ___FAL;
++        ___FIELD(VECTOR,context,3) = ___FAL;
++        ___FIELD(VECTOR,token,1) = ___FAL;
++        delivery_vector_store (token, 2, ___FAL, __ATOMIC_RELEASE);
++        delivery_vector_store (token, 3, ___TRU, __ATOMIC_RELEASE);
++        delivery_pass_release_unsettled (vms, pass);
++      }
++      return ___DELIVERY_COMMITTED;
++    }
++  if (delivery_vector_load (token, 3, __ATOMIC_ACQUIRE) != ___FAL)
++    return ___DELIVERY_COMMITTED;
++  if (delivery_token_phase (token) == ___FIX(2) &&
++      ___delivery_pass_deferred_published (token))
++    return ___delivery_pass_finish_try (ps, context, token);
++  return ___DELIVERY_COMMITTED;
++}
++
+ static int delivery_only_accepted_pass
+    ___P((___virtual_machine_state ___vms),
+         (___vms)
+@@ -3258,7 +3398,7 @@
+          ___VECTORP(token) &&
+          ___INT(___VECTORLENGTH(token)) >= 5 &&
+          ___FIELD(VECTOR,consumer,0) == token &&
+-         ___FIELD(VECTOR,token,3) == ___FAL &&
++         delivery_vector_load (token, 3, __ATOMIC_ACQUIRE) == ___FAL &&
+          delivery_token_phase (token) == ___FIX(2) &&
+          ___delivery_pass_deferred_published (token) &&
+          ___VECTORP(pass) &&
+@@ -3690,21 +3830,32 @@
+           delivery_token_phase (token) == ___FIX(1))
+         {
+           ___SCMOBJ status;
++          int kept;
++          ___UWORD after;
+ 
+           delivery_unlock (vm);
+           status = ___delivery_pass_finish_try (ps, context, token);
++          after = __atomic_load_n
++                    (&___VMSTATE_FROM_PSTATE(ps)->delivery_admission,
++                     __ATOMIC_ACQUIRE);
+           vm = ___VM_SCMOBJ(___VMSTATE_FROM_PSTATE(ps));
++          if (!___STRUCTUREP(vm) || !delivery_trylock (vm))
++            {
++              fprintf (stderr,
++                       "PASS-ACTIVE-REFUSED status=%ld consumer_kept=%d admission=%llu->%llu\n",
++                       (long)status,
++                       0,
++                       (unsigned long long)before,
++                       (unsigned long long)after);
++              return ___FAL;
++            }
++          kept = ___FIELD(STRUCTURE,vm,3) == context;
+           fprintf (stderr,
+                    "PASS-ACTIVE-REFUSED status=%ld consumer_kept=%d admission=%llu->%llu\n",
+                    (long)status,
+-                   ___STRUCTUREP(vm) && ___FIELD(STRUCTURE,vm,3) == context,
++                   kept,
+                    (unsigned long long)before,
+-                   (unsigned long long)
+-                   __atomic_load_n
+-                     (&___VMSTATE_FROM_PSTATE(ps)->delivery_admission,
+-                      __ATOMIC_ACQUIRE));
+-          if (!___STRUCTUREP(vm) || !delivery_trylock (vm))
+-            return ___FAL;
++                   (unsigned long long)after);
+         }
+     }
+   picked = delivery_pick_locked (vm);
+@@ -4204,9 +4355,9 @@
+ 
+       if (___VECTORP(token) && ___INT(___VECTORLENGTH(token)) >= 5 &&
+           ___delivery_pass_deferred_published (token))
+-        handoff = ___FIELD(VECTOR,token,0) == ___FIX(2) &&
++        handoff = delivery_token_phase (token) == ___FIX(2) &&
+                   ___FIELD(VECTOR,token,1) != ___FAL &&
+-                  ___FIELD(VECTOR,token,3) == ___FAL;
++                  delivery_vector_load (token, 3, __ATOMIC_ACQUIRE) == ___FAL;
+ 
+       delivery_unlock (vm);
+       {
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -2139,7 +2139,8 @@
+                (macro-unlock-current-vm!))
+               (else
+                (##vector-set! context 1 head)
+-               (##vector-set! (##vector-ref context 0) 4 #t)
++               (##c-code "__atomic_store_n (___CAST(___VOLATILE ___WORD*,&___FIELD(VECTOR,___ARG1,4)), ___TRU, __ATOMIC_RELEASE); ___RESULT = ___VOID;"
++                         (##vector-ref context 0))
+                (macro-vm-delivery-consumer-set! vm context)
+                (macro-unlock-current-vm!)
+                (##thread-intr-service-retained-walk! context))))))
+@@ -2160,29 +2161,11 @@
+ 
+ (define-prim (##thread-intr-service-retained-epilogue! context token)
+   (##declare (not interrupts-enabled))
+-  ;; Slot 3 is closed. Slot 4 is published. A closed token is already
+-  ;; finished. A published token belongs to the native helper. A token
+-  ;; that was never published still owns its local pin.
+-  (if (##vector-ref token 3)
+-      0
+-      (begin
+-        (let ((previous (##vector-cas! token 0 2 1)))
+-          (if (##eq? previous 1)
+-              (##vector-set! token 2 #t)))
+-        (if (##vector-ref token 4)
+-            (##c-code "___RESULT = ___delivery_pass_finish_try (___ps, ___ARG1, ___ARG2);"
+-                      context token)
+-            (let ((pass (##vector-ref context 3)))
+-              (##vector-set! context 1 #f)
+-              (##vector-set! context 2 #f)
+-              (##vector-set! context 3 #f)
+-              (##vector-set! token 1 #f)
+-              (##vector-set! token 2 #f)
+-              (##vector-set! token 3 #t)
+-              (if (and pass
+-                       (##not (##thread-intr-r-settled? pass)))
+-                  (##thread-intr-release-unit! pass))
+-              0)))))
++  ;; One no-GC leaf checks this pair, moves phase 1 to 2, release-stores
++  ;; deferred, and tries finish. The result is only a scalar.
++  (##c-code "___RESULT = ___delivery_pass_epilogue (___ps, ___ARG1, ___ARG2);"
++            context
++            token))
+ 
+ (set! ##vector-inc!
+       (let ((three ##vector-inc!))

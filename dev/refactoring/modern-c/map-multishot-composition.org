@@ -1,0 +1,395 @@
+#+TITLE: Amplifying Gambit: Map, Repeatable Continuations and a Joint Native Runtime
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+#+TODO: OPEN RESEARCH DECIDED | PROVED RETIRED
+
+* DECIDED The capability being amplified :modern_c:control:gc:
+:PROPERTIES:
+:CUSTOM_ID: map-multishot-composition
+:AUTHORITY: GambitMapMultishot; GambitRuntimeComposition
+:MAINLINE: Scheme semantic ownership; modern generated C
+:EVIDENCE_CLASS: current-source; primary-paper; finite-model; conditional-law
+:NATIVE_ADMISSION: false
+:END:
+Gambit's portable VM, proper tail calls, first-class repeatable continuations,
+explicit frame maps and Scheme-level control are design assets. The goal is to
+make those capabilities cooperate with generational collection, more suspended
+contexts than OS carriers, predictable native ownership and multiple backends.
+It is not to imitate a one-shot language or to add admission guards indefinitely.
+
+[[file:models/sysml/map-multishot-composition.sysml][Native SysML]] extends the [[file:modernization-target.org][governing whole-runtime target]] by referencing its
+existing canonical module owners. It owns seven boundaries, ten directed shared
+contracts, eight proof scopes and 25 component/obligation uses. The
+[[file:map-multishot-matrix.org][generated matrix]] and [[file:diagrams/map-multishot-composition.d2][D2]] are projections, not another component inventory.
+The [[file:../../modeling/ascent/map-multishot.rules.scm][actual ASCENT DSL]] checks exact artifact/digest/method/scope receipts derived
+from these native values. Models under DEV describe the replacement architecture;
+root-level repair models and the 8/12 native milestone keep their own authority.
+
+:LOGBOOK:
+- [2026-10-23 Fri] Whole witness designed; QNT and conditional Lean slice checked.
+  No runtime, generator or build implementation changed; no native test executed.
+  The inactive vendor scope-gate candidate is neither a prerequisite nor a
+  required implementation of this architecture.
+:END:
+
+* RESEARCH A concrete computation, not an abstract continuation handle
+:PROPERTIES:
+:CUSTOM_ID: map-witness
+:END:
+The following is an inert specification example. =native-value= denotes an
+admitted service which may block, return 30 and make one externally observable
+call; it is not an implemented binding. Each =collect= invocation starts outside
+the dynamic extent. The mutable =complete= destination is read only after the
+dynamic-wind result is produced, avoiding a captured old exit procedure.
+
+#+NAME: multishot-map-witness
+#+BEGIN_SRC scheme :eval never
+(define saved #f)
+(define complete #f)
+(define visits '())
+(define winds '())
+(define (collect start)
+  (call/cc (lambda (exit) (set! complete exit) (start))))
+(define (compute)
+  (let ((answer
+         (dynamic-wind
+           (lambda () (set! winds (cons 'before winds)))
+           (lambda ()
+             (map (lambda (x)
+                    (set! visits (cons x visits))
+                    (cond ((= x 2)
+                           (call/cc (lambda (k) (set! saved k) 2)))
+                          ((= x 3) (native-value))
+                          (else 10)))
+                  '(1 2 3)))
+           (lambda () (set! winds (cons 'after winds))))))
+    (complete answer)))
+;; Three distinct driver invocations; retain all three results as roots:
+(collect compute)                       ; (10 2 30)
+(collect (lambda () (saved 20)))         ; (10 20 30)
+(collect (lambda () (saved 200)))        ; (10 200 30)
+#+END_SRC
+
+These are source-derived expected observations, not executed outputs. For the
+selected one-list =map= implementation, =proc= precedes recursive cdr traversal
+and pairs are built on return. The first callback's value 10 is pending in its
+caller frame when the second callback captures. Restoring =saved= supplies a new
+second value and reruns the suffix, including the third callback/native effect.
+
+| Observable | Required meaning for this witness | Forbidden shortcut |
+|------------+-----------------------------------+--------------------|
+| Results | (10 2 30), (10 20 30), (10 200 30); earlier returned lists unchanged | Destructive reuse of a previously delivered list |
+| Callback invocations | Three initial invocations, one suffix invocation per additional shot: 5 total | Replay prefix or memoize an effectful suffix |
+| Native effect | Three calls, assuming each succeeds and returns 30 | Reuse first native outcome for all shots |
+| Wind trace | before/after on each complete entry/exit: three pairs | Consume wind metadata on first resume |
+| Shared mutation | visits persists across shots; control restoration is not heap rollback | Clone reachable Scheme state or undo effects |
+| Continuation lifetime | saved remains callable after both additional resumptions | One-shot consumption or bounded lifetime inferred from the model |
+
+General Scheme does not promise this map evaluation order. It is the selected
+Gambit source path, and must be preserved where Gambit's observable contract
+requires it. This is sequential repeated invocation, not a claim that concurrent
+invocation of one continuation, arbitrary cross-thread transfer, or C-frame
+resurrection is already supported. Those require distinct semantic admission.
+
+* DECIDED One contract across the complete execution
+:PROPERTIES:
+:CUSTOM_ID: map-joint-contract
+:END:
+| Transition | Producer -> consumer | Published state / admission | Failure or unknown result custodian |
+|------------+----------------------+-----------------------------+-------------------------------------|
+| Indirect callback | Scheme plan -> generated dispatch | Complete caller frame, argument roots, semantic return PointId; tail flags distinguish proc and recursion from map's caller tail position | Caller keeps complete root view until callee activation is admitted |
+| Capture | Control -> root/heap services | Capture identity, FrameSpec chain, denv identity, wind ancestry; snapshot/root closure before collecting allocation | Original context retains frames until capture publication is acknowledged |
+| Mature | Collector -> control roots | Forwarding/copy completion, updated capture/root slots; remembered mature-to-young edges | Source representation and worker initialization debt remain until completion |
+| Native park | FFI -> participant/scheduler | Updateable frozen roots, no live raw borrow, outcome identity and release budget | VM owns activation/outcome; native side retains opaque in-flight resource debt |
+| Minor cut | Participants -> collector workers | Closed epoch membership and root grants; independent queues/copy work | Round owns unresolved scan/copy work; worker exit cannot erase it |
+| Native return | Outcome service -> execution | Committed root-safe result, completed GC epoch, exclusive run grant, reload | Result slot retains delivery debt; duplicate notification cannot duplicate ownership |
+| Resume saved | Control -> execution | Same captured logical continuation, new execution materialization, supplied values, Scheme wind transition | Saved remains reusable; partial restore is rooted and not runnable |
+| Exception/escape | Generated entry/control -> resource service | Outcome plus cleanup/child activation debts before physical C unwind | VM retains roots/resources until all actual users and native writes end |
+
+No receipt is inferred solely from a returned pointer or carrier exit. The
+contract compiler must enumerate the collecting, allocating, failure and
+internal-return successors as well as the happy path. The stored map table has
+22 return descriptors, with internal/normal maps and different link positions;
+it does not close the transitive callback/rest/FFI runtime-role inventory.
+
+** Semantic completion and modern C generation
+Scheme owns the GVM graph and completes variable homes, effects and successors
+before lowering. A =PointId= names a semantic occurrence/role/outcome, never an
+ordinal copied from stored C. A =FrameSpec= describes logical slots, return/link
+homes, pointer kinds and internal-return saved registers. Target layout supplies
+checked stack/heap coordinates and independent decoders. =ModuleSpec= binds
+entry and return points, globals and ABI fingerprints. =EffectSpec= includes
+allocation, capture, root writes, native blocking and exceptional transfers.
+=AllocationSpec= bounds every no-safepoint write interval before its checkpoint.
+
+The real stored C has different maps for the callback-return L2 and recursive-
+return L4, even though both RETN descriptors have fs=5/link=0. The generator
+cannot replace these with one largest catch-all root mask. Stored C is evidence
+of consumers, not newly reproduced GVM output or native layout qualification.
+
+The compiler emits typed C helpers, tables, ABI manifests and checkpoint calls.
+It must no longer ask distributed C macros to rediscover semantic frame state.
+Retire the old emitter and each decoder together per closed procedure/module
+group; an adapter is temporary migration scaffolding, not a permanent second
+semantic authority. Existing target-specific C calling/trampoline techniques
+remain available behind the contract; C portability is strengthened by making
+its requirements explicit.
+
+** Capture, generations and roots
+Capture publishes the frame/denv root closure before any allocation or GC. The
+current implementation can retain stack-backed captured frames until GC
+materializes them; it does not copy every frame eagerly on call/cc. The new
+design must compare against that existing sharing, not against an invented
+always-copy baseline.
+
+Each live context has a nursery allocation region; a parallel minor round closes
+all mutable participants before moving young objects, including inter-nursery
+references. Captured frames and shared heap objects can mature. A saved
+continuation root remains visited/updated, but its entire mature graph need not
+be traversed on each minor round if every mature-to-young edge is remembered.
+Major collection still traverses mature liveness as required. Continuation,
+denv, global/pair/vector, reconstruction and FFI writes are all barrier clients.
+
+No implicit GC may occur between an unprotected store and recording its edge.
+Reserve log capacity before the store, or record a conservative dirty region
+using preallocated capacity; overflow requests a later safe checkpoint. A
+parallel worker owns copy cursors and publication debt independently of a
+mutator's PSTATE. Capacity exhaustion retains the source/root and reservation
+responsibility; it cannot publish a partially initialized destination and resume.
+Major policy and cross-domain young-object policy are separately qualified;
+this design does not assert a concurrent major collector has been implemented.
+
+** Multi-shot restoration and observable aliases
+Select a repeatable captured representation with private execution
+materialization per shot. Logical captured frame storage may be shared across
+shots only while its observable identity/mutation contract permits it. Shared
+Scheme objects, lexical cells and denv identities remain shared. =dynamic-wind=
+transitions and multiple-value/exception delivery remain Scheme semantic work.
+
+The baseline restore path already copies a heap frame back to the execution
+stack. A persistent or copy-on-write representation earns a benefit only by
+removing work from that real path. It must not clone reachable mutable objects
+or turn repeated invocation into one-shot ownership. =##frame-set!=,
+continuation setters, deserialization and debugger/reflection access must retain
+their selected frame identity and alias behavior. Until that simulation is
+proved, exposed/mutable frames use a canonical heap representation and the
+existing observation-preserving restore algorithm; they are excluded from the
+immutable-sharing optimization. The Lean Snapshot laws apply only to the
+eligible immutable case. This explicit fallback is not evidence that those
+mutable paths have been solved.
+
+** Native blocking, nested callbacks and scheduler
+The suffix native service has a fresh logical invocation each shot. Root handles
+are registered before argument conversion or marker allocation. Freeze is a
+publish of complete updateable root slots after all native derived pointers are
+surrendered, not a copy of values that may become stale. A GC epoch reads those
+slots through a scan grant. The carrier may block; collector work and outcome
+custody belong to VM services. Returning code reacquires a context run grant and
+reloads roots/derived addresses after relocation before touching Scheme data.
+
+Nested callbacks obtain child activations and their own root view. They may
+allocate or capture Scheme control, but cannot silently capture a C stack for
+later resurrection. Effect-described managed calls may turn nonlocal exits into
+an explicit result/exception/escape outcome, unwind native cleanup, then perform
+the Scheme transfer. Arbitrary third-party frames or captured expired raw
+markers require an ABI-specific proof, conservative retention, or rejection of
+that managed mode. Existing supported behavior must remain available through
+the old adapter until an equivalent replacement exists; admission cannot
+silently restrict Gambit's language semantics.
+
+The scheduler handles suspended contexts with exclusive execution grants. It
+does not hold the GC phase open waiting for an owner callback to free a resource.
+Release tasks carry effect/affinity and descendant debts outside the moving
+phase. A late native result stays rooted and uniquely owned in the VM outcome
+slot until delivery/cleanup acknowledgement. A ready result does not itself
+authorize context reentry. OS-thread death does not prove an opaque native call
+has stopped writing; unknown calls remain retained and may still block closure.
+
+** Publication order to refine to modern C
+For roots: initialize slot/descriptor under exclusive ownership, release-publish
+the epoch-bound view, acquire a scan grant, update relocation slots, release-
+publish round completion; the returning context acquires that completion and
+reloads before use. Close admission before draining preexisting grants. No
+plain root slot is read/written concurrently: a scan lease excludes mutator
+access; atomics on flags do not make payload races legal. Card publication is
+ordered after its relevant store and before safepoint acknowledgement; all
+writers must be stopped or use an admitted barrier protocol before card reset.
+This is a proposed C memory contract. The QNT atomic scan stands for its
+completed result; it does not prove weak-memory implementation or scan closure.
+
+* RESEARCH Quantifying amplification without invented speedups
+:PROPERTIES:
+:CUSTOM_ID: map-net-benefit
+:END:
+Let F be pointer-bearing bytes in the eligible mature continuation graph, m the
+number of minor rounds, D_i the mature card/frame bytes actually rescanned in
+round i, R_i root-slot work, Y_i live nursery bytes traced, P_i promoted bytes,
+and W the actual barrier-client store count. These are separate counters, not
+interchangeable time units. Count D_i once per dirty scanning unit, not once per
+write. Young dead bytes avoid copying but nursery tracing overhead remains.
+
+#+NAME: continuation-minor-work
+#+BEGIN_EXAMPLE
+graph-scan bytes avoided = m*F - sum(D_i)
+relative mature-graph scan reduction = 1 - sum(D_i)/(m*F), when m*F > 0
+minor work = root slots + remembered scans + nursery tracing + survivor copying
+net time condition:
+  avoided old-graph scan time + avoided copying/ownership/dispatch work
+  > barrier(W) + remembered maintenance + promotion + rendezvous/reload
+    + amortized major delta + representation/metadata/validation delta
+#+END_EXAMPLE
+
+The first two equations describe mature graph work only, and use the
+counterfactual full-graph-per-round baseline where it actually applies. Current
+full movable collection, generational minor and major frequencies differ; a
+fair whole-run comparison includes all collections, not m old full collections
+versus m free minors. If D_i approaches F, the continuation scan benefit tends
+to zero while barrier cost remains. If F=0, there is no such saving. Shared
+immutable frames may reduce retained duplication from k*F to F+sum(private_i)
+only against an actually duplicating representation; current Gambit already
+shares/materializes captured frames, so k*F is not its established baseline.
+
+For the specified three-shot map, the semantic work lower bound is exact:
+5 callback invocations, 3 native calls, 3 wind entry/exit pairs, and 9 logical
+output-pair constructions on this unoptimized source path. Earlier results
+stay live. Eliminating suffix effects or reusing delivered result pairs is not
+a legal performance win. Let c be the actual dirty-card size; h writes in one
+card can cost one c-byte scan rather than h scans, but writes across h cards
+can cost h*c. No byte-to-time conversion is asserted.
+
+Peak memory is measured over time, not by adding unrelated maxima:
+
+#+NAME: peak-and-critical-path
+#+BEGIN_EXAMPLE
+peak = max_t bytes(union(MatureStorage, NurseryStorage,
+                        PromotionReserve, ActiveRestoreStorage,
+                        CapturedFrameStorage, RootCardOutcomeMetadata,
+                        PinnedNativeStorage)_t)
+minor latency = rendezvous + parallel critical path + termination + reload
+build work removed = old actual affected actions - new required actions
+#+END_EXAMPLE
+
+Each term denotes allocated or committed address intervals for the selected
+accounting metric, not an independent maximum. Captured mature frames are
+already in MatureStorage, and live young bytes are in NurseryStorage; the union
+counts them once. Report occupied, reserved, committed and resident views
+separately; a reservation is not evidence of resident bytes. Unknown native
+allocation sizes remain unknown. Promotion and restoration may reuse intervals only
+after a proven ownership/layout handoff. Later refunds do not lower the earlier
+peak. More carriers can saturate memory bandwidth; parallel latency is not
+automatically total work divided by processor count. Poll latency and blocked
+unadmitted FFI may dominate rendezvous. Every payoff remains conditional on
+the complete witness, not QNT event count or paper benchmark numbers.
+
+| Capability amplified | Measurable removed work | Added obligation/cost | Refutation |
+|----------------------+-------------------------+-----------------------+------------|
+| Portable first-class control | One semantic frame contract consumed by generator/GC/restore/debugger/backends | Schema/ABI bootstrap and decoder validation | Old semantic macros remain authoritative indefinitely |
+| Long-lived multi-shot continuation | m*F-sum(D_i) mature graph scan bytes when eligible | Barriers, promotion, remembered scans and retained snapshots | Whole graph dirty every minor; major/promotion cost dominates |
+| Tail calls and lightweight contexts | Bounded semantic tail-frame depth; M parked contexts on P carriers | Context descriptors, restore space, grants and affinity | Hidden C-stack growth or one OS thread required per context |
+| Safe native concurrency | GC proceeds from frozen roots without owner execution | Handles, reload, outcomes and pinning | Raw borrowed pointer still writable or owner callback required in GC |
+| Backend/build flexibility | Repeated unaffected expansion/C parse actions removed | Stable dependency snapshots, ABI manifests, adapters | A wrapper changes commands while all old work still runs |
+
+Zig is optional. It must demonstrate a net reduction in necessary support versus
+this generated modern C architecture. It neither supplies Scheme GC nor
+establishes continuation correctness. LLVM/MLIR exploit a completed contract;
+high-level optimization is admitted before lowering away required semantics.
+
+* RESEARCH Evidence and whole-path replacement closure
+:PROPERTIES:
+:CUSTOM_ID: map-evidence
+:END:
+Current file digests, spans and immutable repository heads are recorded in
+[[file:../../../evidence/research/map-modernization/source-bindings.json][source bindings]]. Working bytes and stored generated C are identified separately
+from newly generated artifacts. The source inventory below is a selected chain,
+not a claim to enumerate all transitive primitive/FFI writers.
+
+| Source | Fact used / replacement coverage |
+|--------+----------------------------------|
+| =lib/gambit/list/list.scm:850-925= | Actual one-list callback, recursive return, then CONS |
+| =lib/_std.c:74775-74813= | L2/L4 homes, indirect callback, return and heap-check consumers; stored C only |
+| =gsc/_t-c-2.scm:823-916=; =_t-c-3.scm:471-522= | Return frame/map producer and target physical map emission |
+| =include/gambit.h.in:6589-6742= | Capture/graft/return operations with thread state |
+| =lib/mem.c:3667-3966= | Stack-backed capture materialization and frame root readers |
+| =lib/_kernel.scm:1115-1346,3439-3558= | Heap/stack restore, mutable frame/continuation access |
+| =lib/_io.scm:11690-11727= | Serialized frame reconstruction through frame-set! |
+| =lib/_thread.scm:4623-4706,4913-4990= | Reified continuation closure and wind traversal |
+| =lib/c_intf.c:6511-6565=; =lib/setup.c:3277-3421= | Marker creation before payload store, known root TODO, call/run/catcher path; prior fixes must be credited |
+| =vendor/ocaml/runtime/minor_gc.c:275-305,886-934= | Special continuation promotion and participating minor-round work |
+| =vendor/ocaml/runtime/signals.c:147-205=; =memory.c:183-220= | Blocking participation hooks and barrier mechanism; not a template to copy |
+
+The [[https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf][Gambit PVM paper]] section 2 makes front/back information flow and abstract
+frames/calls part of the architecture. Extending that boundary to roots,
+effects and checkpoints amplifies its own approach; the historical compiler
+numbers do not predict this refactoring's performance.
+
+The [[https://kcsrk.info/papers/retro-parallel_icfp_20.pdf][OCaml parallelism paper]] sections 1.3, 3.4 and 4.4 couples minor collector
+choice with C read assumptions and poll progress; it explicitly cites Feeley's
+1993 polling algorithm. Our inference is to keep ordinary C heap reads free of
+implicit collection and use explicit coordinated cuts. This does not settle
+Gambit's mature-heap policy or prove its FFI inventory closed.
+
+The [[https://kcsrk.info/papers/retro-concurrency_pldi_21.pdf][OCaml effects paper]] sections 4-5 models alternating language/C stacks,
+exceptions and callbacks together, and optimizes one-shot continuations. Its
+method motivates a joint operational model; its multiplicity restriction is
+inappropriate for Gambit. The [[https://small.r7rs.org/attachment/r7rs.pdf][Scheme report]] sections 3.5 and 6.10 provides the
+language floor for repeated invocation and wind behavior; it does not specify
+Gambit's internal reflective frame API.
+
+** Replacement sequence and retirement predicate
+1. Define and independently decode the full Scheme-owned plan for the selected
+   procedure plus all transitive runtime-role entry/failure successors.
+2. Replace emit/capture/restore/root consumers as one module ABI migration;
+   retain a traceable old adapter at the boundary, not duplicated semantic logic.
+3. Replace execution/participant/work ownership jointly with root-safe native
+   entry and effect/lifetime handling; no participant closes while hidden C
+   roots or unfinished copy/init work remain.
+4. Switch all writer families to the barrier/initialization contract, then admit
+   generational skips and parallel minor work. Partial writer migration cannot
+   enable skips; conservative full traversal remains until closure.
+5. Admit independent carrier scheduling and eligible persistent/COW sharing
+   only after affinity, aliases, wind/reentry and resource proof obligations.
+6. Retire old semantic emitters, PSTATE-owned GC work and per-wrapper ownership
+   only when emitter/caller/consumer/failure inventory, downstream ABI/debug and
+   full native acceptance all move. Permanent double accounting fails the case.
+
+These are coherent replacement cuts, not a sequence of stopgap repairs. Existing
+patches remain the behavioral baseline until replaced. The four open native
+milestone contracts and the current 8/12 status are unchanged.
+
+* RESEARCH Formal closure matrix :model:
+:PROPERTIES:
+:CUSTOM_ID: map-formal-closure
+:END:
+[[file:models/quint/map_multishot_composition.qnt][QNT]] models private frame mutation, shared heap mutation, two additional
+resumes, mutable root relocation, borrow/freeze, independent GC progress,
+barrier coverage and native outcome custody. Eight positive histories and four
+explicit unsafe histories check the joint abstraction. Seeded exploration is
+bounded; two shots and one reference are model scope, never runtime limits.
+[[file:models/lean/MapMultishotComposition.lean][Lean]] checks eleven conditional laws. It does not prove all QNT transitions,
+the word/frame encoding, dynamic-wind callback reentrancy or Scheme simulation.
+
+| Scope | Status | What remains |
+|-------+--------+--------------|
+| MM-Q finite custody | Locally checked | Abstract atomic scan, one referent, two shots; no C/liveness proof |
+| MM-L conditional laws | Locally checked | Immutable snapshot premise; no source simulation or transition induction |
+| MM-FRAME | OPEN | Every producer/decoder/restore and mutable-frame alias refinement |
+| MM-WRITERS | OPEN | Complete barrier/FFI/denv/reconstruction writer inventory and overflow/failure |
+| MM-FOREIGN | OPEN | Nested escape, marker, roots-before-allocation and live C-frame equivalence |
+| MM-MEMORY | OPEN | C weak memory, physical lifetimes and scan/root grant exclusion |
+| MM-PROGRESS | OPEN | Fair scheduling, bounded safepoints, collector work closure and resource waits |
+| MM-SIM | OPEN | Full values/effects/wind/exception/reflection observational simulation |
+
+Retained counterexamples: consuming saved after first resume; unremembered
+mature-to-young write; entering with a stale pre-GC root; losing resource custody
+after native outcome commit. A model-authoring failure also exposed an invalid
+assumption that capture always saves the initial slot value: private mutation
+before capture is legal. The revised invariant binds saved to its actual
+capture value; the failed trace is retained, not reclassified as runtime fault.
+
+ASCENT current, missing-Q, stale-digest, wrong-scope and forged-whole-scope cases
+must keep the six larger obligations open. A synthetic all-scopes policy control
+tests the DSL join only and is never evidence of architecture/native admission.
+See [[file:../../../evidence/research/map-modernization/verification.json][the check receipt]] for exact counts, digests and native=false boundaries.
+Unbounded semantic correctness and measured net benefit remain research duties.

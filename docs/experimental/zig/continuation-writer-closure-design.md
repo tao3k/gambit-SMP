@@ -1,0 +1,229 @@
+# Captured Continuation Writer and Foreign Caller Closure
+
+Design research only. No implementation, Scheme expansion, compiler/native
+test or model execution. Read the [caller matrix](continuation-writer-caller-matrix.md),
+[minor-scan argument](continuation-minor-scan-proof.md),
+[benefit matrix](continuation-writer-benefit-matrix.md) and
+[source/paper ledger](continuation-writer-evidence.md). The
+[trace](continuation-writer-traceability.json) records document/source
+correspondence, not admitted runtime behavior.
+
+CW01. The optimization is ordinary generational tracing applied to Gambit's
+actual control graph: a mature object need not be recursively followed during
+minor GC when all its young-reference source locations are independently
+covered. It is not a special exemption for a continuation type tag or a
+promise that everything reachable from a mature k is mature. Retain general
+Scheme control, shared mutable identity, lazy stack capture and qualified C
+integration. Study OCaml to identify mechanisms and assumptions; choose and
+prove the corresponding Gambit contracts. [WE01–WE14, WP01–WP07]
+
+## The Graph Is Wider Than Captured Frames
+
+CW02. For the real map/call/cc history, k references a frame frontier and denv;
+the denv references environment nodes, binding pairs, wind state, exception/
+port/repl bindings and other values. Thread objects and denv caches can alias
+these nodes independently of k. Original input, pending callback results and
+delivered values can reach ordinary mutable heap objects. A rooted mature k
+does not certify all these transitive fields as young-free. [WE01, WE04–WE08]
+
+![Writers, aliases and collection boundary](continuation-writer-graph.svg)
+[D2 source](continuation-writer-graph.d2).
+
+CW03. Selected real writer/caller paths now include:
+
+| Family | Actual path and important distinction | Required modern C operation |
+| --- | --- | --- |
+| Captured frame / shell | `##frame-set!`, heap/stack branches of `##continuation-set!`, frame/denv setters and `##continuation-next!`; `##continuation-copy` shares frame/denv | Typed frame/control/root store, valid aliases/layout and scan/writer access |
+| Frame reconstruction | `##read-sharp-other` selects `#frame` → local deserialize → `##implode-frame` → `##make-frame` → per-slot setter loop | Trace-safe construction, rooted inputs, physical descriptor validation and published-store fallback |
+| Continuation reconstruction | `#continuation` dispatch → `##implode-continuation` → `##make-continuation` | Rooted shell construction and frame/denv publication with actual sharing |
+| Dynamic parameter read | `##dynamic-ref` cache2/cache3 hit or successful environment lookup updates thread caches; cache1 hit does not | Heap stores in the cache-update paths even though the public operation is a read |
+| Dynamic parameter write | `##dynamic-set!` updates binding-pair cdr, parameter-descriptor value, and possibly caches; built-in parameters use pair setters | Generic managed pair/vector/structure stores, not merely a denv-field barrier |
+| Environment construction / insertion | Active `##env-insert` builds new persistent nodes; SMP `##env-insert!` is reader-commented, non-SMP implementation is active | Separate private new-node publication from actual existing-node mutation per feature branch |
+| Binding and replay | `##dynamic-env-bind`, graft/return macros, kernel break restoration, wind/value delivery | Context root handoff plus thread denv/cache managed writes and rooted reentry stages |
+| Scheduling and end | THREAD_SAVE writes a thread continuation frame field; THREAD_RESTORE reads and clears it, changes current thread; thread end clears cont/denv/caches | Source-to-destination root transfer before unlink, remembered/deletion/access obligations |
+| Native capture carrier | Procedure conversion → conditional C closure allocation → RC register/data → SFUN marker → ___call → marker invalidation/release | Pre-allocation root protection, owned RC/marker writes and admitted callback/exit protocol |
+
+The [machine-readable inventory](continuation-writer-callers.json) separates
+active source paths, conditional native paths, macro declarations,
+reader-commented forms and unknown caller domains. It is a selected lexical
+and manually reviewed call-chain inventory, not a computed whole-program
+call graph. Unknown/generated/indirect/raw C users are explicit open edges.
+[WE01–WE12]
+
+## Reconstructing a Frame Is Not a Free Initialization Exception
+
+CW04. `##make-frame` saves the return descriptor in a GC save slot around its
+allocation macro and initializes the body using that return value. The allocation
+macro can enter GC on the small-object slow path and can choose a still/native
+allocation for larger frames. This is evidence of real initialization/protection
+work already present; it is not an uninitialized-body bug claim. The subsequent
+`##implode-frame` loop is a separate filling phase. [WE02–WE03]
+
+The new construction contract must bind field-vector length, return/code and
+normal/internal descriptor interpretation, root-bit/control-slot classes,
+initialized extent, source roots and the next collecting boundary. A large or
+promoted target may be mature while fields still receive young values. Being
+newly created, running with interrupts masked, or being locally named `frame`
+is not enough to omit remembering or major publication work. A verified private
+no-safepoint initializer can specialize stores; other writes use the ordinary
+prepared store contract. Current source does not prove the new specialization.
+
+CW05. Distinguish real serializer paths. The selected `deserialize` vector
+construction suppresses its generic label-marker fixup registration. Procedure/
+closure reconstruction separately registers delayed `##closure-set!` callbacks;
+list/vector reader paths have their own setter callbacks. These show that
+reconstruction support can retain writers past a local call, but do not prove
+that `##implode-frame` itself implements delayed cyclic/forward-reference
+repair. Do not invent such frame support or call every reconstruction write
+private. The admitted serializer domain must specify which sharing/fixup forms
+actually exist, and keep unresolved ones explicit. [WE02]
+
+Once frame/code binding is validated, FrameSpec/PointId and module lifetime must
+stay valid while the reconstructed continuation can be invoked. Return label
+ordinals in serialized/current C artifacts are not an independent cross-profile
+frame contract. Structural edits changing link/descriptor meaning require a
+validated control-state transition; a generic pointer barrier is insufficient.
+[WE01–WE03, WE13; RD01–RD02]
+
+## Denv, Caches and Scheduling Need Distinct Treatment
+
+CW06. `_thread#.scm` describes denv as a vector with a local environment tree
+and special bindings. `macro-vector-slot` emits `##vector-set!` for writes.
+Special exception/input/output/repl parameter setters modify binding-pair cdrs;
+ordinary parameters can update a descriptor's default value. These accesses
+must reach the same typed managed-store policy as ordinary Scheme mutation.
+Duplicating the denv tree to manufacture immutability would change sharing
+and is not justified by this study. [WE04–WE06, WE08]
+
+The SMP branch's unused `##env-insert!` form is preceded by `#;`; its textual
+left/right updates are not active SMP callers. The non-SMP implementation is
+active in its own branch. Macro declarations remain future/external mutation
+surfaces even when no selected active caller uses them. Feature selection and
+source overlay are therefore part of the writer-coverage identity. A literal
+occurrence count alone cannot establish coverage. [WE05–WE06]
+
+CW07. THREAD_RESTORE's clearing of the scheduler-owned continuation field is
+a transfer of ownership into the executing stack, not permission to consume
+an arbitrary user continuation. The old source and new destination frontier
+must remain collectively protected until handoff completes. A pointer to a
+stack-backed frame is a structural root/capture reference, even when encoded
+like an immediate word; it requires a stack-region decoder/lease, not a filter
+which drops all fixnums as nonpointers. [WE07, WE13]
+
+Dropping denv/cache/thread roots can need major snapshot/deletion treatment,
+but minor remembering concerns new young edges. These are different duties.
+Dynamic-wind, allocation, callback and scheduler migration split any larger
+transaction into rooted revalidatable stages; no no-safepoint commit holds
+locks across such calls. Active/restored stacks still scan at minor cuts.
+
+## Native Caller Closure and Root Policies
+
+CW08. The selected native function-pointer path has concrete producer and
+consumer ends: FUNCTION/NONNULLFUNCTION conversion chooses an existing static
+C entry or conditionally creates a C closure; the closure registers RC storage
+and writes its procedure into RC data. SFUN entry makes a stack marker, reads
+that procedure or its explicit procedure input, and calls Scheme through
+`___call`. SFUN exit invalidates the marker; conversion cleanup can release the
+function carrier. `___run` is another actual marker/call/kill caller. CFUN
+inline/out-of-line wrappers write back execution state, perform conversions
+and handle error/unwind paths. [WE09–WE12]
+
+The current marker function explicitly warns that its procedure input may be
+collected before use. Root registration after allocation does not protect that
+earlier interval. RC data has a direct setter without an owner argument; a
+modern RootWrite needs an already known carrier owner/epoch, not a guessed
+current processor. Existing per-processor/donor patch work is credited, while
+loaded/configured/native acceptance remains open. C closure machine-code support
+is conditional; none of these paths qualifies a new Darwin/arm64 callback ABI.
+[WE09–WE10, WE14]
+
+CW09. Use two explicit native-root classes:
+
+| Root class | Admission and writes | Minor behavior |
+| --- | --- | --- |
+| Enumerated mutable root | Stable registered carrier, complete value at each acknowledged cut, synchronized foreign access and retained owner | Inspect its current cell every minor; if mature, normal remembered-source coverage still controls graph skipping |
+| Cooperatively classified root | Same custody plus every root write through the typed policy and classification/epoch update | May omit unchanged mature root cells from the young-root subset; adding a young value re-enrolls the root before acknowledgement |
+
+This distinction learns from OCaml's registered versus generational global
+root APIs. Its documented benefit comes from a real write discipline. It does
+not mean a pointer to a mature graph proves that graph has no dirty interior.
+The initial Gambit candidate can enumerate native roots and still save mature
+graph traversal; classifying roots further is a separate optimization. An
+always-scanned root does not authorize races with its producer. [WP01–WP03]
+
+CW10. A foreign call contract declares root/borrow/managed-write footprint,
+allocation, callback, blocking and native owner/exit behavior. Nonallocating
+scoped borrowing does not permit a retained movable pointer. Callback or
+blocking entry must publish valid carriers and reacquire the permitted context
+before managed access. Escaped continuations retain Scheme/code state but
+cannot make an invalidated native stack marker returnable. [WE09–WE12]
+
+An admitted uninstrumented writer confined to a declared stable region can
+require conservative scanning of that region, with roots and all other edges
+still covered. Unknown writes to arbitrary managed memory require a separately
+proved VM-wide fallback or rejection of this generational profile. Scanning
+only k's known graph cannot find an unknown external mature object's new young
+edge. Even full heap tracing does not discover an unregistered native root or
+repair a C data race. Those remain admission failures, not free fallbacks.
+
+![Native procedure carrier and callback lifecycle](continuation-writer-foreign.svg)
+[D2 source](continuation-writer-foreign.d2).
+
+## Conditions for Omitting the Mature Graph
+
+CW11. A skipped mature graph needs no runtime transitive “is clean” traversal.
+Instead require a globally admitted writer/root profile plus per-object/region
+well-formed state, valid owner/layout and a complete remembered-source set.
+Each new boundary edge is covered at its source, including denv descendants
+aliased from elsewhere. Pending stack stabilization, reconstruction or transfer
+debt is scanned explicitly or keeps the object outside the ordinary skipped
+state. A static mature tag alone supplies none of this. [CW02–CW10]
+
+CW12. Remember a stable source identity and typed slot/range, retaining its
+storage/reader rights until drain or proven discard. Aliases must share source
+identity; saved and restored execution frames must have distinct activation
+custody. Freeze producer epochs before scanning/reset; writes after that cut
+belong to the next active epoch. A frame setter returning successfully is not
+permission to free the source record while a scanner still owns it. Retaining
+source leases can itself delay reclamation and costs memory. [WE01, WE07,
+WE09, WE13; RD02]
+
+![Write, root and epoch closure](continuation-writer-publication.svg)
+[D2 source](continuation-writer-publication.d2).
+
+CW13. The companion proof states the edge-cut conditions and counterexamples.
+This is conditional minor soundness, not a claim of checked full-GC correctness.
+Major SATB/deletion, weak/will/ephemeron semantics, native caller completeness,
+C memory-order realization, capacity/progress and restoration acceptance remain
+separate obligations. Selected source chains are now concrete; their replacement
+and full-runtime closure are still unresolved. No path is retired here.
+
+CW14. Retirement order follows the semantic dependencies: classify all selected
+callers and feature branches; generate explicit Scheme store/root/transfer/
+construction effects; replace direct C/frame/SFUN/CFUN/root bodies and readers
+for the closed cohort; qualify remembered-source and root epoch protocols;
+then omit full mature minor traversal for that domain. Preserve useful leaf
+algorithms and independent readers. Generic native field access or unknown
+serialization/control callers prevent claiming the full retirement domain.
+
+CW15. The new costs are actual runtime policies: typed store classification,
+remembered/log capacity, root enumeration or reclassification, source leases,
+scan/access synchronization, reentry validation and conservative fallback.
+The [matrix](continuation-writer-benefit-matrix.md) charges them against actual
+traversal opportunities. Neither human-day estimates nor another language's
+benchmark establishes the net result.
+
+
+## Native Callback Follow-Up
+
+The [map/Tcl callback case](native-callback-continuation-design.md) now traces
+actual client-data creation, invocation, deletion and string-result handoff,
+with the composed capture scenario explicitly unexecuted. Its
+[custody protocol](native-callback-custody-contract.md) separates managed
+reachability from marker validity and gives root publication/reload, blocking,
+nested entry and nonlocal-exit conditions. Read the
+[counterexamples](native-callback-arguments.md),
+[evidence](native-callback-evidence.md) and
+[net-benefit matrix](native-callback-benefit-matrix.md). These refine CW08–CW15;
+complete foreign/native/major/weak/progress and positive Zig admission remain
+unresolved. No historical receipt is changed.

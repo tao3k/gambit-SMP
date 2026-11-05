@@ -50,44 +50,10 @@ def source_facts(root, data, source, inputs, locked=False):
             raise ValueError("source correspondence stale: " + name)
         if not locked:
             inputs[str(path.relative_to(root))] = sha
-    receipt_path = relative(root, data["sourceUnitReceipt"])
-    if digest(receipt_path) != data["sourceUnitReceiptSha256"]:
-        raise ValueError("source-unit receipt differs")
-    saved = json.loads(receipt_path.read_text())
-    historical = {}
-    reconstruction_inputs = dict(inputs)
-    if data.get("sourceUnitInputArchive"):
-        from gambit_smp.historical_inputs import bindings
-        historical, paths = bindings(root, receipt_path, data["sourceUnitInputArchive"])
-        for path in paths:
-            inputs[path.relative_to(root).as_posix()] = digest(path)
-    if (saved.get("status") != "source-schedule-observed" or saved.get("sourceStable") is not True
-            or saved.get("runtimeAdmitted") is not False):
-        raise ValueError("incomplete source-unit evidence")
-    inputs.update({Path(name).relative_to(root).as_posix(): sha
-                   for name, sha in check_schedule(saved, root).items()})
-    if locked and (saved.get("sourceLock") != data["sourceLock"] or
-                   saved.get("sourceFileIdentities", {}).get("lib/setup.c") !=
-                   data["contextInputs"].get("lib/setup.c")):
-        raise ValueError("source-unit receipt does not bind locked source")
-    if locked:
-        lock_name = data["sourceLock"]
-        patch_name = json.loads(relative(root, lock_name).read_text())["patch"]
-        for name, sha in reconstruction_inputs.items():
-            if name == MANIFEST:
-                continue
-            recorded = saved.get("inputs", {}).get(name)
-            if recorded != sha:
-                archived = historical.get(str(root / name))
-                if (name in {lock_name, patch_name} or archived is None
-                        or digest(archived) != recorded):
-                    raise ValueError("source-unit receipt omits locked source inputs")
-    inputs[data["sourceUnitReceipt"]] = digest(receipt_path)
-    for name, sha in saved["inputs"].items():
-        path = historical.get(str(root / name), relative(root, name))
-        if digest(path) != sha:
-            raise ValueError("source-unit input changed: " + name)
-        inputs[path.relative_to(root).as_posix()] = sha
+    if data.get("sourceUnitReceipt"):
+        bind_source_unit(root, data, inputs, locked)
+    elif data.get("sourceUnitReceiptSha256") or data.get("sourceUnitInputArchive"):
+        raise ValueError("source-unit receipt fields require a current receipt")
     result = {name: [] for name in ARITIES}
     ids = set()
     for row in data["observations"]:
@@ -130,3 +96,44 @@ def source_facts(root, data, source, inputs, locked=False):
                          ",".join(name for name, rows in answers.items() if rows))
     result["source_native_pending"] = [(gate,) for gate in data["nativeGates"]]
     return result, inputs
+
+
+def bind_source_unit(root, data, inputs, locked):
+    receipt_path = relative(root, data["sourceUnitReceipt"])
+    if digest(receipt_path) != data["sourceUnitReceiptSha256"]:
+        raise ValueError("source-unit receipt differs")
+    saved = json.loads(receipt_path.read_text())
+    historical = {}
+    reconstruction_inputs = dict(inputs)
+    if data.get("sourceUnitInputArchive"):
+        from gambit_smp.historical_inputs import bindings
+        historical, paths = bindings(root, receipt_path, data["sourceUnitInputArchive"])
+        for path in paths:
+            inputs[path.relative_to(root).as_posix()] = digest(path)
+    if (saved.get("status") != "source-schedule-observed" or saved.get("sourceStable") is not True
+            or saved.get("runtimeAdmitted") is not False):
+        raise ValueError("incomplete source-unit evidence")
+    inputs.update({Path(name).relative_to(root).as_posix(): sha
+                   for name, sha in check_schedule(saved, root).items()})
+    if locked and (saved.get("sourceLock") != data["sourceLock"] or
+                   saved.get("sourceFileIdentities", {}).get("lib/setup.c") !=
+                   data["contextInputs"].get("lib/setup.c")):
+        raise ValueError("source-unit receipt does not bind locked source")
+    if locked:
+        lock_name = data["sourceLock"]
+        patch_name = json.loads(relative(root, lock_name).read_text())["patch"]
+        for name, sha in reconstruction_inputs.items():
+            if name == MANIFEST:
+                continue
+            recorded = saved.get("inputs", {}).get(name)
+            if recorded != sha:
+                archived = historical.get(str(root / name))
+                if (name in {lock_name, patch_name} or archived is None
+                        or digest(archived) != recorded):
+                    raise ValueError("source-unit receipt omits locked source inputs")
+    inputs[data["sourceUnitReceipt"]] = digest(receipt_path)
+    for name, sha in saved["inputs"].items():
+        path = historical.get(str(root / name), relative(root, name))
+        if digest(path) != sha:
+            raise ValueError("source-unit input changed: " + name)
+        inputs[path.relative_to(root).as_posix()] = sha

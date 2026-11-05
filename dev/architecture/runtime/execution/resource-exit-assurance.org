@@ -1,0 +1,66 @@
+#+TITLE: Modern C Component Assurance: Resource exit
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: architecture
+#+PROPERTY: header-args :eval never :exports code
+#+COLUMNS: %32ITEM %24STATUS %24OBLIGATION
+
+* RESEARCH Resource exit
+:PROPERTIES:
+:CUSTOM_ID: resource-exit
+:COMPONENT: resource-exit
+:AUTHORITY: GambitRuntimeAssurance
+:STATUS: local-model-slices-checked-source-refinement-open
+:EVIDENCE_CLASS: target-protocol-and-source-study
+:END:
+
+free_unmarked_still_objs and free_still_objs call release_foreign before freeing backing; cleanup then tears down RC and synchronization facilities. A destructor call is not proof that all derived tasks, handles or owner-thread callbacks have finished. Unknown outcomes remain owned until independently accepted or reconciled.
+
+** State, transitions and necessary invariant
+Ingress closed plus actual borrowers, strong/weak/cleanup and target identity -> reclaim permit.
+
+freeze/last-use/drain/issue permit/reclaim; unknown outcomes retain custody; reopened generation invalidates permit.
+
+Required: Only same-generation permit with complete producer and user drain allows reclaim.
+
+Abstraction boundary: Coarse last-user protocol does not establish foreign destructor effects, owner-thread dispatch, device fd closure or physical release acknowledgements.
+
+** Actual source and checked model scope
+[[file:../../../../vendor/gambit/lib/mem.c][Primary producer/consumer source]]. Source anchors: =mem.c:4370-4455,4933-4960; os_io.c:device cleanup owner audit=.
+
+[[file:../../../../models/gambit/saved_stack_retirement_window.qnt][Existing baseline model]] remains in models/.
+[[file:../../../../models/gambit/resource_exit_contract.qnt][The component QNT]] has 5 deterministic positive/omission histories;
+its exact check scope is =resource_exit_contract:Test$=. It supplies no exhaustive or native reachability proof.
+
+[[file:../../../../models/gambit/lean/SavedStackRetirementWindow.lean][The independent Lean companion]] is checked with the exact declared symbol set:
+#+BEGIN_EXAMPLE
+GambitSMP.SavedStackRetirementWindow:emptyWitnessNeedsStableWindow;phaseCompletionOrdersReuse;foreignFrameClosureDoesNotEmptySchemeQueue
+#+END_EXAMPLE
+These are conditional mathematical slices, not a new C/GSC transition simulation.
+The qualified namespace names are independently checked against the compiled formal module.
+
+** Obligations and dependency handoff
+#+NAME: resource-exit-needs
+| Need | Method class | Completion premise |
+|---+---+---|
+| RX-H | interleaving | Positive and omission histories for Only same-generation permit with complete producer and user drain allows reclaim |
+| RX-I | induction | Checked conditional lemmas only; Coarse last-user protocol does not establish foreign destructor effects, owner-thread dispatch, device fd closure or physical release acknowledgements |
+| RX-S | source-refinement | Initial relation, every real source action/stutter, concrete observation reflection and progress; freeze/last-use/drain/issue permit/reclaim; unknown outcomes retain custody; reopened generation invalidates permit |
+| RX-M | native-memory-order | Concrete atomics, root writes, lock order, callbacks/escapes, profile and physical last use |
+
+RX-S depends on GW-S, CO-S and HR-S. GC task completion is necessary but insufficient for target-user drain; an empty queue needs a stable no-arrival window and a same-generation target permit.
+
+Failure remains with the sending custodian until a same-scope receiver accepts
+complete responsibility. A requested cancellation, produced pathname, local
+queue-empty observation or passed companion lemma is not that acceptance.
+
+** Elimination and added work
+Retire unsafe implicit cleanup ordering only after producer closure, last-user/derived-task accounting and owner-scoped physical release acknowledgements. Added work is permits, deferred delivery, unknown-outcome retention and shutdown coordination. Avoid retention cycles before claiming positive net benefit.
+
+Modern C owns this baseline redesign. The protocol and formal reuse are language
+independent; none proves an additional net gain from maintaining Zig.
+
+[[file:../../../modeling/component-assurance.org][The composed closure matrix and typed shared contracts]] retain cross-component
+prerequisites and counterexample controls. No runtime implementation or native test
+is authorized or performed by these research checks.
+
+

@@ -1,0 +1,235 @@
+diff --git a/include/gambit.h b/include/gambit.h
+index b712475..0efa0ba 100644
+--- a/include/gambit.h
++++ b/include/gambit.h
+@@ -6227,11 +6227,24 @@ __atomic_load_n(___CAST(___WORD*,&current),__ATOMIC_ACQUIRE)
+ (*___CAST(___VOLATILE ___WORD*,&current))
+ #endif
+ 
++void ___ticket_holder_note(void *lock, ___WORD served, void *return_address);
++void ___ticket_holder_report(void *lock, ___WORD ticket, void *waiter_return_address);
++int ___ticket_obs_after_trylock(___SCMOBJ obj, ___SCMOBJ current_index, int acquired, void *return_address);
++
++/* Reservation, acquire load and unlock fetch-add stay in this order.
++   The note runs only after the ticket is held. The report reads the
++   same acquire load and does not advance either ticket word. */
+ #define ___TICKETLOCK_LOCK2(next,current) \
+ do { \
+   ___WORD ___ticket = ___FETCH_AND_ADD_WORD(___CAST(___VOLATILE ___WORD*,&next),___FIX(1)); \
++  unsigned ___spins = 0; \
+   while (___TICKETLOCK_READ_CURRENT(current) != ___ticket) \
+-    ___CPU_RELAX(); \
++    { \
++      if (++___spins == 100000000u) \
++        ___ticket_holder_report(&current, ___ticket, __builtin_return_address(0)); \
++      ___CPU_RELAX(); \
++    } \
++  ___ticket_holder_note(&current, ___ticket, __builtin_return_address(0)); \
+ } while (0)
+ 
+ #define ___TICKETLOCK_TRYLOCK2(next,current,temp) \
+@@ -6266,7 +6279,7 @@ ___FETCH_AND_ADD_WORD(___CAST(___VOLATILE ___WORD*,&current),___FIX(1))
+ ___TICKETLOCK_LOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)));
+ 
+ #define ___PRIMTRYLOCK(obj,next,current) \
+-___TICKETLOCK_TRYLOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)),___temp)
++___ticket_obs_after_trylock((obj),(current),___TICKETLOCK_TRYLOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)),___temp),__builtin_return_address(0))
+ 
+ #define ___PRIMUNLOCK(obj,next,current) \
+ ___TICKETLOCK_UNLOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)));
+diff --git a/include/gambit.h.in b/include/gambit.h.in
+index 1451de1..82d6c36 100644
+--- a/include/gambit.h.in
++++ b/include/gambit.h.in
+@@ -6227,11 +6227,24 @@ __atomic_load_n(___CAST(___WORD*,&current),__ATOMIC_ACQUIRE)
+ (*___CAST(___VOLATILE ___WORD*,&current))
+ #endif
+ 
++void ___ticket_holder_note(void *lock, ___WORD served, void *return_address);
++void ___ticket_holder_report(void *lock, ___WORD ticket, void *waiter_return_address);
++int ___ticket_obs_after_trylock(___SCMOBJ obj, ___SCMOBJ current_index, int acquired, void *return_address);
++
++/* Reservation, acquire load and unlock fetch-add stay in this order.
++   The note runs only after the ticket is held. The report reads the
++   same acquire load and does not advance either ticket word. */
+ #define ___TICKETLOCK_LOCK2(next,current) \
+ do { \
+   ___WORD ___ticket = ___FETCH_AND_ADD_WORD(___CAST(___VOLATILE ___WORD*,&next),___FIX(1)); \
++  unsigned ___spins = 0; \
+   while (___TICKETLOCK_READ_CURRENT(current) != ___ticket) \
+-    ___CPU_RELAX(); \
++    { \
++      if (++___spins == 100000000u) \
++        ___ticket_holder_report(&current, ___ticket, __builtin_return_address(0)); \
++      ___CPU_RELAX(); \
++    } \
++  ___ticket_holder_note(&current, ___ticket, __builtin_return_address(0)); \
+ } while (0)
+ 
+ #define ___TICKETLOCK_TRYLOCK2(next,current,temp) \
+@@ -6266,7 +6279,7 @@ ___FETCH_AND_ADD_WORD(___CAST(___VOLATILE ___WORD*,&current),___FIX(1))
+ ___TICKETLOCK_LOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)));
+ 
+ #define ___PRIMTRYLOCK(obj,next,current) \
+-___TICKETLOCK_TRYLOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)),___temp)
++___ticket_obs_after_trylock((obj),(current),___TICKETLOCK_TRYLOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)),___temp),__builtin_return_address(0))
+ 
+ #define ___PRIMUNLOCK(obj,next,current) \
+ ___TICKETLOCK_UNLOCK2(___FIELD(STRUCTURE,obj,___INT(next)),___FIELD(STRUCTURE,obj,___INT(current)));
+diff --git a/lib/setup.c b/lib/setup.c
+index a3f0323..549d274 100644
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -22,6 +22,9 @@
+ #include "c_intf.h"
+ #include "actlog.h"
+ 
++#include <stdio.h>
++#include <unistd.h>
++
+ 
+ /*---------------------------------------------------------------------------*/
+ 
+@@ -634,6 +637,127 @@ ___virtual_machine_state ___vms;)
+ #define OP_ACTLOG_STOP             OP_MAKE(62,0)
+ #define OP_NOOP                    OP_MAKE(63,0)
+ 
++/* Diagnostic only. Fetch-add, acquire load, unlock fetch-add and the
++   barrier message sequence are unchanged. Slots record a held ticket
++   word; a later unlock advances current, so a match is the live holder. */
++#define ___TICKET_OBS_SLOTS 8192
++
++static struct ___ticket_obs_slot
++  {
++    void *return_address;
++    ___WORD served;
++    void *lock;
++  } ___ticket_obs_slots[___TICKET_OBS_SLOTS];
++static volatile unsigned ___ticket_obs_next;
++static volatile int ___ticket_obs_reported;
++static volatile int ___ticket_obs_op[___MAX_PROCESSORS];
++static volatile void *___ticket_obs_op_ra[___MAX_PROCESSORS];
++static volatile int ___ticket_obs_op_valid[___MAX_PROCESSORS];
++
++static const char *___ticket_obs_op_name(int op)
++{
++  switch (op)
++    {
++    case OP_PROCESSOR_0_THROW_ERROR: return "OP_PROCESSOR_0_THROW_ERROR";
++    case OP_SET_PROCESSOR_COUNT: return "OP_SET_PROCESSOR_COUNT";
++    case OP_VM_RESIZE: return "OP_VM_RESIZE";
++    case OP_GARBAGE_COLLECT: return "OP_GARBAGE_COLLECT";
++    case OP_VM_RESIZE_RESULT: return "OP_VM_RESIZE_RESULT";
++    case OP_VM_RESIZE_HEAP_GUARD: return "OP_VM_RESIZE_HEAP_GUARD";
++    case OP_PROCESSOR_STARTUP_READY: return "OP_PROCESSOR_STARTUP_READY";
++    case OP_FDSET_RESIZE: return "OP_FDSET_RESIZE";
++    case OP_ACTLOG_START: return "OP_ACTLOG_START";
++    case OP_ACTLOG_STOP: return "OP_ACTLOG_STOP";
++    case OP_NOOP: return "OP_NOOP";
++    default: return "OP_UNLISTED";
++    }
++}
++
++__attribute__((noinline))
++void ___ticket_holder_note(void *lock, ___WORD served, void *return_address)
++{
++  unsigned index = __atomic_fetch_add(&___ticket_obs_next, 1u, __ATOMIC_RELAXED);
++  struct ___ticket_obs_slot *slot = &___ticket_obs_slots[index % ___TICKET_OBS_SLOTS];
++
++  slot->return_address = return_address;
++  slot->served = served;
++  __atomic_thread_fence(__ATOMIC_RELEASE);
++  __atomic_store_n(&slot->lock, lock, __ATOMIC_RELEASE);
++}
++
++__attribute__((noinline))
++int ___ticket_obs_after_trylock(___SCMOBJ obj, ___SCMOBJ current_index, int acquired, void *return_address)
++{
++  if (acquired)
++    {
++      ___WORD *current = &___FIELD(STRUCTURE,obj,___INT(current_index));
++      ___ticket_holder_note(current, ___TICKETLOCK_READ_CURRENT(*current), return_address);
++    }
++  return acquired;
++}
++
++__attribute__((noinline))
++void ___ticket_holder_report(void *lock, ___WORD ticket, void *waiter_return_address)
++{
++  char barriers[1400];
++  char line[1800];
++  void *holder_ra = NULL;
++  ___WORD live;
++  unsigned next;
++  unsigned count;
++  unsigned cursor;
++  unsigned used;
++  int id;
++  int length;
++
++  if (__atomic_exchange_n(&___ticket_obs_reported, 1, __ATOMIC_RELAXED) != 0)
++    return;
++
++  live = ___TICKETLOCK_READ_CURRENT(*(___WORD *)lock);
++  next = __atomic_load_n(&___ticket_obs_next, __ATOMIC_ACQUIRE);
++  count = next < ___TICKET_OBS_SLOTS ? next : ___TICKET_OBS_SLOTS;
++  for (cursor = 0; cursor < count; cursor++)
++    {
++      unsigned index = (next - 1u - cursor) % ___TICKET_OBS_SLOTS;
++      struct ___ticket_obs_slot *slot = &___ticket_obs_slots[index];
++      void *noted = __atomic_load_n(&slot->lock, __ATOMIC_ACQUIRE);
++
++      if (noted == lock && slot->served == live)
++        {
++          holder_ra = slot->return_address;
++          break;
++        }
++    }
++
++  used = 0;
++  barriers[0] = '\0';
++  for (id = 0; id < ___MAX_PROCESSORS; id++)
++    {
++      if (__atomic_load_n(&___ticket_obs_op_valid[id], __ATOMIC_ACQUIRE) == 0)
++        continue;
++      length = snprintf(barriers + used, sizeof barriers - used, "%s%d:%s@%p",
++                        used == 0 ? "" : ",", id,
++                        ___ticket_obs_op_name(___ticket_obs_op[id]),
++                        (void *)___ticket_obs_op_ra[id]);
++      if (length < 0 || (unsigned)length >= sizeof barriers - used)
++        break;
++      used += (unsigned)length;
++    }
++  if (used == 0)
++    snprintf(barriers, sizeof barriers, "NONE");
++
++  length = snprintf(line, sizeof line,
++                    "TICKET-HOLDER-DISCRIMINATOR current=%ld ticket=%ld waiter_ra=%p holder_ra=%p barriers=%s\n",
++                    (long)___INT(live), (long)___INT(ticket), waiter_return_address,
++                    holder_ra, barriers);
++  if (length > 0)
++    {
++      if ((unsigned)length > sizeof line)
++        length = (int)sizeof line;
++      write(2, line, (size_t)length);
++    }
++}
++
+ #define SYNC_WAITING -1
+ 
+ #define SYNC_INIT_MSG(var) \
+@@ -710,6 +834,14 @@ ___sync_op_struct *sop_ptr;)
+   ___sync_op_struct sop = *sop_ptr;
+   int sid = id;
+ 
++  /* Publish this processor's proposal before any barrier wait. */
++  if ((unsigned)id < ___MAX_PROCESSORS)
++    {
++      ___ticket_obs_op_ra[id] = __builtin_return_address(0);
++      ___ticket_obs_op[id] = sop.op;
++      __atomic_store_n(&___ticket_obs_op_valid[id], 1, __ATOMIC_RELEASE);
++    }
++
+   /*
+    * This function performs a barrier synchronization by imposing a
+    * tree structure on the set of processors in this Gambit VM.

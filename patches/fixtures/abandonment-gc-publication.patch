@@ -1,0 +1,378 @@
+diff --git a/lib/_thread.scm b/lib/_thread.scm
+--- a/lib/_thread.scm
++++ b/lib/_thread.scm
+@@ -888,9 +888,10 @@
+   (define (ordered-locking t1 t2 t3)
+     (if t1 (macro-lock-thread! t1))
+     (if (and t2 (##not (##eq? t1 t2))) (macro-lock-thread! t2))
+-    (if (and t3 (##not (##eq? t2 t3))) (macro-lock-thread! t3)))
++    (if (and t3 (##not (##eq? t1 t3)) (##not (##eq? t2 t3)))
++        (macro-lock-thread! t3)))
+ 
+   (if (##object-before? thread1 thread2)
+       (if (##object-before? thread2 thread3)
+           (ordered-locking thread1 thread2 thread3)
+           (if (##object-before? thread1 thread3)
+@@ -903,4 +904,100 @@
+            (##not (##eq? thread2 thread3)))
+       (macro-unlock-thread! thread3)))
+ 
++(define-prim (##trylock-2-threads! thread1 thread2)
++  (##declare (not interrupts-enabled))
++  (define (ordered-try t1 t2)
++    (if (macro-trylock-thread! t1)
++        (if (or (##eq? t1 t2) (macro-trylock-thread! t2))
++            #t
++            (begin (macro-unlock-thread! t1) #f))
++        #f))
++  (if (or (##eq? thread1 thread2) (##not thread2))
++      (macro-trylock-thread! thread1)
++      (if (##object-before? thread1 thread2)
++          (ordered-try thread1 thread2)
++          (ordered-try thread2 thread1))))
++
++(define-prim (##lock-2-threads-with-sync-participation! thread1 thread2)
++  (##declare (not interrupts-enabled))
++  (define (ordered-wait t1 t2)
++    (##lock-scheduler-object-with-sync-participation! t1)
++    (if (##not (##eq? t1 t2))
++        (##lock-scheduler-object-with-sync-participation! t2)))
++  (if (or (##eq? thread1 thread2) (##not thread2))
++      (##lock-scheduler-object-with-sync-participation! thread1)
++      (if (##object-before? thread1 thread2)
++          (ordered-wait thread1 thread2)
++          (ordered-wait thread2 thread1))))
++
++(define-prim (##trylock-3-threads! thread1 thread2 thread3)
++  (##declare (not interrupts-enabled))
++  ;; #f and duplicates are one ticket. thread3 equal to thread1 or
++  ;; thread2 is one ticket, matching ##lock-3-threads! and unlock-3.
++  (define (ordered-try t1 t2 t3)
++    (if (or (##not t1) (macro-trylock-thread! t1))
++        (if (or (##not t2) (##eq? t1 t2) (macro-trylock-thread! t2))
++            (if (or (##not t3) (##eq? t1 t3) (##eq? t2 t3)
++                    (macro-trylock-thread! t3))
++                #t
++                (begin (##unlock-3-threads! t1 t2 #f) #f))
++            (begin (if t1 (macro-unlock-thread! t1)) #f))
++        #f))
++  (if (##object-before? thread1 thread2)
++      (if (##object-before? thread2 thread3)
++          (ordered-try thread1 thread2 thread3)
++          (if (##object-before? thread1 thread3)
++              (ordered-try thread1 thread3 thread2)
++              (ordered-try thread3 thread1 thread2)))
++      (if (##object-before? thread1 thread3)
++          (ordered-try thread2 thread1 thread3)
++          (if (##object-before? thread2 thread3)
++              (ordered-try thread2 thread3 thread1)
++              (ordered-try thread3 thread2 thread1)))))
++
++(define-prim (##lock-3-threads-with-sync-participation! thread1 thread2 thread3)
++  (##declare (not interrupts-enabled))
++  ;; Address order of ##lock-3-threads!, used only while the mutex is not held.
++  ;; Duplicate rejection matches ##unlock-3-threads!.
++  (define (ordered-wait t1 t2 t3)
++    (if t1 (##lock-scheduler-object-with-sync-participation! t1))
++    (if (and t2 (##not (##eq? t1 t2)))
++        (##lock-scheduler-object-with-sync-participation! t2))
++    (if (and t3 (##not (##eq? t1 t3)) (##not (##eq? t2 t3)))
++        (##lock-scheduler-object-with-sync-participation! t3)))
++  (if (##object-before? thread1 thread2)
++      (if (##object-before? thread2 thread3)
++          (ordered-wait thread1 thread2 thread3)
++          (if (##object-before? thread1 thread3)
++              (ordered-wait thread1 thread3 thread2)
++              (ordered-wait thread3 thread1 thread2)))
++      (if (##object-before? thread1 thread3)
++          (ordered-wait thread2 thread1 thread3)
++          (if (##object-before? thread2 thread3)
++              (ordered-wait thread2 thread3 thread1)
++              (ordered-wait thread3 thread2 thread1)))))
++
++(define-prim (##mutex-unlock-no-waiter! mutex)
++  (##declare (not interrupts-enabled))
++  ;; The mutex ticket is held. Re-read if it is dropped to wait for the owner.
++  (let retry ()
++    (let ((owner (macro-btq-owner mutex)))
++      (cond ((##not (macro-mutex-thread-owner? owner))
++             (macro-btq-unlink! mutex (macro-mutex-state-not-abandoned))
++             (macro-unlock-mutex! mutex))
++            ((macro-trylock-thread! owner)
++             (macro-btq-deq-remove! mutex)
++             (macro-btq-unlink! mutex (macro-mutex-state-not-abandoned))
++             (macro-unlock-thread! owner)
++             (macro-unlock-mutex! mutex))
++            (else
++             (macro-unlock-mutex! mutex)
++             (##lock-scheduler-object-with-sync-participation! owner)
++             (macro-unlock-thread! owner)
++             (macro-lock-mutex! mutex)
++             (let ((head (macro-btq-leftmost mutex)))
++               (if (##eq? head mutex)
++                   (retry)
++                   (##mutex-unlock-out-of-line! mutex head))))))))
++
+ ;;;----------------------------------------------------------------------------
+@@ -1646,15 +1646,18 @@
+            ;; Because the thread is currently executing, it can't be in
+            ;; a blocked thread queue or a timeout queue.
+ 
+            ;; Remove thread from its thread group.
+ 
+            (let ((tgroup (macro-thread-tgroup thread)))
+-             (macro-lock-tgroup! tgroup)
++            ;; Thread then tgroup is the prescribed order. Keep the
++            ;; thread ticket. The helper returns owning the tgroup.
++            (if (##not (macro-trylock-tgroup! tgroup))
++                (##lock-scheduler-object-with-sync-participation! tgroup))
+              (macro-tgroup-threads-deq-remove! thread)
+              (macro-tgroup-threads-deq-init! thread)
+              (macro-unlock-tgroup! tgroup))
+ 
+            ;; The thread must abandon all the blocked thread queues
+            ;; (i.e. mutexes, condvars, etc) it owns.
+ 
+            (let loop ()
+@@ -1672,4 +1676,7 @@
+   (##declare (not interrupts-enabled))
+ 
+-  (macro-lock-btq! btq)
++  ;; Raw macro-lock-btq! does not poll INTR_SYNC_OP. The helper returns
++  ;; owning btq. Do not lock again.
++  (if (##not (macro-trylock-btq! btq))
++      (##lock-scheduler-object-with-sync-participation! btq))
+   (macro-btq-deq-remove! btq)
+@@ -3645,4 +3748,21 @@
+               (lambda (current-thread mutex timeout new-owner)
+ 
++                (let retry-owner ()
++                  (if (##not (if new-owner
++                                 (##trylock-2-threads! current-thread new-owner)
++                                 (macro-trylock-thread! current-thread)))
++                      (begin
++                        (macro-unlock-mutex! mutex)
++                        (if new-owner
++                            (##lock-2-threads-with-sync-participation!
++                             current-thread new-owner)
++                            (##lock-scheduler-object-with-sync-participation!
++                             current-thread))
++                        (if new-owner
++                            (##unlock-2-threads! current-thread new-owner)
++                            (macro-unlock-thread! current-thread))
++                        (macro-lock-mutex! mutex)
++                        (retry-owner))))
++
+                 ;; check the state of the mutex
+                 (let ((owner (macro-btq-owner mutex)))
+@@ -3652,8 +3772,4 @@
+                          ;; Mutex is unlocked, so lock it.
+ 
+-                         ;; acquire low-level locks of threads
+-                         (if new-owner
+-                             (##lock-2-threads! current-thread new-owner)
+-                             (macro-lock-thread! current-thread))
+ 
+                          (let ((state
+@@ -3720,4 +3836,7 @@
+                          ;; reached, so don't wait.
+ 
++                         (if new-owner
++                             (##unlock-2-threads! current-thread new-owner)
++                             (macro-unlock-thread! current-thread))
+                          ;; release low-level lock of mutex
+                          (macro-unlock-mutex! mutex)
+@@ -3731,8 +3850,4 @@
+                          ;; mutex.
+ 
+-                         ;; acquire low-level locks of threads
+-                         (if new-owner
+-                             (##lock-2-threads! current-thread new-owner)
+-                             (macro-lock-thread! current-thread))
+ 
+                          ;;TODO: reenable
+@@ -3831,5 +3946,15 @@
+ 
+-    ;; acquire low-level locks of first-thread, new-owner and current-owner
+-    (##lock-3-threads! first-thread new-owner current-owner)
++    (if (##not (##trylock-3-threads! first-thread new-owner current-owner))
++        (begin
++          (macro-unlock-mutex! mutex)
++          (##lock-3-threads-with-sync-participation!
++           first-thread new-owner current-owner)
++          (##unlock-3-threads! first-thread new-owner current-owner)
++          (macro-lock-mutex! mutex)
++          (let ((head (macro-btq-leftmost mutex)))
++            (if (##eq? head mutex)
++                (##mutex-unlock-no-waiter! mutex)
++                (##mutex-unlock-out-of-line! mutex head))))
++        (begin
+ 
+     ;; remove mutex from the set of mutexes owned by the owner thread
+@@ -3905,6 +4030,6 @@
+     ;; release low-level lock of mutex
+     (macro-unlock-mutex! mutex)
+ 
+-    (##void)))
++    (##void)))))
+ 
+ (define-prim (##mutex-signal! mutex thread abandoned?)
+@@ -3934,4 +3938,21 @@
+   ;; remove thread from mutex's blocked thread queue
++  ;; Take a distinct new-owner before the queue changes. A raw spin
++  ;; does not poll INTR_SYNC_OP. ##thread-end-locked! already holds
++  ;; its own ticket, so this does not lock the current thread. Drop
++  ;; the mutex before the helper. The waiter ticket stays held.
++  (let ((new-owner (macro-thread-result thread)))
++    (if (and new-owner
++             (##not (##eq? new-owner thread))
++             (##not (##eq? new-owner (macro-current-thread))))
++        (let loop ()
++          (if (##not (macro-trylock-thread! new-owner))
++              (begin
++                (macro-unlock-mutex! mutex)
++                (##lock-scheduler-object-with-sync-participation! new-owner)
++                (macro-unlock-thread! new-owner)
++                (macro-lock-mutex! mutex)
++                (loop))))))
++
+   (##thread-btq-remove! thread)
+ 
+   (macro-btq-owner-set! mutex (macro-mutex-state-not-owned))
+@@ -3942,10 +3962,3 @@
+         (begin
+ 
+-          ;; the mutex-lock! operation specified a new-owner thread
+-
+-          (if (##not (##eq? new-owner thread))
+-              (let loop ()
+-                (if (##not (macro-trylock-thread! new-owner))
+-                    (loop))));; TODO: trylock?
+-
+           ;; is the new-owner thread terminated?
+@@ -3977,3 +3990,4 @@
+-          (if (##not (##eq? new-owner thread))
++          (if (and (##not (##eq? new-owner thread))
++                   (##not (##eq? new-owner (macro-current-thread))))
+               (macro-unlock-thread! new-owner)))
+ 
+diff --git a/lib/_thread#.scm b/lib/_thread#.scm
+--- a/lib/_thread#.scm
++++ b/lib/_thread#.scm
+@@ -1641,7 +1641,7 @@
+-     ;; where new-owner is a thread, has the same effect as
+-     ;;
+-     ;;   (begin
+-     ;;     (macro-lock-mutex! mutex)
+-     ;;     (macro-lock-thread! new-owner)
+-     ;;     (##mutex-lock-out-of-line! mutex absrel-timeout new-owner))
+-     ;;
++     ;; where new-owner is a thread. Try the thread ticket without
++     ;; blocking. On failure, drop the mutex ticket, take the thread
++     ;; ticket with the helper, then lock the mutex again. The owner
++     ;; read below revalidates. Do not treat this as
++     ;;
++     ;;   (macro-lock-mutex! mutex) then (macro-lock-thread! new-owner)
++     ;;
+@@ -1654,7 +1654,12 @@
+      ;; acquire low-level lock of mutex
+      (macro-lock-mutex! mutex)
+ 
+-     ;; acquire low-level lock of thread
+-     (macro-lock-thread! new-owner)
++     ;; Uncontended thread ticket. On failure drop M before the helper.
++     ;; The helper returns owning the thread ticket. Do not lock again.
++     (if (##not (macro-trylock-thread! new-owner))
++         (begin
++           (macro-unlock-mutex! mutex)
++           (##lock-scheduler-object-with-sync-participation! new-owner)
++           (macro-lock-mutex! mutex)))
+ 
+      (let ((owner (macro-btq-owner mutex)))
+@@ -1728,72 +1733,20 @@
+              ;; handle this case out of line
+              (##mutex-lock-anonymously-out-of-line! mutex absrel-timeout))))))
+ 
+-(##define-macro (macro-mutex-unlock! mutex)
+-  `(let ((mutex ,mutex))
+-
+-     (##declare (not interrupts-enabled))
+-
+-     (##check-heap-limit) ;; prevent GC while mutex is locked
+-
+-     ;; acquire low-level lock of mutex
+-     (macro-lock-mutex! mutex)
+-
+-     ;; get first waiting thread
+-     (macro-if-btq-next
+-      mutex
+-      first-thread
+-
+-      (begin
+-
+-        ;; Slow path... at least one thread is waiting on the mutex.
+-
+-        ;; handle this case out of line
+-        (##mutex-unlock-out-of-line! mutex first-thread))
+-
+-      (begin
+-
+-        ;; Fast path... there are no threads waiting on the mutex.
+-
+-        (let ((owner (macro-btq-owner mutex)))
+-          (if (macro-mutex-thread-owner? owner)
+-
+-              (begin
+-
+-                ;; Mutex is owned by a thread.
+-
+-                ;; acquire low-level lock of owner
+-                (macro-lock-thread! owner)
+-
+-                ;; remove mutex from the set of mutexes owned by the
+-                ;; thread
+-                (macro-btq-deq-remove! mutex)
+-
+-                ;; change mutex state to unlocked/not-abandoned
+-                (macro-btq-unlink!
+-                 mutex
+-                 (macro-mutex-state-not-abandoned))
+-
+-                ;; release low-level lock of thread
+-                (macro-unlock-thread! owner)
+-
+-                ;; release low-level lock of mutex
+-                (macro-unlock-mutex! mutex)
+-
+-                (##void))
+-
+-              (begin
+-
+-                ;; Mutex is not owned by a thread.
+-
+-                ;; change mutex state to unlocked/not-abandoned
+-                (macro-btq-unlink!
+-                 mutex
+-                 (macro-mutex-state-not-abandoned))
+-
+-                ;; release low-level lock of mutex
+-                (macro-unlock-mutex! mutex)
+-
+-                (##void))))))))
++(##define-macro (macro-mutex-unlock! mutex)
++  `(let ((mutex ,mutex))
++
++     (##declare (not interrupts-enabled))
++
++     (##check-heap-limit) ;; prevent GC while mutex is locked
++
++     (macro-lock-mutex! mutex)
++
++     ;; Re-read the queue inside the callee after any inverse drop.
++     (let ((head (macro-btq-leftmost mutex)))
++       (if (##eq? head mutex)
++           (##mutex-unlock-no-waiter! mutex)
++           (##mutex-unlock-out-of-line! mutex head)))))
+ 
+ (##define-macro (macro-mutex-unlock-no-reschedule! mutex)
+   `(macro-mutex-unlock! ,mutex));;TODO: update

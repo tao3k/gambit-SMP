@@ -1,0 +1,230 @@
+{
+  "commit": [
+    {
+      "key": "bundle",
+      "anchor": "_env.scm:290-314; _ptree1.scm:2785-2847",
+      "condition": "Replace five mutable root authorities with one immutable bundle: category roots, ordered event index, immutable receipts and authority identity"
+    },
+    {
+      "key": "prepare",
+      "anchor": "_env.scm:296-314; proposed seam",
+      "condition": "Allocate/root candidate before publication; partial registry/index construction is private and cannot produce a committed receipt"
+    },
+    {
+      "key": "existing-first",
+      "anchor": "proposed event service",
+      "condition": "Exact EventId plus canonical payload match returns original receipt before new-write predecessor/fence validation; collisions reject"
+    },
+    {
+      "key": "publish",
+      "anchor": "proposed modern C service seam",
+      "condition": "Publish complete bundle once under fenced owner; compare expected base; no callback/allocation in final commit window; failed candidate never reruns expander"
+    },
+    {
+      "key": "custody",
+      "anchor": "_utils.scm:426-434; _thread.scm:4623-4639,4794-4812",
+      "condition": "Bundle/result/candidate roots survive unknown delivery and saved continuations; process crash durability is not implied"
+    }
+  ],
+  "identity": [
+    {
+      "key": "returned-expansion",
+      "anchor": "_ptree1.scm:664-669,1004-1012; gerbil/expander/core.ss:254-267",
+      "condition": "Returned macro form is expanded after callback returns; fresh dynamic occurrence, not necessarily an on-stack nested child"
+    },
+    {
+      "key": "synchronous-child",
+      "anchor": "gerbil/expander/core.ss:208-217,430-490",
+      "condition": "A resolved expander may synchronously call expansion; suspend parent lane and commit child events in actual execution order; real iter child effect not established"
+    },
+    {
+      "key": "parent-resume",
+      "anchor": "_ptree1.scm:1004-1012; proposed lane",
+      "condition": "Parent-before, child and parent-after have distinct occurrence identities; source order does not sort by static parent position"
+    },
+    {
+      "key": "semantic-reentry",
+      "anchor": "_thread.scm:4623-4639,4794-4812; _utils.scm:426-434",
+      "condition": "Continuation restores execution, not heap registry rollback; before-store semantic replay needs fresh occurrence; transport retry retains EventId"
+    },
+    {
+      "key": "same-object-mismatch",
+      "anchor": "_env.scm:327-343; proposed service",
+      "condition": "Same EventId with different ordered payload/symbol/profile is a conflict, never a successful deduplicated delivery"
+    }
+  ],
+  "route": [
+    {
+      "key": "whole-bundle",
+      "anchor": "_env.scm:290-314; proposed seam",
+      "qntAction": "publishBundle",
+      "leanLemma": "wholeBundle",
+      "condition": "Only complete registry/index/receipt candidate enters shared state"
+    },
+    {
+      "key": "old-receipt",
+      "anchor": "proposed service; _env.scm:296-314",
+      "qntAction": "lookupExisting",
+      "leanLemma": "existingFirst",
+      "condition": "Return stored receipt even if current registry is newer; payload identity must still match"
+    },
+    {
+      "key": "fence-base",
+      "anchor": "proposed service",
+      "qntAction": "publishBundle",
+      "leanLemma": "fenceReject",
+      "condition": "Unknown event needs current fenced authority and matching base; failed comparison has no registry effect"
+    },
+    {
+      "key": "nested-lineage",
+      "anchor": "_ptree1.scm:664-669; gerbil/expander/core.ss:430-490",
+      "qntAction": "enterChild",
+      "leanLemma": "distinctOccurrences",
+      "condition": "Real child/parent continuation occurrences are distinct; delivery retry is a separate request class"
+    },
+    {
+      "key": "retire",
+      "anchor": "_thread.scm:4623-4639; _utils.scm:426-434",
+      "qntAction": "finishDelivery",
+      "leanLemma": "retainedRoots",
+      "condition": "Lost acknowledgement and saved continuations retain custody"
+    }
+  ],
+  "gain": [
+    {
+      "key": "one-commit-authority",
+      "avoided": "Partial registry/journal states and duplicate writes during qualified retry",
+      "added": "Immutable bundle/index, payload validation, candidate roots and fenced publication",
+      "condition": "Correctness gain requires migrating actual readers and writers; no wrapper-only claim"
+    },
+    {
+      "key": "nested-session",
+      "avoided": "Global serialization across independent contexts",
+      "added": "Per-context effect lane, parent/child lineage and private expander state",
+      "condition": "Actual independent ready work must exceed coordination cost; parent/child effects remain ordered"
+    },
+    {
+      "key": "cache-handoff",
+      "avoided": "Reexecuting admitted pure macro work merely to recover acknowledgement",
+      "added": "Event-index lookup, result custody and private syntax reconstruction",
+      "condition": "Saved repeated work exceeds lookup/materialization/retention; arbitrary macro replay remains unqualified"
+    }
+  ],
+  "refinement": [
+    {
+      "key": "commit",
+      "qntScope": "prepareEvent;buildRegistry;buildIndex;publishBundle",
+      "leanScope": "wholeBundle;baseReject;fenceReject",
+      "sourceDuty": "Actual roots/GC/atomic handle publication must refine one state replacement"
+    },
+    {
+      "key": "retry",
+      "qntScope": "lookupExisting;retryLookup",
+      "leanScope": "existingFirst;payloadConflict",
+      "sourceDuty": "Exact stored receipt and canonical payload equivalence; no fabricated current-generation reply"
+    },
+    {
+      "key": "nested",
+      "qntScope": "enterChild;leaveChild;resumeBefore",
+      "leanScope": "distinctOccurrences;lookupUnchanged",
+      "sourceDuty": "Parser/expander PC, branch activation and actual effect order relation"
+    },
+    {
+      "key": "custody",
+      "qntScope": "abortCandidate;loseAck;finishDelivery",
+      "leanScope": "retainedRoots;abortUnpublished;costPositive",
+      "sourceDuty": "Continuation/native pins, failure outcome and root retirement plus work/span/memory"
+    }
+  ],
+  "gate": [
+    {
+      "key": "all-consumers",
+      "qualified": false,
+      "condition": "All five roots and direct/indirect parsing/writing consumers migrated"
+    },
+    {
+      "key": "bundle-source",
+      "qualified": false,
+      "condition": "Actual immutable graph, symbol and registry/event/receipt simulation"
+    },
+    {
+      "key": "publish-memory",
+      "qualified": false,
+      "condition": "Fencing/base linearization and stable GC-aware C publication proven"
+    },
+    {
+      "key": "event-lineage",
+      "qualified": false,
+      "condition": "Exact nested and continuation PC/activation identity source refinement"
+    },
+    {
+      "key": "failure-custody",
+      "qualified": false,
+      "condition": "Exceptions, unknown owner and multishot/native root lifetime closed"
+    },
+    {
+      "key": "retirement",
+      "qualified": false,
+      "condition": "No second mutable global registry/handler/target authority remains"
+    },
+    {
+      "key": "platform",
+      "qualified": false,
+      "condition": "Host attestation, runtime/native qualification and measured benefit remain separate"
+    }
+  ],
+  "scalar": {
+    "": {
+      "workspaceCount": 2,
+      "actualAdmitted": false
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "AC-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/registry_atomic_commit.qnt",
+      "subjectScope": "registry_atomic_commit:Test$",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "AC-I",
+      "kind": "induction",
+      "subjectPath": "models/build/RegistryAtomicCommit.lean",
+      "subjectScope": "RegistryAtomicCommit:wholeBundle;existingFirst;payloadConflict;baseReject;fenceReject;distinctOccurrences;lookupUnchanged;retainedRoots;abortUnpublished;costPositive",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "AC-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/registry-atomic-commit-design.org",
+      "subjectScope": "AC-S:source",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "AC-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/registry-atomic-commit-design.org",
+      "subjectScope": "AC-E:platform",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "AC-H"
+    },
+    "1": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "AC-I"
+    },
+    "2": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "AC-E"
+    },
+    "3": {
+      "dependent.obligationId": "AC-S",
+      "prerequisite.obligationId": "OD-S"
+    }
+  }
+}

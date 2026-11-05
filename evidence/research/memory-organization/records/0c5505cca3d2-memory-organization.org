@@ -1,0 +1,187 @@
+#+TITLE: Lossless memory-runtime organization
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+PROPERTY: HEADER-ARGS :eval never
+
+* Scope and authority
+:PROPERTIES:
+:CUSTOM_ID: modern-c-memory-organization
+:AUTHORITY: GambitMemoryOrganization
+:STATUS: STRUCTURAL-CHECKS-PASS; RUNTIME-ACCEPTANCE-OPEN; COMMIT-BLOCKED
+:END:
+The complete current =modern-c= memory implementation is reorganized, including
+its existing modifications. This is not a comparison with unmodified upstream.
+The [[file:models/sysml/memory-organization.sysml][native SysML model]] owns the ordered responsibility boundaries. Org and
+[[file:diagrams/memory-organization.d2][D2]] are derived views; the evidence receipt records hashes and observations,
+not a second editable layout description. The model and verification tools stay
+in SMP/dev. Runtime source fragments stay in vendor/gambit/lib/memory.
+
+#+BEGIN_QUOTE
+Lossless source organization does not establish correctness of the preceding
+RootOrigin/RootTask/WorkerArena behavioral changes. It cannot close bootstrap,
+multi-shot Scheme execution, SMP scaling or the five submission gates.
+#+END_QUOTE
+
+* Complete source partition
+:PROPERTIES:
+:CUSTOM_ID: memory-source-partition
+:END:
+#+BEGIN: sysml-view :kind memory-partition
+| Internal source module | Original logical interval | Current physical payload | Responsibility |
+|---+---+---+---|
+| =memory/configuration.inc= | 25–544 | 2–521 | Representation, budgets and internal macro environment |
+| =memory/aligned-allocation.inc= | 545–675 | 2–132 | Aligned native allocation and reclamation |
+| =memory/rc-allocation.inc= | 676–835 | 2–161 | RC registration, payload and lifetime |
+| =memory/movable-sections.inc= | 836–1092 | 2–258 | Movable section inventory and physical allocation |
+| =memory/permanent-allocation.inc= | 1093–1234 | 2–143 | Permanent sections and allocation |
+| =memory/global-bindings.inc= | 1235–1446 | 2–213 | Global variable identity and lookup |
+| =memory/still-refcount.inc= | 1447–1490 | 2–45 | Still object external reference counts |
+| =memory/object-allocation.inc= | 1491–1824 | 2–335 | Permanent and still constructors; pair and vector APIs |
+| =memory/symbols.inc= | 1825–2210 | 2–387 | Symbol and keyword interning; shared scan macros |
+| =memory/diagnostics.inc= | 2211–3045 | 2–836 | Conditional GC consistency and debugging |
+| =memory/heap-sections.inc= | 3046–3626 | 2–582 | Stack and heap sections; chunk FIFO publication; round setup |
+| =memory/copy-reservations.inc= | 3627–4084 | 2–459 | Object scan authority, copy reservations and Tail |
+| =memory/continuation-roots.inc= | 4085–4355 | 2–272 | Captured frames, continuations and root repair |
+| =memory/rc-roots.inc= | 4356–4388 | 2–34 | RC root scanning |
+| =memory/object-scanning.inc= | 4389–4793 | 2–406 | Object fields, still queues, chunk and frontier scanning |
+| =memory/still-sweep.inc= | 4794–4860 | 2–68 | Still object sweep and destruction |
+| =memory/memory-lifecycle.inc= | 4861–5422 | 2–563 | Capacity history, setup and cleanup |
+| =memory/wills.inc= | 5423–5548 | 2–127 | Weak will execution eligibility and processing |
+| =memory/weak-tables.inc= | 5549–6166 | 2–619 | Weak table GC processing and in-place rehash |
+| =memory/hash-table-api.inc= | 6167–6657 | 2–492 | Hash lookup, mutation and union-find APIs |
+| =memory/capacity-resize.inc= | 6658–7190 | 2–534 | Continuation movement, capacity, resize and retirement |
+| =memory/root-origins.inc= | 7191–7347 | 2–158 | Context, VM and global root enumeration |
+| =memory/collection-round.inc= | 7348–7814 | 2–468 | Strong and weak traversal, cleanup and GC round driver |
+| =memory/allocation-limits.inc= | 7815–8231 | 2–418 | Mutator stack and heap checks; overflow undo |
+| =memory/allocation-statistics.inc= | 8232–8252 | 2–22 | Allocation accounting query and final delimiter |
+#+END:
+
+** Why one translation unit remains
+These fragments are ordered internal source modules, not independent libraries.
+The old file changes macros such as =___VMSTATE_MEM=, defines private helpers
+before their consumers, and contains conditional declarations and debugging
+paths. Splitting linker objects at the same time would change visibility,
+inlining, build recipes and possibly ABI. That requires a separate interface
+design. This change preserves the original declaration, definition and macro
+order. No function or preprocessor conditional is cut across included files.
+
+The original 24-line include/copyright preamble remains in =mem.c=. Each fragment
+has a single generated =#line= prefix and otherwise contains the exact original
+bytes. =___MEM_SOURCE_FILE= uses GCC/Clang =__BASE_FILE__= to preserve the original
+compiler input identity; other compilers use the canonical =mem.c= build name.
+The fallback is not qualified for arbitrary absolute-path diagnostic identity.
+Initial logical line coordinates are migration provenance; current physical
+locations are given in the table. Future edits need fresh source-bound evidence.
+
+** Build and distribution consumers
+=MEMORY_SOURCES= explicitly lists every fragment in =lib/makefile.in=. The
+existing =mem@obj@= rule consumes the list, =NORMAL_SOURCES= includes it for
+source-control/distribution packaging, and the distribution rule creates the
+=memory= subdirectory. No extra runtime object or public symbol is introduced.
+The actual Make prerequisite expansion is checked with =-W= for every fragment;
+the unchanged fixture stays up to date. This is a build-graph check, not a timing
+benchmark or a complete source distribution build.
+
+* Source adaptation and validation
+:PROPERTIES:
+:CUSTOM_ID: memory-source-adaptation
+:END:
+1. Native =sysml -strict -validate -json= evaluates ordered module boundaries.
+2. Concatenate the unchanged preamble and every fragment after its one-line
+   prefix. Require byte-for-byte equality with the pre-split source and its hash.
+3. Compare GCC and Clang preprocessing for release, GC-debug, limit-debug and
+   combined-debug. Only terminal newline runs are normalized; all other bytes,
+   including expanded line/file strings, must match. This normalization was
+   introduced after retaining the first Clang trailing-blank-line difference.
+4. Compare GCC =-O3 -fno-common= Mach-O object bytes for configurations that
+   compile. Use the compiler and runtime optimization level from the existing Darwin/GCC\n   profile, with its configured-header
+   ancestor, with the current exact template slice supplied by the prior kernel
+   adapter. The receipt records the exact comparison argv; it is not a full\n   replay of all configure/build flags and does not qualify a newly configured\n   or linked runtime.
+5. Retain three paired debug-override failures. With this release-configured
+   header, forcing GC debugging exposes a missing =___ps= in global lookup and
+   an undeclared =___printf=; limit debugging refers to absent processor debug
+   fields. Error locations and messages must match on both sides. A separately
+   configured debug runtime remains unqualified. Complete diagnostic text is
+   not identical: added include stacks and missing logical-file source excerpts
+   are recorded explicitly. The interval table locates the actual fragment.
+
+#+BEGIN: ascent-view :kind memory-closure
+| Evidence or control | Result | Boundary |
+|---+---+---|
+| Source reconstruction | Exact 240456 bytes / 8252 lines | Includes all preceding candidate changes |
+| Native SysML | PASS; 25 evaluated module records | Source organization authority |
+| Preprocessing | 8 pairs equal after terminal-newline normalization | GCC/Clang × 4 macro configurations |
+| GCC release object | Byte-identical at -O3 | Same configured ancestor and current header slice |
+| Make prerequisites | 26 cases PASS | Unchanged + each of 25 fragments forces rebuild |
+| Debug overrides | 3 paired failures retained | Same error locations/messages; diagnostic excerpts/include stacks differ |
+| ASCENT current | Structural admission | Current observed source; runtime admission false |
+| ASCENT missing-fragment | Rejected | Synthetic policy control; runtime admission false |
+| ASCENT wrong-order | Rejected | Synthetic policy control; runtime admission false |
+| ASCENT wrong-source | Rejected | Synthetic policy control; runtime admission false |
+| ASCENT unresolved-check | Rejected | Synthetic policy control; runtime admission false |
+#+END:
+
+** Conditional equivalence argument
+Let =P= be the unchanged preamble and =F[i]= the ordered original byte intervals.
+Reconstruction requires =S = P ++ F[0] ++ ... ++ F[24]= exactly, including comments
+and whitespace. Compilation equivalence additionally requires complete top-level
+boundaries, closed preprocessor groups, unchanged quote-include resolution, and
+preserved values of all include-sensitive builtins actually consumed. The
+introduced reserved macro must not collide with existing source. The native
+comparison qualifies eight selected preprocessor configurations and one release
+object configuration; it is not a universal theorem about every C compiler.
+No include-level-dependent behavior is claimed portable without qualification.
+
+** Verification ownership
+[[file:../../modeling/ascent/memory-organization.rules.scm][The actual ASCENT DSL]] checks exact ordered source parts, current source identity,
+contract-bound observations, missing evidence and conflicting unknown outcomes.
+It must reject deletion, reordering and stale source observations. No new QNT or
+Lean model is needed for moving unchanged C text. Existing QNT owns scheduling
+histories; existing Lean owns coherence/mapping algebra. Their original
+obligations and the source refinement adapter remain open where previously open.
+
+** Reproducible source adapters
+:PROPERTIES:
+:CUSTOM_ID: memory-reproduction-tools
+:END:
+- [[file:../../modeling/tools/project-memory-organization.rb][Native model projector]] evaluates the SysML boundaries with the installed tool.
+- [[file:../../modeling/tools/split-memory.rb][Initial splitter]] requires the exact pre-split hash and refuses existing fragments.
+- [[file:../../modeling/tools/verify-memory-organization.rb][Source/compiler adapter]] checks complete coverage, prerequisites and compiler observations.
+- [[file:../../modeling/tools/check-memory-organization.rb][ASCENT runner]] checks current and negative observations in bounded resumable batches.
+- [[file:../../modeling/tools/render-memory-organization.rb][View and retention adapter]] derives this matrix and D2 from native values and retains failures.
+
+The immutable [[file:../../../evidence/research/memory-organization/validation.json][validation receipt]] binds the model, source inventory, profile reference,
+raw observations and initial baseline archive. The archive is forensic evidence,
+not another maintained or compiled implementation.
+
+* Benefit and added-cost matrix
+:PROPERTIES:
+:CUSTOM_ID: memory-benefit-matrix
+:END:
+#+BEGIN: sysml-view :kind memory-benefits
+| Concern | Before | After | Benefit | Added cost / remaining boundary |
+|---+---+---+---+---|
+| Editing and ownership | 8,252-line implementation file | 59-line driver + 25 named modules | Allocation, roots, copy/Tail, continuation, phases and resize have distinct source surfaces | 25 internal includes; macro order remains coupled |
+| Source coverage | One original body | Exact byte reconstruction | No deleted or duplicated original implementation bytes | Immutable hash/interval receipt; no second maintained runtime body |
+| Runtime overhead | Existing candidate | Release object identical | No added instructions or object storage for the split | No new claim about prior behavioral changes |
+| Incremental compilation | One mem object | One mem object with complete dependencies | Changes cannot silently leave mem object stale | No parallel compile or speedup claimed; include processing adds unmeasured build work |
+| Distribution | Flat runtime sources | Explicit fragment inventory + nested directory | New implementation pieces included in existing source/distribution lists | Full source distribution build remains unqualified |
+| GC/SMP modernization | Carrier-coupled consumers mixed in one file | Responsibilities visible in separate modules | Supports later complete interface replacement and source refinement | Shared macro state, physical refill and collective authority remain |
+| Verification | Informal source movement | Source identity + native compiler comparisons + ASCENT controls | Missing parts, wrong order and stale receipts reject structural admission | Whole bootstrap, real Scheme GC/control and five commit gates remain open |
+#+END:
+
+* Integration and retirement boundary
+The source organization retires the monolithic implementation body as an editing
+surface. It does not retire synchronous worker/carrier binding, physical refill,
+collective barriers, old phase scheduling or unknown native-writer custody.
+Those remain governed by [[file:root-worker-exit.org][the complete responsibility replacement contract]].
+
+The first root-task kernel has separate GCC, pthread and ASan/UBSan evidence;
+it is not a linked-runtime GC acceptance result. Full bootstrap and real
+map/multiple-continuation/GC checks must use the exact new fragment inventory.
+The current materializer admits only existing locked paths, so its source-delta
+contract needs a general new-file admission path before those fragments can
+enter the sealed bootstrap. Do not commit early or edit a producer cache to
+bypass that restriction. The previous bootstrap receipt cannot qualify this
+changed source. No heap increase, timeout extension, patch import or commit is
+authorized as a substitute for the five unresolved submission gates.

@@ -1,0 +1,256 @@
+{
+  "route": [
+    {
+      "key": "force-emitter",
+      "sourcePath": "vendor/gambit/gsc/_t-c-2.scm",
+      "needle": "(define (targ-apply-force)",
+      "obligation": "Emit internal return descriptor between FORCE1 and FORCE2; FORCE3 materializes result into declared destination"
+    },
+    {
+      "key": "force-transfer",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "needle": "promise = ___ps->temp2;",
+      "obligation": "Save caller registers and actual return; transfer promise to PUSH_ARGS1 before Scheme can collect"
+    },
+    {
+      "key": "thunk-call",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "needle": "(define-prim (##force-out-of-line promise)",
+      "obligation": "Thunk enables interrupts; promise must remain in ordinary roots; do not pin mutable promise state as immutable"
+    },
+    {
+      "key": "restore-result",
+      "sourcePath": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___ps->temp2 = ___R1;",
+      "obligation": "Save result before POP_REGS overwrites R1; reload at FORCE2 before any safepoint"
+    },
+    {
+      "key": "force-macros",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___FORCE2 ___temp=___ps->temp2;}}",
+      "obligation": "temp2 is a transient transfer slot; no direct GC registration inferred"
+    },
+    {
+      "key": "stored-thunk",
+      "sourcePath": "vendor/gambit/lib/_kernel.c",
+      "needle": "___SET_R2(___PROMISESTATE(___STK(-6)))",
+      "obligation": "Stored generated code preserves promise in STK across thunk and POLL; native/configuration provenance open"
+    },
+    {
+      "key": "stored-consumer",
+      "sourcePath": "vendor/gambit/lib/_std.c",
+      "needle": "___SET_R1(___FORCE3)",
+      "obligation": "Stored force entry immediately materializes result and returns; other destinations need complete audit"
+    },
+    {
+      "key": "register-roots",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (___PSP ___ps->r,",
+      "obligation": "Ordinary register roots are rewritten by collector; PSTATE temp slots are not automatically included"
+    },
+    {
+      "key": "descriptor-reader",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "___RETI_GET_FS_LINK_GCMAP(actual_ra",
+      "obligation": "Scanner needs old actual return and descriptor under maintenance authorization"
+    },
+    {
+      "key": "unload",
+      "sourcePath": "vendor/gambit/lib/os_dyn.c",
+      "needle": "dlclose (p->descr);",
+      "obligation": "Existing global cleanup is not a per-cohort two-gate grace protocol"
+    }
+  ],
+  "contract": [
+    {
+      "key": "root-transfer",
+      "owner": "semantic/native",
+      "actionName": "saveCaller transferPromise",
+      "invariant": "Every collecting edge has live promise/result in declared movable roots",
+      "gap": "All generated destinations and effective target macros unproved"
+    },
+    {
+      "key": "return-window",
+      "owner": "control/native",
+      "actionName": "saveResult restoreCaller consumeForce",
+      "invariant": "No collection or reentry while sole force-result carrier is temp2",
+      "gap": "Asynchronous suspension and native exits require effective-configuration refinement"
+    },
+    {
+      "key": "maintenance-grant",
+      "owner": "roots/collector",
+      "actionName": "reserve enter",
+      "invariant": "Reserve before dereference; old root dependency authorizes scanning after external close",
+      "gap": "Root producer closure and generation ABA proof open"
+    },
+    {
+      "key": "maintenance-close",
+      "owner": "release/roots",
+      "actionName": "rootCut closeMaintenance derive",
+      "invariant": "Cut independent publishers; admitted reservations and inherited child debt remain owned after cut",
+      "gap": "Visibility alone is insufficient; complete source producer list open"
+    },
+    {
+      "key": "final-read",
+      "owner": "release/native",
+      "actionName": "lastRead retire",
+      "invariant": "Final metadata access happens before lease decrement; unknown debt retained",
+      "gap": "C11 last release to final acquire and loader hooks unproved"
+    },
+    {
+      "key": "extraction",
+      "owner": "build/modeling",
+      "actionName": "extract admittedMeaning",
+      "invariant": "Successful resolved integer extraction preserves Option-valued meaning",
+      "gap": "JSON to resolved typed tree and remaining operators remain trusted"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "integer-structural",
+      "status": "conditional-proved",
+      "scope": "Resolved integer literals fields addition and refusal; theorem extractionMeaning",
+      "counterexample": "Same spelling different binding index invalidates premise"
+    },
+    {
+      "key": "return-value",
+      "status": "conditional-proved",
+      "scope": "Abstract save restore consume with no intervening moving collection",
+      "counterexample": "Moving result without rewriting temp2 gives stale value"
+    },
+    {
+      "key": "lease-history",
+      "status": "bounded-checked",
+      "scope": "Two readers; reservation transfer; inherited child after close; late completion; unknown retained",
+      "counterexample": "Uncounted late reader after retirement breaks safe"
+    },
+    {
+      "key": "json-binding",
+      "status": "open",
+      "scope": "Definition and variable IDs scope table types and duplicate definition rejection",
+      "counterexample": "Name-only dictionary can collapse distinct definitions"
+    },
+    {
+      "key": "action-fidelity",
+      "status": "open",
+      "scope": "All selected boolean/update/choice syntax must relate actual typed IR to Lean AST",
+      "counterexample": "Sequential RHS or disabled branch retaining writes changes relation"
+    },
+    {
+      "key": "source-c11",
+      "status": "open",
+      "scope": "Real safepoints aliases generation pin and loader final use",
+      "counterexample": "Acquire on unrelated counter does not synchronize publication"
+    },
+    {
+      "key": "native-provenance",
+      "status": "open",
+      "scope": "Stored C effective Darwin macros object descriptors and platform lifetime",
+      "counterexample": "Stored C presence alone cannot attest loaded binary"
+    }
+  ],
+  "gain": [
+    {
+      "key": "force-contract",
+      "avoided": "One hidden temp-slot ownership assumption per unsafe lowering edge",
+      "added": "Explicit root-transfer and no-safepoint annotation validation",
+      "condition": "Zero scan savings credited; remove old macros only when all consumers migrate"
+    },
+    {
+      "key": "maintenance",
+      "avoided": "Premature unload or permanent blanket block on GC after external close",
+      "added": "One reservation and one reader ownership transfer per scan grant; final release per completion",
+      "condition": "Amortize per scan task or descriptor batch only under immutable cohort lifetime"
+    },
+    {
+      "key": "retention",
+      "avoided": "Duplicate installed cohorts when actual last-use proof becomes available",
+      "added": "Retained bytes sum of live and unknown code/descriptor cohorts",
+      "condition": "No finite memory bound if raw aliases or unknown outcomes persist"
+    },
+    {
+      "key": "incremental",
+      "avoided": "Unnecessary downstream rebuild when consumed ABI projection is unchanged",
+      "added": "Separate code content key descriptor ABI key extractor schema key and installed cohort generation",
+      "condition": "ABI changes invalidate actual consumers; no measured speedup"
+    },
+    {
+      "key": "language-choice",
+      "avoided": "No duplicate Zig runtime or C compatibility support introduced",
+      "added": "Modern C generator and shared root/lifetime contract remain required",
+      "condition": "This research establishes no additional Zig benefit; mandatory runtime work is shared"
+    }
+  ],
+  "binding": [
+    {
+      "key": "reserved-custody",
+      "qntAction": "reserve",
+      "leanLemma": "reservationBlocks",
+      "refinement": "Debt field projection exists conceptually; whole QNT step induction OPEN"
+    },
+    {
+      "key": "handoff",
+      "qntAction": "enter",
+      "leanLemma": "reservationTransferConserves",
+      "refinement": "Conditional Nat arithmetic; atomic-action C11 implementation OPEN"
+    },
+    {
+      "key": "unknown-retention",
+      "qntAction": "loseOutcome",
+      "leanLemma": "unknownBlocks",
+      "refinement": "Unknown blocks reclaim; recovery and eventual settlement OPEN"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "FM-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/force_maintenance.qnt",
+      "subjectScope": "Atomic dual-gate root-cut and reservation-reader custody finite relation"
+    },
+    "induction": {
+      "obligationId": "FM-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ForceMaintenanceFidelity.lean",
+      "subjectScope": "Resolved integer extraction meaning and conditional force-result and custody lemmas"
+    },
+    "source": {
+      "obligationId": "FM-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/force-maintenance-fidelity-design.org",
+      "subjectScope": "Force roots full source closure and actual typed-IR extraction OPEN"
+    },
+    "platform": {
+      "obligationId": "FM-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/force-maintenance-fidelity-design.org",
+      "subjectScope": "C11 effective Darwin macros loader and native provenance OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "FM-S",
+      "prerequisite.obligationId": "FM-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/force_maintenance.qnt",
+      "prerequisite.subjectScope": "Atomic dual-gate root-cut and reservation-reader custody finite relation"
+    },
+    "1": {
+      "dependent.obligationId": "FM-S",
+      "prerequisite.obligationId": "FM-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/ForceMaintenanceFidelity.lean",
+      "prerequisite.subjectScope": "Resolved integer extraction meaning and conditional force-result and custody lemmas"
+    },
+    "2": {
+      "dependent.obligationId": "FM-S",
+      "prerequisite.obligationId": "FM-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/force-maintenance-fidelity-design.org",
+      "prerequisite.subjectScope": "C11 effective Darwin macros loader and native provenance OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "FM-S",
+      "prerequisite.obligationId": "RO-S",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/reti-ofd-semantics-design.org",
+      "prerequisite.subjectScope": "All actual register/root/GC/restore/OFD/retirement consumers and expression source extraction semantics OPEN"
+    }
+  }
+}

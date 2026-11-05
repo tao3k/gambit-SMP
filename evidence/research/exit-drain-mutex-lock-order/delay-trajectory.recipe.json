@@ -1,0 +1,39 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "exit-drain-lock-order-delay-trajectory",
+  "scope": "Reuse the balanced lock in place, then parse, typecheck, and run the eleven lock-order trajectories, including the delay-loop stutter. No new source tree, configure, bootstrap, or native admission. Passing delayLoopOutsideLockOrderTest does not explain processor-0 GC wall or the original TFIB silence.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.patch",
+    "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json",
+    "models/gambit/exit_drain_mutex_lock_order.qnt",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 180,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 180,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/current-runtime.local.json"}},
+    {"id": "parse", "capability": "quint.parse", "dependsOn": ["runtime"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/exit_drain_mutex_lock_order.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/exit_drain_mutex_lock_order.qnt", "parsed": "parse"}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 15,
+     "arguments": {
+       "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+       "parsed": "parse",
+       "main": "exit_drain_mutex_lock_order",
+       "seed": "0x1510",
+       "maxSamples": 1,
+       "expectedTests": ["candidateEscapeTest", "delayLoopOutsideLockOrderTest", "entryOnlyStillCyclesTest", "fixedTfibJoinWithoutMutexTest", "logicalOwnershipTest", "originalCycleTest", "peerFirstTest", "probeNotTfibTest", "slowEscapeTest", "targetFirstTest", "tfibJoinWithoutMutexTest"]
+     }},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["candidate", "runtime", "parse", "typecheck", "trajectories"], "budgetSeconds": 10,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

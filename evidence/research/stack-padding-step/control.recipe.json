@@ -1,0 +1,113 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "stack-padding-step-controls",
+  "scope": "Finite check that the oldest 4-word frame is stepped without marking its words or decoding tag 0. The mark-and-jump SIGSEGV, the tag-0 decoder, and an interrupt-servicing check are counterexamples. Relations 4*8=32>24, 8*8=64>32, and probe exit -11 are invariant conjuncts. The SIGSEGV observation is an input, not a native PASS. No bootstrap, stress, runtime, or milestone admission.",
+  "budgetSeconds": 400,
+  "workspacePolicy": "isolated",
+  "inputs": [
+    "models/gambit/stack_padding_step_check.qnt",
+    "evidence/research/execution-rules.ss",
+    "evidence/fixtures/darwin-stack-padding-step/source.lock.json",
+    "evidence/fixtures/darwin-stack-padding-step/review-contract.json",
+    "evidence/fixtures/darwin-stack-padding-step/native-observation.json",
+    "patches/fixtures/darwin-stack-padding-step.patch",
+    "evidence/fixtures/darwin-stack-write-boundary/native-observation-20261016.json"
+  ],
+  "steps": [
+    {
+      "id": "source",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/fixtures/darwin-stack-padding-step/source.lock.json"
+      }
+    },
+    {
+      "id": "parse",
+      "capability": "quint.parse",
+      "dependsOn": ["source"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_padding_step_check.qnt"
+      }
+    },
+    {
+      "id": "type",
+      "capability": "quint.typecheck",
+      "dependsOn": ["parse"],
+      "budgetSeconds": 30,
+      "arguments": {
+        "source": "models/gambit/stack_padding_step_check.qnt",
+        "parsed": "parse"
+      }
+    },
+    {
+      "id": "positive",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_step_check.qnt",
+        "parsed": "parse",
+        "initializer": "initStep",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": false
+      }
+    },
+    {
+      "id": "omitted-mark-jump",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_step_check.qnt",
+        "parsed": "parse",
+        "initializer": "initMarkJump",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "omitted-decode",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_step_check.qnt",
+        "parsed": "parse",
+        "initializer": "initDecodeZero",
+        "step": "step",
+        "invariant": "Safe",
+        "negative": true
+      }
+    },
+    {
+      "id": "interrupts",
+      "capability": "quint.verify",
+      "dependsOn": ["parse", "type"],
+      "budgetSeconds": 60,
+      "arguments": {
+        "source": "models/gambit/stack_padding_step_check.qnt",
+        "parsed": "parse",
+        "initializer": "initServicesInterrupts",
+        "step": "step",
+        "invariant": "InterruptsOff",
+        "negative": true
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": ["source", "parse", "type", "positive", "omitted-mark-jump", "omitted-decode", "interrupts"],
+      "budgetSeconds": 45,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step"},
+        "expected": {"missing": []}
+      }
+    }
+  ]
+}

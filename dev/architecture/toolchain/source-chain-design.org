@@ -1,0 +1,215 @@
+#+TITLE: GSC Leaf, Macro and No-change Build Chain
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH One real source chain; separate source and model populations
+:PROPERTIES:
+:ID: c2f06dc5-5295-47bc-a5b5-a635dbb0f07a
+:CUSTOM_ID: gsc-source-chain
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain
+:STATUS: design-and-conditional-formal-support
+:EVIDENCE_CLASS: source-and-mathematical-correspondence
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; BF-SCHEMA
+:END:
+
+The selected chain is Gambit's own compiler: _t-c-3.scm, its generated C and
+object, the compiler library descriptor and archive/shared library, the
+executable linkfile, and gsc. _utils.scm is a real independent comparison unit.
+The macro delta is include-adt in fixnum.scm, reached directly or through
+generic.scm. This studies the [[file:incremental-build-design.org][modern-C build design]] without changing build
+rules, compilers, runtime code or flags, and without running a native build.
+
+[[file:source-chain-map.org][The source, delta, phase and benefit matrix]] and [[file:diagrams/source-chain.svg][D2 chain]] derive from
+[[file:models/sysml/architecture.sysml][toolchain SysML]]. [[file:../../modeling/component-model-design.org][Component/model correspondence]] binds this chain to its
+new QNT/Lean specifications and the existing runtime model owners through SysML.
+ASCENT receives derived association hypotheses; it is not an acceptance oracle.
+The follow-up [[file:correctness-design.org][dynamic-cut/snapshot/cutoff design]] provides the full 34-target
+inventory and states why the ten-node protocol is not a whole-chain simulation.
+
+** Actual inputs and native products
+:PROPERTIES:
+:CUSTOM_ID: chain-source-boundary
+:END:
+
+The current gsc makefile declares 33 library modules and one executable module.
+_t-c-3.scm includes generic.scm plus four ADT definitions. generic.scm includes
+fixnum.scm; include-adt expands a begin containing not-core/core declarations
+and a relative include. This is a semantic compiler input, not merely a C header.
+
+The .scm.c suffix rule invokes gsc-boot with compilation options, paths and a
+prelude. C compilation consumes generated C and configured gambit.h. The
+library metadata target consumes every library module's generated C plus the
+runtime's link metadata; targ-link-info validates compiler/target and reads
+the leading Scheme metadata from generated C. The executable's _gsc_.c depends
+on executable-module C and the library metadata target. _gsc_.c and _gsc.c
+are different products. The compiler library is an explicit LINK_LIBS input.
+Ordered module composition and header/target identity must survive migration.
+
+This is a template-source chain. No active Darwin generated makefile or actual
+link argv is inferred. The shared/static branch, bootstrap producer and
+configured library names must be bound before native parity can be claimed.
+The present target is a fixed-producer incremental cohort. If gsc-boot itself
+changes during a self-hosting build, its consumers form another cohort and may
+legitimately need rebuilding even if their Scheme source did not change.
+
+** Three deltas and their honest benefit boundaries
+:PROPERTIES:
+:CUSTOM_ID: three-deltas
+:END:
+
+#+NAME: gsc-three-delta-summary
+| Delta | Current source implication | Proposed reuse boundary |
+|---+---+---|
+| No change | Phony orchestration/stamp checks can run; this does not imply all native recipes run | Validate cuts and existing outputs, then zero eligible generation/compile/link actions |
+| _t-c-3 implementation only | Its generation and dependent metadata/object/library/executable targets become eligible | Rebuild changed C/object and necessary library/executable; cut off unchanged metadata consumers only with a qualified projection |
+| include-adt macro | fixnum.scm is a declared prerequisite of all 34 generated module C targets | Keep broad invalidation unless complete semantic dependencies justify narrowing; unchanged output can still stop downstream work |
+
+There is no demonstrated 34-to-1 saving for the macro delta. A truly shared
+macro can require broad generation. Conversely, current phony phase visits do
+not prove redundant compilation. Git-source stamp compares the version before
+rewriting stamp.h, while the non-Git branch writes an empty stamp.h. These
+profiles need different no-change observations. Do not hide necessary rebuilds
+or claim a measured speedup from this source analysis.
+
+Metadata-only cutoff needs a real producer interface: the current linker reads
+generated C. A cached substring or a new declaration that the metadata is
+unchanged does not establish equivalence. Byte, module metadata, initialization
+order and relevant target effects have separate downstream consumers.
+
+* RESEARCH Mathematical algorithm and specification ownership
+:PROPERTIES:
+:CUSTOM_ID: build-algorithm
+:END:
+
+Let G=(A,E) be a finite acyclic action graph for one closed semantic cohort.
+An edge d->a means a consumes a declared projection of d's output. Each action
+has a deterministic producer F_a under a complete input cut C_a, a producing
+tool/stage identity, and a successful output group O_a. Paths, absence and
+directory observations, env/cwd, macro context and target identity are inputs
+when the producer can observe them. The key below is a structured identity;
+the theory does not assume collision-free cryptographic hashing.
+
+#+NAME: incremental-build-equations
+#+BEGIN_EXAMPLE
+K_a = (producer, compiler stage, mode, direct input observations,
+       ordered [(d, projection_a,d(O_d))], relevant target/profile)
+Candidate = reflexive transitive consumers of directly changed inputs/actions
+Reuse(a) = valid origin and complete C_a and K_a(current)=K_a(previous)
+           and expected output group still present with matching identity
+Dirty(a) = not Reuse(a), evaluated only after consumed predecessors are validated
+Ready(a) = all predecessors validated/committed in this cohort
+#+END_EXAMPLE
+
+Algorithm: visit ready actions in dependency order. Reuse a valid output group
+when its current structured key agrees. Otherwise execute into attempt-owned
+staging, discover/revalidate the complete input cut, and commit only a complete
+successful group from a stable input generation. Compare each consumer's
+projection; unchanged values stop downstream execution even if the producer
+was reevaluated. Conservative reachability identifies candidates, not a mandate
+to execute every reachable action. A failed or invalidated attempt cannot make
+old output current merely because files exist.
+
+Dynamic discovery requires a stable observation generation: extend C_a with
+observed dependencies, ensure their products are ready, then reevaluate or
+reject the attempt if earlier reads are no longer justified. In a finite
+declared universe monotone cut growth reaches a fixed point; real arbitrary
+Scheme effects need a bounded/isolation/rejection policy. The original ten-node
+QNT module does not prove this dynamic closure. An auxiliary immutable-view
+module now states a bounded selector/read protocol; its read mediation and
+coherent-image issuer assumptions remain open. End-of-run hash equality alone
+does not establish a stable read generation.
+
+The clean reference is a dependency-ordered evaluation using the same complete
+producer inputs, not the incremental cache. Incremental/clean equivalence
+requires producer determinism/extensionality over C_a, valid cached origin,
+input agreement and correct topological substitution. These are separated in
+[[file:../../../models/build/IncrementalBuild.lean][Lean]]: affected-closure lemmas, reuseMatchesClean, projectionCutoff and
+validNoOpWork prove conditional algebraic properties. They do not derive actual
+Gambit dependency completeness or an executable whole-build simulation.
+
+** Parallel protocol and progress
+:PROPERTIES:
+:CUSTOM_ID: build-parallel-protocol
+:END:
+
+The [[file:../../../models/build/incremental_build.qnt][QNT specification]] distinguishes unchecked, running, staged, validated/
+published and discarded actions. reuse/start require ready predecessors;
+finish releases the running credit before publish; publish checks the captured
+signature and stable uncancelled generation. Cancellation/invalidation allows
+running jobs to finish and staged results to be discarded without publishing
+success. A result admitted earlier remains historical after generation loss.
+
+#+BEGIN_EXAMPLE
+Running = {a | phase(a)=running}
+used = sum(a in Running, weight(a)) <= host grant
+published(a) => successful complete staging and stable admitted input cut
+candidate child must not wait for a token held indefinitely by its waiting parent
+#+END_EXAMPLE
+
+The bounded QNT population uses unit weights and budget two. Lean proves that
+admitted start/owned finish preserve a general natural-number budget across
+arbitrary finite traces. Actual weighted jobs, recursive jobserver ownership,
+compiler-internal parallelism, peak memory and fairness remain source obligations.
+The QNT step relation permits stuttering and cancellation: safety does not imply
+termination. Completion requires a finite stable cohort, terminating admitted
+actions, sufficient capacity and fair scheduling of ready work.
+
+Fault initializers separately expose unsafe reuse, late publication, budget
+bypass and missing dependencies. initRedundant preserves semantic safety while
+allowing avoidable work, so safety cannot substitute for the noChangeWork
+property. These scenarios are authored and typechecked, not explored or
+reported as counterexample executions in this task.
+
+** Model population and counts
+:PROPERTIES:
+:CUSTOM_ID: build-model-population
+:END:
+
+The ten-node QNT cohort is a two-library-unit projection: generation 0/1,
+objects 2/3, library metadata 4, descriptor object 5, library 6, executable
+linkfile 7, its object 8 and executable 9. Other objects, tools and profiles are
+fixed inputs in this model. Its oracle makes an implementation-only leaf edit
+change body bytes while retaining link metadata. Then the symbolic executed
+set is {0,2,6,9}, four nodes. No change gives zero; a macro change can affect all
+ten. These are scoped mathematical cases, not measurements or an established
+projection of all 34 real generation targets.
+
+For the real broad macro case, the omitted 31 library modules and executable
+generation can also change. The QNT small-population premise cannot certify
+that whole case. The arbitrary-Node Lean theory states reusable conditions
+without assuming only two modules; an actual complete projection and execution
+oracle are still required. No source/refinement obligation is closed merely by
+the model typechecking or the conditional theorems passing the kernel.
+
+* OPEN Phase splitting, callers and retirement
+:PROPERTIES:
+:CUSTOM_ID: source-phase-retirement
+:END:
+
+[[file:source-chain-map.org][The five phase rows]] name actual source boundaries. The reusable cut is
+per semantic-unit generation, per ready object and per ordered metadata/link
+task. Module object compilation need not wait for unrelated module generation;
+descriptor objects must wait for their own metadata C. Archive/link tasks retain
+all actual dependencies and one shared resource budget.
+
+Phase1 and phase3 already expose individual module prerequisites to Make's
+jobserver. Their existing within-phase parallelism is not a new benefit. The
+candidate gain is valid cross-phase generation/compilation overlap, precise
+dependency/cutoff decisions and less repeated orchestration, after preserving
+every edge currently enforced by a phase boundary.
+
+The current root orchestrator invokes include/bin/lib/gsi/gsc phases, not just
+this compiler slice. This study therefore cannot authorize deleting all root
+phase barriers. First migrate the concrete gsc callers and its runtime/boot
+inputs, then qualify cross-directory dependencies, failure/child drain and
+configured link modes. Required bootstrap stages, ordering and C ABI stay.
+Retirement targets are redundant phase envelopes and duplicated dependency/
+dispatch decisions, conditional on complete caller migration and parity.
+
+BF-BUILD-CUT and BF-BUILD-BUDGET remain open. Existing budget-investigation
+admission models are not substituted for dependency correctness or parallel
+progress. There is no build-rule implementation, Make invocation, compiler
+workload, native regression or performance validation here.

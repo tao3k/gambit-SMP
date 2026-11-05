@@ -1,0 +1,17 @@
+import «StillCompletionLifetime»
+#print axioms GambitSMP.StillCompletionLifetime.settlePreserves
+#print axioms GambitSMP.StillCompletionLifetime.tracePreserves
+#print axioms GambitSMP.StillCompletionLifetime.consumedCannotCredit
+#print axioms GambitSMP.StillCompletionLifetime.rawGapCannotRestore
+#print axioms GambitSMP.StillCompletionLifetime.heldGateCannotRestore
+#print axioms GambitSMP.StillCompletionLifetime.poisonCannotRestore
+#print axioms GambitSMP.StillCompletionLifetime.unrootedCannotRestore
+#print axioms GambitSMP.StillCompletionLifetime.unpublishedAmbiguity
+#print axioms GambitSMP.StillCompletionLifetime.noObservationOnlyDecoder
+#print axioms GambitSMP.StillCompletionLifetime.pinBlocksReuse
+#print axioms GambitSMP.StillCompletionLifetime.prefixHoleBlocksReuse
+#print axioms GambitSMP.StillCompletionLifetime.producerMustClose
+#print axioms GambitSMP.StillCompletionLifetime.retiredLookupRejected
+#print axioms GambitSMP.StillCompletionLifetime.floorNeverRegresses
+#print axioms GambitSMP.StillCompletionLifetime.generationMismatchRejected
+#print axioms GambitSMP.StillCompletionLifetime.boundedWindowMetadata

@@ -1,0 +1,202 @@
+#+TITLE: Producer Census and Custody Transfer Map
+#+SETUPFILE: ../../../modeling/org/setup.org
+
+* SysML-owned producer and transfer inventory
+:PROPERTIES:
+:CUSTOM_ID: producer-custody-map
+:AUTHORITY: GambitProducerCustody
+:EVIDENCE_CLASS: derived-source-census-and-design
+:END:
+
+All tables derive from owned SysML metadata. Lexical occurrences retain conditional branches; they do not establish macro expansion, generated module, indirect callback or writer closure. Identifier references are not asserted to be runtime calls.
+
+#+BEGIN: sysml-view :kind producer-families :source architecture/runtime/interfaces/models/sysml/producer-custody.sysml
+#+NAME: producer-family-census
+| Family / phase | Source ranges | Entry and derived work | Closing cut | Coverage limit |
+|---+---+---+---+---|
+| StillSeeds / setup / strong | [[file:../../../../vendor/gambit/lib/mem.c::4210][4210-4232]]; [[file:../../../../vendor/gambit/lib/mem.c::6775][6775-6805]] | setup_still_objs_to_scan -> strong local scanning; External still refcount is inspected during setup; resulting list remains local work | Owning processor remains enrolled until its list and descendants drain | Refcount writers and host participation still need ROOT-HANDOFF closure |
+| VmRoots / strong | [[file:../../../../vendor/gambit/lib/mem.c::3970][3970-3987]]; [[file:../../../../vendor/gambit/lib/mem.c::6572][6572-6590]]; [[file:../../../../vendor/gambit/lib/mem.c::6651][6651-6664]]; [[file:../../../../vendor/gambit/lib/mem.c::6845][6845-6849]] | processor 0 -> VM fields, symbol/keyword tables, RC payload roots; Each root cell may start copying or still discovery | Root routines return to the still-counted processor before idle | P0 mark_rc is not proof that every processor RC registration is covered |
+| GlobalRoots / strong | [[file:../../../../vendor/gambit/lib/mem.c::6592][6592-6647]]; [[file:../../../../vendor/gambit/lib/mem.c::6852][6852-6852]] | mark_global_variables -> mark_array; Partition depends on SINGLE_VM and processor id/count | All assigned globals scanned before local fixed point and idle | Global list mutation and exact participant snapshot remain premises |
+| CurrentFrames / strong / derived frames | [[file:../../../../vendor/gambit/lib/mem.c::3817][3817-3965]]; [[file:../../../../vendor/gambit/lib/mem.c::4096][4096-4146]]; [[file:../../../../vendor/gambit/lib/mem.c::6854][6854-6854]] | mark_continuation and scan FRAME -> mark_frame / captured chain; Descriptor-selected live slots and raw continuation origins are distinct | Current and copied frame producers retain processor custody through nested marking | Generated descriptor completeness and all frame/denv writers remain open |
+| ProcessorRoots / strong | [[file:../../../../vendor/gambit/lib/mem.c::6509][6509-6570]]; [[file:../../../../vendor/gambit/lib/mem.c::6856][6856-6864]] | registers / saved / type cache / processor fields -> mark_array; Each root range can derive movable or still work | Seed scan precedes mark_reachable_from_marked for this participant | Actual FFI saved values and safepoint publication must refine ROOT-HANDOFF |
+| MovableCopy / strong / weak | [[file:../../../../vendor/gambit/lib/mem.c::3470][3470-3663]] | mark_array -> copy, forwarding CAS, tail marking, still discovery; Private alloc cursor, copied body and child traversal are not queue visibility | Winning copy obligation stays counted through initialization and scan custody; CAS loser aliases winner | Forwarding visibility is earlier than body copy; no new reader may infer initialized body from CAS alone |
+| CapturedFrames / strong / weak | [[file:../../../../vendor/gambit/lib/mem.c::3668][3668-3814]] | mark_captured_continuation -> frame copies / mark_array / end_heap_chunk; Raw origins and copied frame links retain their own storage users | MISC_MEM_LOCK and current producer lifetime cover construction; origin release needs CONTROL-ORIGIN | No independent worker frame-origin refinement is established |
+| ObjectDispatch / strong / weak | [[file:../../../../vendor/gambit/lib/mem.c::3999][3999-4207]] | scan / scan_and_advance -> fields, closures, continuation, weak metadata; PAIR fast path is a macro producer; weak table and will metadata feed later phases | Scanner credit persists while nested mark calls create obligations | Source switch is finite; generated subtype/layout and conditional profiles still require admission |
+| StillScan / strong / weak | [[file:../../../../vendor/gambit/lib/mem.c::4235][4235-4249]]; [[file:../../../../vendor/gambit/lib/mem.c::6686][6686-6690]] | scan_still_objs_to_scan -> scan; List head is removed before recursive scan returns | Removed item becomes scanning custody rather than disappearing from the ledger | An empty still list alone cannot discharge the active scanner |
+| ChunkPublication / strong / weak | [[file:../../../../vendor/gambit/lib/mem.c::3249][3249-3306]]; [[file:../../../../vendor/gambit/lib/mem.c::3547][3547-3553]]; [[file:../../../../vendor/gambit/lib/mem.c::3616][3616-3624]]; [[file:../../../../vendor/gambit/lib/mem.c::3744][3744-3752]]; [[file:../../../../vendor/gambit/lib/mem.c::3794][3794-3803]] | four end_heap_chunk call sites from object / captured-frame copying; Marker + FIFO link + barriers + tail under chunk lock; current scan chunk may bypass FIFO | Publisher remains counted through ordered publication or private/local scan custody | Signal is notification, not durable task accounting; separate termination lock requires refinement |
+| ChunkScanSteal / strong / weak | [[file:../../../../vendor/gambit/lib/mem.c::4252][4252-4381]]; [[file:../../../../vendor/gambit/lib/mem.c::6686][6686-6772]] | local chunk / local FIFO / remote FIFO -> scan_complete_heap_chunk; FIFO removal is followed by scan outside lock; scanning can derive more chunks | Queue custody transfers to a counted scanner before chunk can be forgotten | Current cursor, in-flight dequeue and last-idle observation must compose |
+| WeakWills / weak | [[file:../../../../vendor/gambit/lib/mem.c::5032][5032-5108]]; [[file:../../../../vendor/gambit/lib/mem.c::6873][6873-6909]] | process_wills -> mark_array -> weak graph traversal; Wills and selected testators seed new work after strong drain | Distinct weak counter is enrolled before weak seeds; barrier separates phases | Next phase is legitimate work; never reopen strong receipt or equate executable will with executed action |
+| WeakCleanup / post weak drain | [[file:../../../../vendor/gambit/lib/mem.c::5364][5364-5725]]; [[file:../../../../vendor/gambit/lib/mem.c::6223][6223-6255]]; [[file:../../../../vendor/gambit/lib/mem.c::6912][6912-6935]] | process_gc_hash_tables / move_continuation; Weak table repair and live-stack movement retain metadata/backing users | Finish repair/movement before their target storage is resized or reused | No direct mark_array call in table cleanup span; not a theorem excluding indirect/generated effects |
+| ForeignWrapper / cleanup / explicit release | [[file:../../../../vendor/gambit/lib/c_intf.c::1683][1683-1713]]; [[file:../../../../vendor/gambit/lib/c_intf.c::5156][5156-5223]] | release_foreign -> release_fn; POINTER_to_SCMOBJ installs callback; Foreign fields are cleared before callback; payload identity must already survive elsewhere | Callback acceptance and payload custody must precede wrapper loss if release is deferred | Exported callback parameter is open-world; return error is not a retry receipt |
+| GcAndTeardownRelease / cleanup / teardown | [[file:../../../../vendor/gambit/lib/mem.c::4383][4383-4452]]; [[file:../../../../vendor/gambit/lib/mem.c::4928][4928-4966]] | free_unmarked_still_objs / free_still_objs -> release_foreign; Both discard release status and free still wrapper; teardown also invokes cleanup_rc | Separate collection and teardown issuer cuts; preserve native tasks before RC and scanner services vanish | VM cleanup destroys scan mutex/condvar before P0 cleanup and carries other-processor TODO |
+| NativeDeviceTls / native resource disposal | [[file:../../../../vendor/gambit/lib/os_io.c::1603][1603-1682]]; [[file:../../../../vendor/gambit/lib/os_io.c::3948][3948-4562]]; [[file:../../../../vendor/gambit/lib/os_io.c::7100][7100-7148]]; [[file:../../../../vendor/gambit/lib/os_io.c::10120][10120-11465]] | device_cleanup_from_ptr / release_rc_tls_context / release_event; Device close can select/wait or fail after group removal; TLS frees SSL_CTX and RC storage | Owner-affine native work requires accepted ticket and stable payload independent of foreign wrapper | USE_PUMPS / WIN32 / TLS profiles differ; external SSL callbacks and other vtables remain open |
+| ConversionFailure / construction failure | [[file:../../../../vendor/gambit/lib/c_intf.c::5287][5287-5383]] | STRUCT / UNION / TYPE converters -> release_fn on wrapper failure; Cleanup can occur before a foreign wrapper is ever published | Constructor owns payload until callback custody is accepted or terminal disposition known | Generic POINTER conversion does not automatically free on failure; caller-specific ownership must be preserved |
+| GeneratedForeign / explicit / generated / external | [[file:../../../../vendor/gambit/gsc/_ptree2.scm::2610][2610-2660]] | FFI conversion selects default, generated or user release identifier; Custom id or generated struct/type release function extends producer domain | Generated release descriptors and module admission must declare effects, owner and child issuers | Finite repository symbols do not close user C, dynamic modules, native vtables or callback recursion |
+#+END:
+
+** Parent-child custody
+#+BEGIN: sysml-view :kind custody-edges :source architecture/runtime/interfaces/models/sysml/producer-custody.sysml
+#+NAME: custody-transfer-edges
+| Edge / stages | Commit requirement | Failure custody | Obligation |
+|---+---+---+---|
+| Seed: RootOrStillSeed -> PrivateChild | Root cell/list remains live and participant counted | Allocation or scan failure retains original root and epoch custody | WC-PRODUCER-CLOSE |
+| Reserve: PrivateChild -> CopyInFlight | Register canonical child obligation before last parent right can disappear | Known pre-effect failure rolls reservation back to the still-live source | WC-HANDOFF-ACCOUNT |
+| Canonical: CopyInFlight -> CanonicalChild | CAS winner owns body initialization and future scan; loser maps to that exact obligation | Loser discards speculative bytes only; no invented winner completion | WC-CANONICAL-OWNER |
+| Publish: CanonicalChild -> QueuedOrLocal | Initialize body and publish marker/link/cursor with required visibility before source release | Unknown publication retains transfer ticket; do not enqueue a duplicate or free payload | WC-TRANSFER-REFINE |
+| Dequeue: QueuedOrLocal -> ScanningParent | Remove FIFO/list item only with counted scanner custody; partial current chunk remains owned | Interrupted/unknown dequeue retains transfer record and inhibits phase drain | WC-TRANSFER-REFINE |
+| Derive: ScanningParent -> PrivateChild | Reserve and commit all required descendants before settling parent; canonical aliases reuse obligation | Mandatory mark work cannot be canceled merely to reach zero | WC-HANDOFF-ACCOUNT |
+| NativeDetach: ForeignWrapper -> NativeCustodian | Prepare stable payload/roots and accept resource task before wrapper fields become unusable | Rejected transfer keeps source payload or pre-enrolled failure custodian; unknown acceptance blocks reclaim | RW-FOREIGN-DELIVERY |
+| NativeDerive: NativeCustodian -> ChildNativeCustodian | Child issuer right moves or persists until descendants and callback reentry settle | Shutdown closes new roots, not already-admitted child derivation; unresolved failure retains custody | RW-CLEANUP-PRODUCERS |
+#+END:
+
+** Bounded source census
+#+BEGIN: sysml-view :kind producer-callsites :source architecture/runtime/interfaces/models/sysml/producer-custody.sysml
+#+NAME: lexical-producer-callsites
+| Source | Symbol | Lexical classification | Families |
+|---+---+---+---|
+| [[file:../../../../vendor/gambit/lib/c_intf.c::1683][vendor/gambit/lib/c_intf.c:1683]] | ~___release_foreign~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::1689][vendor/gambit/lib/c_intf.c:1689]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::1696][vendor/gambit/lib/c_intf.c:1696]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::1699][vendor/gambit/lib/c_intf.c:1699]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::1706][vendor/gambit/lib/c_intf.c:1706]] | ~release_fn~ | call-like | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5156][vendor/gambit/lib/c_intf.c:5156]] | ~___POINTER_to_SCMOBJ~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5160][vendor/gambit/lib/c_intf.c:5160]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5166][vendor/gambit/lib/c_intf.c:5166]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5172][vendor/gambit/lib/c_intf.c:5172]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5187][vendor/gambit/lib/c_intf.c:5187]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5201][vendor/gambit/lib/c_intf.c:5201]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5207][vendor/gambit/lib/c_intf.c:5207]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5213][vendor/gambit/lib/c_intf.c:5213]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5222][vendor/gambit/lib/c_intf.c:5222]] | ~___POINTER_to_SCMOBJ~ | call-like | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5222][vendor/gambit/lib/c_intf.c:5222]] | ~release_fn~ | identifier-reference | ForeignWrapper |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5287][vendor/gambit/lib/c_intf.c:5287]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5293][vendor/gambit/lib/c_intf.c:5293]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5299][vendor/gambit/lib/c_intf.c:5299]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5309][vendor/gambit/lib/c_intf.c:5309]] | ~___POINTER_to_SCMOBJ~ | call-like | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5309][vendor/gambit/lib/c_intf.c:5309]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5311][vendor/gambit/lib/c_intf.c:5311]] | ~release_fn~ | call-like | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5322][vendor/gambit/lib/c_intf.c:5322]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5328][vendor/gambit/lib/c_intf.c:5328]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5334][vendor/gambit/lib/c_intf.c:5334]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5344][vendor/gambit/lib/c_intf.c:5344]] | ~___POINTER_to_SCMOBJ~ | call-like | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5344][vendor/gambit/lib/c_intf.c:5344]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5346][vendor/gambit/lib/c_intf.c:5346]] | ~release_fn~ | call-like | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5357][vendor/gambit/lib/c_intf.c:5357]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5363][vendor/gambit/lib/c_intf.c:5363]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5369][vendor/gambit/lib/c_intf.c:5369]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5379][vendor/gambit/lib/c_intf.c:5379]] | ~___POINTER_to_SCMOBJ~ | call-like | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5379][vendor/gambit/lib/c_intf.c:5379]] | ~release_fn~ | identifier-reference | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/c_intf.c::5381][vendor/gambit/lib/c_intf.c:5381]] | ~release_fn~ | call-like | ConversionFailure |
+| [[file:../../../../vendor/gambit/lib/mem.c::3251][vendor/gambit/lib/mem.c:3251]] | ~end_heap_chunk~ | identifier-reference | ChunkPublication |
+| [[file:../../../../vendor/gambit/lib/mem.c::3472][vendor/gambit/lib/mem.c:3472]] | ~mark_array~ | macro-definition | MovableCopy |
+| [[file:../../../../vendor/gambit/lib/mem.c::3490][vendor/gambit/lib/mem.c:3490]] | ~mark_array~ | identifier-reference | MovableCopy |
+| [[file:../../../../vendor/gambit/lib/mem.c::3550][vendor/gambit/lib/mem.c:3550]] | ~end_heap_chunk~ | call-like | MovableCopy; ChunkPublication |
+| [[file:../../../../vendor/gambit/lib/mem.c::3619][vendor/gambit/lib/mem.c:3619]] | ~end_heap_chunk~ | call-like | MovableCopy; ChunkPublication |
+| [[file:../../../../vendor/gambit/lib/mem.c::3667][vendor/gambit/lib/mem.c:3667]] | ~mark_captured_continuation~ | identifier-reference | declaration/reference outside selected body |
+| [[file:../../../../vendor/gambit/lib/mem.c::3747][vendor/gambit/lib/mem.c:3747]] | ~end_heap_chunk~ | call-like | CapturedFrames; ChunkPublication |
+| [[file:../../../../vendor/gambit/lib/mem.c::3797][vendor/gambit/lib/mem.c:3797]] | ~end_heap_chunk~ | call-like | CapturedFrames; ChunkPublication |
+| [[file:../../../../vendor/gambit/lib/mem.c::3813][vendor/gambit/lib/mem.c:3813]] | ~mark_array~ | call-like | CapturedFrames |
+| [[file:../../../../vendor/gambit/lib/mem.c::3817][vendor/gambit/lib/mem.c:3817]] | ~mark_frame~ | identifier-reference | CurrentFrames |
+| [[file:../../../../vendor/gambit/lib/mem.c::3858][vendor/gambit/lib/mem.c:3858]] | ~mark_array~ | call-like | CurrentFrames |
+| [[file:../../../../vendor/gambit/lib/mem.c::3880][vendor/gambit/lib/mem.c:3880]] | ~mark_array~ | call-like | CurrentFrames |
+| [[file:../../../../vendor/gambit/lib/mem.c::3957][vendor/gambit/lib/mem.c:3957]] | ~mark_frame~ | call-like | CurrentFrames |
+| [[file:../../../../vendor/gambit/lib/mem.c::3965][vendor/gambit/lib/mem.c:3965]] | ~mark_captured_continuation~ | call-like | CurrentFrames |
+| [[file:../../../../vendor/gambit/lib/mem.c::3984][vendor/gambit/lib/mem.c:3984]] | ~mark_array~ | call-like | VmRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::4053][vendor/gambit/lib/mem.c:4053]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4056][vendor/gambit/lib/mem.c:4056]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4077][vendor/gambit/lib/mem.c:4077]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4083][vendor/gambit/lib/mem.c:4083]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4093][vendor/gambit/lib/mem.c:4093]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4097][vendor/gambit/lib/mem.c:4097]] | ~mark_captured_continuation~ | call-like | CurrentFrames; ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4098][vendor/gambit/lib/mem.c:4098]] | ~mark_array~ | call-like | CurrentFrames; ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4140][vendor/gambit/lib/mem.c:4140]] | ~mark_frame~ | call-like | CurrentFrames; ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4145][vendor/gambit/lib/mem.c:4145]] | ~mark_array~ | call-like | CurrentFrames; ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4166][vendor/gambit/lib/mem.c:4166]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4173][vendor/gambit/lib/mem.c:4173]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4175][vendor/gambit/lib/mem.c:4175]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4192][vendor/gambit/lib/mem.c:4192]] | ~scan_and_advance~ | macro-definition | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4196][vendor/gambit/lib/mem.c:4196]] | ~scan_and_advance~ | macro-definition | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4200][vendor/gambit/lib/mem.c:4200]] | ~mark_array~ | call-like | ObjectDispatch |
+| [[file:../../../../vendor/gambit/lib/mem.c::4210][vendor/gambit/lib/mem.c:4210]] | ~setup_still_objs_to_scan~ | identifier-reference | StillSeeds |
+| [[file:../../../../vendor/gambit/lib/mem.c::4235][vendor/gambit/lib/mem.c:4235]] | ~scan_still_objs_to_scan~ | identifier-reference | StillScan |
+| [[file:../../../../vendor/gambit/lib/mem.c::4252][vendor/gambit/lib/mem.c:4252]] | ~scan_complete_heap_chunk~ | identifier-reference | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::4265][vendor/gambit/lib/mem.c:4265]] | ~scan_complete_heap_chunk~ | identifier-reference | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::4270][vendor/gambit/lib/mem.c:4270]] | ~scan_and_advance~ | call-like | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::4279][vendor/gambit/lib/mem.c:4279]] | ~scan_movable_objs_to_scan~ | identifier-reference | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::4329][vendor/gambit/lib/mem.c:4329]] | ~scan_and_advance~ | call-like | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::4365][vendor/gambit/lib/mem.c:4365]] | ~scan_complete_heap_chunk~ | call-like | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::4404][vendor/gambit/lib/mem.c:4404]] | ~___release_foreign~ | call-like | GcAndTeardownRelease |
+| [[file:../../../../vendor/gambit/lib/mem.c::4432][vendor/gambit/lib/mem.c:4432]] | ~free_still_objs~ | identifier-reference | GcAndTeardownRelease |
+| [[file:../../../../vendor/gambit/lib/mem.c::4446][vendor/gambit/lib/mem.c:4446]] | ~___release_foreign~ | call-like | GcAndTeardownRelease |
+| [[file:../../../../vendor/gambit/lib/mem.c::4933][vendor/gambit/lib/mem.c:4933]] | ~free_still_objs~ | call-like | GcAndTeardownRelease |
+| [[file:../../../../vendor/gambit/lib/mem.c::5063][vendor/gambit/lib/mem.c:5063]] | ~mark_array~ | call-like | WeakWills |
+| [[file:../../../../vendor/gambit/lib/mem.c::5069][vendor/gambit/lib/mem.c:5069]] | ~mark_array~ | call-like | WeakWills |
+| [[file:../../../../vendor/gambit/lib/mem.c::5079][vendor/gambit/lib/mem.c:5079]] | ~mark_array~ | call-like | WeakWills |
+| [[file:../../../../vendor/gambit/lib/mem.c::5089][vendor/gambit/lib/mem.c:5089]] | ~mark_array~ | call-like | WeakWills |
+| [[file:../../../../vendor/gambit/lib/mem.c::5099][vendor/gambit/lib/mem.c:5099]] | ~mark_array~ | call-like | WeakWills |
+| [[file:../../../../vendor/gambit/lib/mem.c::6522][vendor/gambit/lib/mem.c:6522]] | ~mark_array~ | call-like | ProcessorRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6537][vendor/gambit/lib/mem.c:6537]] | ~mark_array~ | call-like | ProcessorRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6552][vendor/gambit/lib/mem.c:6552]] | ~mark_array~ | call-like | ProcessorRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6567][vendor/gambit/lib/mem.c:6567]] | ~mark_array~ | call-like | ProcessorRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6585][vendor/gambit/lib/mem.c:6585]] | ~mark_array~ | call-like | VmRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6626][vendor/gambit/lib/mem.c:6626]] | ~mark_array~ | call-like | GlobalRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6642][vendor/gambit/lib/mem.c:6642]] | ~mark_array~ | call-like | GlobalRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6662][vendor/gambit/lib/mem.c:6662]] | ~mark_array~ | call-like | VmRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6663][vendor/gambit/lib/mem.c:6663]] | ~mark_array~ | call-like | VmRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6667][vendor/gambit/lib/mem.c:6667]] | ~mark_reachable_from_marked~ | identifier-reference | declaration/reference outside selected body |
+| [[file:../../../../vendor/gambit/lib/mem.c::6688][vendor/gambit/lib/mem.c:6688]] | ~scan_still_objs_to_scan~ | call-like | StillScan; ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::6689][vendor/gambit/lib/mem.c:6689]] | ~scan_movable_objs_to_scan~ | call-like | StillScan; ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::6725][vendor/gambit/lib/mem.c:6725]] | ~scan_complete_heap_chunk~ | call-like | ChunkScanSteal |
+| [[file:../../../../vendor/gambit/lib/mem.c::6800][vendor/gambit/lib/mem.c:6800]] | ~setup_still_objs_to_scan~ | call-like | StillSeeds |
+| [[file:../../../../vendor/gambit/lib/mem.c::6864][vendor/gambit/lib/mem.c:6864]] | ~mark_reachable_from_marked~ | call-like | ProcessorRoots |
+| [[file:../../../../vendor/gambit/lib/mem.c::6900][vendor/gambit/lib/mem.c:6900]] | ~mark_reachable_from_marked~ | call-like | WeakWills |
+| [[file:../../../../vendor/gambit/lib/os_io.c::1675][vendor/gambit/lib/os_io.c:1675]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::3948][vendor/gambit/lib/os_io.c:3948]] | ~___release_rc_tls_context~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4199][vendor/gambit/lib/os_io.c:4199]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4241][vendor/gambit/lib/os_io.c:4241]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4291][vendor/gambit/lib/os_io.c:4291]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4298][vendor/gambit/lib/os_io.c:4298]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4304][vendor/gambit/lib/os_io.c:4304]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4314][vendor/gambit/lib/os_io.c:4314]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4324][vendor/gambit/lib/os_io.c:4324]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4342][vendor/gambit/lib/os_io.c:4342]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4361][vendor/gambit/lib/os_io.c:4361]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4372][vendor/gambit/lib/os_io.c:4372]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4383][vendor/gambit/lib/os_io.c:4383]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4396][vendor/gambit/lib/os_io.c:4396]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4413][vendor/gambit/lib/os_io.c:4413]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4419][vendor/gambit/lib/os_io.c:4419]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4424][vendor/gambit/lib/os_io.c:4424]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4478][vendor/gambit/lib/os_io.c:4478]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4512][vendor/gambit/lib/os_io.c:4512]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4524][vendor/gambit/lib/os_io.c:4524]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4531][vendor/gambit/lib/os_io.c:4531]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4536][vendor/gambit/lib/os_io.c:4536]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4550][vendor/gambit/lib/os_io.c:4550]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4554][vendor/gambit/lib/os_io.c:4554]] | ~___release_rc_tls_context~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::4558][vendor/gambit/lib/os_io.c:4558]] | ~___release_rc_tls_context~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::7099][vendor/gambit/lib/os_io.c:7099]] | ~___release_event~ | identifier-reference | declaration/reference outside selected body |
+| [[file:../../../../vendor/gambit/lib/os_io.c::7135][vendor/gambit/lib/os_io.c:7135]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::7139][vendor/gambit/lib/os_io.c:7139]] | ~___release_event~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::7143][vendor/gambit/lib/os_io.c:7143]] | ~___release_event~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10162][vendor/gambit/lib/os_io.c:10162]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10166][vendor/gambit/lib/os_io.c:10166]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10458][vendor/gambit/lib/os_io.c:10458]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10462][vendor/gambit/lib/os_io.c:10462]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10526][vendor/gambit/lib/os_io.c:10526]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10530][vendor/gambit/lib/os_io.c:10530]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10615][vendor/gambit/lib/os_io.c:10615]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10619][vendor/gambit/lib/os_io.c:10619]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10758][vendor/gambit/lib/os_io.c:10758]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10762][vendor/gambit/lib/os_io.c:10762]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10910][vendor/gambit/lib/os_io.c:10910]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10914][vendor/gambit/lib/os_io.c:10914]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10952][vendor/gambit/lib/os_io.c:10952]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::10956][vendor/gambit/lib/os_io.c:10956]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::11046][vendor/gambit/lib/os_io.c:11046]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::11050][vendor/gambit/lib/os_io.c:11050]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::11375][vendor/gambit/lib/os_io.c:11375]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::11379][vendor/gambit/lib/os_io.c:11379]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::11453][vendor/gambit/lib/os_io.c:11453]] | ~___NONNULLPOINTER_to_SCMOBJ~ | call-like | NativeDeviceTls |
+| [[file:../../../../vendor/gambit/lib/os_io.c::11457][vendor/gambit/lib/os_io.c:11457]] | ~___device_cleanup_from_ptr~ | identifier-reference | NativeDeviceTls |
+#+END:

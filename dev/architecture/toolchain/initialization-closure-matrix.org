@@ -1,0 +1,54 @@
+#+TITLE: Initialization Closure, Freeze Gates and Net Work
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+
+* RESEARCH Native projection
+:PROPERTIES:
+:CUSTOM_ID: initialization-closure-matrix
+:AUTHORITY: GerbilInitializationClosure
+:STATUS: source-closure-open
+:END:
+
+Derived from [[file:models/sysml/initialization-closure.sysml][SysML]]; see [[file:initialization-closure-design.org][the source and model study]].
+
+| Node | Class | Source | Obligation |
+|---+---+---+---|
+| root | recipe | expander/root.ss:168-184; expander/init.ss:8-15 | Root/table construction; prelude and hook publication |
+| foundation | composite | base.ss:8-9; core.ss:8-30; runtime.ss:11-27 | Core at displaced phases and runtime imports; no finite phase bound inferred |
+| instance | owner | expander/module.ss:93-116,131-208 | Registry aliases and delayed evaluation preserve one selected instance |
+| resolution | input | expander/module.ss:358-397,414-452 | Package ascent and ordered SSI/source search; negative existence inputs |
+| sexpReader | session | expander/module.ss:211-232; runtime/syntax.ss:255-276 | Port, readtable, AST location and parse-error fallback |
+| langReader | capability | expander/module.ss:275-318 | Resolve phase-1 reader export and evaluate procedure before invocation |
+| readerBody | opaque | std/text/parser/ebnf/lang.ss:5-18; lang-reader.ss:5-90 | Concrete reader imports and executable parser helpers; arbitrary effects not excluded |
+| phaseLoad | code | compiler/compile.ss:1258-1276,1471-1484; compiler/driver.ss:707-750 | SSI loads phase blocks; interface/code/initialization readiness differ |
+| loader | owner | runtime/loader.ss:11-16,32-110,112-143 | Loading/error/success states, shared condition, reload and version selection |
+| setup | native | vendor/gambit/lib/_eval.scm:5413-5474; setup.c:2068-2095; os_dyn.c:255-277 | Native loader and module setup are effectful; failure does not prove rollback |
+| hooks | process | runtime/init.ss:15-41; runtime/syntax.ss:287-310 | Global compiler/readtable hooks and console ports require environment ownership |
+| capture | open | expander/core.ss:600-620,652-690; compiler/compile.ss:1150-1245 | Reachable closure/capture graph, lazy writes and native aliases require admission |
+
+** Freeze gates
+
+| Gate | Qualified | Requirement |
+|---+---+---|
+| sourceCut | false | Complete executable and reachable-state closure, including displaced phases, readers and captures |
+| capabilities | false | Every eval/reader/native/FFI callback is mediated or explicitly refused |
+| stableInputs | false | Positive and negative resolution facts, bytes, readtable, hooks and environment remain stable |
+| identity | false | Canonical bindings, context aliases, marks and original module-instance scope are preserved |
+| initialized | false | All required initialization has completed successfully; partial or unknown setup is not success |
+| writes | false | Frozen cut has no reachable unowned writers; mutable provider state stays behind an owner |
+| lifetime | false | Generation-bound publication and borrower pins prevent revoke/reclaim races |
+| nativePolicy | false | Native addresses, constructors, globals and callbacks are admitted per process/VM domain |
+
+** Work and cost boundaries
+
+| Family | Potential removed work | Mechanism | Added work / boundary |
+|---+---+---+---|
+| foundation | Repeated isolated decoding/validation | Frozen recipe/image plus owned overlays | Closure audit, publication and pin bookkeeping; existing batch reuse is baseline |
+| reader | Repeated read/parse only for equivalent admitted observations | Cache read result with input and reader identities | Mediated I/O, readtable/args/locations and failure evidence; opaque readers remain executable |
+| native | Repeated lookup/phase load within an admitted domain | Keep code availability and instance readiness distinct | OS/module setup and process globals cannot be copied as immutable bytes |
+| stateful | False serialization outside provider access | Parallel independent consumer work around one effect owner | Owner queue, continuation/dynamic-parameter handoff, reentry and dependency-order proof |
+| reclamation | Redundant generation reconstruction | Reuse current qualified cut until inputs change | Revocation closes new pins, drains old borrowers; unknown effects retain custody |
+
+Observed source closure: false.
+Net work requires actual avoided baseline repetitions to exceed validation, maps, overlays, owner handoff and pin/drain; necessary stateful initialization is retained. Parallel span is a separate quantity.
+

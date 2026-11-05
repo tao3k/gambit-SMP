@@ -1,0 +1,11 @@
+import «StillReceiptAdmission»
+#print axioms GambitSMP.StillReceiptAdmission.stepConserves
+#print axioms GambitSMP.StillReceiptAdmission.traceConserves
+#print axioms GambitSMP.StillReceiptAdmission.refundBound
+#print axioms GambitSMP.StillReceiptAdmission.duplicateNoCredit
+#print axioms GambitSMP.StillReceiptAdmission.unknownNoCredit
+#print axioms GambitSMP.StillReceiptAdmission.failedReleaseNoCredit
+#print axioms GambitSMP.StillReceiptAdmission.staleGateRejected
+#print axioms GambitSMP.StillReceiptAdmission.busyGateRejected
+#print axioms GambitSMP.StillReceiptAdmission.releasedStillCharged
+#print axioms GambitSMP.StillReceiptAdmission.metadataPeak

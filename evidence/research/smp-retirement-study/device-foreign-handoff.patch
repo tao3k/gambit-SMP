@@ -1,0 +1,78 @@
+--- a/lib/mem.h
++++ b/lib/mem.h
+@@ -120,6 +120,8 @@
+          ___processor_state receiver),
+         ());
+ 
++extern ___SCMOBJ ___prepare_device_foreigns_vmstate (___virtual_machine_state vm);
++
+ extern void ___cleanup_mem_vmstate
+    ___P((___virtual_machine_state ___vms),
+         ());
+--- a/lib/mem.c
++++ b/lib/mem.c
+@@ -10,6 +10,7 @@
+ #include "os_base.h"
+ #include "os_thread.h"
+ #include "os_time.h"
++#include "os_io.h"
+ #include "setup.h"
+ #include "mem.h"
+ #include "c_intf.h"
+@@ -4585,6 +4586,35 @@
+ }
+ 
+ 
++/* Native device foreigns are still objects with this exact canonical
++   release function. No object/storage is freed by this traversal. A failed
++   callback has transferred responsibility to its still-linked native group.
++   The sealed, joined owner performs this before any VM root destruction. */
++___SCMOBJ ___prepare_device_foreigns_vmstate (___virtual_machine_state vm)
++{
++  int i;
++  for (i=0; i<vm->processor_count; i++)
++    {
++      ___WORD *base = ___CAST(___WORD*,___PSTATE_FROM_PROCESSOR_ID(i,vm)->mem.still_objs_);
++      while (base != NULL)
++        {
++          ___WORD *next = ___CAST(___WORD*,base[___STILL_LINK]);
++          if (___HD_SUBTYPE(base[___STILL_BODY-1]) == ___sFOREIGN)
++            {
++              ___SCMOBJ obj = ___TAG(base+___STILL_BODY-___REFERENCE_TO_BODY,___tSUBTYPED);
++              if (___FOREIGN_RELEASE_FN_FIELD(obj) ==
++                  ___CAST(___SCMOBJ,___device_cleanup_from_ptr))
++                {
++                  ___SCMOBJ e = ___release_foreign(obj);
++                  if (e != ___FIX(___NO_ERR)) return e;
++                }
++            }
++          base = next;
++        }
++    }
++  return ___FIX(___NO_ERR);
++}
++
+ ___HIDDEN void free_still_objs
+    ___P((___processor_state ___ps),
+         (___ps)
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -5493,6 +5493,18 @@
+   }
+   ___MUTEX_UNLOCK(___GSTATE->vm_list_mut);
+ #endif
++  {
++    ___virtual_machine_state probe = &___GSTATE->vmstate0;
++    do {
++      err = ___prepare_device_foreigns_vmstate(probe);
++      if (err != ___FIX(___NO_ERR))
++        { cleanup_error = err; cleanup_phase = 2; return err; }
++#ifndef ___SINGLE_VM
++      probe = probe->prev;
++#endif
++    } while (probe != &___GSTATE->vmstate0);
++  }
++
+   err = ___cleanup_io_module_checked ();
+   if (err != ___FIX(___NO_ERR))
+     { cleanup_error = err; cleanup_phase = 2; return err; }

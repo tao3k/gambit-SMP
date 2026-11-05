@@ -136,14 +136,20 @@ class ObservationBindingsTests(unittest.TestCase):
             self.bindings()
 
     def test_validate_output_is_not_a_mutually_exclusive_mode(self):
+        from gambit_smp import workspace
+        self.root = self.root.resolve()
+        workspace.git(self.root, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                      'commit', '--allow-empty', '-qm', 'fixture')
+        workspace.start(self.root, 'validation', adopt=True)
         (self.root / "evidence/dsl").mkdir()
         (self.root / "evidence/dsl/components.json").write_bytes(
             (Path(__file__).parent / "fixtures/catalog-components.json").read_bytes())
         (self.root / "evidence/dsl/catalog.ss").write_text(
             "(def (make-catalog) (make-recorded-module "
             "(ascent-fragment (relation input ((value symbol?)))) '(input)))")
-        out = self.root / ".cache/retained-query"
-        with patch.object(index, "ROOT", self.root), \
+        out = self.root / ".cache/tasks/validation/runs/retained-query"
+        with workspace.execution_scope(self.root, 'validation'), \
+                patch.object(index, "ROOT", self.root), \
                 patch.object(index, "export", return_value={"facts": {}, "inputs": {}}), \
                 patch.object(index, "query", return_value={}), \
                 patch("gambit_smp.reasoning_history.record", return_value={}), \
@@ -161,7 +167,7 @@ class ObservationBindingsTests(unittest.TestCase):
         self.write()
         self.assertEqual(1, len(self.bindings()["retained"]["observed_log_attachment"]))
         log.write_text("changed log")
-        with self.assertRaisesRegex(ValueError, "log digest"):
+        with self.assertRaisesRegex(ValueError, "recorded output observation"):
             self.bindings()
 
     def test_checked_in_bindings_cover_all_raw_observations_without_control_admission(self):

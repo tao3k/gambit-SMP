@@ -1,0 +1,96 @@
+#+TITLE: Repair-driven GC / SMP — mechanism, evidence and retirement matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRepairDrivenRefactor
+:STATUS: source-bound-research; source-refinement-and-native-open
+:END:
+
+Existing model symbols are linked, not re-proved. A new architecture does not close old native gates.
+
+** Cut
+
+| key | owner.moduleId | owner.ownerPath | seam.interfaceId | history.obligationId | history.subjectPath | history.subjectScope | induction.obligationId | induction.subjectPath | induction.subjectScope | evidence | observation | replacement | retirement | avoided | added | sourceGap | actionName | lemmaName | projection | status |
+|---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---+---|
+| generated-boundary | semantic | dev/architecture/compiler | GeneratedCheckpoint | REPAIR-REFACTOR-generated-boundary-Q | models/gambit/ffi_gc_frame_protocol.qnt | repair-driven:generated-boundary:source-composition-open | REPAIR-REFACTOR-generated-boundary-L | models/gambit/lean/SavedStackRootClosure.lean | repair-driven:generated-boundary:source-composition-open | repair-cut | Startup collective can collect while generated entry lacks full writeback/reload evidence | Scheme effect/FrameSpec contract emits every GC-capable call bridge, return and exceptional checkpoint | Retire handwritten per-site W_ALL/RA choreography after all entries and generated consumers migrate | Eliminate repeated discovery of hidden GC-capable calls | Frame metadata, writeback/reload and ABI invalidation | Complete primitive/FFI effect closure, generated label mapping and selected-GC-inside-startup witness | publishRegisters | declaredClosureCoversActualConsumers | Concrete generated RA store and register writeback map to saveReturnAddress/publishRegisters; cachedFrame/cachedRoot and processorFrame/processorRoot encode the pre/post root view; relocateRoots then reloadRegisters must update the same frame epoch. Full label/slot coverage remains a premise. | source-refinement-open; no new QNT or Lean run |
+| scheduler-participation | execution | dev/architecture/runtime/execution | Participation | REPAIR-REFACTOR-scheduler-participation-Q | models/gambit/delivery_service_roots.qnt | repair-driven:scheduler-participation:source-composition-open | REPAIR-REFACTOR-scheduler-participation-L | models/gambit/lean/WorkAccounting.lean | repair-driven:scheduler-participation:source-composition-open | wait-current | Internal wake, true EINTR, IO readiness and EOF previously shared retry behavior | Typed private WaitResult and P-locked runnable decision; safe root publication before participating in sync | Retire internal-wake-as-EINTR retry and scattered repark guesses after both wait backends qualify | Avoid false sleeps, redundant wake/service and lost runnable progress | Reason classification, admission recheck and one nonblocking service slice | Actual park/unlock overlap, pending SYNC and contention; weak fairness gives no deadline bound | readInternalWake | announcementWithoutAcknowledgementIsNotReady | Concrete positive internal byte/event maps to notified/readInternalWake and wakeRead; true signal maps to ordinarySignal; runnable work and unlock/dispatch map to runnable/serviceOwner/locks/phase. The retained model already rejects retryAfterInternalWake, reparkQueued and deadlineRevision changes. Its finite wait fallback and action fairness do not prove full source/C23 or throughput. | source-refinement-open; no new QNT or Lean run |
+| collector-work | collector | dev/architecture/runtime/gc | WorkClosure | REPAIR-REFACTOR-collector-work-Q | models/gambit/gc_work_closure.qnt | repair-driven:collector-work:source-composition-open | REPAIR-REFACTOR-collector-work-L | models/gambit/lean/WorkAccounting.lean | repair-driven:collector-work:source-composition-open | chunk-publish | GC private work, root tasks and resize owners require different lifetimes | VM epoch owns participant cut; worker owns scan/copy/Tail custody independent of execution carrier | Retire residual PSTATE/cursor aliases only after private, queued, claimed and weak producers all discharge | Reduce repeated ownership reconstruction and incorrect empty-queue conclusions | Explicit task state, root cut and transfer/termination synchronization | All producer enumeration, partial copy/frame publication, weak work and native C23 memory model | finishScan | zeroCountAndEmptyQueuesExcludeHiddenWork | Concrete work descriptors project to work 2 private-copy, 4 queued, 5 scanning, 6 scanned with owner/visible/active/count. finishScan may discover a child before the parent disappears; ProducerLifetimeSafe needs all actual Tail/copy/weak producers. Physical chunks and variable frame regions are not one-to-one objects. | source-refinement-open; no new QNT or Lean run |
+| native-roots | roots | dev/architecture/runtime/interfaces | RootCut | REPAIR-REFACTOR-native-roots-Q | models/gambit/host_roots_contract.qnt | repair-driven:native-roots:source-composition-open | REPAIR-REFACTOR-native-roots-L | models/gambit/lean/HostRootParticipation.lean | repair-driven:native-roots:source-composition-open | rc-domain | Borrowed RC payloads and retained resize requests outlive original processor execution | VM-scoped root registration and closed writable domains; scanner updates then execution reloads | Retire donor-list-only root transfer and allocating marker before protected ingress only after every caller maps | Avoid rescanning/rebuilding ad hoc ownership and lost moving-root coverage | Slot registration, writer closure, GC update and grace-period retention | Nonzero processor, indirect FFI setters, nested callback and failed/unknown join consumers | freeze | frozenHandoffComposesRelocation | Concrete protected ingress and RC slot domain map to registered; closed writer domain maps to closing/frozen; claimed root task maps to acquired; moving updates map to moved and owner reload to reloaded. Equal values or a list splice alone cannot establish the relation. | source-refinement-open; no new QNT or Lean run |
+| request-control | control | dev/architecture/runtime/control | OutcomeLifetime | REPAIR-REFACTOR-request-control-Q | models/gambit/delivery_pass_cleanup_composition.qnt | repair-driven:request-control:source-composition-open | REPAIR-REFACTOR-request-control-L | models/gambit/lean/WorkAccounting.lean | repair-driven:request-control:source-composition-open | parallel-cost | Per-request pass/hint/catcher machinery and disabled-observer atomics remain reviewable costs | One semantic request/result/control plan with context-local representation and exact exceptional suffix | Retire duplicate success-path catchers, diagnostic roots and memberships only with equivalent multishot/unwind behavior | Potentially reduce allocations, atomics and scheduler handoffs per useful request | Generation tagging, slow-path fallback, preserved exception and continuation capability | Dynamic allocation attribution; no pooling while roots, waiters or multishot continuations retain a request | finish | balancedNestedExitsCompose | Concrete accepted pass, publication, payload visibility, VM-lock try, last borrower and completion debit map to handed/visible/claim/ticketBorrow/done/roots/debits in delivery_pass_cleanup_composition. balancedNestedExitsCompose constrains acquired effects only; it does not prove arbitrary Scheme thunk or multishot semantic equivalence. | source-refinement-open; no new QNT or Lean run |
+| generational-heap | collector | dev/architecture/runtime/gc | ControlRoots | REPAIR-REFACTOR-generational-heap-Q | models/gambit/generational_barrier.qnt | repair-driven:generational-heap:source-composition-open | REPAIR-REFACTOR-generational-heap-L | models/gambit/lean/GenerationalBarrier.lean | repair-driven:generational-heap:source-composition-open | wait-current | Roughly 598 MB and 110 GC cycles in the retained c38e 120k sample; this does not identify all allocators | Young allocation plus bounded noncollecting barriers, remembered mature edges, promotion budget and complete major route | Retire full mature graph scan in minor only after continuation/denv/FFI mutation closure; retain sound fallback | Reduce repeated mature tracing conditionally on real survival and mutation population | Write barriers, remembered storage, promotion reserve, major cycles and rendezvous | Barrier writer completeness, log overflow, post-forward failure custody and all-root cut | commitStore | sourceSlotsCovered | Concrete slot/card store projects to pending/dirty/hints and commitStore; young edges must be represented before the collector cut. Forwarding/init progress/promotion reserve project separately. sourceSlotsCovered assumes card mapping and log completeness, not a discovered census of every FFI or frame writer. | source-refinement-open; no new QNT or Lean run |
+| retirement-recovery | release | dev/architecture/runtime/ffi | ReleaseDrain | REPAIR-REFACTOR-retirement-recovery-Q | models/gambit/native_entry_close_cleanup.qnt | repair-driven:retirement-recovery:source-composition-open | REPAIR-REFACTOR-retirement-recovery-L | models/gambit/lean/NativeEntryCloseCleanup.lean | repair-driven:retirement-recovery:source-composition-open | first-error | An original exception precedes cleanup refusal; outstanding responsibility is not automatically a leak | Separate execution, GC participation, native return and release drains with stable outcome owner | Retire destructive monolithic cleanup only after join, scan, callback, descendant and descriptor users close | Avoid recovery-by-reinitialization, double drop and blanket forever retention | Per-resource custody, completion records and bounded retention under unknown results | Actual joinable error/recovery, owner thread/epoch, old handler quiescence and no waits on own obligations | loseDropResult | unknownRetainsRunRoot | Concrete uncertain marker drop maps to runUnknown via loseDropResult; stable protected marker/root maps to runRoot and remains until authoritative reconciliation. This fragment does not simulate OS join, callback affinity or all descendant release tasks; they need composed relations. | source-refinement-open; no new QNT or Lean run |
+| artifact-qualification | build | dev/architecture/toolchain | ArtifactClosure | REPAIR-REFACTOR-artifact-qualification-Q | models/build/incremental_build.qnt | repair-driven:artifact-qualification:source-composition-open | REPAIR-REFACTOR-artifact-qualification-L | models/build/IncrementalBuild.lean | repair-driven:artifact-qualification:source-composition-open | wait-gain | Selected-object updates and passing probes do not bind all generated/header/runtime consumers | Content/ABI-bound dependency closure for generated C, headers, objects, archives and child executable | Retire manual archive patching and mtime-only success after every consumer has exact dependency receipt | Reuse unaffected products and prevent false evidence across images | Dependency hashing, ABI propagation and transactional artifact publication | Build result is not runtime acceptance; original child identity and complete inventories remain separate | reuse | receiptReuseMatchesClean | Concrete source/header/generator/ABI dependency cut projects to complete input keys and reuse; all generated/native consumers must agree under receiptReuseMatchesClean. Existing small graph does not enumerate all linked archive members; an object mtime is not a cut witness. | source-refinement-open; no new QNT or Lean run |
+
+** Gate
+
+| key | definition | required | status | limit |
+|---+---+---+---+---|
+| lifecycle | lifecycle failure/rollback | Real same-owner/incarnation joinable failure, recovery, reentry and old handler quiescence | open; historical 8/12 only | Not a synthesized pre-join refusal or drop counters forced to zero |
+| gc-ffi | complete GC/FFI | Both applicable unchanged full inventories plus original pressure and exact generated/root ABI | open; historical 8/12 only | A selected bridge or short GC control is insufficient |
+| gerbil | Gerbil correctness | Source-causal binding/object repair and complete downstream build/tests on matching runtime | open; historical 8/12 only | No assumption that non-symbol binding or typeid failure is uniquely a GC error |
+| release | release performance | Matched complete original campaigns, useful work, CPU/wall/GC/memory and retained failures | open; historical 8/12 only | Short speedups, changed topology and diagnostic timing do not earn release |
+
+** Edge
+
+| fromNode | toNode | contract |
+|---+---+---|
+| generated-boundary | native-roots | effect-complete entries publish roots before allocation or sync |
+| native-roots | collector-work | freeze writers; publish complete root tasks; scanner updates actual slots |
+| scheduler-participation | collector-work | old cohort remains serviceable; avoid holder/collector wait cycle |
+| collector-work | generational-heap | producer and root closure precede selective-scan retirement |
+| request-control | generational-heap | semantic stores and true retained request graph define remembered edges |
+| request-control | retirement-recovery | original result/exception and accepted responsibility survive owner exit |
+| collector-work | retirement-recovery | no private/weak work or scan borrower before reclaim |
+| generated-boundary | artifact-qualification | FrameSpec/ABI changes invalidate all dependent generated and native products |
+| artifact-qualification | gc-ffi | same-image original inventories |
+| retirement-recovery | lifecycle | natural failure and recovery; no cross-credit |
+| request-control | release | same-work measurements; normal and enabled observation modes |
+| generational-heap | release | net tracing saved exceeds barrier/promotion/synchronization costs |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| milestone | evidence/research/processor-interrupt-collective-wait/repair-9-12-native-observation.json | "milestone": "8/12" | registered historical milestone; not a live monitor |
+| gate-audit | docs/current-repair-obligation-map.md | lifecycle failure/rollback | four separate acceptance contracts; row order is not ordinal identity |
+| repair-cut | docs/current-repair-research.md | c38e coherent wait-return integration | documentary cut on 2026-10-26; no claim of latest in-flight repair state |
+| wait-gain | evidence/research/smp-retirement-study/delivery-048b-select-return.json | 048b7f9f8c247e8a35056ccdb3b1979f5810b89cd6da1858c50b4752225cb9fd | short-work gain and original failure remain independent |
+| wait-current | evidence/research/smp-retirement-study/delivery-c38e-wait-handoff.json | c38e034363550cdeeea0e04bb70c0799f97eaf84340bc70626501eee0f2c1f45 | unexplained first GC-pair timeout remains; no original started in this snapshot |
+| first-error | evidence/research/smp-retirement-study/delivery-2fe7-first-cause.json | thread-state-normally-terminated | focused diagnosis only; not the cause of every later outer join error |
+| parallel-cost | evidence/research/smp-retirement-study/delivery-60b3-cost-attribution.json | 0.518624 | same-work topology amplification; negative p1 allocation is invalid, not zero |
+| memory-wrapper | vendor/gambit/lib/mem.c | #include "_mem/collection-round.inc" | working modular tree; inclusion order and #line are diagnostic mapping, not frozen native identity |
+| root-task | vendor/gambit/lib/_mem/collection-round.inc | ___gc_root_task_claim(task,vm->gc_round.epoch,phase,owner) | working tree already splits context and worker; not a qualified successor of repair image |
+| rc-domain | vendor/gambit/lib/_mem/rc-roots.inc | RC root task requires a closed context domain | closed writer domain and root task must compose; not old P0-only baseline |
+| resize-roots | vendor/gambit/lib/_mem/root-origins.inc | resize_requests[i].thunk | retained request roots stay VM-owned across origin removal |
+| chunk-publish | vendor/gambit/lib/_mem/heap-sections.inc | require_chunk_transition(work,alloc_heap_chunk_start,0,1); | actual private/public queue handoff needs full C23 and termination refinement |
+| frame-map | vendor/gambit/lib/_mem/continuation-roots.inc | mark_array (work, orig_ptr, 1); | captured frames and caller root slot map remain part of moving-root contract |
+| generated-frame | vendor/gambit/include/_gambit/gvm_operations.h.in | #define ___FRAME_STORE_RA(ra) | mechanical frame operation, not automatic proof of all native entry coverage |
+| scheme-stress | vendor/gambit/tests/unit-tests/06-thread/thread_interrupt2_stress.scm | (thread-sleep! 1000) | ten million calls per target, original deadlines and per-target fairness are semantic constraints |
+| feeley-pvm | dev/refactoring/modern-c/modernization-target.org | Feeley and Miller | retained local literature synthesis; no new external paper read or borrowed speedup |
+| ocaml-learning | dev/architecture/runtime/gc/modern-c-generational-design.org | Retrofitting Parallelism onto OCaml | mechanism learning and tradeoffs, not a selected Gambit algorithm or imported speedup |
+| wait-model-receipt | evidence/model-results/research/delivery-wait-refinement/receipt.json | bounded-protocol-extensions-not-source-refinement | Existing published protocol receipt, source hash checked; no TLC rerun, native credit or deadline proof |
+
+** Observed samples and conditional arithmetic
+
+| measure | value |
+|---+---|
+| work | 120000 |
+| baselineP1 | 0.5186240673065186 |
+| baselineP11 | 5.69755220413208 |
+| wake048b | 1.384971 |
+| c38e | 2.370086 |
+| p1AllocationValid | False |
+| p11BytesPerRequestConditional | 4959.203466666667 |
+| perTargetOriginalCalls | 10000000 |
+| parallelTargetsAtP11 | 6 |
+| original048bOutcome | DENY/TIMEOUT; not original acceptance or9/12 |
+| firstError2fe7 | Thread is not active
+(thread-interrupt! '#<thread #3> '#<procedure #4 inc!>) |
+| c38eOriginalStarted | False |
+| p11OverP1 | 10.985900121686212 |
+| shortWakeGain | 4.1138422422795 |
+| isolated60mC38eExtrapolation | 1185.0430000000001 |
+| limits | Observed samples, no confidence interval or original-deadline guarantee; GC wall overlaps CPU/wait, per-target fairness remains required; invalid negative allocation excluded. |

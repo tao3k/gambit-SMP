@@ -1,0 +1,131 @@
+# Callback Modernization: Runtime Net-Benefit Matrix
+
+Design-only accounting, with no timings, invented speedup, human-day estimate,
+implementation or native test. [Source ledger](native-callback-evidence.md),
+[caller case](native-callback-continuation-design.md) and
+[conditional arguments](native-callback-arguments.md) support the mechanisms;
+they do not establish runtime frequencies or positive aggregate benefit.
+
+NV01. Compare three things separately: current qualified Gambit; a reconstructed
+shared contract and Scheme-generated modern C; the **same contract** with an
+optional Zig private provider. GC/FFI correctness and scan elision belong to
+the common architecture. They cannot also be credited as an incremental Zig
+gain. Existing still carriers, converted strings, W_ALL/R_ALL, RC patch work
+and the trampoline have already paid for useful support.
+
+## Concrete Mechanism and Cost Matrix
+
+| Scope and actual evidence | Potential avoided work | Modern generated C must maintain | Zig must maintain additionally / instead | Net-positive condition / falsifier |
+| --- | --- | --- | --- | --- |
+| Mature map frames and aliased denv, NE01 | Repeated traversal of unchanged mature graph at minor cuts | Global heap/control writer coverage, dirty-region fallback, layouts and root cut | Same semantics and runtime protocol; another emitter/provider contract if introduced | Saved visits exceed barriers, fallback, roots and collector overhead; unknown writer blocks elision |
+| Tcl RC data and vector slot, NE02/04 | Root-cell visits only after cooperative classification; descendant visits accounted above | Root location versus heap slot distinction, membership, classification and scan/writeback gate | Same owner/epoch/GC rules; typed variants can express states but do not remove them | Rare updates versus many cuts; raw data or vector store invalidates selective scanning |
+| Marker entry, NE03/05/09 | Reuse existing donor/carrier or reserved saved slot, avoiding unnecessary extra root allocation | Input liveness before effects, nested extent, initialized-marker cleanup and native capability | Same C control shell where jumps require it; Zig-owned resources remain outside corridor | No new allocation on an already covered path; marker itself cannot be removed |
+| Copied strings, NE02/08 | Avoid redundant new copy; exact prior conversion allocation still retained | Encoding/NUL/errors, RC allocation, ownership transfer to Tcl and failure cleanup | Same ABI/native storage/last-use and conversion semantics | Retain existing copy where required; changing language alone removes zero conversion bytes |
+| FOREIGN resource pointer, NE08 | Safe sharing can avoid another resource copy where supported | Release coordination, thread affinity, borrow lease and shutdown drain | Same ownership obligations; ordinary defer useful only on ordinary exits | Lease overhead less than avoided copy/serialization; concurrent release without lease rejects |
+| Blocking and nested entry, NE05/07/08 | Eventual detached/parked design may permit GC progress while native work waits | Execution permit, roots/reload, wait publication and legal service cut | Same membership/control protocol plus language boundary | Actual progress/pause benefit exceeds adapter/copy cost; no finite progress bound from source alone |
+| Nonlocal exit and deletion, NE02/03/05/06 | Shared generated exit ledger can replace duplicated cleanup recipes | Ledger lifetime, catchers, unchanged destination, marker/root/module/client-data drain | Same ledger/C catcher plus Zig error/defer adapter only outside unsupported jumps | Replaces actual duplicate paths; unknown library escape is a qualification failure, not a speed gain |
+| LLVM/MLIR provider | Future layout/effect analyses and native code quality, independently assessed | Common effect/root/control plan and provider validation | Optional provider integration, ABI and toolchain upgrade surface | Provider removes real work under the common contract; FFI root/custody obligations persist |
+
+NV02. Source-derived structural quantities are useful without pretending to
+measure speed. This case has one RC `data` location and one vector proc slot
+per registered command, distinct root/heap source locations. `___call` reserves
+a two-slot logical return frame (plus FRAME_SPACE padding), and threaded marker
+construction adds processor identity to its procedure slot. At nesting depth n,
+there are n live invocation capabilities/cleanup scopes if all calls remain
+active; retaining only one scratch reservation is not a substitute. String
+allocation bytes depend on actual encoding/content, and Scheme callback work,
+capture depth and callback count are not fixed by these static counts.
+[NE02, NE05, NE08, NE09]
+
+## Quantified Break-Even Without Fabricated Coefficients
+
+NV03. Use one fixed execution history and a disjoint accounting partition:
+
+```text
+K                  minor cuts while the relevant mature graph is retained
+F_j                old-policy mature fields visited at cut j
+D_j                those fields visited again by dirty-region fallback
+N_j                remaining newly relevant mature fields visited by new policy
+c_s                time per comparable field visit (future matched evidence)
+V, U               baseline and cooperative native root-cell visits
+c_r                comparable root-cell visit time
+W_t, c_t           actual count and marginal time for each added operation family
+H                  entry/root-extent/cleanup setup and retained one-off work
+Delta_major        incremental major/root termination work in this history
+Delta_copy         net incremental copying/pinning/reload time
+
+Net_saved_time = c_s * sum_j(F_j - D_j - N_j)
+                 + c_r * (V - U)
+                 - sum_t(W_t * c_t) - H - Delta_major - Delta_copy
+```
+
+W families separately cover controlled heap writes, root replacement,
+gate/wait/reentry, scanner/lifetime leases, callback cleanup and retirement.
+Charge a classification/gate action once, even if it protects several objects;
+count overlapping graph fallback fields once, not once per continuation alias.
+Existing costs retained in both policies cancel. Native bytes retained by
+still/pinned objects, ledger entries, client data and pending retirement are
+a separate peak/retention measure, not silently subtracted from time. Include
+negative Delta terms only when real work is proven removed.
+
+NV04. Under stationary workload assumptions, let lambda be the usable cut
+fraction, F unchanged mature fields, d residual/fallback fields, a added
+per-cut time, rho_t added operations of family t per cut, g root-cell savings
+per cut, and h the remaining incremental major/copy time per cut. Then:
+
+```text
+q = lambda * (F - d) * c_s + g * c_r - a - sum_t(rho_t*c_t) - h
+positive total saving requires q > 0 and K > H/q
+```
+
+No coefficient is assigned a hypothetical measured number. Sensitivity is
+explicit: one more fallback field per usable cut reduces q by lambda*c_s;
+one more gate/update per cut reduces it by its marginal cost; complete fallback
+d=F removes the graph term. With q<=0, retaining k longer does not create a
+positive bound. For a young graph dying before its first minor, there may be
+no mature scan to remove; early promotion/pinning can instead increase cost.
+Expired native markers do not erase already retained graph costs, and graph
+reachability does not create a valid return capability.
+
+NV05. Root classification's separate threshold is exact in work units:
+enumerated roots cost V visits, cooperative roots U visits plus update and
+membership maintenance. It is beneficial only when `(V-U)*c_r` exceeds that
+maintenance increment. No descendant traversal is counted again in this term.
+Replacing an old root's value with young data must re-enroll it even if the
+value happens to be k's only native root. Scanning all known root cells remains
+a legitimate common-C policy if updates are too frequent. [NE04, NE11, NP01]
+
+![Value and disqualifying boundaries](native-callback-value.svg)
+[D2 source](native-callback-value.d2).
+
+## Language Increment and Actual Retirement
+
+NV06. Across this selected design there are **seven non-removable obligation
+families**: root completeness/writeback; heap writer/barrier coverage; execution
+and blocking participation; nested owner/marker control; resource/image lifetime;
+exceptional-exit custody; producer/scanner/shutdown closure. Modern C and Zig
+both maintain all seven. This is a design partition, not a measured line count.
+The current evidence proves **zero of these obligations eliminated by Zig**,
+not that both languages have equal implementation size, diagnostics or speed.
+
+| Decision quantity | Current defensible result | Evidence needed to improve it |
+| --- | --- | --- |
+| Native paths retired by this research | 0 | Implemented replacement plus every actual caller, error and shutdown edge admitted |
+| Repeated graph work removable in theory | sum(F_j-D_j-N_j) visits, conditionally | Full writer/root cut, valid layout and matched history |
+| Cooperative root work removable | V-U visits, separately | Every root update enrolled; mutation/registration maintenance counted |
+| Extra copies removable just by choosing Zig | 0 demonstrated | A concrete necessary copy eliminated under unchanged ownership/control semantics |
+| Callback/control safety obligations removable by Zig | 0 of the seven families established | A supported mechanism genuinely discharging an obligation, not a shorter syntax |
+| Positive runtime net benefit for shared redesign | Conditional inequality NV03/NV04 | Actual workload/cost coefficients and complete semantics/progress qualification |
+| Positive incremental value of Zig | Unresolved | A necessary shared component with fewer maintained representations/paths or better admitted runtime result after extra provider/C-shell/upgrade cost |
+
+NV07. Retire **handwritten duplicate policies**, not safety mechanisms. A shared
+Scheme effect/exit generator can eventually replace cohort-specific C cleanup
+selection and raw managed-store recipes once their actual callers migrate.
+It must retain a real scanner, barriers, marker validation and supported C
+unwind corridor. Existing RC donor/scanner repair is reused, not claimed again.
+Zig earns incremental value only if it replaces an independently necessary
+support representation or delivers an admitted runtime/provider advantage
+greater than its additional boundary and upgrade burden. If generated C can
+express the same plan once and reuse the existing runtime, this case alone
+does not justify adding Zig. Modernizing Gambit's GC/FFI architecture can
+remain valuable regardless of that language decision.

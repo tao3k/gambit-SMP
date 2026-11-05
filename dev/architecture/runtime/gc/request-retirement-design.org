@@ -1,0 +1,343 @@
+#+TITLE: Modern C Request Retirement, Checked Identity and Metadata Failure
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :exports code
+#+TODO: OPEN PREMISE | CHECKED
+
+* Decision and semantic authority
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-decision
+:AUTHORITY: models/sysml/request-retirement.sysml
+:STATUS: BOUNDED-MODELS-CHECKED-SOURCE-AND-C-ORDER-OPEN
+:COMPONENT: host-roots
+:SHARED_COMPONENT: gc-work
+:END:
+
+Use a /bounded issued window/ and a contiguous /settled prefix/, rather than a
+maximum observed ID or an allocation-dependent set of retired holes. Reserve
+physical control, source-handle, exit and result capacity before exposing a key.
+Core post-publication query/cancel/ACK/settlement requires no new control
+allocation. This is a proposed modern C runtime contract, not current Gambit
+behavior. No runtime code or native test is part of this study.
+
+[[file:models/sysml/request-retirement.sysml][SysML]] owns component needs, imports, dependencies, source routes, transitions,
+capacity/cut predicates, gates, cost rows and diagram topology. Native evaluation
+drives [[file:request-retirement-matrix.org][the matrix]] and [[file:diagrams/request-retirement.d2][D2]]. The actual [[file:../../../modeling/ascent/request-retirement.rules.scm][ASCENT rules]] conjunctively join
+artifact digest, method, check and scope; [[file:../../../modeling/ascent/request-retirement.request.scm][the request]] records the evaluated facts.
+[[file:../../../../evidence/research/request-retirement/checks.json][The evidence receipt]] binds the study to live source identities and the unchanged
+[[file:bootstrap-root-recovery-design.org][preceding registration-loss study]]. Earlier histories and failed authoring checks
+are retained. No previous receipt is relabeled as a native/runtime result.
+
+* Real generators, allocators and lifetime endpoints
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-source
+:END:
+
+** The selected path has a natural root before native publication
+
+[[file:../../../../vendor/gambit/lib/_kernel.scm::2353][The resize c-lambda]] takes a Scheme object and integer. [[file:../../../../vendor/gambit/gsc/_ptree2.scm::2850][The argument generator]]
+aliases the Scheme object to CFUN_ARG; [[file:../../../../vendor/gambit/lib/_kernel.c::6258][tracked kernel C]] confirms that shape.
+[[file:../../../../vendor/gambit/lib/_kernel.c::26338][Its generated caller]] spills arguments/RA and materializes the frame resources.
+These are source observations, not proof of freshness or installed ABI.
+Before issuing any managed key, the complete mapped caller frame remains the
+owner on capacity/metadata failure. The error must be represented before
+throwing/converting; no partial frame, unregistered C local or lost raw thunk
+can be the only surviving root. RootHandle pre-entry coverage is still imported.
+
+[[file:../../../../vendor/gambit/gsc/_ptree2.scm::2902][Conversion cleanup selection]] and [[file:../../../../vendor/gambit/gsc/_ptree2.scm::3238][body emission]] do not describe arbitrary native
+publication effects. [[file:../../../../vendor/gambit/include/gambit.h.in::10375][AT_END is inside normal/C TRY control flow]]. The new origin,
+publication and exit plan must not depend solely on argument conversion type.
+
+** Actual native allocation can fail; RC is not a replacement registry
+
+[[file:../../../../vendor/gambit/lib/os_base.c::190][The native allocation wrapper]] calls malloc and returns its result; it is not
+an allocation guarantee. [[file:../../../../vendor/gambit/lib/mem.c::703][alloc_rc_no_register]] adds the RC header, then initializes
+refcount=1 and data=false on success. [[file:../../../../vendor/gambit/lib/mem.c::743][alloc_rc]] separately registers a successful
+block in a processor RC list. The new arena needs checked multiplication,
+addition, alignment, bit rounding and counter increments, including header
+bytes. This is an admission condition for the new path, not a claim that the
+existing RC arithmetic has been proved safe or redesigned here.
+
+[[file:../../../../vendor/gambit/lib/mem.c::760][release_rc]] decrements, unlinks and frees at zero; [[file:../../../../vendor/gambit/lib/mem.c::681][cleanup_rc]] frees the chain.
+[[file:../../../../vendor/gambit/lib/mem.c::3970][mark_rc]] scans h->data separately. [[file:../../../../vendor/gambit/lib/mem.c::4928][PSTATE cleanup]] invokes still cleanup and
+RC cleanup. A cross-processor canonical control record cannot simply borrow
+those lifetimes/refcounts. Its VM-owned source view and stable progress must
+outlive PSTATE cleanup, with root/GC membership duties separately qualified.
+Safe false cells are necessary but do not register an initialized Scheme root.
+
+** Failure phases on the real resize path differ
+
+[[file:../../../../vendor/gambit/lib/setup.c::1155][current_vm_resize]] copies a raw thunk into a local sop. [[file:../../../../vendor/gambit/lib/setup.c::1050][Sync processing]] can
+execute/copy back a result and then throw. No normal return does not imply no
+effect. [[file:../../../../vendor/gambit/lib/setup.c::905][GC capacity failure]], [[file:../../../../vendor/gambit/lib/setup.c::942][PSTATE setup rollback]], ignored join status and
+fatal thread creation are distinct actual endpoints. A post-publication error
+must preserve child/native effects in the imported member ledger; it must not
+be translated into pre-publication OOM or a reusable empty key.
+
+[[file:../../../../vendor/gambit/lib/setup.c::3276][call/run catcher paths]] can bypass normal marker cleanup. Stable source/key,
+exit disposition and cancellation progress must live outside modified
+nonvolatile setjmp locals. [[file:../../../../vendor/gambit/lib/mem.c::4529][Restored PSTATE fp]] and [[file:../../../../vendor/gambit/include/gambit.h.in::10402][CFUN_ARG]] require fresh slot
+resolution, not a revived C stack. [[file:../../../../vendor/gambit/lib/setup.c::6350][Main VM setup]] rejects setup errors before run;
+the new domain arena must be fully initialized before publishing ready.
+
+* Window, prefix and canonical creation
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-window
+:END:
+
+#+NAME: request-retirement-fields
+| Field | Meaning | Required invariant |
+|-------+---------+--------------------|
+| VM identity | Admitted lifetime namespace resolved through a stable router | Never dereference an expired raw VM pointer to check identity |
+| domain generation | Native request namespace, independent of GC epoch and parent binding | Checked monotonic issuance; no modular reuse |
+| sequence | Key within one domain generation | Issued only below representable sentinel K |
+| floor | First sequence not yet compressed into the retired prefix | Every lower issued sequence is fully settled |
+| next | Next sequence available for atomic reservation | floor <= next <= K and next-floor <= W |
+| fixed slot | Full key, immutable origin/intent, root handles, result and exit state | One slot reserved before issuing each key |
+| settled bit | Result/source/producer/reader obligations for that key are closed | Not the original result or permission to access payload |
+
+Reserve under one control domain: check ready/capacity/full key origin, initialize
+safe cells and all required progress storage, occupy a physical slot, then
+advance next and expose the key. There is no issued-but-unbacked key. A reserved
+operation aborted before dispatch still settles/cancels its exact slot; it
+cannot leave an unrepresented hole. No shared callback or allocator runs inside
+the control lock. A request is created only by reserve; /retry lookup never
+creates a record/. The logical activation identity exists before reserve so a
+lost reservation reply can query the same canonical slot, not reserve a new key.
+The slot also binds immutable operation/target/source intent; mismatch rejects.
+Mapping that activation to a canonical reservation is a source-refinement duty,
+not a second unbounded identity table allowed outside the window budget.
+
+For out-of-order completion, replace the fully settled record's live content by
+a bit in the fixed window. Advance floor only when the exact head bit is set,
+then repeat. Completing key 1 while key 0 is pending cannot advance floor to 2.
+The ring index is storage selection only: reuse needs floor to exclude the old
+key and all pointer-bearing readers to have drained. A full window returns a
+pre-effect capacity disposition; it does not grow a sparse map on the GC/OOM
+failure path. An unresolved head can eventually block new admission while
+frozen source/root descriptors remain available to GC. This is deliberate
+backpressure, not a lock-free or bounded-latency claim.
+
+* Delayed request and query disposition
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-late
+:END:
+
+#+NAME: request-retirement-disposition
+| Query/delivery | Action | Custody consequence |
+|----------------+--------+---------------------|
+| Unknown/dead VM or old generation | Reject before record/source dereference | Never create a VM or request on retry |
+| sequence below floor | Return Retired/AlreadySettled | Original outcome may be gone only after actual result ACK |
+| Settled hole in current window | Return AlreadySettled from fixed bit | No payload capability or renewed source lease |
+| Unissued sequence at/above next | Return NotIssued for this observation | Not proof that this numeric key can never be issued later |
+| Matching live slot/full intent | Pin under lock, then read metadata | No raw moving Scheme value in a copied query receipt |
+| Slot tag mismatch or conflicting intent | Reject without touching unrelated slot | Same ring position never means same request |
+| Reader/counter capacity exhausted | Busy/refuse without increment or wrap | Preserve source/canonical state; do not silently drop protection |
+
+Delayed envelopes carry only stable logical routing/key metadata. A queued
+SCMOBJ, raw slot pointer or pointer to reclaimed VM memory violates admission.
+Delivery readers that have already pinned a record block settlement; unpinned
+key-only envelopes can arrive after reuse and be rejected by prefix/generation.
+The issuer/reservation identity and physical reader pin have different lives.
+A source/result already acknowledged need not recover the old full outcome from
+Retired; if the original acceptor has not acknowledged it, the terminal record
+must remain. This is live-VM at-most-once native control, not process-crash
+persistence, exactly-once Scheme execution or hostile-client authentication.
+
+* Checked exhaustion and generation changes
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-exhaustion
+:END:
+
+Let K be a representable sentinel, issue keys 0..K-1, and allow next/floor to
+reach K without performing K+1. Check next<K before addition. Using UINT_MAX
+as sentinel therefore leaves the maximal unsigned value unissued. Generation,
+VM namespace, record revision, pin/refcount and byte arithmetic need their own
+checked limits. A wider type makes exhaustion rarer, not impossible or safe.
+Unsigned wrap being defined arithmetic does not preserve logical identity.
+With finite key space and indefinitely delayed reusable envelopes, eventual key
+reuse makes an old envelope indistinguishable from the new operation unless a
+fresh non-reused namespace or complete producer exclusion adds information.
+The design therefore chooses checked refusal; it does not promise unlimited
+issuance with bounded identities.
+Serial half-range comparisons require an outstanding-distance/delay bound that
+this FFI design does not have; they are not a substitute for the no-reuse rule.
+
+At sequence exhaustion reject fresh requests while existing operations settle.
+An optional fresh domain generation requires a closed issuer, all issued slots
+settled, pointer-bearing readers/borrowers and old producer capabilities sealed,
+GC/root-view handoff closed, and a checked fresh generation. Old key-only
+envelopes remain harmless. At generation/VM namespace exhaustion refuse reuse.
+This study models one sealed generation change; transparent live migration or
+whole-VM identity reuse is not proved. Existing raw external VM handles remain
+outside managed admission until their lifetime is explicitly covered. Repeated
+runtime setup/cleanup or library unload must not reset the VM routing namespace
+while old capabilities remain; a process-lifetime checked issuer or an explicit
+all-capability shutdown proof is required and is not modeled here.
+
+* Metadata failure and exceptional exit
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-oom
+:END:
+
+#+NAME: request-retirement-failure-custody
+| Failure cut | Effect knowledge | Source and control owner | Allowed action |
+|-------------+------------------+--------------------------+----------------|
+| Arena/bitmap construction | Service not ready; no issued managed key | Caller/setup teardown | Fail VM/service setup before run/ready |
+| Checked size or window capacity before reserve | No publication | Complete natural caller frame | Return typed refusal; no sequence consumed |
+| Canonical reserve accepted, reply missing | Unknown observation, known canonical custody | Reserved VM slot plus original source overlap | Query same activation/key; never issue again blindly |
+| Pending registration during GC close | Source still needed | Frozen source view via reserved VM escrow | Wait/query/cancel without allocating a tombstone |
+| Root accepted, later native allocation fails | Effect may already exist | VM descriptor and child/resource ledger | Preserve original failure and all cleanup debt |
+| Exception/continuation escape | Must close future publication first | Pre-reserved stable VM exit/source state | Transfer before unwind; keep natural roots until physical extent ends |
+| Unknown borrower/stop/outcome | Physical safety not established | Existing VM source/control/resource custodian | Retain; no timeout-based release or forced reuse |
+
+After publication, core protocol uses fixed cells, fixed bitmap and bounded
+reader counters/tickets: no malloc for query receipt, cancel record, exit escrow,
+terminal status or prefix compression. This is a design requirement; unrelated
+payload, OS-thread or application allocations can still fail. Native resource
+results cannot be called absent because control metadata ran out.
+
+Reserve the exceptional handoff destination with the original slot, not while
+handling the exception. If a caller cannot establish a complete frozen root
+view or stop its raw writes, VM escrow is not yet a receipt: reject entry before
+effects or retain the existing owner. If the source is already published,
+physical unwind without accepted custody is forbidden. No Scheme allocation,
+callback, GC wait or nested event under the control lock. Nested calls must
+reserve their own slot or receive a pre-effect refusal; they cannot wait while
+holding an outer service lock needed by GC/cleanup.
+
+* Settlement, storage reuse and physical free
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-reclaim
+:END:
+
+1. Close future publication/consumer production, preserving actual in-flight debt.
+2. Reach terminal outcome and deliver/ACK the original status or rooted result.
+3. ACK the exact extra source lease and drain its physical scanner/raw borrowers.
+4. Drain descriptor roots, consumer/child tasks and query/delivery/control pins.
+5. Under the control lock replace live record content by a fixed settled bit.
+6. Advance only over the contiguous settled head; publish prefix/tag before reuse.
+7. Free the arena only after domain/VM entry close, registry removal, router pins,
+   GC scans, physical borrowers and imported native/member resources all drain.
+
+A pool cell becoming reusable is not malloc/free or reduced resident memory.
+The reserved arena stays at its high-water capacity until domain destruction.
+Slot reuse and arena free have separate proofs. Bare legacy RC zero, Scheme
+source ACK, join return/failure, owner inactivity, or old epoch age proves none
+of the combined condition. A stalled raw reader may still block physical free.
+No signal-based forced neutralization is introduced by this design.
+
+* Conditional proofs, histories and remaining refinements
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-proof
+:END:
+
+[[file:../../../../models/gambit/request_retirement.qnt][QNT]] uses W=2, K=3, G=2 and six ghost logical keys. Its unbounded-looking issued,
+settled and effect histories are finite proof observations, not proposed runtime
+sets. Physical storage is the bounded window/bitmap plus domain header. Atomic
+control actions, complete frozen source views and externally established raw
+producer/reader seals are premises. Query/delivery pins are Boolean per key;
+multiple readers/counter saturation require C/refinement proof. Sampling is not
+exhaustive. No liveness, full allocator/GC implementation or weak-memory proof.
+
+Histories cover holes, exact-head advance, pre-dispatch abort, late delivery
+before/after prefix, full window, slot reuse, old generation rejection, final
+generation exhaustion, preflight/init OOM, post-publication failure, reserved
+exception escrow, GC scan/source protection, result uncertainty and reader drain.
+Negative controls deliberately skip a hole, wrap IDs, duplicate effects, reuse a
+live slot, free query pins, lose source custody or confuse source/result ACK.
+The first scan counterexample exposed aggregate root coverage masking a missing
+source-view pin; separate source-scan responsibility was added and the original
+failed history retained. QNT syntax and Lean authoring failures remain evidence.
+
+[[file:../../../../models/gambit/lean/RequestRetirement.lean][Lean]] proves simplified mark/advance Step and Reach prefix preservation. It
+also checks selective bounded-window, checked arithmetic, distinct-generation,
+root/exit and reader/result conditions. Full QNT induction, arbitrary machine
+word generation algebra, physical ring-index injectivity, C memory ordering,
+canonical activation-to-slot mapping and source/GC simulation remain separate.
+The existing single-key ACK/restore histories are imported, not re-proved as
+multi-request source implementation. ASCENT admits only exact local history and
+conditional-proof slices; synthetic all-scoped receipts exercise policy only.
+
+The first source cut is now a /bounded transactional native-entry service/:
+Scheme-generated stable invocation/origin and FrameSpec/PointId -> reserved
+canonical slot and no-publication disposition -> typed resize request/result ->
+GC-aware acceptance -> VM exit/restored binding -> result/source/reader settlement
+-> prefix and slot reuse. Keep the current C portability boundary; no C++ or
+second runtime language is needed for these contracts.
+
+#+NAME: request-retirement-migration
+| Source area | Required future change | Old duty retires only when |
+|-------------+------------------------+----------------------------|
+| _ptree2 plus frame emitters | Explicit source/key/effect/exit plan independent of conversion cleanup | All generated and raw managed entries have covered roots and exits |
+| setup current_vm_resize and sync loop | Fixed canonical identity, typed request/result and query/retry | Every sop producer/copy/consumer no longer owns a raw movable thunk |
+| VM allocator/domain initialization | Checked fixed arena, bitmap, empty cells, reserved escrow and counters | Service readiness cannot precede complete initialization |
+| mem root/close adapters and PSTATE cleanup | VM root domains scanned across nonzero processors and pending source views | No cleanup destroys backing still needed by the canonical service |
+| call/run and native borrowers | Pre-unwind VM custody, current binding reload and sealed raw accesses | Normal-only AT_END/local progress is no longer sole cleanup authority |
+| routing/member/retirement services | Full-key lookup, reader pins, prefix compression and checked identity limits | No late delivery can dereference/recreate a reused record or dead VM |
+
+* Benefits and disjoint peak accounting
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-benefit
+:END:
+
+For U historical operations and R delivery attempts, this design keeps at most
+W outstanding keys/control cells and W settled bits, instead of retaining U full
+terminal records or growing an unbounded sparse-hole set. R checks remain O(R).
+One fixed slot per key replaces per-delivery allocations, not arbitrary current
+Gambit allocations: no existing native canonical registry has been measured.
+After admission the proposed core protocol requires zero dynamic control
+allocations. It still adds synchronization, tag/limit checks, pins and preallocated
+capacity. A blocked head can reduce throughput and keep roots alive indefinitely.
+
+With H the complete fixed control-cell size excluding a separate packed bitmap,
+D the domain header and T the separately reserved router/reader-ticket storage:
+
+\[
+C_{reserved}=W H+\lceil W/8\rceil+D+T.
+\]
+
+This is a structural bound for explicitly bounded storage classes, not a measured
+byte count. If bits/tickets are embedded in H, count them once. Check W*H, the
+bitmap rounding and all additions against SIZE_MAX before allocation. Native
+SysML evaluates slot/bit counts for W=2 and W=64; it does not invent H, D or T.
+Actual object/layout ABI sizes remain unknown until implementation qualification.
+
+\[
+P=\max_t(C_{reserved}+B_{unique}(t)+V_{extra}(t)+Q_{external}(t)
+       +Native_{unique}(t)).
+\]
+
+Scheme values shared by natural frames/descriptors/results count once.
+V_extra counts only additional physical backing not already in B_unique.
+External key-only transport queues, application-native resources, child PSTATEs
+and frozen-frame backing are not bounded by W automatically. Their budgets need
+separate admission. Moving cleanup later cannot reduce an earlier peak. Record
+reuse improves allocation predictability; total memory/CPU improvement remains
+conditional on workload and those separate budgets. This slice establishes no
+additional Zig-specific net benefit: Zig would require the same semantic work.
+
+* Primary evidence and learning
+:PROPERTIES:
+:CUSTOM_ID: request-retirement-literature
+:END:
+
+[[https://www.cs.toronto.edu/~tabrown/debra/fullpaper.pdf][Brown's primary memory-reclamation paper]] separates retirement from safe physical
+reuse and explains why a slow active participant can obstruct reclamation.
+Here that motivates explicit reader/producer evidence and bounded admission.
+Its signaling algorithm and benchmark gains are not adopted or transferred to
+Gambit; GC source views and continuation ownership need their own proof.
+
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][C draft N1570]] sections 5.1.2.4, 6.2.4, 6.2.5, 7.13.2.1 and 7.22.3 provide the
+memory-order, lifetime, unsigned arithmetic, setjmp and allocation constraints.
+Defined modulo arithmetic is insufficient for key identity. A pointer cannot
+be protected after its object lifetime ended merely by incrementing a counter.
+The proposed baseline uses a lock for atomic domain control; source/collector
+release-acquire integration remains RT-ORDER, not a claim of a C proof.
+
+Learning from [[https://ocaml.org/manual/5.2/intfc.html][OCaml's C interface]] means retaining registered locations and
+reconciling current values after GC, rather than copying an OCaml runtime split.
+Gambit's precise GVM frames, tail calls and continuation semantics remain the
+source of truth for generated roots and restored bindings. The goal is to
+amplify that precision into explicit ownership, predictable control capacity
+and independently replaceable runtime services.

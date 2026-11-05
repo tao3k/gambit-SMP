@@ -1,0 +1,486 @@
+{
+  "source": [
+    {
+      "key": "packed-state",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "int shift = 2*(pos % (___WORD_WIDTH/2));",
+      "obligation": "Per-object coordinate maps to two bits; distinct objects share atomic word"
+    },
+    {
+      "key": "atomic-observe",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___WORD old = ___COMPARE_AND_SWAP_WORD(cell,0,0);",
+      "obligation": "One initial CAS observation per transition call, including duplicate returns"
+    },
+    {
+      "key": "masked-cas",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "(cell,old,(old & ~mask) |",
+      "obligation": "CAS failure retries from observed entire packed word; adjacent bits preserved"
+    },
+    {
+      "key": "ready",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "change_object_scan_state(work,header,GC_SCAN_UNPUBLISHED,GC_SCAN_READY)",
+      "obligation": "READY publication follows payload writes; does not settle Tail"
+    },
+    {
+      "key": "ordinary-publish",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "publish_object_scan (work, copy_header);",
+      "obligation": "Ordinary copy completion precedes READY; frame caller separately enumerated"
+    },
+    {
+      "key": "copy-tail",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (cell != 0) goto again;",
+      "obligation": "First field remains copier owned after object readiness and possible chunk publication"
+    },
+    {
+      "key": "scan-own",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "(work,body-1,GC_SCAN_READY,GC_SCAN_OWNED);",
+      "obligation": "First successful state transition authorizes graph-field scan"
+    },
+    {
+      "key": "duplicate",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "return words; /* no field mutation; the first owner carries debt */",
+      "obligation": "Duplicate returns no object ownership and cannot discharge first scanner"
+    },
+    {
+      "key": "done",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "change_object_scan_state(work,body-1,GC_SCAN_OWNED,GC_SCAN_DONE)",
+      "obligation": "DONE follows subtype field scanner; derived chunks may remain"
+    },
+    {
+      "key": "generic-pair",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "#define scan_and_advance(ptr, head) scan_no_fast_path(ptr, head)",
+      "obligation": "Both pair and generic consumers pass the object authorization"
+    },
+    {
+      "key": "tail-exclusion",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "mark_array (work, body+1, words-1);",
+      "obligation": "Ordinary movable low-subtype scan excludes copier-owned first field"
+    },
+    {
+      "key": "chunk-publish",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "heap_chunks_to_scan_tail = new_tail;",
+      "obligation": "FIFO content/link and tail visibility under lock and barriers"
+    },
+    {
+      "key": "chunk-dequeue",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "scan_complete_heap_chunk (work, ptr+1);",
+      "obligation": "Queue head transfer precedes synchronous scan; active carrier retains call stack"
+    },
+    {
+      "key": "last-idle",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "if (--(*workers_count) == 0)",
+      "obligation": "Only last decrement decides phase termination; no object-DONE shortcut"
+    },
+    {
+      "key": "reset",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "memset (ms->base + ___MSECTION_SIZE, 0,",
+      "obligation": "One round reset requires previous readers and owners drained"
+    },
+    {
+      "key": "trailer",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "#define ___msection_scan_words(n)",
+      "obligation": "Two bits per destination word allocated for half-section"
+    },
+    {
+      "key": "sync-branch",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "__sync_val_compare_and_swap(p,oldval,newval)",
+      "obligation": "GCC legacy builtin branch; effective Darwin selection not certified"
+    },
+    {
+      "key": "frame-link-write",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "ptr = &___FP_STK(alloc,link+1);",
+      "obligation": "Next iteration can update previous ready frame link; publishability/interference needs proof"
+    },
+    {
+      "key": "weak-phase-entry",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "traverse_weak_refs = 1;",
+      "obligation": "Object DONE persists into weak processing; prove later phase field obligations use explicit weak consumers before treating attempts as duplicates"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "initialize",
+      "toNode": "READY",
+      "custody": "payload publication",
+      "c11": "release READY / acquire successful claim",
+      "premise": "Payload stores before readiness; forwarding alone insufficient"
+    },
+    {
+      "fromNode": "READY",
+      "toNode": "OWNED",
+      "custody": "one object scan owner",
+      "c11": "atomic whole-word masked CAS",
+      "premise": "Queue task ownership is not object scan authority"
+    },
+    {
+      "fromNode": "OWNED",
+      "toNode": "duplicate-return",
+      "custody": "retain first call frame",
+      "c11": "no ownership clear on mismatch",
+      "premise": "An OWNED loser may return while winner and descendants remain active"
+    },
+    {
+      "fromNode": "OWNED",
+      "toNode": "DONE",
+      "custody": "own subtype field footprint",
+      "c11": "release completion only after field accesses",
+      "premise": "DONE excludes copier Tail and unscanned descendants"
+    },
+    {
+      "fromNode": "DONE",
+      "toNode": "local-drain",
+      "custody": "retain derived work",
+      "c11": "active carrier remains until local queues/frontiers settle",
+      "premise": "DONE is not an idle or reclamation receipt"
+    },
+    {
+      "fromNode": "local-drain",
+      "toNode": "idle",
+      "custody": "local no-debt condition",
+      "c11": "all last uses before mutex-protected decrement",
+      "premise": "All real producers must be roster-covered"
+    },
+    {
+      "fromNode": "idle",
+      "toNode": "phase-terminal",
+      "custody": "zero active with closed input",
+      "c11": "one termination synchronization domain",
+      "premise": "Weak round and cleanup are distinct"
+    },
+    {
+      "fromNode": "copier-Tail",
+      "toNode": "local-drain",
+      "custody": "separate first-field ownership",
+      "c11": "scanner and Tail footprints disjoint or synchronized",
+      "premise": "Frame link fixups remain an unresolved non-Tail writer"
+    },
+    {
+      "fromNode": "reset-cut",
+      "toNode": "initialize",
+      "custody": "new round identity",
+      "c11": "quiescence before plain memset; no late stale task",
+      "premise": "Single-epoch model does not prove reset/ABA exclusion"
+    },
+    {
+      "fromNode": "READY",
+      "toNode": "chunk-queued",
+      "custody": "initialized chunk publication",
+      "c11": "release visibility before queue read",
+      "premise": "READY alone does not transfer queue custody"
+    },
+    {
+      "fromNode": "chunk-queued",
+      "toNode": "chunk-claimed",
+      "custody": "dequeue transfers task custody",
+      "c11": "FIFO lock then active scan frame",
+      "premise": "Chunk may contain several object identities"
+    },
+    {
+      "fromNode": "chunk-claimed",
+      "toNode": "OWNED",
+      "custody": "claim object authority",
+      "c11": "acquire successful object CAS",
+      "premise": "Queue and object identities are independent"
+    },
+    {
+      "fromNode": "initialize",
+      "toNode": "copier-Tail",
+      "custody": "reserve first field",
+      "c11": "footprint disjointness or synchronization",
+      "premise": "Tail can remain after READY and DONE"
+    },
+    {
+      "fromNode": "duplicate-return",
+      "toNode": "local-drain",
+      "custody": "settle occurrence only",
+      "c11": "original owner remains counted",
+      "premise": "No release of original object frame or child debt"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "finite-custody",
+      "status": "proved-in-model",
+      "scope": "Twenty projected atomic actions preserve Safe; induction covers arbitrary finite action histories"
+    },
+    {
+      "key": "duplicates",
+      "status": "proved-in-model",
+      "scope": "One object two occurrences; loser leaves first owner and child debt unchanged"
+    },
+    {
+      "key": "terminal-zero",
+      "status": "proved-in-model",
+      "scope": "Closed input plus zero active implies DONE and no copier Tail or child debt under modeled custody"
+    },
+    {
+      "key": "projection",
+      "status": "conditional-checked",
+      "scope": "Actual typed IR guards updates invariant initial and step roster projected; JSON parser/emitter trusted"
+    },
+    {
+      "key": "real-task-roster",
+      "status": "open",
+      "scope": "All private frontiers chunks synchronous frame stacks and derived producers; arbitrary task counts not refined"
+    },
+    {
+      "key": "frame-post-ready-write",
+      "status": "open",
+      "scope": "Previous captured-frame link may be fixed after READY; legal concurrent queue visibility not proved or ruled out"
+    },
+    {
+      "key": "c11-source",
+      "status": "open",
+      "scope": "Effective config atomic storage lockless prechecks and reset lifetime need source-to-C11 simulation"
+    },
+    {
+      "key": "epoch-and-progress",
+      "status": "open",
+      "scope": "Packed-state reuse late tasks fault/exception paths and lost-wakeup/fairness outside single-round model"
+    },
+    {
+      "key": "phase-footprint",
+      "status": "open",
+      "scope": "Strong and weak rounds share object scan states; later-phase required work must be discharged by process_wills and other specialized consumers before DONE suppression is equivalent"
+    }
+  ],
+  "gain": [
+    {
+      "key": "duplicate fields",
+      "avoided": "At most D redundant field scans for D duplicate occurrences",
+      "added": "D additional state lookups and one observation CAS call each absent interference",
+      "condition": "Savings only after actual duplicate source/footprint qualification; no throughput claim"
+    },
+    {
+      "key": "unique object cost",
+      "avoided": "One authorized field scan per object",
+      "added": "Three state transitions; six CAS API calls plus three section lookups absent retries",
+      "condition": "Compare equally correct structural task uniqueness; object bitmap is not automatically necessary"
+    },
+    {
+      "key": "scan metadata",
+      "avoided": "No object header or frame coordinate expansion",
+      "added": "ceil(ceil(n/2)/(B/2)) words per section plus round clearing; two-bit trailer",
+      "condition": "For aligned even sections and B=64: 1/64 full payload bytes; relative active half 1/32"
+    },
+    {
+      "key": "counter fusion",
+      "avoided": "Avoid a second independent publisher counter",
+      "added": "Retain copier owner call frame child work and final idle coverage",
+      "condition": "Every source producer synchronous and covered; no new physical-worker failure tolerance"
+    },
+    {
+      "key": "modern C choice",
+      "avoided": "Explicit ownership shared across pair/generic consumers",
+      "added": "C11 atomics generation reset footprint and native proof remain",
+      "condition": "No Zig-specific saving established; code-generation language does not prove GC closure"
+    },
+    {
+      "key": "typed atomic observation",
+      "avoided": "Replace six CAS API calls per unique object with three loads plus three transition CAS on no-retry path",
+      "added": "Explicit atomic storage and observation success/failure ordering; retries remain",
+      "condition": "Proposed modern C service only; global legacy CAS macro replacement is inadmissible"
+    },
+    {
+      "key": "validated scan coordinates",
+      "avoided": "Potentially remove repeated 3U+D section lookups",
+      "added": "Section epoch header bounds trailer mapping and queue-transfer validation",
+      "condition": "Allocator and chunk producer issue coordinates; stale coordinate refusal required"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "forward",
+      "lemma": "forwardPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "initializeCopy",
+      "lemma": "initializeCopyPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "publishReady",
+      "lemma": "publishReadyPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "publishBatch",
+      "lemma": "publishBatchPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "duplicateTask",
+      "lemma": "duplicateTaskPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "closeInputs",
+      "lemma": "closeInputsPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "finishTail",
+      "lemma": "finishTailPreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "claim0",
+      "lemma": "claim0Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "claim1",
+      "lemma": "claim1Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "own0",
+      "lemma": "own0Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "own1",
+      "lemma": "own1Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "skip0",
+      "lemma": "skip0Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "skip1",
+      "lemma": "skip1Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "done0",
+      "lemma": "done0Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "done1",
+      "lemma": "done1Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "drain0",
+      "lemma": "drain0Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "drain1",
+      "lemma": "drain1Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "idle0",
+      "lemma": "idle0Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "idle1",
+      "lemma": "idle1Preserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    },
+    {
+      "actionName": "terminate",
+      "lemma": "terminatePreserves",
+      "scope": "Projected full guard and update; native source simulation open"
+    }
+  ],
+  "composition": [
+    {
+      "key": "induction",
+      "lemma": "reachableSafe",
+      "scope": "Reachability closure for entire projected step roster"
+    },
+    {
+      "key": "final-cut",
+      "lemma": "finalZeroImpliesNoDebt",
+      "scope": "No omniscient pending-work guard in terminate"
+    },
+    {
+      "key": "done-boundary",
+      "lemma": "doneNotGlobalClosure",
+      "scope": "Counterexample to treating DONE as whole closure"
+    }
+  ],
+  "seam": [
+    {
+      "producer.moduleId": "roots",
+      "consumer.moduleId": "collector",
+      "contract": "frozen roots produce copying work",
+      "modelNeed": "OSC-source"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "collector",
+      "contract": "copy/chunk/object/Tail custody",
+      "modelNeed": "OSC-history"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "control",
+      "contract": "phase idle and closed producer roster",
+      "modelNeed": "OSC-induction"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "native",
+      "contract": "atomic packed storage and reset",
+      "modelNeed": "OSC-platform"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "OSC-history",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/object_scan_custody.qnt",
+      "subjectScope": "One object two tasks two workers one scan phase within a GC round and child debt"
+    },
+    "induction": {
+      "obligationId": "OSC-induction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ObjectScanCustody.lean",
+      "subjectScope": "All twenty projected steps invariant preservation and reachable-state induction"
+    },
+    "projection": {
+      "obligationId": "OSC-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/ObjectScanAst.lean",
+      "subjectScope": "Actual typed IR scalar subset; trusted parser and emitter"
+    },
+    "source": {
+      "obligationId": "OSC-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/object-scan-custody-design.org",
+      "subjectScope": "Source task and field-footprint refinement unresolved"
+    },
+    "platform": {
+      "obligationId": "OSC-platform",
+      "kind": "c11-refinement",
+      "subjectPath": "dev/refactoring/modern-c/object-scan-custody-design.org",
+      "subjectScope": "Effective C11 atomics and reset/drain unresolved"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+# Map Backend Source and Primary Evidence
+
+Reviewed: 2026-10-20. Paths relative to vendor/gambit. Exact bytes and selected
+spans are in [traceability](map-scheme-zig-traceability.json). No source expansion,
+compiler/native execution or active Darwin reproduction. Stored C gives
+independent artifact correspondence, not a verified build of current Scheme.
+
+| ID | Selected source anchor and span | Supported fact / limit |
+| --- | --- | --- |
+| MP-S01 | [list.scm](../../../vendor/gambit/lib/gambit/list/list.scm#L818), 818–929 | Real unchecked and public map; non-tail callback/recursive call, tail sentinels and wrappers. Covers both arities, not just a toy one-list map. |
+| MP-S02 | [policy/helpers](../../../vendor/gambit/lib/gambit/list/list.scm#L735), 735–816 | Mutable mismatch policy; cars/cdrs constructors, force and signed outcomes. Default true is not an immutable compile-time fact. |
+| MP-S03 | [_gambit#.scm](../../../vendor/gambit/lib/_gambit%23.scm#L400), 400–452, 550–615, 794–834; [_std#.scm](../../../vendor/gambit/lib/_std%23.scm#L51), 51–66 | Public/primitive generation, parameter force/check behavior and deferred proper-list checks. Actual semantic feature selection still needs qualification. |
+| MP-S04 | [stored public host](../../../vendor/gambit/lib/_std.c#L74716), 74716–74992; [descriptor table](../../../vendor/gambit/lib/_std.c#L146100), 146100–146123 | Generic callback, saved homes, cdr after callback, non-tail recursion, output cons and RETN/RETI. 23 labels, 22 return descriptors, 3 textual heap checks, 10 polls, 1 generic call site. Not dynamic work counts. |
+| MP-S05 | [_front.scm](../../../vendor/gambit/gsc/_front.scm#L225), 225–252, 415–451; [_back.scm](../../../vendor/gambit/gsc/_back.scm#L197), 197–235; [_ptree2.scm](../../../vendor/gambit/gsc/_ptree2.scm#L28), 28–40 | Existing target feedback/dump seam and normalization order. Early export/completion is proposed, not implemented. |
+| MP-S06 | [_gvm.scm](../../../vendor/gambit/gsc/_gvm.scm#L78), 78–105, 438–445; [_t-c-2.scm closure generation](../../../vendor/gambit/gsc/_t-c-2.scm#L996), 996–1042 | Frame live/closed fields, closure parameters and grouped allocation/setup. Internal lexical dependence does not prove heap closure per call. |
+| MP-S07 | [_t-c-2.scm](../../../vendor/gambit/gsc/_t-c-2.scm#L344), 344–448, 1120–1142, 1318–1420, 2524–2575, 4275–4318 | Frame update, heap/poll/check labels, known/global/generic/return dispatch, cached materialization and continuation inliners remain mixed with C emission. |
+| MP-S08 | [_t-c-3.scm](../../../vendor/gambit/gsc/_t-c-3.scm#L471), 471–520 | GC-map building, internal-frame expansion and alignment are physical products distinct from semantic liveness. |
+| MP-S09 | [gambit.h.in](../../../vendor/gambit/include/gambit.h.in#L3102), 3102–3153, 5309–5326, 8100–8143, 8330–8350, 8542–8565 | Pair layout/checks; SELF/generic entry and closure/environment representation. No automatic native Zig closure or root. |
+| MP-S10 | [_thread.scm call/cc](../../../vendor/gambit/lib/_thread.scm#L4623), 4623–4706; [dynamic transfer](../../../vendor/gambit/lib/_thread.scm#L4908), 4908–5078; [apply wrapper](../../../vendor/gambit/lib/_thread.scm#L5101), 5101–5180 | Reification over captured continuation, dynamic-wind transfer, value packaging and apply checks. Selected branches are source evidence; complete configured control/FFI closure remains open. |
+| MP-S11 | [mem.c captured frame marking](../../../vendor/gambit/lib/mem.c#L3667), 3667–3805; [active continuation](../../../vendor/gambit/lib/mem.c#L3900), 3900–3955; [heap frame scan](../../../vendor/gambit/lib/mem.c#L4096), 4096–4148; [registers](../../../vendor/gambit/lib/mem.c#L6511), 6511–6538; [heap limit](../../../vendor/gambit/lib/mem.c#L7428), 7428–7505 | Actual stack/heap continuation frame handling and RETN/RETI decoding, current root arrays and heap-section/GC outcomes. Neither new worker qualification nor a relocation proof. |
+| MP-S12 | [setup.c module binding](../../../vendor/gambit/lib/setup.c#L1522), 1522–1712, 1925–2058; [trampoline/call](../../../vendor/gambit/lib/setup.c#L3214), 3214–3380, 3426–3448; [_std.scm](../../../vendor/gambit/lib/_std.scm#L26), 26–46; [_t-c-1.scm](../../../vendor/gambit/gsc/_t-c-1.scm#L337), 337–382 | Real module/init/code/native control obligations and old C interface consumption. _std migration is larger than map alone. |
+
+| ID | Primary reference / locator | Use and limit |
+| --- | --- | --- |
+| MP-P01 | [Feeley and Miller, A Parallel Virtual Machine for Efficient Scheme Compilation](https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf), §§2, 2.3–2.5 | Bidirectional target feedback, logical frames and lambda lifting motivate reuse. Not our new backend's qualification or cost proof. |
+| MP-P02 | [Compiling with Continuations and LLVM](https://arxiv.org/html/1805.08842v2), §§3.2–3.5 | Explicit tail ABI, roots, GC reload and continuation-entry constraints require runtime/backend engineering. Custom JWA is not stock Zig or Darwin admission. |
+| MP-P03 | [Revised Report on Scheme](https://small.r7rs.org/attachment/r7rs.pdf), §§6.10 and 3.5 | Map multi-return must not mutate earlier results; call/cc has unlimited extent and repeated invocation; input-list mutation is an error. Proper tail support does not remove pending non-tail work. Source-preservation adversarial cases and standard-conforming optimization domains must remain separate. |
+| MP-P04 | [Zig reference](https://ziglang.org/documentation/0.15.1/#call), Functions, comptime, defer, Errors, Memory | Compile-time construction, typed local errors/cleanup and explicit allocator mechanisms can reduce some service scaffolding; not automatic root/closure/capture/dynamic-wind protocols. Required-tail calls may reject. |
+| MP-P05 | [LLVM GC safepoints](https://www.llvm.org/docs/Statepoints.html), relocation correctness and base/derived pointers | Movable roots need explicit post-safepoint use discipline. Statepoints are an alternative integration, not installed into Gambit by generating Zig. |
+| MP-P06 | [MLIR rationale](https://mlir.llvm.org/docs/Rationale/Rationale/), progressive lowering; [C API](https://mlir.llvm.org/docs/CAPI/), Design/Scope | Early semantic facts can feed modular lowering; project call/capture/effect semantics and provider adapters remain work. The C API is low-level and unstable. |
+| MP-P07 | [Retrofitting Parallelism onto OCaml](https://kcsrk.info/papers/retro-parallel_icfp_20.pdf), §§1.1–1.3, 4.4 | Explicit semantics, sequential cost, pause/parallel behavior and C interface constraints exemplify modernization requirements. No collector recipe or benchmark gain is transferred to Gambit. |
+
+All uses are bounded paraphrases. This ledger identifies real necessary work;
+it supplies no benchmark, checked proof or accepted maintenance-cost bound.

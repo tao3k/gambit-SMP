@@ -1,0 +1,125 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "ci-bazel-profile-numeric-host",
+  "scope": "Consume the numeric-host Bazel-profile source-core. Compile original 03-number/_num.scm under the unchanged 90-second phase cap with default-control scheduling, then run official test7, test8 and test9. Not an O3 configure, not a raised cap, and not release admission. Source refinement: declared source-bound global numeric groups preserve original expressions and order; original phase windows, configured optimization, loader and full inventory retained.",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace-numeric-host.patch",
+    "evidence/research/ci/runtime-input-numeric-host.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/ci/upstream-tests.json",
+    "evidence/research/ci/test-scope.entry.json",
+    "evidence/dsl/upstream-test-scope.ss",
+    "models/gambit/native/numeric-alias/outline-assertions.scm"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/ci/runtime-input-numeric-host.json"
+      },
+      "budgetSeconds": 60
+    },
+    {
+      "id": "numeric",
+      "capability": "gambit.compiler-observation",
+      "dependsOn": [
+        "runtime"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "selection": "03-number/_num.scm",
+        "scheduling": "default-control",
+        "phaseBudgetSeconds": 90,
+        "loader": "original-gsi",
+        "numericGrouping": {
+          "source": "models/gambit/native/numeric-alias/outline-assertions.scm",
+          "sha256": "4bf384b92bd647fdec9641444702198b5b0f9ceaa2f40b5ae6bf43e677c46604",
+          "fixtureSha256": "b757a18805a38f48e55055907a983d53f0e50d1acb627c462fe6d34924bd0d9d"
+        }
+      },
+      "budgetSeconds": 300
+    },
+    {
+      "id": "official",
+      "capability": "gambit.upstream-tests",
+      "dependsOn": [
+        "runtime",
+        "numeric"
+      ],
+      "arguments": {
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "targets": [
+          "test7",
+          "test8",
+          "test9"
+        ]
+      },
+      "budgetSeconds": 300
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "numeric",
+        "official"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 20
+    }
+  ]
+}

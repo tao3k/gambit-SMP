@@ -1,0 +1,222 @@
+#+TITLE: Modern C Resize Ownership: Native Validation and Remaining Copying Contract
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never :tangle no
+
+* Scope and architecture decision :modern_c:gc:smp:
+:PROPERTIES:
+:CUSTOM_ID: resize-ownership-scope
+:AUTHORITY: GambitVMResizeQualification
+:STATUS: SOURCE-IMPLEMENTED; WHOLE-NATIVE-AND-C-REFINEMENT-OPEN; COMMIT-BLOCKED
+:END:
+
+Modern C is the implementation lane. The replacement separates an execution
+context's roots, a closed GC participant census, collector work, a physical
+startup grant and publication of native members. They currently use synchronous
+carriers; an independent collector pool and a generational collector have not
+been delivered. No Zig or C++ runtime is introduced.
+
+The old future-processor scalar and per-child opportunistic startup allocation
+are replaced by a VM-owned transaction. It reserves disjoint stack/heap pairs,
+initializes all contexts, creates parked native threads and only then publishes
+membership. The thunk is registered before collection, transferred into context
+root cells before publication, and reloaded after the synchronizing loop and
+allocating marker construction. Known rollback requires successful joins;
+unknown join retains the physical grant, roots and control record.
+
+This makes a capacity decision reviewable before member publication. It does
+not by itself prove that parallel copying, all foreign borrowers or an arbitrary
+owner death satisfy the new ownership contract.
+
+* Actual findings, with distinct source generations
+:PROPERTIES:
+:CUSTOM_ID: resize-native-findings
+:END:
+
+** Current-source positive observations
+
+The ownership successor completes all 51 generated products and the official
+two-pass bootstrap under the existing Bazel GCC profile: =make -j12 GAMBOPT=p1 from-scratch= completes with each phase1..4 observed twice. This is the recorded
+compiler-action setting, not SMP semantic acceptance. Its from-scratch process
+takes 186.222 seconds in this run; this is not a speed comparison.
+
+All four independent ownership controls pass. The ordinary case and known
+allocation/create failures complete two 1-to-3-to-1 cycles with actual closure
+entry, collection and natural shutdown. Partial creation leaves no unpublished
+Scheme entry. Unknown join retains roots and physical grant, refuses reuse,
+and rejects setup after retained cleanup. Only that last control uses an
+explicit safety exit; its expected cleanup diagnostic is retained.
+
+Fresh single-context regressions also pass the real map continuation at 20 and
+200 resumed results, the wide non-tail frame with 80 live roots, and eleven
+completed forced collections. They are additional regression evidence under
+their own source lock, not replacements for the failed host-budget p11 lane.
+
+** Physical startup and logical resume are different consumers
+
+The predecessor requests eleven members with six sections and two already
+assigned. Two new contexts consume the four free sections; the third reaches
+the fatal fallback. A first transaction candidate obtains 22 sections but
+charges all 22. With overflow reserve 204,808 words it leaves negative logical
+free budget. Its complete official bootstrap passes, but its map compiler
+times out and later lanes fail. These original receipts remain unchanged.
+
+The next candidate derives two VM-free resume sections from the actual
+=prepare_mem_pstate= subdivision, retaining them after collection as well as
+startup. Its complete bootstrap passes. Its canonical p11 lanes still fail:
+map compilation exits 70, wide-root compilation receives SIGBUS, and the host
+wide-root lane times out. None of those outcomes is native acceptance.
+
+** Copying failure cannot be reduced to a larger nominal floor
+
+Read-only LLDB observations reach =mark_array= with an exhausted physical
+allocation prefix, including observations with 24 and 25 assigned sections.
+One stopped allocation has a plausible 22-word object header. Other diagnostic
+runs stop at invalid accesses. A debugger changes scheduling; these observations
+do not establish a unique common cause or qualify the canonical native lane.
+
+The requesting worker's contiguous room differs from the VM's aggregate room.
+=resize_heap= runs after strong/weak copying and cannot repair an exhaustion
+inside =mark_array=. A sound pre-copy bound must also establish that objects,
+root cells and complete chunks are not scanned twice, that first-field Tail
+work is excluded from later scanning, and that captured-frame materialization
+and stack restoration are charged correctly. =scan= deliberately skips the
+first field for movable subtypes through =BOXVALUES=; =mark_array= performs
+that first-field work while copying. Treating either endpoint in isolation
+can invalidate a proposed bound. No guessed multiplier or larger heap is
+implemented as a substitute for that proof.
+
+** The entry marker has a body identity, not a reconstructed generic tag
+
+The actual resize fixture reaches retirement with its positive-refcount entry
+vector. The first admission code reconstructs a generic subtyped tag before
+comparing it with that vector. Gambit's specialized vector tag can differ,
+so this comparison rejects the runtime's own marker. The successor compares
+=BODY0(entry_marker)= with the still object's body, while preserving refusal
+for other retained markers, nonempty RC chains and foreign effects.
+
+=___setup= now refuses global setup state 3 before replacing setup parameters
+or clearing the VM. State 3 means cleanup retained resources after a failed or
+unknown join. Reinitializing that state would erase custody, not recover it.
+The focused fault fixture asks cleanup to retain this state, then checks that
+setup refuses it without changing the grant's root or generation.
+
+The current retained-phase guard also refuses whole-VM GC. Consequently its
+safety result is not a liveness or isolated-recovery result: a permanently
+unknown native writer can prevent useful continuation of the VM. Designing a
+separate quarantined root/native domain is a remaining T0 requirement, not a
+benefit credited to this prototype.
+
+** Independent fault injection is a qualification prerequisite
+
+The original Darwin adapter resolves =pthread_create/join= through
+=dlsym(RTLD_NEXT,...)=. It counts two creations before a successful first native
+creation and fails independent calibration; some controls time out. Those
+results cannot establish a runtime unknown-join defect. The original adapter,
+fixture and failed receipts are retained as unqualified control history.
+
+The changed adapter calls the original symbols from its own interposing image.
+Independent C calibration must observe first create success, second create
+=EAGAIN=, first join =ESRCH=, exactly two create observations and one join.
+Only then can the Gambit fault controls qualify rollback or quarantine. The
+unknown-join control deliberately terminates after its safety observations;
+it cannot claim natural runtime shutdown.
+
+Apple's [[https://github.com/apple-oss-distributions/dyld/blob/main/dyld/DyldRuntimeState.h][dyld source]] documents the image-specific interposition exclusion.
+POSIX [[https://pubs.opengroup.org/onlinepubs/000095399/functions/pthread_create.html][creation]] and [[https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/functions/pthread_join.html][join]] contracts distinguish creation failure from a
+successful termination observation. Error return values are not inferred from
+=errno=, and a failed join never grants permission to reclaim native state.
+
+* Executable research chain
+:PROPERTIES:
+:CUSTOM_ID: resize-proof-routing
+:END:
+
+#+NAME: resize-qualification-authority
+#+INCLUDE: "models/sysml/vm-resize-qualification.sysml" src sysml
+
+The native SysML projection defines eight obligations, six contract owners,
+five handoffs and nine refinement routes. ASCENT joins the exact source lock,
+profile, artifact digest, method, scope, check and evidence class. It propagates
+contract prerequisites and detects missing QNT actions, Lean laws and C tokens.
+These 38 structural token checks do not prove C memory ordering or simulation.
+
+#+NAME: resize-executable-rules
+#+INCLUDE: "../../modeling/ascent/vm-resize-qualification.rules.scm" src scheme
+
+QNT checks four bounded transaction histories and sampled safety, with five
+retained invalid-transition counterexamples. Lean checks twelve conditional
+laws about coverage, publication, refunds and logical headroom. Its axiom audit
+has no =sorryAx=; arithmetic automation uses the standard =propext= and
+=Quot.sound= axioms. The hypotheses about complete roots, actual intervals,
+exclusive writers and successful stop/join observations remain explicit.
+
+The ASCENT controls reject stale source, a wrong artifact, diagnostic promotion,
+a missing law and an explicit failed native slice. Only an explicitly synthetic
+scenario can satisfy the complete conjunction without actual native evidence;
+its separate scenario class cannot discharge the current candidate.
+
+* Benefit, overhead and closure matrix
+:PROPERTIES:
+:CUSTOM_ID: resize-benefit-matrix
+:END:
+
+#+INCLUDE: "vm-resize-qualification-matrix.org" :minlevel 2
+
+The capacity requirements are not RSS measurements or savings against an
+already-correct modern C baseline. No speedup, lower whole-round peak or 12/12
+SMP acceptance is established. Correctness must close before an end-to-end
+positive net benefit can be admitted.
+
+* Five-gate position
+:PROPERTIES:
+:CUSTOM_ID: resize-five-gate-position
+:STATUS: COMMIT-BLOCKED
+:END:
+
+#+NAME: resize-commit-position
+| Gate | Current process | What still prevents closure |
+|------+-----------------+-----------------------------|
+| Tests | Current-source bootstrap and focused ownership controls are tracked separately | Host-budget p11 compiled map/multishot/GC/natural exit is not qualified |
+| Architecture learning | Physical grants, logical allowance, tag identity and unknown custody are explicit | No proved copying bound or measured net peak/speed benefit |
+| Refactoring process | Source changes are in vendor/gambit modern-c; old receipts preserved | Independent worker lifecycle and whole retirement domains remain open |
+| Models | Native SysML, actual ASCENT joins, QNT histories and conditional Lean laws | Nine C routes still require full representation/memory-order refinement |
+| Gambit questions | Portable C and multi-shot control remain core mechanisms | Copy-once, raw native writer exclusion, captured frames and owner-stop closure |
+
+No new commit or push is authorized by a bootstrap, policy-control or focused
+fault pass. The existing five-gate admission rule remains conjunctive.
+
+* Evidence and reproduction boundaries
+:PROPERTIES:
+:CUSTOM_ID: resize-validation-evidence
+:END:
+
+- [[file:../../../evidence/research/modern-c-bootstrap/resize-ownership-source.lock.json][Current 15-file source lock]] and [[file:../../../evidence/research/modern-c-bootstrap/resize-ownership-bootstrap.recipe.json][bootstrap-only recipe]].
+- [[file:../../../evidence/research/modern-c-bootstrap/resize-resume-source.lock.json][Prior physical/logical candidate]] and its retained failed p11 campaign.
+- [[file:../../../evidence/research/modern-c-bootstrap/resize-ownership-formal.json][Formal receipt]], [[file:../../../evidence/research/modern-c-bootstrap/resize-qualification-admission.json][current qualification]] and [[file:diagrams/vm-resize-qualification.d2][generated D2 view]].
+- [[file:../../../evidence/research/modern-c-bootstrap/resize-ownership-bootstrap.json][Current bootstrap observation]], [[file:../../../evidence/research/modern-c-bootstrap/resize-ownership-controls.json][calibrated ownership controls]], [[file:../../../evidence/research/modern-c-bootstrap/resize-map-single-context.json][single-context map regression]] and [[file:../../../evidence/research/modern-c-bootstrap/copy-frontier.json][historical copying diagnostics]].
+- [[file:models/sysml/vm-resize-refinement.sysml][C/QNT/Lean route premises]] and [[file:models/quint/vm_resize_transaction.qnt][bounded transaction model]].
+- [[file:../../../evidence/research/modern-c-bootstrap/resize-faults-dlsym.c][Unqualified adapter]], [[file:../../../evidence/research/modern-c-bootstrap/resize-faults.c][changed adapter]] and [[file:../../../evidence/research/modern-c-bootstrap/resize-fault-calibration.c][independent calibration]].
+
+A kernel reboot separately invalidated an old process-custody lock identity.
+The supervisor now records that historical processes cannot survive a changed
+boot while admitting no exit result, source, output or replay. Same-boot lock
+replacement and live-process refusal remain checked. This is execution
+infrastructure maintenance, not a credited Modern C runtime benefit.
+
+The native SysML input manifest is a receipt for this checked slice, not another
+architecture layout. These maintained adapters only enumerate native metadata
+queries, join actual observations and render views; they do not implement a
+second SysML interpreter. Missing source or execution receipts fail the replay
+instead of silently rebuilding or accepting a stale result.
+
+#+NAME: resize-model-view-replay
+#+BEGIN_SRC sh
+ruby dev/modeling/tools/project-vm-resize.rb
+bash dev/modeling/tools/read-vm-resize-native.sh
+ruby dev/modeling/tools/qualify-vm-resize.rb
+ruby dev/modeling/tools/render-vm-resize.rb
+d2 dev/refactoring/modern-c/diagrams/vm-resize-qualification.d2 \
+   dev/refactoring/modern-c/diagrams/vm-resize-qualification.svg
+#+END_SRC

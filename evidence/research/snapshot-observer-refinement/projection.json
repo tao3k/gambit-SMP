@@ -1,0 +1,372 @@
+{
+  "route": [
+    {
+      "key": "existing-local-queues",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "heap_chunks_to_scan_tail = new_tail;",
+      "obligation": "Per-processor FIFO is already distributed; a new global ledger is not an existing runtime facility"
+    },
+    {
+      "key": "claim-before-scan",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "scan_complete_heap_chunk (___PSP ptr+1);",
+      "obligation": "Dequeued work still owns payload and may derive tasks"
+    },
+    {
+      "key": "global-cut",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "if (--(*workers_count) == 0)",
+      "obligation": "Mutex/worker termination is not a snapshot/observer grace period"
+    },
+    {
+      "key": "descriptor-borrow",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "descriptor = ___decode_frame_descriptor (___LABEL_DESCR_GET(actual_ra), 1);",
+      "obligation": "Trailing OFD map pointer remains borrowed after decoder returns"
+    },
+    {
+      "key": "phase-gc-storage",
+      "sourcePath": "vendor/gambit/lib/mem.c",
+      "needle": "___HIDDEN void free_unmarked_still_objs",
+      "obligation": "Scheme collector ownership and native snapshot reclamation are distinct contracts"
+    },
+    {
+      "key": "native-final-use",
+      "sourcePath": "vendor/gambit/lib/os_dyn.c",
+      "needle": "dlclose (p->descr);",
+      "obligation": "Global unload needs old activation/root/inspection/native closure; snapshot zero alone is insufficient"
+    },
+    {
+      "key": "exception-cleanup",
+      "sourcePath": "vendor/gambit/include/gambit.h.in",
+      "needle": "___ps->catcher = ___old_catcher",
+      "obligation": "Snapshot pin cannot be lost through an exception or multi-shot callback"
+    },
+    {
+      "key": "lookup-producer",
+      "sourcePath": "/opt/homebrew/Cellar/quint/0.33.0/libexec/lib/node_modules/@informalsystems/quint/dist/src/names/resolver.js",
+      "needle": "this.table.set(id, def);",
+      "obligation": "Occurrence-ID witness requires exact canonical declaration"
+    },
+    {
+      "key": "lookup-consumer",
+      "sourcePath": "/opt/homebrew/Cellar/quint/0.33.0/libexec/lib/node_modules/@informalsystems/quint/dist/src/runtime/impl/builder.js",
+      "needle": "const def = builder.table.get(expr.id);",
+      "obligation": "Lookup function must have no fabricated bindings beyond selected witness rows"
+    },
+    {
+      "key": "json-gate",
+      "sourcePath": "dev/modeling/tools/typed-binding-witness.py",
+      "needle": "refs.append(dict(occurrence=oid,target=target",
+      "obligation": "Pinned input gate is executable checking, not a verified parser"
+    },
+    {
+      "key": "parent-environment",
+      "sourcePath": "dev/refactoring/modern-c/models/lean/DerivationReceiptEnvironment.lean",
+      "needle": "theorem checkedEnvironment",
+      "obligation": "Reuse existing row-to-function theorem, then prove converse finite-domain direction"
+    },
+    {
+      "key": "frozen-input",
+      "sourcePath": "evidence/research/reti-ofd-semantics/typed-ir.json",
+      "needle": "\"typechecking\"",
+      "obligation": "91 map witness rows remain a separate input from snapshot protocol IR"
+    }
+  ],
+  "contract": [
+    {
+      "key": "snapshot-pin",
+      "owner": "native/roots",
+      "accountable.moduleId": "native",
+      "counterpart.moduleId": "roots",
+      "actionName": "publishPin validatePin scan freeSnapshot",
+      "invariant": "Publish pin then revalidate same generation; final dereference precedes pin clear",
+      "gap": "Reference SC order and stable slot roster must be refined to actual C11"
+    },
+    {
+      "key": "observer-lifetime",
+      "owner": "release/build",
+      "accountable.moduleId": "release",
+      "counterpart.moduleId": "build",
+      "actionName": "beginObserver closeObservers freeReceipt",
+      "invariant": "Admission close prevents new readers; old readers and pending delivery drain separately",
+      "gap": "Receipt identity directory and terminal tombstones require real source users"
+    },
+    {
+      "key": "code-detachment",
+      "owner": "release/native",
+      "accountable.moduleId": "release",
+      "counterpart.moduleId": "native",
+      "actionName": "certifyDetached freeCode",
+      "invariant": "Data-only observer may outlive code only with a semantic detachment certificate",
+      "gap": "Idle execution or zero debt alone cannot sign certificate"
+    },
+    {
+      "key": "batch-refinement",
+      "owner": "collector/roots",
+      "accountable.moduleId": "collector",
+      "counterpart.moduleId": "roots",
+      "actionName": "batch reserveA reserveB",
+      "invariant": "Disjoint updates commute; batch serializes legal guarded per-ticket operations",
+      "gap": "Arbitrary batches effects failures and observer histories remain open"
+    },
+    {
+      "key": "shard-cut",
+      "owner": "collector/control",
+      "accountable.moduleId": "collector",
+      "counterpart.moduleId": "control",
+      "actionName": "reserveTarget releaseSource sealA sealB retire",
+      "invariant": "Target reservation overlaps source debt; closed target rejects transfer without dropping source",
+      "gap": "Split target/source atomic steps need TaskId receipts and unknown-response refinement; complete global cut open"
+    },
+    {
+      "key": "finite-domain",
+      "owner": "modeling/build",
+      "accountable.moduleId": "build",
+      "counterpart.moduleId": "semantic",
+      "actionName": "buildEnv tableCheck",
+      "invariant": "Lookup result iff matching admitted row under tableCheck",
+      "gap": "Authentic JSON row construction and field-slot mapping remain trusted"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "pin-order",
+      "status": "conditional-proved",
+      "scope": "SC event-order cycle impossible under stable slots no ABA and no early clear",
+      "counterexample": "Release/acquire alone on unrelated atomics does not establish the needed order"
+    },
+    {
+      "key": "three-lifetimes",
+      "status": "bounded-checked",
+      "scope": "One old snapshot one observer one cohort; detached certificate is an explicit premise",
+      "counterexample": "Free receipt with an admitted observer or free code with an undetached observer"
+    },
+    {
+      "key": "batch-algebra",
+      "status": "conditional-proved",
+      "scope": "Two disjoint debt updates commute and equal explicit batch update",
+      "counterexample": "Cross-task read/effect or partial failure invalidates this argument"
+    },
+    {
+      "key": "transfer-overlap",
+      "status": "conditional-proved",
+      "scope": "Two-shard reservation overlap preserves logical ownership; finite transfer cases checked",
+      "counterexample": "Release source before reserve target loses ownership"
+    },
+    {
+      "key": "actual-guards",
+      "status": "conditional-proved",
+      "scope": "Three actual snapshot QNT guard/update expressions match Lean PinFlat",
+      "counterexample": "Parser/emitter trusted; no whole protocol history proof"
+    },
+    {
+      "key": "c11-source",
+      "status": "open",
+      "scope": "Hazard membership ABA native aliases root/FFI cleanup actual final use and target memory model",
+      "counterexample": "SC arithmetic theorem is not a C11 race-freedom proof"
+    },
+    {
+      "key": "json-meaning",
+      "status": "partially-proved",
+      "scope": "91-row environment consistency plus exact finite-domain theorem",
+      "counterexample": "Consistently forged rows still require independent JSON witness validation"
+    }
+  ],
+  "gain": [
+    {
+      "key": "pin-reclamation",
+      "avoided": "Permanent retention of every detached metadata snapshot",
+      "added": "Pin publication validation scan of stable slots retired lists and controlled free work",
+      "condition": "Unknown or stalled holders keep storage; no bounded memory claim"
+    },
+    {
+      "key": "receipt-detachment",
+      "avoided": "Keeping old code solely for terminal data-only queries",
+      "added": "Separate observer leases and certificate that no old code Scheme value or OFD can be accessed",
+      "condition": "Certificate must cover future as well as active observers"
+    },
+    {
+      "key": "batch-head-writes",
+      "avoided": "k*(D-ceil(D/b)) child-phase successful global commits may be removed",
+      "added": "Membership freeze per-ticket result vector waiting and reclaim-tail work",
+      "condition": "Only k legal batchable phases among four; no elapsed-time percentage"
+    },
+    {
+      "key": "shard-contention",
+      "avoided": "One mandatory global head on every local operation",
+      "added": "Transfer overlap two reservations close/seal coordination and imbalance",
+      "condition": "Maximum shard load and global cut cost must beat centralized serialization"
+    },
+    {
+      "key": "existing-reuse",
+      "avoided": "Replacing already distributed FIFO with a new contention point",
+      "added": "Preserve current local queue structure while changing ownership and cut contracts",
+      "condition": "No existing queue or counter retires until actual consumer refinement"
+    }
+  ],
+  "binding": [
+    {
+      "key": "pin",
+      "qntAction": "publishPin",
+      "leanLemma": "pinOrderCannotMiss",
+      "refinement": "Generated guard/update relation checked; SC order premises remain external",
+      "guardLemma": "publishPinGuardMeaning",
+      "updateLemma": "publishPinNextMeaning"
+    },
+    {
+      "key": "validation",
+      "qntAction": "validatePin",
+      "leanLemma": "pinOrderCannotMiss",
+      "refinement": "Actual revalidation guard checked; full C11 lifetime still open",
+      "guardLemma": "validatePinGuardMeaning",
+      "updateLemma": "validatePinNextMeaning"
+    },
+    {
+      "key": "receipt",
+      "qntAction": "freeReceipt",
+      "leanLemma": "observerBlocksReceipt",
+      "refinement": "Current guard rejects admitted observer; source lease coverage still open",
+      "guardLemma": "freeReceiptGuardMeaning",
+      "updateLemma": "freeReceiptNextMeaning"
+    }
+  ],
+  "flow": [
+    {
+      "fromNode": "c0",
+      "toNode": "o0",
+      "reason": "SC order obligation"
+    },
+    {
+      "fromNode": "c0",
+      "toNode": "o4",
+      "reason": "Actual typed-IR guards"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "o1",
+      "reason": "Admission and late-reader histories"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o1",
+      "reason": "Separate code and receipt lifetimes"
+    },
+    {
+      "fromNode": "c2",
+      "toNode": "o5",
+      "reason": "Certificate needs source closure"
+    },
+    {
+      "fromNode": "c3",
+      "toNode": "o2",
+      "reason": "Batch commutation proof"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "o3",
+      "reason": "Transfer accounting proof"
+    },
+    {
+      "fromNode": "c4",
+      "toNode": "o5",
+      "reason": "All shard producers must close"
+    },
+    {
+      "fromNode": "c5",
+      "toNode": "o6",
+      "reason": "Exact finite-domain proof"
+    },
+    {
+      "fromNode": "o4",
+      "toNode": "o5",
+      "reason": "Actual syntax certificate is not C11 proof"
+    },
+    {
+      "fromNode": "o2",
+      "toNode": "c4",
+      "reason": "Sharding must preserve legal task histories"
+    },
+    {
+      "fromNode": "c1",
+      "toNode": "c2",
+      "reason": "Observer admission controls possible future code access"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "SO-H",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/snapshot_observer.qnt",
+      "subjectScope": "Finite SC pin and three-lifetime admission/retirement protocol"
+    },
+    "shards": {
+      "obligationId": "SO-B",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/shard_retirement_cut.qnt",
+      "subjectScope": "Two-shard overlap handoff closed-target rejection and final seal cut"
+    },
+    "induction": {
+      "obligationId": "SO-I",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/SnapshotObserverRefinement.lean",
+      "subjectScope": "SC order arithmetic batch/transfer algebra and exact finite-domain lookup"
+    },
+    "expression": {
+      "obligationId": "SO-X",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/SnapshotObserverAst.lean",
+      "subjectScope": "Actual three snapshot action guard/update certificates and 91-row witness"
+    },
+    "source": {
+      "obligationId": "SO-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/snapshot-observer-refinement-design.org",
+      "subjectScope": "All actual roots snapshots observers shard producers and JSON/source relation OPEN"
+    },
+    "platform": {
+      "obligationId": "SO-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/refactoring/modern-c/snapshot-observer-refinement-design.org",
+      "subjectScope": "C11 hazard slot roster ABA directory and target/runtime evidence OPEN"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "SO-S",
+      "prerequisite.obligationId": "SO-H",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/snapshot_observer.qnt",
+      "prerequisite.subjectScope": "Finite SC pin and three-lifetime admission/retirement protocol"
+    },
+    "1": {
+      "dependent.obligationId": "SO-S",
+      "prerequisite.obligationId": "SO-I",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/SnapshotObserverRefinement.lean",
+      "prerequisite.subjectScope": "SC order arithmetic batch/transfer algebra and exact finite-domain lookup"
+    },
+    "2": {
+      "dependent.obligationId": "SO-S",
+      "prerequisite.obligationId": "SO-E",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/snapshot-observer-refinement-design.org",
+      "prerequisite.subjectScope": "C11 hazard slot roster ABA directory and target/runtime evidence OPEN"
+    },
+    "3": {
+      "dependent.obligationId": "SO-S",
+      "prerequisite.obligationId": "DR-S",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/derivation-receipt-environment-design.org",
+      "prerequisite.subjectScope": "Current Gambit producers aliases and actual JSON-to-model source refinement OPEN"
+    },
+    "4": {
+      "dependent.obligationId": "SO-S",
+      "prerequisite.obligationId": "SO-X",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/lean/SnapshotObserverAst.lean",
+      "prerequisite.subjectScope": "Actual three snapshot action guard/update certificates and 91-row witness"
+    },
+    "5": {
+      "dependent.obligationId": "SO-S",
+      "prerequisite.obligationId": "SO-B",
+      "prerequisite.subjectPath": "dev/refactoring/modern-c/models/quint/shard_retirement_cut.qnt",
+      "prerequisite.subjectScope": "Two-shard overlap handoff closed-target rejection and final seal cut"
+    }
+  }
+}

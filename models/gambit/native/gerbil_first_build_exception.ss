@@ -1,0 +1,25 @@
+(def srcdir (getenv "GERBIL_DIAG_STDLIB_SOURCE"))
+(def libdir (path-expand "lib" (getenv "GERBIL_BUILD_PREFIX")))
+
+(def (diagnostic-exception-hook e continue)
+  (let ((msg (with-catch (lambda (_) #f)
+               (lambda () (error-message e)))))
+    (display "FIRST-BUILD-EXCEPTION-MESSAGE:" (current-error-port))
+    (display (if (string? msg) msg "unavailable") (current-error-port))
+    (newline (current-error-port))
+    (force-output (current-error-port))
+    (##exit 86)))
+
+;; Existing debug parameter prevents earlier arbitrary-irritant stack formatting.
+(dump-stack-trace? #f)
+(##primordial-exception-handler-hook-set! diagnostic-exception-hook)
+(display "DIAG-NATIVE-PROCESSORS:")
+(display (##current-vm-processor-count))
+(newline)
+(force-output)
+
+(add-load-path! srcdir)
+(let ((sharp (path-expand "lib/_gambit#.scm" (getenv "GERBIL_BUILD_PREFIX"))))
+  (eval `(begin-foreign (include ,sharp))))
+(gx#import-module (path-expand "build-std.ss" srcdir) #t #t)
+((eval 'std/build-std#build) srcdir: srcdir libdir: libdir debug: #t target: 'C)

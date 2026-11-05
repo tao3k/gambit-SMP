@@ -1,0 +1,55 @@
+#+TITLE: Refactoring Pressure, Replacement and Benefit Matrix
+#+SETUPFILE: ../modeling/org/setup.org
+
+* Source-bound motivation; no native acceptance
+:PROPERTIES:
+:CUSTOM_ID: refactoring-pressure-map
+:AUTHORITY: GambitRefactoring
+:EVIDENCE_CLASS: derived-source-and-design
+:END:
+
+Rows are research pressures, not eight proved current bugs. Current repairs and historical reports retain their own source and acceptance scope.
+
+#+BEGIN: sysml-view :kind refactoring-pressure :source refactoring/models/sysml/adoption.sysml
+#+NAME: refactoring-pressure-matrix
+| Identity | Problem | Coupling | Local repair limit | Structural replacement | Retirement condition | Owner |
+|---+---+---+---+---+---+---|
+| exit | Error delivery and receiver lifetime | An asynchronous outcome can outlive the catcher or execution context selected to receive it | A NULL guard alone can suppress a crash while losing an admitted outcome | Explicit admission, retained outcome owner, drain and late-result disposition before receiver reclamation | Remove implicit live-catcher assumption only after every legal sender and unwind path has a disposition | architecture/runtime/execution |
+| work | GC work owner versus processor lifetime | Execution identity, collector storage, work custody and participation are coupled | A per-site barrier or queue patch need not define last producers and post-exit consumers | Explicit collector work context, producer closure and retained custody carrier with last-use reclamation | Replace collector PSTATE aliases only after all roots, phase producers, resize paths and consumers are mapped | architecture/runtime/gc |
+| copy | Hidden copy progress and pending scan continuation | Original slot, rebound Tail cell, payload progress and caller advance reside in local C control state | Fixing one scan cursor does not define a complete resumable nested initializer | Explicit phase-tagged copy subframe and parent continuation; preserve reservation before execution | Retire implicit local-state recovery only after exact progress, publication, rejection and unknown-outcome adapters qualify | architecture/runtime/interfaces |
+| ffi | Foreign entry roots and callback ownership | Marker creation can allocate before its incoming Scheme value is independently protected | A marker-site repair does not enumerate all callback roots, nested entries or VM binding restoration | Generated root-safe entry plans with explicit owner, borrowed slots, block participation and acquired-effect cleanup | Retire handwritten per-entry root choreography only after complete caller and exceptional-exit coverage | architecture/runtime/ffi |
+| release | Foreign cleanup effects and resource lifetime | Arbitrary external effects, collector progress and native resource lifetime meet inside cleanup | An at-most-once release guard alone does not specify thread affinity, blocking or derived tasks | Effect-classified release service, explicit wait context and shutdown accounting for accepted descendants | Retire inline cleanup only for declared resource classes after payload roots, task acceptance and final drain close | architecture/runtime/ffi |
+| frames | Cached frame state across GC-capable boundaries | Compiler cache, physical frame, collector relocation and return interpretation must agree | Reapplying the existing wrapper cannot prove all generated hosts or continuations safe | One Scheme-owned FrameSpec and checkpoint contract generates C root writeback, reload and unwind metadata | Retire duplicate frame decisions after every generator/runtime consumer shares schema and preserves supported continuations | architecture/compiler |
+| profile | Requested SMP versus effective native capability | Requested options, effective headers, linked RTS and runtime population can diverge | A successful build or make -j does not prove shared-VM multicore capability | Typed effective profile and ABI-bound artifact graph, audited target projections and one shared CPU budget | Retire string-only capability inference after configured-header, object, link and runtime witness coverage | architecture/toolchain |
+| generation | Scheme to generated C and linked runtime coherence | Scheme source, generated type/label identities, archive and executable are one affected dependency closure | A reported interpreter or selected stress pass need not use the same runtime as compiled code | Single semantic plan, generated declarations and manifests; bind the affected generated/header/link closure | Retire manually synchronized emission/layout decisions after all consumers regenerate and reject stale closure | architecture/compiler |
+#+END:
+
+** Evidence boundaries
+#+BEGIN: sysml-view :kind refactoring-pressure-evidence :source refactoring/models/sysml/adoption.sysml
+#+NAME: refactoring-pressure-evidence
+| Identity | Local source / ranges | Public report | Evidence boundary |
+|---+---+---+---|
+| exit | [[file:../../docs/shutdown-error-handoff.md::11][docs/shutdown-error-handoff.md:11-48]] | [[https://github.com/gambit/gambit/issues/792][historical reference]] | Historical reported crash; current source correspondence and native composition remain separate |
+| work | [[file:../../vendor/gambit/lib/mem.c::277][vendor/gambit/lib/mem.c:277-318]] | No public-result premise | Current source aliases collector queues, cursors and RC lists through PSTATE |
+| copy | [[file:../../vendor/gambit/lib/mem.c::3572][vendor/gambit/lib/mem.c:3572-3625]] | No public-result premise | Current winner forwarding precedes the payload copy loop; no current migration API inferred |
+| ffi | [[file:../../vendor/gambit/lib/c_intf.c::6511][vendor/gambit/lib/c_intf.c:6511-6547]] | [[https://github.com/gambit/gambit/pull/1010][historical reference]] | Current pinned source includes a TODO about proc_or_false across marker allocation; reachability requires callers |
+| release | [[file:../../vendor/gambit/lib/mem.c::4387][vendor/gambit/lib/mem.c:4387-4453]] | No public-result premise | Current collector calls foreign release before freeing still objects; no current error-policy violation inferred |
+| frames | [[file:../../vendor/gambit/lib/_kernel.scm::4505][vendor/gambit/lib/_kernel.scm:4505-4524]] | [[https://github.com/gambit/gambit/pull/783#issuecomment-1265436976][historical reference]] | Current source already orders RA store, W_ALL, call, R_ALL and RA reload; historical fix is not missing here |
+| profile | [[file:../../vendor/gambit/configure.ac::1252][vendor/gambit/configure.ac:1252-1320]]; [[file:../../vendor/gambit/configure.ac::2230][vendor/gambit/configure.ac:2230-2262]] | No public-result premise | Separate VM, same-VM threads and scheduler switches; missing thread backend can force single-thread configuration |
+| generation | [[file:../../docs/pr988-complete-source-audit.md::20][docs/pr988-complete-source-audit.md:20-64]] | [[https://github.com/gambit/gambit/pull/988][historical reference]] | Historical closed unmerged PR with retracted body; source inventory is useful, its success claims are not acceptance |
+#+END:
+
+** Benefit and added cost
+#+BEGIN: sysml-view :kind refactoring-pressure-benefit :source refactoring/models/sysml/adoption.sysml
+#+NAME: refactoring-benefit-measures
+| Identity | Measures to qualify | Necessary new costs |
+|---+---+---|
+| exit | Lost outcomes; retained descriptors; completion latency | Retention and handoff synchronization; no zero-cost claim |
+| work | Barrier wait; orphan work; retained bytes; synchronization per collection | Additional descriptors and transfer traffic; independent workers remain unqualified |
+| copy | Lost or duplicate scan work; redundant copies; descriptor bytes; resume overhead | Frame materialization and custody accounting; no requirement to materialize at every word |
+| ffi | Uncovered entry writers; root publications; callback entry and blocked-GC costs | Root slots, entry guards and revalidation; C still needs a moving-GC protocol |
+| release | Collector blocking; queued and in-flight releases; shutdown backlog; retained bytes | Queues and longer resource retention; ineligible finalizers must retain another explicit route |
+| frames | Duplicated semantic decisions; metadata mismatch; safepoint spill/reload and continuation costs | Metadata and spills; Gambit control semantics must be retained rather than copied from OCaml |
+| profile | Mismatched artifacts; regenerated bytes; compile jobs; CPU oversubscription; actual runtime processors | Variant keys and stronger invalidation; avoid invalidating semantic plans on irrelevant compiler changes |
+| generation | Semantic owners per decision; stale links admitted; generation and C compilation work | Generator and schema maintenance; a new wrapper without owner retirement adds cost |
+#+END:

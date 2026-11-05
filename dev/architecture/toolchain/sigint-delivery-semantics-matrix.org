@@ -1,0 +1,61 @@
+#+TITLE: SIGINT Delivery — Semantic Cuts and Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: sigint-delivery-semantics-matrix
+:AUTHORITY: SigintDeliverySemantics
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Contract
+
+| key | anchor | actionName | lemmaName | duty | status |
+|---+---+---+---+---+---|
+| derived-credit | setup.c:206-228 | claim | claimReopensPending | The source claim clears pending before vector fetch; a later publication belongs to a new claim epoch | serial source cut; C race proof open |
+| native-target | os_setup.c:3044-3049; os_tty.c:8700-8714 | publish | targetIdentity | Select VM0 processor0 at native callback acceptance under lifecycle lease; no kernel-origin generation inference | selection-time refinement open |
+| vector-fetch | _kernel.scm:1448-1476 | fetchVector | frozenSelectedHandler | Fetch vector after claim; root selected procedure; later replacement does not rewrite that reference | cross-processor writer serialization open |
+| storage-commit | setup.c:4834-4878; _thread.scm:1320-1394 | retireVm | boundWorkBlocksRetirement | Pending and active target-bound work retain old VM; root lease and native retirement receipts required | prior retirement guards inherited |
+| mailbox | setup.c:86,226; signal-gate-mailbox design | takeWake | sameEpochMerge | Mailbox is wake hint; authoritative target/claim-epoch pending state survives drain; never merge across claim | new typed transport |
+| thread-route | _thread.scm:3245-3251,1398-1429,2715-2745 | chooseThread | currentOrPrimordial | Current thread invokes directly; absent current thread queues primordial thunk; preserve terminated-target exceptions | scheduler refinement open |
+| dynamic-handler | _thread.scm:5303-5353 | execute | lateParameterLookup | Read dynamic user handler when thunk executes; custom vector procedures and exceptions require separate semantic refinement | abstract identity observation only |
+| deferred-user | _thread.scm:5305-5328 | installHandler | deferredReplay | Deferred-user pending bit and setter-filter replay are separate from native pending; clear before calling supplied procedure | filter store and nonlocal exit obligations open |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| coalescing | For n raises inside one unchanged target/claim epoch: n-1 extra pending records relative to per-event queue | n target admissions/publications plus one claim; per-target pending and epoch metadata | Compared with current flag path no callback-count saving is established; merging across claim is forbidden |
+| wake | For n wake publications and b exchanges: at most n-b redundant wake batches can merge when b<=n | n atomic OR operations and b exchanges; wake failure fallback and custodian | Only wake hints merge; no SIGINT delivery or user callback may be inferred completed from exchange |
+| retirement | Avoid stale target access and automatic migration of accepted old-VM requests | One target lease per accepted pending/active unit; retirement checks and unknown-outcome custody | Old VM must remain serviceable until accepted work and roots settle; no bounded shutdown guarantee |
+| language | One modern C generated contract can replace divergent native target/flag interfaces | Atomic protocol, root maps, vector writer discipline, scheduler and exception refinement | Zig does not remove these semantic obligations; additional language benefit remains unproved |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| c-atomic | False | ISO C race-free pending claim/publication and lock-free signal-safe ABI; SC first; no volatile-only proof |
+| rooting | False | Selected vector closure, queued thunk, dynamic environment and continuation roots through GC and exceptions |
+| vector-writers | False | All vector and dynamic binding writers serialized or owner scoped; not-interrupts-enabled is not cross-processor exclusion |
+| target-cut | False | Native callback acceptance must preserve source target-choice histories; ingress pin versus acceptance displacement requires proof |
+| gap-policy | False | Signals without accepted target remain unresolved custody or explicitly rejected; new-VM reassignment is not compatibility |
+| source-simulation | False | Simulation includes custom vector effects, thread termination, priority, exceptions, continuation and fairness |
+| retirement | False | Root/native/roster/OS join and inherited host attestation remain unresolved; formal model checks are not native admission |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| derived-credit | native-target | Target binding precedes flag ownership |
+| mailbox | derived-credit | Wake batch must not extend claim epoch |
+| vector-fetch | derived-credit | Claim precedes vector fetch |
+| thread-route | vector-fetch | Selected vector determines bridge path |
+| dynamic-handler | thread-route | Dynamic lookup occurs in actual executing thread |
+| deferred-user | dynamic-handler | Deferred behavior depends on execution-time handler |
+| storage-commit | native-target | Accepted target owns lifecycle lease |
+| storage-commit | mailbox | Wake drain cannot discharge semantic work |
+| storage-commit | thread-route | Queued target thunk remains live |
+| storage-commit | deferred-user | Pending replay cannot be silently discarded |

@@ -1,0 +1,239 @@
+{
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "setup.c:206-242",
+      "actionName": "claim",
+      "lemmaName": "claimPreserves",
+      "guardName": "s.c[i]==1",
+      "duty": "Reserve consumer custody before exchanging pending into active batch; clear is not callback completion",
+      "status": "split native refinement open"
+    },
+    {
+      "key": "target-accept",
+      "anchor": "os_setup.c:3044-3049; setup.c:66-92",
+      "actionName": "accept",
+      "lemmaName": "acceptCovered",
+      "guardName": "s.open",
+      "duty": "Successful producer admission pins the immutable target domain before descriptor access; Close denies only new entrants",
+      "status": "gate ABI and target-cut open"
+    },
+    {
+      "key": "pending-publish",
+      "anchor": "setup.c:86-90",
+      "actionName": "publish",
+      "lemmaName": "publishPreserves",
+      "guardName": "s.p[i]==1",
+      "duty": "Accepted producer may publish after Close; stable domain owns pending until claim or exclusive coordinator drain",
+      "status": "no per-publication lease allocation"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "setup.c:4834-4878; mem.c:6852-6862",
+      "actionName": "retireVm",
+      "lemmaName": "retirementRequiresClosure",
+      "guardName": "drained",
+      "duty": "Retire after producer gate closed and drained, consumer gate sealed and drained, pending empty, writer and root custody settled",
+      "status": "native/root receipts inherited open"
+    },
+    {
+      "key": "claim-seal",
+      "anchor": "setup.c:1049-1113",
+      "actionName": "sealClaims",
+      "lemmaName": "sealNeedsProducerDrain",
+      "guardName": "producers==Set()",
+      "duty": "Seal normal claim admission only after producers drain; existing reservations finish; coordinator owns residual pending",
+      "status": "new shutdown protocol"
+    },
+    {
+      "key": "activation-root",
+      "anchor": "_kernel.c:12430-12449; mem.c:6511-6537",
+      "actionName": "rootCapture",
+      "lemmaName": "captureRoots",
+      "guardName": "s.c[i]==3",
+      "duty": "Vector load to registered activation root is a no-safepoint interval; collection scans and rewrites that slot",
+      "status": "generated PointId and root map open"
+    },
+    {
+      "key": "vector-writer",
+      "anchor": "_kernel.scm:1473-1476; gambit.h.in:4231,5482",
+      "actionName": "commitVector",
+      "lemmaName": "rootedReplacementStable",
+      "guardName": "s.frozen",
+      "duty": "Root setter argument before queueing; close external admission; derived request holds parent claim until rendezvous commit; preserve selected roots",
+      "status": "all writer and alias closure open"
+    },
+    {
+      "key": "gc-move",
+      "anchor": "mem.c:3490-3508,6511-6645,6852-6862",
+      "actionName": "moveGc",
+      "lemmaName": "relocationPreserves",
+      "guardName": "noTemp",
+      "duty": "All participating contexts parked with no unrooted load; rewrite global vector, selected activations and queued setter argument",
+      "status": "STW abstraction only"
+    }
+  ],
+  "gain": [
+    {
+      "key": "native-operations",
+      "avoided": "No lease object or counted signal queue allocation per raise; one domain-owned pending bit per target reason",
+      "added": "Per accepted callback: one gate snapshot load, admission CAS, pending RMW, wake OR and exit decrement",
+      "condition": "Four RMW plus one load is a proposed uncontended protocol count, not a native instruction or latency bound"
+    },
+    {
+      "key": "claim-operations",
+      "avoided": "Coalescing remains one claim per pending epoch; no extra callback reduction versus current flag",
+      "added": "Per normal claim attempt: one gate snapshot load, reserve CAS, pending exchange and reservation release; rooted-slot stores",
+      "condition": "Three RMW plus one load; empty claims still pay; unknown outcomes retain rather than replay"
+    },
+    {
+      "key": "vector-gc",
+      "avoided": "Reuse VM globals, register/saved/frame scanning and sync-op participation rather than inventing unmanaged Scheme pointers",
+      "added": "One rooted request slot per outstanding setter; rendezvous per committed write; scan k extra activation slots and q queued argument slots",
+      "condition": "k excludes existing scanned registers and frames; rendezvous cost grows with roster; setter frequency and GC cost must be included"
+    },
+    {
+      "key": "net-benefit",
+      "avoided": "Unifies target lifecycle, pending claim and root handoff contracts in modern generated C",
+      "added": "Two admission domains, coordinator takeover, exceptional settlement, source and platform proof obligations",
+      "condition": "No speed gain established; benefit requires avoided real lifetime failures or eliminated work to exceed additional atomics, rendezvous and scans; Zig does not remove these obligations"
+    }
+  ],
+  "gate": [
+    {
+      "key": "gate-encoding",
+      "qualified": false,
+      "duty": "Coherent lock-free signal-safe admission representation; target acceptance cut and no-wrap proof"
+    },
+    {
+      "key": "split-publication",
+      "qualified": false,
+      "duty": "Publish-before-exit and reserve-before-claim instruction-level simulation; SC alone does not transact several objects"
+    },
+    {
+      "key": "root-materialization",
+      "qualified": false,
+      "duty": "Exact generated PointId, register spill, frame map, saved and continuation proof for current configuration"
+    },
+    {
+      "key": "vector-writer-closure",
+      "qualified": false,
+      "duty": "All private/global vector aliases, direct FFI writes and synchronous setter exception/continuation semantics"
+    },
+    {
+      "key": "gc-rendezvous",
+      "qualified": false,
+      "duty": "Actual roster and sync-op precedence; collector exclusion and no allocation/checkpoint in unrooted interval"
+    },
+    {
+      "key": "completion-custody",
+      "qualified": false,
+      "duty": "Unknown enqueue/callback result and continuation-retained roots; no post-effect blind retry or cyclic shutdown wait"
+    },
+    {
+      "key": "platform-retirement",
+      "qualified": false,
+      "duty": "Darwin atomic lowering, signal safety, native/OS joins, inherited host attestation; no native admission"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "pending-publish",
+      "prerequisite.key": "target-accept",
+      "reason": "Accepted producer remains pinned through final publication"
+    },
+    "1": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "pending-publish",
+      "reason": "Claim transfers published domain custody"
+    },
+    "2": {
+      "dependent.key": "claim-seal",
+      "prerequisite.key": "pending-publish",
+      "reason": "No pending producer may outlive claim seal"
+    },
+    "3": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "claim-seal",
+      "reason": "Retirement requires sealed and drained claimers"
+    },
+    "4": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "derived-credit",
+      "reason": "Active batch is not completed by pending clear"
+    },
+    "5": {
+      "dependent.key": "activation-root",
+      "prerequisite.key": "derived-credit",
+      "reason": "Claimed work retains target while materializing handler root"
+    },
+    "6": {
+      "dependent.key": "vector-writer",
+      "prerequisite.key": "activation-root",
+      "reason": "Replacement cannot erase selected activation root"
+    },
+    "7": {
+      "dependent.key": "gc-move",
+      "prerequisite.key": "activation-root",
+      "reason": "Moving collection rewrites selected root"
+    },
+    "8": {
+      "dependent.key": "gc-move",
+      "prerequisite.key": "vector-writer",
+      "reason": "Queued setter argument is also scanned"
+    },
+    "9": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "gc-move",
+      "reason": "Root and collector ownership settle before target retirement"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "ICH-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/interrupt_custody_handoff.qnt",
+      "subjectScope": "safe: two publishers, two normal claimers and exclusive drainer; moving selected and writer roots",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "ICH-I",
+      "kind": "induction",
+      "subjectPath": "models/build/InterruptCustodyHandoff.lean",
+      "subjectScope": "custody step and history preservation plus root relocation and closure premises",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "ICH-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/interrupt-custody-handoff-design.org",
+      "subjectScope": "native acceptance and flag consumer; ordinary vector writes; generated R1 and GC root consumers",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "ICH-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/interrupt-custody-handoff-design.org",
+      "subjectScope": "SC atomics, lock-free signal gate, source memory locations, roster participation and native retirement",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "ICH-S",
+      "prerequisite.obligationId": "ICH-H"
+    },
+    "1": {
+      "dependent.obligationId": "ICH-S",
+      "prerequisite.obligationId": "ICH-I"
+    },
+    "2": {
+      "dependent.obligationId": "ICH-S",
+      "prerequisite.obligationId": "ICH-E"
+    },
+    "3": {
+      "dependent.obligationId": "ICH-S",
+      "prerequisite.obligationId": "IDS-S"
+    }
+  }
+}

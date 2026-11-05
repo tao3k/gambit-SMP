@@ -1,0 +1,318 @@
+# A Real Scheme Function Through a Zig Native Backend
+
+Reviewed: 2026-10-20. Design only. No Scheme expansion, GVM generation, backend
+implementation, compiler/native test, performance test or checked proof was run.
+The operation graph below is a **hand-designed lowering**, not observed compiler
+output. Source and primary-reference IDs resolve in the
+[evidence ledger](scheme-function-zig-evidence.md); the
+[report matrix](scheme-function-zig-cost-matrix.md) separates common modernization
+from the incremental case for Zig. Continue the
+[allocation-bound study](allocation-check-bound-design.md) and
+[backend position](scheme-to-zig-architecture.md).
+
+**Decision: develop Gambit around a language-independent semantic/runtime
+contract. Generating Zig from Scheme is a substantive backend candidate. Zig
+earns selection only if its complete incremental cost is lower than the best
+equally capable modern C alternative. Failure of that comparison does not stop
+Gambit's modernization or its independent MLIR/LLVM path.**
+
+## The Actual Function and Its Semantic Domain
+
+SF01. Use the **public `reverse` procedure**, not the unchecked `##reverse`
+primitive or a handwritten substitute. Its complete source body is
+`lib/gambit/list/list.scm:397–403` [SF-S01]:
+
+```scheme
+(define-procedure (reverse (list proper-list))
+  (let loop ((x list) (result '()))
+    (macro-force-vars (x)
+      (if (pair? x)
+          (loop (cdr x) (cons (car x) result))
+          (macro-check-proper-list-null* x list '(1 . list) ((%procedure%) list)
+            result)))))
+```
+
+`define-procedure` chooses public versus `##` names, wraps parameter processing,
+selects declarations and expands a real definition. The nominal proper-list
+parameter check deliberately defers traversal checks. The terminal macro
+distinguishes an invalid initial object from an improper tail; auto-forcing and
+type checks depend on actual compilation features [SF-S02/S03]. They are not Zig
+build preferences that may silently change Scheme behavior.
+
+SF02. For a stable, finite proper input chain of n pairs with checks enabled and
+auto-forcing disabled, the body constructs n fresh pairs, returns the elements
+in reverse order and does not mutate the input. The induction below is limited
+to that domain. Dotted input reaches one of the two failure services; a cyclic
+input need not terminate. Enabled forcing may execute arbitrary Scheme effects,
+capture/reenter continuations or fail, so it has an explicit non-tail service
+edge rather than being treated as a pure tag test. Concurrent input mutation,
+resource failure and enabled feature variations require their own admitted
+semantics; this case study establishes no race-free whole-language theorem.
+
+SF03. There is useful **existing artifact evidence**: the checked-in `_std.c`
+public body has six dispatchable labels, an entry arity check, four textual
+`POLL` sites, one textual heap-check site, a local loop, two failure transfers
+and `JUMPRET(R0)` [SF-S04]. Each successful loop iteration executes one pair
+construction, one heap check and one loop poll in this artifact. Its label table
+has five return-descriptor rows for this host. These counts describe those
+stored bytes; they do not establish how today's Darwin configuration rebuilds
+this source. We did not regenerate it, and its macro expansion is not a native
+execution observation. The absence of force calls in this artifact must not be
+generalized to every feature profile.
+
+## The Complete Compilation and Binding Path
+
+![Compilation and binding](scheme-function-native-pipeline.svg)
+[D2 source](scheme-function-native-pipeline.d2).
+
+| ID | Stage and owner | Concrete output and exit condition |
+| --- | --- | --- |
+| SF04 | Scheme parse/expand and target negotiation | Preserve source/module/lexical identity, selected force/check features, declarations, c-intf and primitive bindings. `_front` gets trees/env/c-intf then normalizes; `_back` provides target registers, primitives, frame and jump constraints [SF-S05]. No assumed C macro decoding later. |
+| SF05 | Scheme normalization and GVM construction | Preserve forcing, errors, allocation identity and selected argument evaluation order through primitive expansion, assignment conversion, beta reduction and lambda lifting. GVM frames carry size/slots/regs/closed/live [SF-S06]. A high-level semantic export is taken before destructive normalization, while its lineage maps into completed GVM. No emitted GVM is claimed here. |
+| SF06 | Scheme semantic completion before C scanning | Explicit arity/force/test/cons/check/poll/error/return operations; AnchorIds, PointIds, FrameSpec, InitSpec and AllocationCheckSpec. Extract late check/resume/materialization meaning from `_t-c-2`, including dirty float obligations for other functions [SF-S07]. One semantic producer; provider cost negotiation occurs before freeze. |
+| SF07 | Common physical planner, implemented in modern C or Zig | Resolve semantic slots to locations, frame descriptor bytes, point tables, object recipe and module relocation records for a chosen whole-cohort host profile. Validate closure, ranges, alignment and map/decoder agreement; no second liveness or error-policy analysis. `_t-c-3` packing is physical work to replace [SF-S08]. |
+| SF08 | Real Zig source emitter and native toolchain | Emit tagged Scheme-word operations and explicit local loop/switch blocks, imports and metadata from the completed graph. Compile Zig to an object and link with admitted Gambit services. No generated Scheme-host C on this route; retained runtime/FFI C is separately counted. Zig frontend and native optimizer costs replace generated-C frontend costs. |
+| SF09 | Image loader and VM/runtime binder | Validate image/profile/operation/frame identities, hold code/maps/constants, resolve points, create VM/global bindings, run initialization in the required order, then publish callable procedures. Typed module product replaces discovery via old C hosts. Failure retains all externally reachable state and code users. |
+| SF10 | Runtime execution | Entry → loop → pair completion → post-allocation check → poll → loop; terminal return or failure transfer uses explicit Scheme control. GC may relocate roots and rebase heap state; resume reloads both before using managed values. |
+
+Semantic completion belongs after GVM control/frame information is available
+and before the C scanner invents its private check labels. The earlier export
+preserves higher-order/effect information for MLIR; the later export closes
+runtime obligations. Neither the paper's PVM abstraction nor current GVM alone
+already constitutes this completed contract [SF-P01, SF-S05–08].
+
+## Proposed Operation Graph, Frames and Ordering
+
+![Control, completed objects and root custody](reverse-control-custody.svg)
+[D2 source](reverse-control-custody.d2).
+
+SF11. The following names are symbolic PointIds in the proposed graph. They are
+not native addresses, old label ordinals, or claims that every local block needs
+a runtime-addressable descriptor. Points become externally resumable only when
+their actual incoming edge requires it.
+
+| Point / edge | Entry state and operation | Roots, frame and successor |
+| --- | --- | --- |
+| `reverse.entry` | Validate nargs=1 through the common arity protocol; perform generated wrapper actions for the selected semantic features. Initialize x and acc only on normal success. | Incoming arguments, return continuation, current dynamic state and initialized scan-visible slots. Wrong nargs transfers to the existing semantic service. |
+| `reverse.entry.poll` → `reverse.loop` | Publish the initial completed frame and poll. Optional loop-head force is a non-tail Scheme application with a distinct `after-force` return point. | Original diagnostic argument `orig`, x, acc, return link; forcing can require saved caller slots, SELF and captured state. Reentry restores the saved state, never a Zig activation. |
+| `reverse.loop` | If pair, read its car; prepare pair inputs. Otherwise inspect the terminal value. | On the no-forcing artifact schedule, keep the original x through the subsequent cdr read. Preserve this selected order; the source's sibling call arguments alone do not mandate left-to-right evaluation. |
+| `reverse.cons` | Under an actual no-safepoint reservation, initialize header, car and cdr, finish layout metadata, and produce acc_new. Then read x_next from the original x, as the artifact does. | No allocating helper, callback, poll or exposed partial pair in this interval. Private construction inputs stay valid; publish complete object coverage before a collector can see acc_new. |
+| `reverse.heap-check` → `reverse.after-heap` | Check the post-construction cursor. If slow, spill/publish complete roots and the resume point, transfer to the heap-limit service. | Roots include orig, x_next, acc_new and the control/dynamic-state closure. Element is reachable through acc_new; native temporaries are not roots. Scanner-visible dead slots still contain valid Scheme words. |
+| `reverse.after-heap` → `reverse.loop.poll` | On successful completion, reload moved roots and current hp/limit/epoch before polling, then return to the loop. | A heap-limit request can change section without full GC; both cases invalidate stale allocation bindings [SF-S09]. Error/control dispositions do not fall through to the success edge. |
+| `reverse.terminal` | Null returns acc; otherwise compare the terminal x with orig and choose list versus proper-list error. Preserve selected check feature behavior. | Error arguments are the original argument identity, procedure identity and the `(1 . list)` diagnostic constant. The rejected prefix acc may be dead, but old scan conventions may still require initialized slots. |
+| `reverse.error.poll` → failure service | Preserve each error branch's poll and then tail-transfer its prepared three arguments. | New caller continuation is not pushed. If the failure service later returns, it returns through Scheme's incoming continuation. Do not encode this merely as an uncatchable Zig error. |
+| `reverse.return` | Put acc in the agreed result location and transfer to the incoming Scheme return point. | Incoming frame/return kind determines restore behavior. Return dispatch uses module identity and lifetime protection, not a cast from a PointId to a code pointer. |
+
+SF12. This function's local named-let tail recursion needs no per-iteration
+closure or native recursive call in the proposed lowering. A local loop updates
+x/acc and reuses the current Scheme control state. That is a design choice
+conditional on the source/compiler analysis, not a measured closure saving over
+the current C artifact, which already uses a local `GOTO`. The public procedure
+is first class and requires a bound procedure object even though its local loop
+does not need an escaping closure.
+
+The proposed request below is illustrative contract data, not an emitted file,
+implemented schema or result of expanding this function. These fields must be
+resolved jointly; selecting a force-enabled source with the no-force graph is
+a request error.
+
+```json
+{
+  "source": "lib/gambit/list/list.scm:397-403",
+  "binding": "reverse",
+  "features": {"typeChecking": true, "autoForcing": false},
+  "hostProfile": "DispatchHostProfile",
+  "representationConstraint": {"handles": false, "pairWords": 3},
+  "entry": "reverse.entry",
+  "heapResume": "reverse.after-heap",
+  "return": "incoming Scheme continuation",
+  "allocation": {
+    "kind": "pair",
+    "checkPlacement": "after-completion-and-cdr-read",
+    "isolatedDelta": 3,
+    "isolatedWriteEnd": 3,
+    "isolatedAddressEnd": 3,
+    "assurance": "actual h <= L and L + 3 <= b, with current rights"
+  },
+  "imports": ["arity", "heap-limit", "poll", "fail-check-list", "fail-check-proper-list"],
+  "publication": "only through the matching live image and VM binding"
+}
+```
+
+A concrete **candidate** heap-resume frame realization keeps `return-link` in
+the admitted control location corresponding to R0, `orig` in R1, `x_next` in R2
+and `acc_new` in R3, mirroring the artifact's semantic roles. The planner must
+also describe frame frontier, saved registers, dynamic context and return kind.
+R4 holds a valid tagged temporary in that artifact and is not silently
+reclassified as an uninitialized native spill. The current register scanner
+visits the whole array; a future precise scanner change is a separate complete
+contract migration. No raw bitmap value is invented from these role names.
+
+The Zig renderer's declared output shape is a host function with a local
+PointId switch/loop, tagged-word reads/writes, no-safepoint pair construction,
+and explicit exits to the dispatcher after root/control writeback. Required
+resume cases reload the agreed homes. It emits matching point/frame/module
+records alongside code. The C-G renderer uses the same shape and records.
+This describes generated syntax obligations without implementing either emitter.
+
+SF13. Choose **DispatchHostProfile** for this worked design: a host returns a
+control disposition after publishing the common VM execution state; an outer
+dispatcher invokes the next host. Local iteration stays inside a generated
+loop/switch. Dispositions include ContinueAt, ReturnTo, RuntimeRequest and
+ControlEscape, with success/error semantics supplied by the Gambit control
+owner. Every external hop unwinds its bounded native activations before the
+next hop. A non-tail force call records a Scheme return frame/point; capture
+and reentry use that frame, not an active Zig stack frame. Existing trampoline
+source establishes a related mechanism, not compatibility of its ABI with this
+proposal [SF-S10].
+
+SF14. **TailHostProfile remains a separate candidate**, not an automatic fallback
+or binary mixture. It requires admitted native tail exits for every external
+edge. Zig `always_tail` rejects impossible calls; it does not promise arbitrary
+Gambit edges or reproduce Manticore's custom LLVM convention [SF-P02/P03]. Both
+profiles retain proper Scheme tail semantics, roots, continuation/dynamic-wind
+behavior and complete module binding obligations. No C longjmp may cross live
+Zig frames; returning dispositions require control-island restructuring where
+today's helpers escape nonlocally. Merely wrapping `___call` is not sufficient.
+
+## Allocation Checks, Completion and the Next GC
+
+SF15. Reuse the actual representation, not a native Zig linked-list allocator.
+Under the explicit no-handles pair profile, pair body offset=1, size=2, and the
+header/body initialization advances hp by 3 words [SF-S09]. Let h be the cursor
+before one construction, L the trigger and b the admitted native extent end.
+For this isolated operation, max written exclusive offset W=3, max formed cursor
+offset P=3, delta=3; thus **B=3**, conditional on no hidden allocation or added
+metadata allocation within that interval. Require h≤L and L+3≤b, correct lower
+bounds/provenance/alignment and current interval rights. Then the post-check
+protocol cannot write outside b during this operation. This is not a universal
+function/helper bound and not proof that the active target selects this profile.
+
+The checked-in C artifact uses a **post-cons** heap check [SF-S04]. Its `4096`
+argument is not a verified 4096-word runtime request: the inspected CHECK_HEAP
+macro only tests hp>heap_limit and does not use that argument [SF-S09]. Do not
+infer a safe bound from the spelling of the macro. Preserve an adequate actual
+trigger reserve and poll/check schedule, or separately qualify a redesigned
+pre-check schedule. Moving GC earlier can expose different finalizer/resource
+failure/interruption traces and is not automatically observationally equivalent.
+
+SF16. A successful slow edge has two distinct obligations: the **already
+completed** acc_new must be visible through roots and layout, and the resumed
+context must obtain a new allocation binding. Never roll hp back to undo a
+published/moved pair, replay the cons on resumption, or retain a raw old x across
+the slow edge. Source scanning includes PSTATE registers/saved storage; Zig
+locals require explicit materialization [SF-S09]. Object completion is not
+publication to unrelated threads: owner publication, barriers and scanner
+visibility follow the admitted runtime memory model. `defer` cannot supply it.
+
+SF17. For a stable successful n-element input in the selected artifact schedule:
+n new pairs, 3n new pair words under no-handles, n body heap tests and n loop
+polls plus one entry poll. Error polls, arity handling, force calls, GC work,
+preexisting input space, module/runtime storage and any new metadata are outside
+that formula. Body tail iteration uses constant additional continuation depth;
+it still allocates O(n) output. When the result escapes, region reclamation
+cannot free that output at function return. Higher-level escape/region
+optimization must prove lifetime and observable identity conditions first.
+
+## Module Product and Publication Protocol
+
+SF18. The function is included in `_std` [SF-S01]; converting it does **not**
+convert the entire standard library or remove `_std`'s C declarations. The
+proposed product for its declared rebuilt cohort contains:
+
+| Field | Producer and consumer obligation |
+| --- | --- |
+| Module identity and semantic feature manifest | Scheme supplies source/include/macro/declaration lineage, exported/imported global identities and init dependencies. Public `reverse` and primitive `##reverse` remain different bindings. |
+| Runtime and host-profile identity | Common planner records word/tag/handle rules, frame/map encoding, operation/helper ABI and chosen dispatch protocol; loader rejects mismatches before callable publication. |
+| Host/point/frame records | Native product holds offsets/relocations and point-kind/frame relations for required entries/resumes. Old six labels and numeric ordinals are correspondence evidence, not the new identity scheme. |
+| Objects and resources | Procedure/name/diagnostic constants, import slots and code/maps have explicit ownership. Materialize rooted constants before any setup path that can allocate. |
+| Per-VM binding | Runtime resolves global cells, points and role imports for the selected VM; immutable image data may be shared only when no per-VM addresses/mutation are hidden inside it. |
+| Initialization and failure ownership | Separate Prepared, Validated, Rooted, Linked, Initializing, Ready, Retiring and Released states. Preserve source-required effects and order; Ready is a publication result, not merely “fixup started.” |
+
+The proposed compilation/binding unit remains the `_std` module product. Its
+completed graph has one owner for every supplied global and procedure; this
+study follows only its public reverse host through that product. The full Zig
+target requires coverage of the other hosts and declared native interfaces
+before `_std` can be supplied that way. It cannot link the legacy `_std.c`
+module beside another module that also supplies public reverse and call that a
+completed migration. If physical host partitioning is later selected, one
+module manifest still owns the definitions, initialization order and constants;
+every C/Zig/native host part uses the same admitted common profile and lifetime
+contract. Such new-profile C parts are different from old binary modules. This
+is a required product design, not evidence that the partitioner or whole-library
+backend already exists. Function-specific work counts do not close that domain.
+
+SF19. Existing `setup_module_fixup` aligns/fixes labels and constants, creates
+global cells, checks representation sizes, and has a multi-VM atomicity TODO.
+`setup_modules` fixes all modules, collects undefined globals conditionally,
+constructs descriptors and calls `setup_mod` [SF-S11]. These operations must have
+explicit successors. Preserve language/global/init semantics while replacing
+C-specific table assembly and hidden host metadata discovery. Existing early
+`SETUP_FIXUP_DONE` assignment is not evidence of transactional Ready publication.
+
+SF20. Proposed binding ownership: prepared image bytes are loader-owned; rooted
+constant/fixup storage is held through failure; VM binding and code remain pinned
+while any continuation, callback, root map, init task or callable global can use
+them. Initialization failure can have already published effects, so it is not
+universally reversible. Prevent new entries, record the actual partial state,
+and release only resources whose users and semantic effects permit release.
+Module cycles need the actual initialization dependency/SCC policy; do not
+invent a topological order for a cyclic graph or publish a callable early to
+break a cycle. Reentrant initialization needs owner-aware state, not a lock held
+while invoking arbitrary Scheme. The complete caller/foreign/control closure is
+still unresolved.
+
+## Independent LLVM/MLIR Route and Scientific Modernization
+
+SF21. A Scheme semantic export before primitive expansion/lambda lifting can
+retain calls/closures/effects/identity and continuation operations for a project
+MLIR dialect. Allowed passes must preserve ordering, allocation identity,
+exception/control edges, roots and polling constraints, or discharge an explicit
+relaxation proof. Lowering then supplies the same completed runtime graph and
+module product. A provider can use LLVM optimization/object generation without
+passing through Zig source. MLIR infrastructure helps organize progressive
+lowering; neither MLIR nor its low-level unstable C API provides Scheme meaning
+or a ready high-order/region optimizer [SF-P04/P05].
+
+SF22. LLVM statepoints are an alternative explicit relocation integration to
+evaluate, not something stock Zig imports install into Gambit. This design can
+retain Gambit root spill/reload services; another provider may use a qualified
+statepoint strategy with equivalent runtime maps. The two cannot both assume
+the other owns relocation [SF-P06]. Retain the low-level generated C provider as
+a meaningful independent semantic/economic control, not as permanent duplicated
+semantic authority.
+
+SF23. The scientific direction if Zig's increment fails is concrete: (1) explicit
+Scheme semantic operations and target feedback; (2) independently decodable
+roots/frames/continuations and object completion; (3) specified GC/FFI/VM owner,
+blocking, callback and shutdown protocols; (4) one common native/module product;
+(5) selective higher-level optimization with lawful lowering to LLVM; (6)
+complete responsibility retirement and evidence/cost accounting. Implement the
+native service layer in modern C if that wins the comparison. C-ZT may retain
+useful Zig tooling only when its own residual cost is justified. No replacement
+language is selected by elimination alone.
+
+SF24. OCaml's parallelization research motivates explicit semantic, sequential
+cost, pause-time and C-interface requirements, not a particular systems language
+[SF-P07]. For Gambit, record unanswered capability questions and falsifiers:
+
+| Question | Candidate success criterion to fix before future experiments | What would reject or revise the proposal |
+| --- | --- | --- |
+| Can every admitted safe point explain every live value and resumed use? | Independent semantic-root versus physical-map agreement; complete constructor/helper/error/callback domain | Missing root or stale use rejects the profile regardless of language. |
+| Can contexts/GC workers/FFI owners execute and stop without lost custody? | Defined participation, scan/termination and drain invariants with actual users; explicit stuck/unknown states | A circular wait, unowned payload or unknown native effect blocks claimed closure. |
+| Does the new native route remove work? | No old dumper on that route; enumerate retained runtime/FFI C and new frontend/metadata/dispatch work | Forwarding through old C or retaining both semantic producers defeats structural retirement. |
+| Does LLVM add useful capability? | Select a real effect-safe optimization or target capability with whole-runtime obligations and an equal C/LLVM control | No legal pass domain or merely the same native optimizer is not a Zig-specific gain. |
+| Is total modernization positive? | Bound complete lifetime savings against design/migration/verification/maintenance and regressions | Negative or unbounded conservative net means no economic acceptance yet. |
+| Is Zig's additional commitment justified? | Positive conservative residual saving versus equally modern C after reuse; see matrix | C generators/libraries erase the saving, or target/tool/control costs dominate: reject Zig selection, continue the common modernization agenda. |
+
+These are proposed acceptance obligations, not executed experiments or arbitrary
+percentage promises. All five existing full architecture questions remain
+unresolved. See the [conditional arguments and counterexamples](scheme-function-zig-arguments.md).
+
+## Higher-Order Continuation
+
+The [public map study](map-scheme-zig-design.md) extends this path to unknown
+Scheme closures, non-tail calls, saved root chains, repeated continuation
+activation and multi-list helper policy. Its [cost matrix](map-scheme-zig-cost-matrix.md)
+clarifies that modern C is a separately funded reconstruction, not an already
+available free baseline or prerequisite before direct Zig modernization.

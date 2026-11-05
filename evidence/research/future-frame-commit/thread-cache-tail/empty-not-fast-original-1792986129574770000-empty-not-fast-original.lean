@@ -1,0 +1,6 @@
+import ThreadCacheTail
+open ThreadCacheTailAst
+def witness : State := sampleEmptyNext (initial)
+example : sampleEmptyGuard (initial) := by simp [sampleEmptyGuard,initial]
+example : Safe witness := by simp [Safe,witness,initial,sampleEmptyNext,enterChildGuard,childCleanupKnownGuard,beginChildRestoreGuard,knownChildRestoreGuard,claimExtraGuard,returnExtraGuard,denyOwnerGuard,sampleEmptyGuard,sampleLowGuard,sampleNearGuard,sampleHighGuard,selectFastGuard,selectHelperGuard,attestFastTailGuard,writeFastLinkGuard,publishFastHeadGuard,incrementFastCountGuard,publishFastReceiptGuard,helperPushGuard,helperFlush800Guard,helperKnownReturnGuard,unknownHelperGuard,handoffParentGuard,beginParentRestoreGuard,knownParentRestoreGuard]
+example : ¬ (selectFastGuard witness) := by simp [Safe,witness,initial,sampleEmptyNext,enterChildGuard,childCleanupKnownGuard,beginChildRestoreGuard,knownChildRestoreGuard,claimExtraGuard,returnExtraGuard,denyOwnerGuard,sampleEmptyGuard,sampleLowGuard,sampleNearGuard,sampleHighGuard,selectFastGuard,selectHelperGuard,attestFastTailGuard,writeFastLinkGuard,publishFastHeadGuard,incrementFastCountGuard,publishFastReceiptGuard,helperPushGuard,helperFlush800Guard,helperKnownReturnGuard,unknownHelperGuard,handoffParentGuard,beginParentRestoreGuard,knownParentRestoreGuard]

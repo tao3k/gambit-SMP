@@ -1,0 +1,202 @@
+#+TITLE: Restore Entry Issuers and Bootstrap Root Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitRestoreEntryIssuers
+:STATUS: conditional-model; source-root-exception-C23-platform-open
+:END:
+
+** Source
+
+| key | path | needle | obligation |
+|---+---+---+---|
+| raw-return | vendor/gambit/gsc/tests/15-cont/ctak.scm | (##continuation-return-no-winding k z) | Direct extended-binding invocation exists; no dynamic-wind wrapper premise |
+| raw-graft | vendor/gambit/gsc/tests/15-cont/contcapgraft.scm | (##continuation-graft-no-winding k f0) | Active zero-argument direct graft; later block-comment cases are not execution evidence |
+| raw-values | vendor/gambit/gsc/tests/15-cont/contcapret.scm | (##continuation-return-no-winding | Direct return includes values construction before transfer |
+| primitive | vendor/gambit/gsc/_prims.scm | ("##continuation-graft-no-winding" | Primitive registry recognizes direct extended binding; not a managed issuer |
+| thread-schedule | vendor/gambit/lib/_thread.scm | (macro-thread-restore! | Local, steal and alternate-profile scheduler call sites |
+| thread-wrapper | vendor/gambit/lib/_thread.scm | (##thread-restore! thread (lambda () (##apply proc args))) | Arity packing wrapper is not automatically a new execution |
+| graft-wrapper | vendor/gambit/lib/_thread.scm | (##continuation-graft-no-winding cont ##apply proc args) | Wrapper and aux arity normalization must preserve invocation identity |
+| wind | vendor/gambit/lib/_thread.scm | (define-prim (##continuation-unwind-wind src dst continue) | Internal before/after navigation uses same primitive as direct invocation |
+| graft-aux | vendor/gambit/lib/_thread.scm | (define-prim (##continuation-graft-aux cont proc arg1 arg2 arg3 others) | Allocate args then invoke low-level graft; generator point must preserve roots |
+| return-aux | vendor/gambit/lib/_thread.scm | (define-prim (##continuation-return-aux cont val1 val2 val3 others) | Values packing and winding are parts of original invocation |
+| emit-graft | vendor/gambit/gsc/_t-c-2.scm | (targ-jump-inline "##continuation-graft-no-winding" | Actual destructive jump emitter needs provenance; primitive name is insufficient |
+| emit-thread | vendor/gambit/gsc/_t-c-2.scm | (targ-jump-inline "##thread-restore!" | Scheduler and direct primitive need explicit distinct intent |
+| sfun-generator | vendor/gambit/gsc/_ptree2.scm | (define (c-make-function sfun? name param-typs result-typ make-body) | BEGIN_SFUN is emitted before argument conversion; ___call is too late for bootstrap roots |
+| sfun-convert-order | vendor/gambit/gsc/_ptree2.scm | (append (keep scmobj-typ? numbered-param-typs) | SCMOBJ conversion priority does not move it ahead of BEGIN_SFUN marker allocation |
+| sfun-static | vendor/gambit/gsc/_ptree2.scm | c-id-prefix "MLBL(" c-id-prefix "C_LBL_" proc-name | Static c-define procedure label differs from dynamic closure FAL converter |
+| sfun-begin | vendor/gambit/include/gambit.h | #define ___BEGIN_SFUN_VOID(proc) | Marker allocated before argument body and ___call |
+| sfun-scmarg | vendor/gambit/include/gambit.h | #define ___BEGIN_SFUN_ARG_SCMOBJ(i) | Empty macro is not a generic root registration |
+| sfun-error | vendor/gambit/include/gambit.h | #define ___SFUN_ERROR_VOID | Conversion retry reuses host marker; not a fresh top-level host entry |
+| catcher | vendor/gambit/include/gambit.h | #define ___END_TRY } ___ps->catcher = ___old_catcher; } | Only actual outer catch/restoration can support completion |
+| run | vendor/gambit/lib/setup.c | ___make_sfun_stack_marker_from_root | Managed startup has rooted endpoint; generic host guard absent in inspected path |
+| call | vendor/gambit/lib/setup.c | stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2] | Unmatched unwind propagates; cannot fabricate local exit witness |
+| reload | vendor/gambit/lib/c_intf.c | proc_or_false = *proc_root; /* reload after allocating the marker */ | Known slot must remain valid and GC-updated before guard reservation |
+| legacy | vendor/gambit/lib/c_intf.c | Legacy raw SFUN entry is not made a registered-root interface | Raw local address cannot bootstrap a managed root protocol |
+| dynamic-source | vendor/gambit/lib/c_intf.c | ___VECTORELEM(stack_marker, 0) = ___data_rc (___c_closure_self ()); | Ambient dynamic closure read occurs after allocating marker; identity freeze required |
+| closure-global | vendor/gambit/lib/os_dyn.c | /* TODO: c_closure_self needs to be thread local */ | Conditional dynamic closure path has shared ambient self; TLS alone would not solve nested identity |
+| closure-producer | vendor/gambit/lib/os_dyn.c | ___set_data_rc (c_closure, proc); | Dynamic closure stores procedure in RC payload |
+| closure-unavailable | vendor/gambit/lib/os_dyn.c | #ifndef C_CLOSURE_CODE_SIZE | Unsupported architecture returns null; no claim this conditional branch runs on Darwin arm64 |
+| tcl-producer | vendor/gambit/examples/tcltk/tcltk.scm | ___EXT(___set_data_rc) (cd, vect); | Native callback source vector installed in RC payload |
+| tcl-entry | vendor/gambit/examples/tcltk/tcltk.scm | char *result = tcltk_call | Concrete native ingress; deletion/lifetime/scan custody must precede new guard |
+| rc-register | vendor/gambit/lib/memory/rc-allocation.inc | if (ptr != 0) ___register_rc (___PSP ptr); | Registration and payload assignment distinct; list mutation is not an arbitrary-thread pin protocol |
+| rc-update | vendor/gambit/lib/memory/rc-allocation.inc | h->data = val; | Actual payload writer must join source freeze and scan handoff |
+| rc-scan | vendor/gambit/lib/memory/rc-roots.inc | mark_array (work, &h->data, 1); | Moving GC updates RC data slot; native raw copy is not automatically reloaded |
+| startup-scan | vendor/gambit/lib/memory/root-origins.inc | mark_array (work, &context->startup_thunk, 1); | Existing context root consumer reusable after origin membership is qualified |
+| entry-marker-scan | vendor/gambit/lib/memory/root-origins.inc | mark_array (work, &context->entry_marker, 1); | Context marker scanned; no universal pre-guard carrier inferred |
+| c-return | vendor/gambit/lib/_kernel.scm | ___COVER_RETURN_TO_C_HANDLER_WRONG_PROCESSOR; | Keep C return affinity distinct from ticket ownership |
+
+** Identity
+
+| key | structure | rule | caveat |
+|---+---+---+---|
+| fresh | InvocationIntent plus external AttemptId | Mint once per direct admitted semantic restore | Raw primitive spelling alone gives no trusted navigation proof |
+| navigation | Parent restore transaction plus qualified call-site role | Keep ticket through helper and arity packing | before/after user procedure invocation may itself start a new semantic restore |
+| scheduler | ExecutionContextId plus existing TicketId | Resume same activation with carrier handoff | Direct ##thread-restore! outside known scheduler remains unqualified |
+| foreign | HostEntryId plus child TicketId | Nested callback child differs from conversion OperationId | Static MLBL proc does not prove Scheme arguments rooted |
+| bootstrap | SourceRootId plus generation plus pre-reserved carrier | Root transfer and GC reload before allocating guard or marker | Raw C local, volatile or slot address is not a registration witness |
+| receipt | Full GuardId immutable across restored data | Dispatch exact identity regardless of ambient current | Real owner signer, finite generation and reclamation still open |
+
+** Issuer
+
+| key | proposedIssuer | actualSource | status | responsibility |
+|---+---+---+---+---|
+| intent | Scheme/GVM caller-role producer plus runtime validator | Actual wrappers, wind helpers, scheduler and direct test sources located | Lexical census bounded; indirect callable aliases remain open | Generate an unforgeable or checked intent capability |
+| bootstrap | Current source-root and execution-context owner | Context roots and RC scan consumers located; generic entry carrier absent | Required refactoring | Nonallocating pin and reserved carrier handoff before any allocating guard |
+| reservation | Stable VM native-entry owner | ___call begins after caller marker allocation; no exact TicketId issuer found | No existing complete guard signer identified | Publish reserved record and incoming roots outside restored graph |
+| foreign | Generated host-entry prologue owner | c-make-function emits BEGIN before conversion; Tcl and dynamic closure sources located | Must change generator and qualify callback source lifetime | Separate static label, rooted RC payload and unqualified raw argument |
+| exit | Stable outer completion owner | ___run catches; ___call can rethrow; SFUN normal tail kills marker | Partial mechanisms reusable; exact witness issuer absent | Restore parent/catcher and close marker; retain unknown ownership |
+| scanner | RootRegistry/context origin owner | mark_execution_roots and mark_rc update actual slots | Existing consumers are not proof of all-origin and scan-close coverage | GC-visible carrier plus mutable source custody and cancellation discipline |
+| retirement | Per-key ledger plus capability-domain owner | Earlier arbitrary-key guard algebra is available | Native issuer and full normalization equivalence remain open | Old immutable receipt cannot target a new ambient execution |
+
+** Claim
+
+| key | mechanism | condition | result | gap |
+|---+---+---+---+---|
+| census | Exact token inventory over declared source roster | Hashes and all matches retained; comments and generated metadata labelled lexical | All lexical hits in the stated corpus are recorded | Not expanded Scheme, all external code or indirect alias closure |
+| bootstrap | Source pin then reserved scan carrier then allocating guard | Source origin and pin valid; collector updates both slots | Carrier remains current across modeled moving GC | Actual no-allocation pin issuer and source scanner closure unimplemented |
+| bridge | Admission relation from bootstrap to prior two-ticket entry | Intent, roots, guard binding and parent relation agree | Earlier enter safety applies after admitted bootstrap | Not full source simulation or arbitrary nested product |
+| raw | Deny optimized receipt for raw local source or unknown caller role | Preserve existing non-optimized Scheme execution path | No false root or fresh-identity certificate | Fallback implementation and total semantic equivalence open |
+| failure | Retain source or carrier under pre-admission/guard owner | Failure branch never drops last rooted custody | Unknown allocation/exit retains modeled carrier | Availability and bounded retention not proved |
+| ambient | Freeze source identity before allocation and user callback | Qualified pin independent of ambient c_closure_self | Avoid selecting another callback payload after reentry | Conditional historical backend; actual Darwin activation not established |
+
+** Memory
+
+| key | publication | observation | obligation | overhead |
+|---+---+---+---+---|
+| source | Source owner validates origin/generation and nonallocating pin | Collector and owner agree same source slot | No arbitrary foreign thread list mutation; lock not held across GC | Source read lease and reserved capacity |
+| carrier | Copy into pre-reserved registered slot before publication cut | GC updates carrier and source as admitted roots | Atomic visibility alone is not root registration; reload from carrier | One carrier per admitted fresh/foreign ingress |
+| guard | Allocate only while carrier scan-visible; publish full immutable identity | Restored code binds stable owner record | Failure before/after commit remains owned; avoid lock across Scheme/GC | One native record and short synchronization |
+| source-drop | Release original source after target root acknowledgement | Collector sees carrier after source retires | Source/target scan epochs and deletion drain must be qualified | Root-domain acknowledgement |
+| exit | Outer guard hands exact witness to ledger | Same GuardId read after catcher and parent restoration | No ambient retargeting; C return affinity preserved | Outcome retention and pinned lookup |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| identity | H+S+O needless tickets for internal grafts, resumes and conversion operations | Caller-role validation and carrier handoff | This compares proposed policies; not measured current-Gambit savings |
+| bootstrap | Duplicate per-wrapper ad hoc rooting and failure cleanup | Shared reserved carrier, source pin and stable owner | Only if actual wrappers migrate and retire duplicate support |
+| legacy | Unsafe assumption that BEGIN_SFUN_ARG_SCMOBJ or C local is a root | Explicit generated ingress contract | No blanket rejection of static labels; qualify each live Scheme argument |
+| closure | Ambient self reread across allocation or nested entry | Bound payload plus native lifetime lease | Only applicable where dynamic closure backend is active |
+| normalization | At most one redundant metadata traversal | All marginal ingress, root and retention overhead | Source, platform and emission gates closed and traversal savings larger than costs |
+
+** Contract
+
+| fromNode | toNode | custody |
+|---+---+---|
+| Caller role | Admission validator | fresh / navigation / scheduler / conversion / foreign / unknown |
+| Admission validator | Existing guard | trusted navigation scheduling conversion reuse identity |
+| Admission validator | Source root owner | fresh or foreign requires valid source generation |
+| Source root owner | Reserved carrier | nonallocating pin and scan-visible handoff |
+| Reserved carrier | Stable guard owner | guard allocation may GC; reload rooted payload |
+| Stable guard owner | Marker and argument conversion | root before BEGIN_SFUN allocating prologue |
+| Marker and argument conversion | Restore and nested execution | FrameSpec and PointId; child parent binding |
+| Restore and nested execution | Outer completion owner | catcher restoration and marker closure |
+| Outer completion owner | Exact key ledger | immutable receipt never follows current execution |
+| Reserved carrier | Failure escrow | allocation unknown retains rooted custody |
+| Stable guard owner | Failure escrow | unmatched unwind retains record and roots |
+| Failure escrow | Source root owner | acknowledged recovery or drain; no invented absence |
+
+** Binding
+
+| actionName | lemma | scope |
+|---+---+---|
+| restore_entry_issuers.classifyFresh | RestoreIssuer.classifyFreshPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.classifyNavigation | RestoreIssuer.classifyNavigationPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.classifyScheduler | RestoreIssuer.classifySchedulerPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.classifyForeign | RestoreIssuer.classifyForeignPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.classifyConversion | RestoreIssuer.classifyConversionPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.sourceFrame | RestoreIssuer.sourceFramePreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.sourceRc | RestoreIssuer.sourceRcPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.sourceRaw | RestoreIssuer.sourceRawPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.pinSource | RestoreIssuer.pinSourcePreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.publishCarrier | RestoreIssuer.publishCarrierPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.gcSourceOnly | RestoreIssuer.gcSourceOnlyPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.gcPublished | RestoreIssuer.gcPublishedPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.reserveGuard | RestoreIssuer.reserveGuardPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.guardAllocationFails | RestoreIssuer.guardAllocationFailsPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.publishGuard | RestoreIssuer.publishGuardPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.releaseSource | RestoreIssuer.releaseSourcePreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.allocateMarker | RestoreIssuer.allocateMarkerPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.enter | RestoreIssuer.enterPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.exceptionToOwner | RestoreIssuer.exceptionToOwnerPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.observeOuter | RestoreIssuer.observeOuterPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.killMarker | RestoreIssuer.killMarkerPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.complete | RestoreIssuer.completePreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.reuseExisting | RestoreIssuer.reuseExistingPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.rejectRaw | RestoreIssuer.rejectRawPreserves | typed AST; source origin/witness authority external |
+| restore_entry_issuers.recoverPreAdmission | RestoreIssuer.recoverPreAdmissionPreserves | typed AST; source origin/witness authority external |
+
+** Proof
+
+| key | lemma |
+|---+---|
+| stepPreserves | RestoreIssuer.stepPreserves |
+| reachableSafe | RestoreIssuer.reachableSafe |
+| reservationNeedsCarrier | RestoreIssuer.reservationNeedsCarrier |
+| publishedCarrierTracksGc | RestoreIssuer.publishedCarrierTracksGc |
+| rawCannotReserve | RestoreIssuer.rawCannotReserve |
+| reusedEntryDoesNotIssue | RestoreIssuer.reusedEntryDoesNotIssue |
+| unknownRetainsCarrier | RestoreIssuer.unknownRetainsCarrier |
+| sourceReleaseNeedsPublication | RestoreIssuer.sourceReleaseNeedsPublication |
+| completedMarkerClosed | RestoreIssuer.completedMarkerClosed |
+| entryAgreement | RestoreIngressBridge.entryAgreement |
+| admittedSuccessorSafe | RestoreIngressBridge.admittedSuccessorSafe |
+| admittedRoots | RestoreIngressBridge.admittedRoots |
+| oldWitnessDoesNotFollowAmbient | RestoreIngressBridge.oldWitnessDoesNotFollowAmbient |
+| otherGuardUntouched | RestoreGuardAlgebra.otherGuardUntouched |
+| reuseAgreement | RestoreIngressBridge.reuseAgreement |
+| schedulerBindingAgreement | RestoreIngressBridge.schedulerBindingAgreement |
+| navigationBindingAgreement | RestoreIngressBridge.navigationBindingAgreement |
+
+** Route
+
+| component | actionName | lemma | producerAnchor | obligationId |
+|---+---+---+---+---|
+| entry | restore_entry_issuers.classifyFresh | RestoreIssuer.classifyFreshPreserves | raw-return | RI-entry |
+| entry | restore_entry_issuers.classifyNavigation | RestoreIssuer.classifyNavigationPreserves | wind | RI-entry |
+| entry | restore_entry_issuers.classifyScheduler | RestoreIssuer.classifySchedulerPreserves | thread-schedule | RI-entry |
+| entry | restore_entry_issuers.classifyConversion | RestoreIssuer.classifyConversionPreserves | sfun-error | RI-entry |
+| entry | restore_entry_issuers.classifyForeign | RestoreIssuer.classifyForeignPreserves | tcl-entry | RI-entry |
+| roots | restore_entry_issuers.pinSource | RestoreIssuer.pinSourcePreserves | rc-register | RI-roots |
+| roots | restore_entry_issuers.publishCarrier | RestoreIssuer.publishCarrierPreserves | rc-scan | RI-roots |
+| roots | restore_entry_issuers.gcPublished | RestoreIssuer.gcPublishedPreserves | startup-scan | RI-roots |
+| guard | restore_entry_issuers.reserveGuard | RestoreIssuer.reserveGuardPreserves | sfun-generator | RI-execution |
+| guard | restore_entry_issuers.allocateMarker | RestoreIssuer.allocateMarkerPreserves | reload | RI-execution |
+| guard | restore_entry_issuers.exceptionToOwner | RestoreIssuer.exceptionToOwnerPreserves | call | RI-execution |
+| guard | restore_entry_issuers.reuseExisting | RestoreIssuer.reuseExistingPreserves | graft-wrapper | RI-execution |
+
+** Model routing
+
+| ID | kind | path | scope |
+|---+---+---+---|
+| RI-formal | induction | dev/refactoring/modern-c/models/lean/RestoreIssuer.lean | bootstrap root custody and modeled moving-GC safety |
+| RI-bridge | composition | dev/refactoring/modern-c/models/lean/RestoreIngressBridge.lean | admitted bootstrap to earlier two-ticket entry; explicit relation premises |
+| RI-entry | source | vendor/gambit/gsc/_t-c-2.scm | all direct indirect and raw caller-role provenance and admission |
+| RI-execution | source | vendor/gambit/lib/setup.c | stable reserve and exit witness issuers including exceptional branches |
+| RI-roots | source | vendor/gambit/lib/memory/root-origins.inc | no-allocation bootstrap and mutable source/target scan epochs plus all FFI arguments |
+| RI-platform | platform | dev/refactoring/modern-c/language-baseline-design.org | C23 linearization and generated Darwin correspondence; conditional dynamic closure backend |
+| RI-emission | equivalence | dev/refactoring/modern-c/restore-entry-guard-design.org | all late callbacks and writer closure before normalization retirement |

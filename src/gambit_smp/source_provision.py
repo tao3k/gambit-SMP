@@ -1,4 +1,5 @@
 """Provision an exact upstream revision using verified Git objects, online or offline."""
+from gambit_smp.task_processes import check_output as _task_check_output
 import argparse
 import hashlib
 import json
@@ -13,7 +14,7 @@ DEFAULT_CACHE = ".cache/source-cache/gambit.git"
 
 
 def git(root, *args):
-    return subprocess.check_output(["git", "-C", str(root), *args],
+    return _task_check_output(["git", "-C", str(root), *args],
                                    stderr=subprocess.STDOUT, text=True, timeout=30).strip()
 
 
@@ -24,7 +25,8 @@ def input_path(root, name):
     return path
 
 
-def validate(root, manifest=MANIFEST):
+def binding(root, manifest=MANIFEST):
+    """Validate the declared source epoch, without claiming index/checkout state."""
     record = json.loads(input_path(root, manifest).read_text())
     lock_path = input_path(root, record["sourceLock"])
     lock = json.loads(lock_path.read_text())
@@ -42,9 +44,18 @@ def validate(root, manifest=MANIFEST):
                 "configuredToolchainReproduced", "runtimeAdmitted", "releaseAdmitted"))):
         raise ValueError("invalid source revision binding")
     relative(root, record["submodule"])
+    transport = record.get("transportRepository", record["repository"])
+    if not isinstance(transport, str) or not transport:
+        raise ValueError("invalid source transport repository")
     if git(root, "config", "-f", ".gitmodules", "--get",
-           f"submodule.{record['submodule']}.url") != record["repository"]:
+           f"submodule.{record['submodule']}.url") != transport:
         raise ValueError("canonical submodule URL drift")
+    return record, lock
+
+
+def validate(root, manifest=MANIFEST):
+    """Checkout provisioning still requires the exact locked index entry."""
+    record, lock = binding(root, manifest)
     entry = git(root, "ls-files", "--stage", "--", record["submodule"]).split()
     if entry[:3] != ["160000", record["revision"], "0"]:
         raise ValueError("submodule index does not bind the locked revision")
@@ -53,11 +64,16 @@ def validate(root, manifest=MANIFEST):
 
 def verify_objects(repository, record):
     """Cache location is transport only; the locked commit and tree are authority."""
-    revision = record["revision"]
     git(repository, "fsck", "--full", "--no-reflogs")
+    verify_object_identity(repository, record)
+
+
+def verify_object_identity(repository, record):
+    """Verify this locked commit/tree/parent set, not a current checkout."""
+    revision = record["revision"]
     for field, args in (("commitSha256", ("cat-file", "commit", revision)),
                         ("treeManifestSha256", ("ls-tree", "-r", "-z", revision))):
-        value = subprocess.check_output(["git", "-C", str(repository), *args],
+        value = _task_check_output(["git", "-C", str(repository), *args],
                                         stderr=subprocess.PIPE, timeout=30)
         if hashlib.sha256(value).hexdigest() != record[field]:
             raise ValueError("source object digest drift: " + field)
@@ -70,6 +86,7 @@ def verify_objects(repository, record):
 def prepare_cache(root, out, manifest=MANIFEST, *, source=None):
     """Fetch only the pinned revision, or transfer already verified local objects."""
     record, _ = validate(root, manifest)
+    transport = record.get("transportRepository", record["repository"])
     out = Path(out).absolute()
     if out.exists():
         raise ValueError("fresh source cache required; existing repository is never modified")
@@ -79,19 +96,19 @@ def prepare_cache(root, out, manifest=MANIFEST, *, source=None):
         verify_objects(source, record)
         git(root, "-c", "protocol.file.allow=always", "clone", "--bare", "--no-local",
             source.as_uri(), str(out))
-        git(out, "remote", "set-url", "origin", record["repository"])
+        git(out, "remote", "set-url", "origin", transport)
     else:
         git(root, "init", "--bare", str(out))
         git(out, "-c", "http.sslVerify=true", "fetch", "--no-tags", "--depth=1",
-            record["repository"], record["revision"])
+            transport, record["revision"])
         git(out, "update-ref", "refs/heads/pinned-source", record["revision"])
         git(out, "symbolic-ref", "HEAD", "refs/heads/pinned-source")
-        git(out, "remote", "add", "origin", record["repository"])
+        git(out, "remote", "add", "origin", transport)
     verify_objects(out, record)
     validate(root, manifest)
     return {"schema": "gambit-source-cache-receipt.v1", "revision": record["revision"],
             "cache": str(out), "sourceTransport": "verified-local-git" if source else "upstream-fetch",
-            "networkReproductionChecked": source is None and record["repository"].startswith(
+            "networkReproductionChecked": source is None and transport.startswith(
                 ("https://", "http://", "ssh://", "git://")), "runtimeAdmitted": False,
             "commitSha256": record["commitSha256"], "treeManifestSha256": record["treeManifestSha256"]}
 
@@ -99,6 +116,7 @@ def prepare_cache(root, out, manifest=MANIFEST, *, source=None):
 def initialize(root, manifest=MANIFEST, *, cache=None, offline=False):
     root = root.resolve()
     record, lock = validate(root, manifest)
+    transport = record.get("transportRepository", record["repository"])
     checkout = relative(root, record["submodule"])
     if checkout.exists() and (not checkout.is_dir() or any(checkout.iterdir())):
         raise ValueError("fresh unpopulated submodule required; existing checkout is never modified")
@@ -110,7 +128,7 @@ def initialize(root, manifest=MANIFEST, *, cache=None, offline=False):
         prepare_cache(root, cache, manifest)
     if git(cache, "rev-parse", "--is-bare-repository") != "true":
         raise ValueError("bare source cache required")
-    if git(cache, "config", "--get", "remote.origin.url") != record["repository"]:
+    if git(cache, "config", "--get", "remote.origin.url") != transport:
         raise ValueError("source cache canonical URL drift")
     verify_objects(cache, record)
     # Override transport for this invocation only; keep the canonical URL in .gitmodules.
@@ -124,7 +142,7 @@ def initialize(root, manifest=MANIFEST, *, cache=None, offline=False):
         raise ValueError("initialized submodule metadata escapes checkout")
     # Git transport carries its own shallow metadata; never manufacture it.
     verify_objects(checkout, record)
-    git(checkout, "remote", "set-url", "origin", record["repository"])
+    git(checkout, "remote", "set-url", "origin", transport)
     for name, row in lock["files"].items():
         if digest(input_path(root, record["submodule"] + "/" + name)) != row["baseSha256"]:
             raise ValueError("initialized base source digest drift")
@@ -162,5 +180,9 @@ def main():
         parser.exit(1, f"SOURCE-PROVISION-DENY: {error}\n")
 
 
-if __name__ == "__main__":
-    main()
+from gambit_smp.task_entry import managed_tool as _managed_tool
+main = _managed_tool('source-provision')(main)
+
+if __name__ == '__main__':
+    from gambit_smp.task_entry import tool_main
+    raise SystemExit(tool_main('source-provision',main))

@@ -13,7 +13,8 @@ VIEW = "evidence/scenarios/concurrent-gc/working-modeling.view.json"
 
 class WorkingModelingTests(unittest.TestCase):
     def test_actual_context_preserves_choice_and_stale_model_identity(self):
-        context = json.loads((ROOT / "evidence/scenarios/concurrent-gc/action-context.json").read_text())
+        context = {"views": ["evidence/scenarios/concurrent-gc/btq-working.view.json",
+                             VIEW]}
         snapshot = research_actions.discover(ROOT, context)
         btq = next(row for row in snapshot["evidenceViews"]
                    if row["path"] == "evidence/scenarios/concurrent-gc/btq-working.view.json")

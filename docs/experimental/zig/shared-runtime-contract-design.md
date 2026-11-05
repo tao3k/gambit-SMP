@@ -1,0 +1,298 @@
+# SharedRuntimeContract: Operations, Epochs and Lifetime Architecture
+
+Reviewed: 2026-10-20. Full modernization design, not a runtime implementation.
+Read the [source/primary evidence](shared-runtime-contract-evidence.md),
+[retirement and cost matrix](shared-runtime-value-matrix.md), and
+[unvalidated SysML refinement draft](shared-runtime-contract.sysml).
+No parser, model evaluation, solver, compiler or native test was run.
+
+The [conditional proof argument](shared-runtime-proof-argument.md) corrects one
+important ordering: RT09 fixes contributor membership; the final physical root
+cut closes only after safe acknowledgements. Its handwritten lemmas/counterexamples
+retain explicit source, collector, memory-order and last-use premises.
+
+## 1. Architectural Decision
+
+Separate **managed execution contexts**, **VM-owned root carriers**, **collective
+requests**, **GC workers**, and **code/return lifetimes**. None is represented
+solely by `processor_count`, a TLS pointer, an RC header, or a code loader handle.
+The current tree collective uses processor_count as its topology; a parked-member
+design must replace that assumption in its complete admitted cohort [RP-S01/S02].
+
+Keep Gambit's Scheme meaning, proper tail calls, dynamic environments, arbitrary
+continuations and collector algorithms as semantic assets. Scheme completion
+issues effects, frames, points and control requirements. The shared runtime
+implements their authority and GC laws. Zig realizes native products and the
+private system-service plane; LLVM realizes admitted machine operations. C-full
+has exactly the same architecture and obligations. This is the full candidate,
+with Bmin as a repair control, not the architecture ceiling [RP-S07/S10, RP-P01].
+
+This study chooses an **epoch-frozen root/participant protocol with a short
+serialized metadata admission gate** as a concrete theory candidate. It does
+not prescribe a VM-wide lock during Scheme execution or GC scanning, and does
+not claim a concurrent collector. A future concurrent collector must supply its
+own read/write/root barriers, mutation and reclamation law through GCProfile.
+Gambit's actual baseline/candidate/installed collector properties remain separate.
+
+## 2. Logical Data Model and Authorities
+
+All fields below are proposed logical products, not C/Zig layouts or ABI sizes.
+Identity validation never makes a dangling pointer safe to dereference.
+
+| ID / record | Required content | Authority / lifetime |
+| --- | --- | --- |
+| RD01 VmDomain | VmId, generation, Open/Closing/Dead, rootRegistry, requestEpoch, completedRelocationEpoch, profileIdentity | Stable admission directory grants VmLease before accessing the domain; destruction closes entry then drains leases |
+| RD02 ExecutionContext | ContextId/generation, VmId, ownerHost, invocation stack, local frames/register maps, CT projection, observed relocation epoch | One managed execution owner per context; many contexts may execute in the same VM under the collector's protocol |
+| RD03 RootCarrier | CarrierId/generation, VmId, root-kind/profile, initialized extents, publicationVersion, state, last scanner users | VM-owned stable storage; publication/scanning outlives an execution processor; raw native bytes are a different storage class |
+| RD04 RootHandle / RootExtent | VmId/CarrierId/slot/generation or mapped extent identity, kind, permitted operations | Handle resolves only under valid VmLease and admitted execution/root-operation authority; it is not a permanent pointee address |
+| RD05 RequestTicket | epoch, operation/priority/combining policy, enrolled contributors/members, acknowledged descriptors, separately sealed root-location set, GC worker set, completion/failure | Shared request coordinator; each ticket has one terminal publication, not a timeout interpreted as completion |
+| RD06 InvocationRecord | InvocationId, parent, binding snapshot, return origin, live marker, root-extent custody, exit disposition | Stack/chain of nested invocation identities; collector-visible managed fields; exactly one matching ordinary foreign return |
+| RD07 ImageUseClosure | ImageId/profile, executable pages, frame/root/role maps, admitted new entries, continuations, native returns, scanners/map readers | Runtime establishes last uses before provider/OS resource release; metadata and executable-code lifetime are both covered |
+| RD08 NativeSession | immutable request/profile identity, executor owner, byte/product custody, cancellation state, worker-exit result | Separate compiler/system process; reuse NJS owner/reaper; no raw Scheme pointers or LLVM heap handles on the wire |
+
+Named permissions are VmLease, ExecutionLease, RootUpdateRight, ScanLease,
+GcWorkerLease and ReturnOriginLease. They are **protocol obligations**: neither
+plain C handles nor Zig structs are inherently linear/unforgeable. Copying a token
+does not copy its authority. The native SDK needs issuer validation and explicit
+consumption/restoration, with generated APIs where beneficial.
+
+Root kinds distinguish strong tagged slots, mapped Scheme frames, admitted native
+stack maps, and weak/finalizer structures. Do not turn weak structures into strong
+roots. The existing weak/finalization phases remain required by a selected GC
+profile; unspecified kinds are rejected, not conservatively relabeled without
+accounting for observable retention/finalization changes [RP-S03/S04].
+
+## 3. Complete Operation Families for This Candidate
+
+`G` below means the **logical metadata gate**, with pre-reserved native metadata;
+no Scheme/foreign callback, allocation, GC, blocking wait, join or provider call
+is permitted while it is held. Atomic commit points are specification events,
+not already implemented atomics. A normal-return native metadata operation must
+fail before commit or return a receipt identifying the committed state.
+
+| ID / operation | Inputs / precondition | Commit / output | Failure / effects | Evidence |
+| --- | --- | --- | --- | --- |
+| RT01 acquire-vm | Stable admission directory + VmId/generation | G: validate Open; issue VmLease | Closed/stale rejected before domain dereference | S02/S08 |
+| RT02 reserve-context | VmLease; native metadata capacity | Private ContextId/carrier/invocation capacity | OOM leaves no published context; caller's incoming Scheme values stay rooted elsewhere | S03/S06 |
+| RT03 enter-managed | VmLease, host/attachment profile, context, outer binding | G: register active context in request domain; ExecutionLease and matching binding record | Pending epoch serviced/waited outside G; TLS alone grants nothing; unsupported host rejected | S02/S05/S06 |
+| RT04 enter-nested | Existing owner or fully admitted reacquisition; parent invocation | Push child identity, managed argument/result extents and return origin | Parked parent must reenter first; marker/conversion allocation only after argument rooting | S05/S06 |
+| RT05 open-root-extent | Current execution; no unrooted incoming values; reserved native slots | G when registry visibility changes: publish initialized sentinel extent | Capacity failure before exposure; native metadata allocation is not a root for Scheme values | S03/S04/S06 |
+| RT06 store/load-root | Live VmLease, handle generation, correct owner/phase/kind | Selected GCProfile update/load law; load yields only a bounded managed borrow | Stale, wrong VM, parked/no-authority access rejected; concurrent-collector barriers not guessed | S03/S04 |
+| RT07 materialize-boundary | ExecutionLease + completed FrameSpec/effects + all live values | Publishable carrier/version, frame/RA/root extents and native byte custody | May need roots before any allocating conversion/checkpoint; no raw heap alias across park | S04/S07/S09 |
+| RT08 commit-park | Published stable carrier; no managed mutation/aliases; no pending epoch at G | G: atomically exchange active membership for parked-carrier status; consume execution permission | Pending request wins: remain active, service/reload, retry; never half-detach | S01/S02/S09 |
+| RT09 request-collective | Operation + priority/combining semantics; reserved ticket storage | G: issue epoch, freeze required contributors/active members/workers; final locations remain unsealed | Preserve original operation ordering or explicitly redesign source semantics; admission failure cannot drop request | S01/S02 |
+| RT10 acknowledge-member | Ticket member; current safe frame/roots, no future mutation until release | G: acknowledge exact epoch/member and pin final descriptor; finalize VM/global descriptors after their writers stop | Wrong epoch/duplicate/conflicting state rejected; request-time locations are not final live set | S01/S04/S07 |
+| RT11 acquire-scan | All contributors safe; exact canonical locations sealed after acknowledgements; valid descriptor/map | Root-cut closure commits prepared metadata, then ScanLease for assigned locations | Unknown mutator, missing contributor or stale location cut blocks scan; metadata construction stays outside G | S03/S04/S11 |
+| RT12 collect-and-relocate | Complete required acknowledgements; sealed worker cohort | Selected collector scans distinct locations, graph, weak/finalizer phases and writes relocated values | Worker failure cannot fabricate completion; incomplete relocation quarantines VM execution | S02/S03/S11 |
+| RT13 complete-ticket | All collector work/update writers drained; terminal result known | G: completedRelocationEpoch/result published; release parked/member waits | Failure result does not authorize access to a partially moved heap | S02/S04 |
+| RT14 request-reentry | Park token, live VM/origin/image and complete native result custody | G: reserve reacquisition or queue behind current ticket | No Scheme read, conversion or callback before grant | S05/S09 |
+| RT15 grant-and-reload | No conflicting request; exclusive execution/member authority restored | Reload roots at latest completed relocation epoch, then allow managed operations | A new request between grant and execution uses normal active-member safepoint law | S04/S07, P03 |
+| RT16 finish-invocation | Matching child identity, outcome and result custody | Discharge child extents/origin, restore exact parent binding; Scheme control restores dynamic environment | Cleanup stages explicit; do not free result root before parent/foreign encoding takes custody | S05/S06/S08 |
+| RT17 transfer-control | Scheme-issued destination/dynamic-wind/foreign-origin meaning | Typed cooperative route or complete raw-C island performs admitted transfer | No arbitrary C nonlocal transfer through Zig frames; a status must not allow foreign side effects to continue | S05/S08, P05/P06 |
+| RT18 retain-value | Rooted managed value + VmLease + native retention demand | VM-owned initialized retained slot, independent of processor lifetime | Native RC byte allocations need not migrate; drop explicit at actual last host use | S03/S11 |
+| RT19 close-root-extent | Owner's last-use proof; no active published scan changing locations | G: close new resolution, remove from future tickets; existing ScanLease still pins locations | Defer clear/reuse until current ticket/readers finish; not just decrement a count | S03/S11 |
+| RT20 close-context-entry | Lifecycle owner, no new callback admission | G: context Retiring, close new entry; surviving root custodian retained | Existing execution, requests, worker borrowing and origins drain independently | S02/S11 |
+| RT21 retain-after-failure | Known publication/host-use knowledge and custody | Retained root/metadata state plus explicit UnknownHost/Joined/NoMutation facts | CT5 alone permits neither GC nor free; uncertainty can block VM progress indefinitely | S11 |
+| RT22 drain-context | Closed entry, acknowledged stop/park, scanner/queue/host/origin users | G: final-use certificate for context-specific storage | Failed join retains ownership; cancellation is a request, not a last-use receipt | S02/S11 |
+| RT23 close-image | Stop new entries/materialization; full ImageUseClosure | Retiring image, keep maps AND executable code until actual final use | ORC/OS release only after runtime certificate; captured continuations remain users | S05/S07/S08, P04 |
+| RT24 reclaim/reuse | All relevant leases/users drained; no unknown host; correct terminal epoch | G: withdraw identities; free outside G; later generation for reuse | Generation alone cannot validate dead VM/storage; no ABA/wrap assumption without policy | S02/S03/S11 |
+| RT25 close-vm | Admission closed, all contexts/carriers/images/sessions accounted for | Drain, then release VM directory identity/storage | Compiler-worker exit alone does not drain runtime callbacks or code; unresolved users retain VM | S02/S10/S11 |
+| RT26 deliver-native-product | Matched semantic/runtime/provider/target identities, owned bytes and diagnostics | Validate product then bind fresh module/VM instance under runtime authority | Worker crash/cancel leaves unpublished product failed/unknown; no automatic duplicate execution/retry | S10, prior NJS study |
+
+RT01-RT26 cover operation **families**, not a census of every primitive/FFI mode.
+Additional concrete callers can expose missing cases. Unsupported cross-thread
+attachment, cross-VM transfer, weak kinds and foreign control are explicit profile
+gaps; a broad architecture does not invent their implementation acceptance.
+
+## 4. Epoch / Root / Worker Protocol
+
+### Admission and the GC cut
+
+The gate serializes context/root registration, park, reentry, ticket sealing and
+entry closure. Preparation occurs outside it with current execution rights and
+current roots intact. Metadata capacity must already exist; a failing preparation
+does not remove a participant or expose partially initialized roots.
+
+At RT09, a ticket fixes **required managed acknowledgements**, **root contributor
+domains** and **GC workers**. Final physical locations are not yet sealed. Active
+contexts can change their live frames/values until acknowledging; they then
+publish the current complete descriptor and stop managed mutation. VM/global
+domains also require final stable descriptors after their writers stop. A parked
+carrier already has stable publication. The root-cut closure at RT10/RT11 then
+seals the canonical location union. A worker has a separate team/queue contract;
+an execution context cannot retire it from a sealed ticket by changing CT state.
+
+If all managed contexts are parked, collection still needs a live admitted
+collector driver/team. Reserving that worker capacity is explicit service cost;
+zero workers with pending scan work is not completion. A raw-C interval whose
+host may still access managed memory remains an unacknowledged mutator until a
+real safe transition. A new registry cannot grant it noncooperative detachment.
+
+After contributor enrollment, new independent entry/native-root publication is
+queued; existing members may create local roots before acknowledging under normal
+safe-point rules. Their final descriptors must cover those roots. Until a new
+independent extent is admitted, existing local/frame custody must be retained.
+Build any location manifest/canonical index outside G once descriptors are stable;
+its final commit validates the same epoch and retained pins. Allocation failure
+cannot produce a sealed root cut or successful collection. No O(root-count)
+traversal or allocation is hidden inside the short gate.
+Tickets cover a precisely defined set of actual locations; equal counts or equal
+object values are insufficient. Two slots holding the same movable object both
+need updates. Conversely, two carrier descriptions of the same physical slot
+must not cause unsynchronized duplicate writes. Partition by canonical location
+identity and extent/generation; aliased frame descriptions need canonicalization.
+
+The fixed-location argument applies to admitted stable root entries. A mapped
+frame whose physical coordinates can change needs an explicit relocation/accessor
+or pinning law; transitive movable frame/heap traversal remains collector work.
+An immutable flat index must not be assumed for every existing frame decoder.
+
+GC completion publishes all relocations before any resumed owner loads managed
+values. A failed collector with uncertain relocation state leaves the VM unusable
+for managed execution until a separately justified recovery, even if its native
+metadata is retained. Root-domain independence is not fault-tolerant GC for free.
+
+### Chosen park/request ordering
+
+If RT09 seals first, RT08 may not remove that ticket's required member. It returns
+ServiceThenRetry; the owner acknowledges/services the epoch and reloads moved
+values before rebuilding its park publication. If RT08 commits first, RT09 sees
+the parked carrier and excludes that context from required managed execution.
+Final active-root descriptors are collected at acknowledgement, not Request.
+There is no gap with neither an active member nor a published root custodian.
+This follows at the **abstract serialized decision** level, assuming the registry
+and location coverage are correct. It is not a weak-memory/native proof.
+
+Reentry queued during a ticket gains no managed permission until completion and
+admission. A subsequent ticket may intervene; reentry retries or participates
+under the next ticket. Fairness/starvation bounds remain open. No gate is held
+while an active member services GC, while a parked host waits, or while anyone
+joins, calls Scheme, allocates or invokes LLVM.
+
+Reacquisition and raw root reload have an explicit **effect boundary**: no Scheme
+callback, allocating conversion or nonlocal Scheme exit may occur before live
+values and invocation custody are restored. Native waiting/failure outside G has
+its own retained-state receipt. Pending Scheme actions run only after that safe
+frontier, and may then allocate, mutate or transfer control under normal rules.
+The OCaml acquire/release lesson is precisely that an ownership function's name
+does not imply callback-free behavior [RP-P08]. A noalloc annotation alone is
+also insufficient to establish the required no-callback/no-transfer effect.
+
+### Required memory-order and physical refinement
+
+| ID | Happens-before obligation | Concrete realization still to qualify |
+| --- | --- | --- |
+| HB01 | Initialized slots/descriptors -> publication commit -> ticket reader | Gate release/acquire or equivalently justified publication plus lifetime protection |
+| HB02 | Owner's last heap/root write -> exact-epoch acknowledgement -> scanner | Collector safepoint and worker synchronization; ordinary stores are allowed only under exclusive access, not races |
+| HB03 | Relocation/root writes and worker drain -> completion -> resumed loads | Completion release/acquire plus reload; acquiring an unrelated flag is insufficient |
+| HB04 | Entry closure -> no new issuances; existing users -> final withdrawal | Stable admission directory and real drain, including late racing entrants |
+| HB05 | Child exit custody -> binding restoration -> permitted outer operation | Nonlocal paths must reach the same semantic cleanup frontier |
+| HB06 | Last code/map/continuation/native return -> release certificate -> unload/free | Runtime reachability/custody plus provider/OS release order |
+
+A mutex-backed metadata gate is one physical candidate, with every protected
+access under the same synchronization contract. Do not replace the table by
+volatile flags or isolated acquire/release annotations. The existing configured
+sync macros, C11/Zig atomic lowering, Darwin mutex behavior and actual GC worker
+barriers require a pinned refinement. Neither a sequential SysML trace nor the
+presence of LLVM atomics establishes that refinement [RP-S12, RP-P07].
+
+## 5. Competition and Failure Matrix
+
+| ID | Competing events | Required disposition | Refutes the design if |
+| --- | --- | --- | --- |
+| RC01 | Request seal / park commit | Exactly one gate order; ServiceThenRetry or parked root in ticket | Required member disappears or root coverage has a gap |
+| RC02 | Root open/close / request or final root cut | Live roots created before acknowledgement enter its final descriptor; old pins preserve closing storage | Request-time slot snapshot omits later roots, or storage is freed while still pinned |
+| RC03 | Reentry / new request | Grant only under current epoch law; otherwise wait/service/retry | Managed conversion reads stale values |
+| RC04 | Membership resize / sealed GC worker team | Complete/reconfigure via explicit worker epoch; no count shortcut | Queue owner exits while sealed work/borrowers remain |
+| RC05 | Cancellation / prepare before commit | Private rollback; original owner/member remains | Rollback drops caller's only roots |
+| RC06 | Cancellation / committed park or entry | Consume recorded state via reentry/retirement path; not precommit cleanup | Two owners, lost token or premature free |
+| RC07 | Same-host nested callback / outer park | Reacquire then push child identity and roots; parent binding restored | Marker allocation precedes target protection |
+| RC08 | Callback exception / outer continuation transfer | Scheme semantics and matching origin determine cleanup frontier | Status returns let skipped foreign code execute |
+| RC09 | Failed join / GC request | Published no-mutator carrier may remain scanned; unknown host blocks unsafe scan | Retained bytes alone count as safe detachment |
+| RC10 | New image entry or continuation capture / image close | Close issuance and account all pre-close users | Only native stack users counted; captured continuation lost |
+| RC11 | Provider upgrade / old product bind | Reject incompatible runtime/profile/map identity; preserve dependent invalidation | Cache/hash filename bypasses ABI/layout validation |
+| RC12 | Slot/VM identity reuse / late handle resolution | Stable-directory admission, generation, real final-use drain | Stale token reaches freed storage before validation |
+
+RC rows refine MN01-MN10 and are **specified scenarios, not executed tests**.
+They intentionally include cancellation, nesting, incomplete publication, failed
+retirement and collector failure; a successful park/reentry trace is insufficient.
+
+## 6. Continuations, Tail Transfers and Dynamic Bindings
+
+InvocationRecord separates parent binding, Scheme dynamic environment, return
+origin and root custody. A same-host nested callback can borrow the existing
+execution owner, but must push a distinct invocation/root extent and preserve
+the outer return. A parked host first reacquires; an unregistered foreign host
+needs an explicit supported attachment profile. Implicit TLS fallback is rejected.
+
+Temporary native binding restoration is not the implementation of dynamic-wind
+or continuation restoration. Scheme owns the required before/after behavior and
+dynamic environment; it may execute arbitrary Scheme and trigger GC. Never run
+it under G. Preserve the source's foreign-origin liveness and wrong-processor /
+multiple-return error semantics unless a complete redesigned cohort specifies
+an independently justified replacement [RP-S05/S08].
+
+Multi-shot Scheme continuations can retain frames, maps and code after an
+invocation exits. They do not revive a dead native return origin. Rooting a
+continuation and retaining its executable/map dependencies are separate duties.
+Proper tail transfer can replace semantic frames without allocating a new native
+invocation on every Scheme call; the shared contract must preserve return origin,
+dynamic meaning and root extent transitions. Physical D0/D1 host transfer and
+tail ABI still need the existing independent edge qualification.
+
+Cooperative typed native services may return structured outcomes. Arbitrary
+raw-C nonlocal transfers require an island containing every crossed frame and
+catcher; Zig frames/defer must not be jumped over. An ordinary C error wrapper
+is insufficient if foreign code would continue observable work that Scheme's
+transfer should abandon. `errdefer` helps ordinary fallible native construction,
+not this control proof [RP-P05/P06].
+
+## 7. FR / SP and LLVM Service Integration
+
+The semantic products carry RootPlan, FrameSpec, PointId, control/effect summaries,
+ForeignPlan, runtime-role and product identities. SharedRuntimeContract supplies the
+root/update/member/origin laws. Native realization selects:
+
+| Path | Delegated work | Project law that remains |
+| --- | --- | --- |
+| FR: explicit Scheme-frame publication | LLVM machine register allocation and ordinary calls after explicit spill/publication | All live values materialized before allocating/control boundaries; correct maps, reload and continuation decoders |
+| SP: admitted statepoint/stackmap profile | LLVM spill/relocation representation, base/derived metadata and target codegen | Actual collector integration, full root set, continuation capture, stack/map lifetime, target legality and reload semantics |
+
+**Statepoint GC-transition markers are not an implemented Gambit handshake.**
+The official statepoint documentation explicitly describes strategy-specific
+transition lowering as not implemented in its presented design, with transition
+no-ops potentially eliminated. Use explicit qualified runtime operations to
+realize RT07-RT15; a future target strategy must separately demonstrate its
+lowering. Do not infer park, membership acknowledgement or callback legality
+from an LLVM flag [RP-P03].
+
+MLIR operations crossing these boundaries need explicit root/control/relocation
+effects and allowed movement rules. MemoryEffects/Speculatability alone do not
+fully model nonlocal control. No optimization may hoist a borrow past a relocation,
+discard a pending-request observation, or merge two distinct return origins
+without its semantic proof [RP-P05].
+
+The compiler worker may use LLVM without loading LLVM into the runtime SDK.
+Only owned versioned bytes/products cross RT26. Parent wait uses an admitted BW1
+path or the complete new park protocol, never an implicit prerequisite claiming
+new detachment already works. This avoids making AOT/compiler reuse depend on
+every optional runtime capability, while permitting the full architecture.
+
+## 8. What This Study Closes and Leaves Open
+
+MQ01 now has RD01-RD08, RT01-RT26, HB01-HB06 and RC01-RC12 as concrete design
+obligations. MQ02 has a chosen serialized admission/epoch candidate and physical
+refinement requirements. MQ03/04 gain named compiler products and retirement
+dependencies in the companion matrix. These are **design advances**, not closed
+proofs or passed requirements. MQ05/06 still need justified economic bounds.
+
+The [SysML snapshot refinement](shared-runtime-contract.sysml) binds necessary
+conditions to before/after records instead of arbitrary `parkReady` assertions.
+It is not an executable transition implementation, location-set coverage proof,
+weak-memory model, complete exception model or qualified translation to QNT/Lean.
+The [tracking map](shared-runtime-traceability.json) records those exact limits.
+All five Q-full requirements remain unresolved; no historical witness is promoted.
+
+![Epoch admission and root coverage](shared-runtime-epochs.svg)
+
+![Runtime authority and compiler services](shared-runtime-authority.svg)

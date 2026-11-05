@@ -1,0 +1,215 @@
+/* Processor structure */
+
+/* Execution roots, GC membership and collector work have distinct owners.
+ * Storage is VM-owned.  The synchronous carrier assignment does not grant
+ * asynchronous worker migration or native-callback admission. */
+typedef struct ___execution_context_struct
+  {
+    ___WORD *stack_limit;
+    ___WORD *fp;
+    ___WORD *stack_start;
+    ___WORD *stack_break;
+
+    ___WORD *heap_limit;
+    ___WORD *hp;
+
+    ___WORD r[___NB_GVM_REGS]; /* GVM registers */
+
+    ___WORD pc;
+    ___WORD na;
+
+    ___WORD saved[3]; /* Scheme objects protected from GC */
+
+    ___WORD type_cache[2];
+#define ___CHAR_INPUT_PORT_TYPE_CACHE  0
+#define ___CHAR_OUTPUT_PORT_TYPE_CACHE 1
+
+    ___SCMOBJ startup_thunk; /* published entry root; reloaded after sync/GC */
+    ___SCMOBJ entry_marker;  /* startup activation, invalidated before retirement */
+    ___WORD startup_generation; /* immutable for this native activation */
+
+    ___WORD processor_scmobj[___SUBTYPED_BODY+___PROCESSOR_SIZE+___PADDING_SIZE]; /* Scheme processor object */
+    ___context_mem mem;
+  } ___execution_context;
+
+/* Root identity and task ownership do not name a host carrier. Descriptors
+ * remain pinned until the collective/round has drained every old reader. */
+typedef struct ___gc_root_origin_struct
+  {
+    ___execution_context *context;
+    ___WORD incarnation;
+    ___WORD epoch;
+    ___VOLATILE ___WORD state; /* 0 running, 1 publishing, 2 frozen */
+  } ___gc_root_origin;
+
+typedef enum ___gc_root_phase_enum
+  {
+    ___GC_ROOT_PREPARE, ___GC_ROOT_STRONG, ___GC_ROOT_WEAK, ___GC_ROOT_CLEANUP
+  } ___gc_root_phase;
+
+typedef struct ___gc_root_task_struct
+  {
+    ___gc_root_origin *origin;
+    ___WORD incarnation;
+    ___WORD epoch;
+    ___gc_root_phase phase; /* coordinator advances only after phase drain */
+    ___VOLATILE ___WORD claim; /* 0 private, 1 ready, 2 done, >=4 owner */
+  } ___gc_root_task;
+
+/* A stopped context reserves its restoration stack before any destination
+ * writes. A worker may consume its explicitly bounded bottom loan once;
+ * neither that loan nor a carrier address grants root-domain authority. */
+typedef struct ___gc_resume_space_struct
+  {
+    ___execution_context *context;
+    ___WORD epoch;
+    ___msection *stack_section;
+    ___WORD *loan_base;
+    ___WORD *loan_limit;
+    ___WORD *stack_floor;
+    int loan_used;
+    int accepted;
+    int restored; /* active stack restored, before owner-affine cleanup */
+    int source_worker; /* -1: independent empty span; otherwise unique W tail */
+  } ___gc_resume_space;
+
+typedef struct ___gc_worker_arena_struct
+  {
+    ___WORD *base;
+    ___WORD *cursor;
+    ___WORD *limit;
+    ___WORD *pending;
+    ___WORD *pending_past;
+    ___msection *section;
+    ___WORD epoch;
+    ___SIZE_TS retired_words;
+    ___SIZE_TS refills;
+    int handed_off;
+  } ___gc_worker_arena;
+
+typedef enum ___gc_worker_phase_enum
+  {
+    ___GC_WORKER_IDLE, ___GC_WORKER_PREPARED, ___GC_WORKER_STRONG_COMPLETE,
+    ___GC_WORKER_WEAK_COMPLETE, ___GC_WORKER_COMPLETE
+  } ___gc_worker_phase;
+
+typedef struct ___collector_worker_struct
+  {
+    struct ___virtual_machine_state_struct *vm;
+    int id; /* work authority; never derived from a native carrier address */
+    ___gc_worker_phase phase;
+    struct ___processor_state_struct *carrier; /* collective/actlog adapter */
+    ___gc_resume_space *reserve; /* explicit finite restoration-space loan */
+    ___gc_worker_arena arena; /* private destination, never the scanned origin */
+    ___SIZE_TS copied_words; /* forwarding wins and captured frames */
+    ___SIZE_TS duplicate_scans; /* tasks discharged by another scan owner */
+    /* Private, unpublished allocation and first-field repair are separate
+     * debts. Neither chunk completion nor a forwarding loss pays them. */
+    ___WORD *copy_begin_;
+    ___WORD *copy_past_;
+    ___WORD *tail_cell_;
+    ___SIZE_TS copy_reserved_words_;
+    ___SIZE_TS copy_cancelled_words_;
+    ___SIZE_TS copy_padding_words_;
+    ___SIZE_TS tail_started_;
+    ___SIZE_TS tail_completed_;
+    ___SIZE_TS frame_accesses_;
+    ___SIZE_TS frame_links_;
+    /* Transport authority is distinct from object/Tail authority. These
+     * cursors are worker-owned, never reconstructed from the allocation tip. */
+    ___WORD *local_scan_chunk_;
+    ___WORD *active_scan_chunk_;
+    ___WORD *active_scan_object_;
+    int scan_origin_; /* 1 local frontier, 2 own FIFO, 3 stolen FIFO */
+    ___SIZE_TS chunks_published_;
+    ___SIZE_TS chunks_claimed_;
+    ___SIZE_TS chunks_completed_;
+/* start of current group of movable objects being copied by mark_array */
+___WORD *alloc_heap_chunk_start_;
+
+/* allocation limit for movable objects in current chunk */
+___WORD *alloc_heap_chunk_limit_;
+
+#ifndef ___SINGLE_THREADED_VMS
+
+/* Collector transport gate: successful CAS acquires the published queue.
+ * No unlocked head/tail observations or generic ticket-lock grant polling. */
+___VOLATILE ___WORD chunk_gate_;
+
+#endif
+
+/* list of complete movable object chunks to scan */
+___WORD heap_chunks_to_scan_;
+
+/* fifo of complete movable object chunks remaining to scan */
+___WORD *heap_chunks_to_scan_head_;
+___WORD *heap_chunks_to_scan_tail_;
+
+/* scan pointer in currently scanned (possibly incomplete) chunk */
+___WORD *scan_ptr_;
+
+/* still objects remaining to scan */
+___WORD still_objs_to_scan_;
+
+/* indicates if weak references must be traversed */
+___BOOL traverse_weak_refs_;
+
+/* GC hash tables reached by GC */
+___WORD reached_gc_hash_tables_;
+
+#ifdef ___DEBUG_GARBAGE_COLLECT
+
+/* GC state used for debugging */
+int reference_location_; /* where is offending reference located */
+___WORD *container_body_; /* body of object containing offending reference */
+int mark_array_call_line_; /* where was mark_array called */
+
+#endif
+  } ___collector_worker;
+
+typedef enum ___gc_participant_phase_enum
+  {
+    ___GC_RUNNING, ___GC_ROOTS_FROZEN, ___GC_OWNER_CLEANUP
+  } ___gc_participant_phase;
+
+/* VM-owned sweep custody survives loss of a native C activation. Nonzero
+ * inflight/payload describe an UNKNOWN release, never permission to retry it.
+ * Physical no-write and resource-result recovery remain separate obligations. */
+typedef struct ___gc_cleanup_escrow_struct
+  {
+    ___WORD pending;
+    ___WORD survivors;
+    ___WORD *inflight;
+    void *payload;
+    ___SCMOBJ (*release_fn)(void *);
+  } ___gc_cleanup_escrow;
+
+typedef struct ___gc_participant_struct
+  {
+    ___execution_context *context;
+    ___gc_participant_phase phase;
+    ___gc_resume_space resume;
+    ___gc_cleanup_escrow cleanup;
+  } ___gc_participant;
+
+/* Striping bounds metadata independently of the object population. A hash
+ * collision serializes reservation, never aliases object identities. */
+#define ___GC_COPY_GATE_COUNT 64
+
+typedef struct ___gc_round_struct
+  {
+    ___WORD epoch; /* monotonically published; exhaustion refuses admission */
+    int participant_count; /* closed by the existing collective before scan */
+    int worker_count; /* executor census; distinct from frozen root census */
+    ___VOLATILE ___WORD requested_workers; /* 0: all; snapshotted after freeze */
+    ___BOOL overflow;     /* one VM result, consumed by every participant */
+    ___SIZE_TS source_words; /* frozen allocation census, not a live oracle */
+    int source_sections;
+    ___SIZE_TS destination_offset; /* round parity, independent of a carrier */
+    ___WORD *invalid_copy_cell;
+    ___WORD *invalid_copy_body;
+    int invalid_copy_worker;
+    ___VOLATILE ___WORD frame_gate; /* GC stack/link writers and readers */
+    ___VOLATILE ___WORD copy_gates[___GC_COPY_GATE_COUNT];
+  } ___gc_round;
+

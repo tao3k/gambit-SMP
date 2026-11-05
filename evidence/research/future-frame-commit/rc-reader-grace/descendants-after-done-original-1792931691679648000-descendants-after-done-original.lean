@@ -1,0 +1,12 @@
+import RcReaderGrace
+open RcReaderGraceAst
+def witness : State := unlinkNodeNext (closeDiagnosticNext (closeAdmissionNext (completeClaimNext (spawnDescendantNext (claimLookupNext (enterLookupNext (initial)))))))
+example : enterLookupGuard (initial) := by simp [enterLookupGuard,initial]
+example : claimLookupGuard (enterLookupNext (initial)) := by simp [claimLookupGuard,initial,enterLookupNext]
+example : spawnDescendantGuard (claimLookupNext (enterLookupNext (initial))) := by simp [spawnDescendantGuard,initial,enterLookupNext,claimLookupNext]
+example : completeClaimGuard (spawnDescendantNext (claimLookupNext (enterLookupNext (initial)))) := by simp [completeClaimGuard,initial,enterLookupNext,claimLookupNext,spawnDescendantNext]
+example : closeAdmissionGuard (completeClaimNext (spawnDescendantNext (claimLookupNext (enterLookupNext (initial))))) := by simp [closeAdmissionGuard,initial,enterLookupNext,claimLookupNext,spawnDescendantNext,completeClaimNext]
+example : closeDiagnosticGuard (closeAdmissionNext (completeClaimNext (spawnDescendantNext (claimLookupNext (enterLookupNext (initial)))))) := by simp [closeDiagnosticGuard,initial,enterLookupNext,claimLookupNext,spawnDescendantNext,completeClaimNext,closeAdmissionNext]
+example : unlinkNodeGuard (closeDiagnosticNext (closeAdmissionNext (completeClaimNext (spawnDescendantNext (claimLookupNext (enterLookupNext (initial))))))) := by simp [unlinkNodeGuard,initial,enterLookupNext,claimLookupNext,spawnDescendantNext,completeClaimNext,closeAdmissionNext,closeDiagnosticNext]
+example : Safe witness := by simp [Safe,witness,initial,enterLookupNext,claimLookupNext,spawnDescendantNext,completeClaimNext,closeAdmissionNext,closeDiagnosticNext,unlinkNodeNext,spawnDescendantGuard,finishDescendantGuard,confirmCohortDrainGuard,enterLookupGuard,claimLookupGuard,failClaimGuard,completeClaimGuard,closeAdmissionGuard,rejectLateGuard,beginScanGuard,endScanGuard,saveDiagnosticGuard,borrowDiagnosticGuard,returnDiagnosticGuard,closeDiagnosticGuard,unlinkNodeGuard,retireDomainGuard]
+example : ¬ (confirmCohortDrainGuard witness) := by simp [Safe,witness,initial,enterLookupNext,claimLookupNext,spawnDescendantNext,completeClaimNext,closeAdmissionNext,closeDiagnosticNext,unlinkNodeNext,spawnDescendantGuard,finishDescendantGuard,confirmCohortDrainGuard,enterLookupGuard,claimLookupGuard,failClaimGuard,completeClaimGuard,closeAdmissionGuard,rejectLateGuard,beginScanGuard,endScanGuard,saveDiagnosticGuard,borrowDiagnosticGuard,returnDiagnosticGuard,closeDiagnosticGuard,unlinkNodeGuard,retireDomainGuard]

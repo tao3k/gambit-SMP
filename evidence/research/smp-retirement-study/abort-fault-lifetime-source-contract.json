@@ -1,0 +1,239 @@
+{
+  "schema": "abort-fault-lifetime-source-contract.v1",
+  "sourcePath": ".cache/tasks/repair-9-12/processes/audit/runs/d53671cb657c47fcb636ae9a549504b3/outputs/abort-lifetime-source",
+  "sourceIdentities": {
+    "lib/setup.c": {
+      "sha256": "9d028d74abdf9efa98e9f8616ffeb6a6b66aeedd63ccbee91ed5731b1c41c2a2",
+      "size": 156479,
+      "sameStat": true
+    },
+    "lib/setup.h": {
+      "sha256": "a3eb0f5049c7c4a4bdbeb06b0209395f98abb1af3e62301e96c8d57c26085dda",
+      "size": 6392,
+      "sameStat": true
+    },
+    "lib/os_io.c": {
+      "sha256": "d1de2d83a92ffc7db145700e144432b51b5e61881f919b0009a034e287aa6b16",
+      "size": 283579,
+      "sameStat": true
+    },
+    "lib/os_io.h": {
+      "sha256": "6436fbfb56ce894199a1b15d7ac1386b96648832068fde847ba3b9ba5860b862",
+      "size": 26328,
+      "sameStat": true
+    },
+    "lib/os_setup.c": {
+      "sha256": "df72976936ef3226c85220af1f6e77dae84d666fab7a2dfd48da0b59dce5b2aa",
+      "size": 72185,
+      "sameStat": true
+    },
+    "lib/os_setup.h": {
+      "sha256": "35391dc24c0df3fff49881d2d4bc09940b591037f6cf032af094a0b9d68aa4af",
+      "size": 5670,
+      "sameStat": true
+    },
+    "lib/os_thread.c": {
+      "sha256": "4aeb80cc54ae12f16285aef201fd3f43cc0b40c22895fd6d4d3585c68643b175",
+      "size": 17985,
+      "sameStat": true
+    },
+    "lib/os_thread.h": {
+      "sha256": "b05c867b77e0f9991650125e701b9321d8abde6b365fa413525876fc4bf1f1ab",
+      "size": 2235,
+      "sameStat": true
+    },
+    "lib/_thread.scm": {
+      "sha256": "f987f557cb0678f8a9d7183cf6e0a8260014e3c7c8eb46e10df8cdadf8daa48c",
+      "size": 306502,
+      "sameStat": true
+    },
+    "lib/_thread#.scm": {
+      "sha256": "40b0826dafe72eaea4adfe1f841c797312f6cbcaf700fa9222f6cdfa08ed1c60",
+      "size": 139492,
+      "sameStat": true
+    },
+    "lib/_kernel.scm": {
+      "sha256": "a1b95d8ba5a0e6538b31427d64e4fd89eafbeba5b001791b2a7b42afb86501e4",
+      "size": 147727,
+      "sameStat": true
+    },
+    "include/gambit.h": {
+      "sha256": "15f39cfda23d945d393b10786a9b7030899de75cc98467989cd3cfe6fffd4802",
+      "size": 488918,
+      "sameStat": true
+    },
+    "include/gambit.h.in": {
+      "sha256": "9162379484717e1863170d4c21b2cc5c8f5a41e1cc71ad3066fdda864f4a40e5",
+      "size": 489067,
+      "sameStat": true
+    }
+  },
+  "readIntervalStable": true,
+  "existingGuarantees": [
+    {
+      "function": "OP_SET_PROCESSOR_COUNT handling in execute_sync_op",
+      "path": "lib/setup.c",
+      "lines": [
+        803,
+        819
+      ],
+      "guarantee": "old cohort arrived; registry reader drain before lowered processor_count"
+    },
+    {
+      "function": "___raise_interrupt",
+      "path": "lib/setup.c",
+      "lines": [
+        222,
+        241
+      ],
+      "guarantee": "reader owns nested delivery through abort return"
+    },
+    {
+      "function": "___thread-schedule restore closure",
+      "path": "lib/_thread.scm",
+      "lines": [
+        2972,
+        2978
+      ],
+      "guarantee": "thread and processor locks released before resume entry"
+    }
+  ],
+  "lastConsumers": [
+    {
+      "kind": "registry IRQ old count",
+      "release": "vm_registry_leave after all nested abort/error/retry work",
+      "covered": true
+    },
+    {
+      "kind": "ordinary Scheme direct abort",
+      "release": "native synchronous return before old-cohort arrival",
+      "covered": "conditional on no reentrant native Scheme entry"
+    },
+    {
+      "kind": "selector/drain",
+      "release": "device_select/os_condvar_select return and native error snapshot",
+      "covered": "retirement must witness matching episode return"
+    },
+    {
+      "kind": "raw exported C pstate",
+      "release": "valid outer owner plus scoped instance borrow",
+      "covered": false
+    },
+    {
+      "kind": "deferred fault",
+      "release": "matching owner disposition before slot reset/free",
+      "covered": false
+    }
+  ],
+  "cleanupChains": [
+    {
+      "site": "resize worker before thread_exit",
+      "path": "lib/setup.c",
+      "lines": [
+        1113,
+        1138
+      ],
+      "order": [
+        "idle unlink",
+        "cleanup_interrupts_pstate",
+        "cleanup_os_pstate",
+        "thread_exit"
+      ]
+    },
+    {
+      "site": "P0 join",
+      "path": "lib/setup.c",
+      "lines": [
+        1183,
+        1196
+      ],
+      "effect": "memory transfer/cleanup only after join success; does not authorize earlier fd close"
+    },
+    {
+      "site": "fd destructor",
+      "path": "lib/os_io.c",
+      "lines": [
+        12013,
+        12032
+      ],
+      "calls": "___close_half_duplex_pipe"
+    },
+    {
+      "site": "half duplex destructor",
+      "path": "lib/os_setup.c",
+      "lines": [
+        468,
+        486
+      ],
+      "order": [
+        "close read fd",
+        "read fd=-1",
+        "close write fd",
+        "write fd=-1"
+      ]
+    }
+  ],
+  "proposedFields": [
+    {
+      "name": "io_use_gate",
+      "representation": "atomic word open bit plus counted valid native uses",
+      "sourceExisting": false
+    },
+    {
+      "name": "io_instance",
+      "representation": "scalar incarnation changed only at quiescent reset",
+      "sourceExisting": false
+    },
+    {
+      "name": "wake_fault_code",
+      "representation": "one-word sticky first-error CAS; no later-success reset",
+      "sourceExisting": false
+    }
+  ],
+  "inspectionPoints": [
+    {
+      "function": "##thread-intr! after propagation before second mutex lock",
+      "line": 1352,
+      "restriction": "no automatic throw/cancel; preserve admitted request owner"
+    },
+    {
+      "function": "##thread-resume-execution! after restore closure unlocks T/P",
+      "line": 2978,
+      "restriction": "actual Scheme frame; owner-specific error policy and helper maps unproved"
+    },
+    {
+      "function": "##wait! normal return after V unlock",
+      "line": 2655,
+      "restriction": "may lack user-thread owner; not an exception landing pad"
+    },
+    {
+      "function": "raw signal/registry path",
+      "restriction": "scalar signal-safe publication and errno preservation only"
+    }
+  ],
+  "rejectionPoints": [
+    "propagate wait-abort fallback1466-1471 still holds T",
+    "mutex unlock queues waiter before unlock3/M4044-4054",
+    "___throw_error uses ___THROW and is not safe under arbitrary C locks/cohort obligations"
+  ],
+  "proposedOrder": [
+    "retire route admission under scheduler contract",
+    "release scheduler locks",
+    "final valid-borrow cancellation and matching selector return witness",
+    "close I/O admission",
+    "drain exact old consumers or reuse equivalent existing grace",
+    "cleanup interrupts and OS/fds",
+    "dispose deferred fault before instance reuse"
+  ],
+  "scopeLimits": [
+    "outer valid VM/pstate storage before embedded gate",
+    "all raw-C entry/refusal semantics and ABI",
+    "no unconditional permanent pipe recovery",
+    "fault observer is not a request cancellation or reply",
+    "no native first-writer or first-eight preservation proof"
+  ],
+  "runtimeModified": false,
+  "nativeExecuted": false,
+  "nativeAdmitted": false,
+  "nativeMilestone": "8/12"
+}

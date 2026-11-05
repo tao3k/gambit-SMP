@@ -1,0 +1,317 @@
+{
+  "memory": [
+    {
+      "key": "descriptor",
+      "writer": "owner initializes immutable identity and slot descriptors",
+      "publication": "release store Published",
+      "reader": "admitted registry reader",
+      "observation": "acquire exact Published identity",
+      "lifetime": "directory and record retained until closed admission and readers drain"
+    },
+    {
+      "key": "cleanup-claim",
+      "writer": "same owner native tail or admitted exceptional custodian",
+      "publication": "CAS Pending to Cleaning: acq_rel success",
+      "reader": "losing contender or receipt query",
+      "observation": "acquire failure/load; failure order never release/acq_rel",
+      "lifetime": "executor pin prevents slot/session retirement; loser does not access mutable marker"
+    },
+    {
+      "key": "done",
+      "writer": "sole cleanup executor after still decrement and restoration",
+      "publication": "release store Done receipt",
+      "reader": "query or final custodian",
+      "observation": "acquire reads same Done transaction",
+      "lifetime": "Done does not retire root domain or session"
+    },
+    {
+      "key": "directory",
+      "writer": "stable directory serializes closed bit and pin admission",
+      "publication": "SC baseline gate CAS; candidate acq_rel",
+      "reader": "lookup acquires pin before record dereference",
+      "observation": "SC baseline; candidate acquire on successful same-generation admission",
+      "lifetime": "close gate before final zero; no unconditional fetch-add from bare pointer"
+    },
+    {
+      "key": "last-reader",
+      "writer": "borrower finishes record reads",
+      "publication": "release decrement on closed-or-open gate word",
+      "reader": "closer after closing admission",
+      "observation": "acquire observation of drained same gate generation",
+      "lifetime": "retain directory storage and prevent counter wrap; RMW chain mapping open"
+    },
+    {
+      "key": "root-scan",
+      "writer": "mutator parks and publishes root-slot state; collector relocates at GC epoch",
+      "publication": "existing/modernized epoch synchronization; SC baseline",
+      "reader": "collector then resumed owner",
+      "observation": "matching epoch acknowledgements, not an isolated atomic pointer",
+      "lifetime": "ordinary slot writes require scanner exclusion; do not hold lease lock while waiting for GC"
+    },
+    {
+      "key": "marker-drop",
+      "writer": "unique owner under collector exclusion",
+      "publication": "plain invalidation and decrement sequenced before release Done",
+      "reader": "future collector or marker reader",
+      "observation": "GC epoch exclusion plus acquire completion where applicable",
+      "lifetime": "no callback, GC, reentry, throw, cancellation or executor replacement in critical segment"
+    },
+    {
+      "key": "acquisition",
+      "writer": "owner stores initialized marker, processor tag and owned credit",
+      "publication": "release publish Acquired after no-throw commit tail",
+      "reader": "admitted exceptional custodian",
+      "observation": "acquire same activation and token identity",
+      "lifetime": "registered slots precede allocation; unknown private result retains session"
+    }
+  ],
+  "contract": [
+    {
+      "key": "derived-credit",
+      "anchor": "mem.c:684-699; setup.c:3384-3420; gambit.h.in:10376-10398",
+      "actionName": "retireGuard",
+      "lemmaName": "rootsOutliveDone",
+      "guardName": "s.closing[i]",
+      "duty": "Close acquisition directory, drain read leases, acquire exact Done receipt, retire root registration, then release session after last restoration debt",
+      "status": "proposed stable registry and closed admission required"
+    },
+    {
+      "key": "execution-owner",
+      "anchor": "c_intf.c:6511-6533; mem.c:1487-1497,1647-1648",
+      "actionName": "reserve",
+      "lemmaName": "reserveSafe",
+      "guardName": "s.p[i]==0",
+      "duty": "Reserve no-GC stable slot and protect input under caller root fence before any marker allocation; failure retains caller ownership",
+      "status": "new caller-root to guard-root handoff"
+    },
+    {
+      "key": "root-publication",
+      "anchor": "mem.c:306,723-739,3969-3987,6845-6849",
+      "actionName": "publishGuard",
+      "lemmaName": "registerBeforePublish",
+      "guardName": "s.registered[i]",
+      "duty": "Publish immutable descriptor only after VM-wide scanned mutable root slots are registered; nonzero processor cannot assume current RC list provides coverage",
+      "status": "VM root scanning adapter remains open"
+    },
+    {
+      "key": "storage-commit",
+      "anchor": "setup.c:781-804; mem.c:684-699; _kernel.scm:1020-1065",
+      "actionName": "retireVm",
+      "lemmaName": "vmExcludesHandles",
+      "guardName": "not(A.exists",
+      "duty": "VM cleanup excludes live guards, exported continuation handles and invocation leases; storage and old-roster duties remain parent obligations",
+      "status": "source and native shutdown closure open"
+    },
+    {
+      "key": "marker-acquire",
+      "anchor": "c_intf.c:6524-6546; mem.c:1647-1684,1778-1814; os_dyn.c:744-787,1056-1059",
+      "actionName": "allocateSuccess",
+      "lemmaName": "acquiredIsNotFailure",
+      "guardName": "s.published[i]",
+      "duty": "Reload relocated proc from registered root; publish fully initialized marker with one still reference without another safepoint; allocation failure owns no marker",
+      "status": "marker construction API must change"
+    },
+    {
+      "key": "abnormal-takeover",
+      "anchor": "setup.c:3384-3418; gambit.h.in:9981-9988,10043-10059",
+      "actionName": "claimCleanup",
+      "lemmaName": "claimInstallsExecutor",
+      "guardName": "s.executor[i]==-1",
+      "duty": "Normal tail and admitted exceptional custodian compete for same generation-aware cleanup state; winner pins session and owns nonabandonable cleanup segment",
+      "status": "foreign skips outside admitted catcher remain rejected"
+    },
+    {
+      "key": "single-drop",
+      "anchor": "c_intf.c:6555-6562; mem.c:1447-1467",
+      "actionName": "dropStill",
+      "lemmaName": "oneDrop",
+      "guardName": "s.drops[i]==0",
+      "duty": "Invalidate marker then decrement exactly one owned still reference; no reentry, GC, native throw or executor takeover in this segment",
+      "status": "unknown in-progress state cannot be retried"
+    },
+    {
+      "key": "completion-receipt",
+      "anchor": "gambit.h.in:10376-10398; _ptree2.scm:2902-3012",
+      "actionName": "publishDone",
+      "lemmaName": "finishKeepsRoots",
+      "guardName": "not(s.debt[i])",
+      "duty": "Publish Done only after cleanup and restoration complete; query lost acknowledgement using exact activation and settlement identities; do not replay kill",
+      "status": "root/session retirement remains separate"
+    }
+  ],
+  "gain": [
+    {
+      "key": "complete-marker-custody",
+      "avoided": "Prevent lost or duplicate decrement on accepted normal and abnormal exits",
+      "added": "One guard plus mutable root-slot registration per active activation and generation-aware settlement",
+      "condition": "Safety is conditional on no-abandonment cleanup and complete exceptional landing coverage"
+    },
+    {
+      "key": "registration-sharing",
+      "avoided": "Amortize reserved slab and scanned root-domain setup across necessary service components",
+      "added": "Still one per-activation slot lifecycle, publication, cleanup claim and receipt; bounded pool exhaustion must reject before allocation",
+      "condition": "Shared support saves setup duplication only; O(A+H+I+R+T) metadata and retained unresolved roots remain"
+    },
+    {
+      "key": "retire-duplicate-tail-policy",
+      "avoided": "Replace separate normal/abnormal marker ownership policy with one generated guard description",
+      "added": "Keep existing conversion cleanup and semantic catcher/fp/PSR0 restore duties",
+      "condition": "Old kill sites retire only after every path routes through same marker token; no double accounting"
+    },
+    {
+      "key": "modern-c-net-benefit",
+      "avoided": "Reuse Scheme emitter, C ABI and existing still/scanning semantics",
+      "added": "C11 publication, GC adapter, generation directory and no-abandonment qualification are necessary in C and Zig",
+      "condition": "Positive work balance requires actually removed repeated support or setup cost to exceed added checks; Zig-specific savings unproved"
+    }
+  ],
+  "gate": [
+    {
+      "key": "gc-root-domain",
+      "qualified": false,
+      "duty": "VM-wide roots are scanned on every relevant processor and updated under moving GC before next use; existing RC registration is not this proof"
+    },
+    {
+      "key": "no-abandonment",
+      "qualified": false,
+      "duty": "No allocation, safepoint, callback, native throw, cancellation or asynchronous longjmp between still decrement and Done publication"
+    },
+    {
+      "key": "all-escape-coverage",
+      "qualified": false,
+      "duty": "All normal, exceptional, converted and native/foreign exits reach a custodian; marker slot acquisition/result cannot be lost"
+    },
+    {
+      "key": "retirement-directory",
+      "qualified": false,
+      "duty": "Closed generation-aware admission, drained readers, stable tombstone and no-wrap identity before slot or VM storage reuse"
+    },
+    {
+      "key": "continuation-session",
+      "qualified": false,
+      "duty": "Fresh invocation roots and current processor acquired independently; exported handle retirement and parent roster/storage duties qualified"
+    },
+    {
+      "key": "c11-refinement",
+      "qualified": false,
+      "duty": "C11 release/acquire reads-from and atomic CAS orders, mutable root synchronization and collector exclusion proved against implementation"
+    },
+    {
+      "key": "darwin-native",
+      "qualified": false,
+      "duty": "Only declared SDK profile and literal macro parity; effective argv, SMP object and inherited host attestation remain unresolved"
+    }
+  ],
+  "profile": [
+    {
+      "key": "installed-darwin-source",
+      "driver": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/bin/gambuild-C",
+      "header": "/opt/homebrew/Cellar/gerbil-scheme@0.19/0.19.20261009110849.1cfb032.patch618d76f9eb72/1cfb032/include/gambit.h",
+      "compiler": "/opt/homebrew/bin/gcc-16",
+      "declaredMode": "C; SINGLE_HOST; INLINE_JUMPS; TRUST_C_TCO; header default SINGLE_THREADED_VMS",
+      "macroParity": "Nine literal macro spans match template; effective branch and object relation remain open",
+      "sourceMatch": false,
+      "status": "static installed declarations; no effective argv or SMP object match"
+    }
+  ],
+  "edge": {
+    "0": {
+      "dependent.key": "root-publication",
+      "prerequisite.key": "execution-owner",
+      "reason": "Caller-root fence and stable slot precede root-domain publication"
+    },
+    "1": {
+      "dependent.key": "marker-acquire",
+      "prerequisite.key": "root-publication",
+      "reason": "No allocating marker construction before scanned root publication"
+    },
+    "2": {
+      "dependent.key": "abnormal-takeover",
+      "prerequisite.key": "marker-acquire",
+      "reason": "Acquisition outcome is recorded before cleanup ownership is selected"
+    },
+    "3": {
+      "dependent.key": "single-drop",
+      "prerequisite.key": "abnormal-takeover",
+      "reason": "One cleanup winner exclusively owns non-idempotent decrement"
+    },
+    "4": {
+      "dependent.key": "completion-receipt",
+      "prerequisite.key": "single-drop",
+      "reason": "Done follows recorded cleanup progress and caller restoration"
+    },
+    "5": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "completion-receipt",
+      "reason": "Root retirement follows exact completion receipt and reader drain"
+    },
+    "6": {
+      "dependent.key": "storage-commit",
+      "prerequisite.key": "derived-credit",
+      "reason": "VM retirement excludes live native guard registrations"
+    },
+    "7": {
+      "dependent.key": "abnormal-takeover",
+      "prerequisite.key": "root-publication",
+      "reason": "Exceptional custodian reads registered descriptor through acquire"
+    },
+    "8": {
+      "dependent.key": "completion-receipt",
+      "prerequisite.key": "abnormal-takeover",
+      "reason": "Only the same pinned executor can finalize Done"
+    },
+    "9": {
+      "dependent.key": "derived-credit",
+      "prerequisite.key": "root-publication",
+      "reason": "Root directory remains live through closed acquisition and quiescence"
+    }
+  },
+  "need": {
+    "history": {
+      "obligationId": "SGS-H",
+      "kind": "interleaving",
+      "subjectPath": "models/build/stable_guard_settlement.qnt",
+      "subjectScope": "safe: registration, allocation outcome, relocated roots, cleanup claim, one still decrement, unknown receipt, nested and multi-shot custody",
+      "owner.componentId": "build-planner"
+    },
+    "induction": {
+      "obligationId": "SGS-I",
+      "kind": "induction",
+      "subjectPath": "models/build/StableGuardSettlement.lean",
+      "subjectScope": "guard root/owner and one-drop invariant preserved along guarded traces; failure, unknown acknowledgement and publication identity obligations",
+      "owner.componentId": "build-planner"
+    },
+    "source": {
+      "obligationId": "SGS-S",
+      "kind": "source-refinement",
+      "subjectPath": "dev/architecture/toolchain/stable-guard-settlement-design.org",
+      "subjectScope": "current marker allocator, still reference decrement, per-processor RC and scanner consumers; proposed stable guard/root integration",
+      "owner.componentId": "build-planner"
+    },
+    "platform": {
+      "obligationId": "SGS-E",
+      "kind": "environment-refinement",
+      "subjectPath": "dev/architecture/toolchain/stable-guard-settlement-design.org",
+      "subjectScope": "C11 publication, cleanup exclusion, root retirement and effective Darwin/generated SMP artifact refinement",
+      "owner.componentId": "build-planner"
+    }
+  },
+  "dependency": {
+    "0": {
+      "dependent.obligationId": "SGS-S",
+      "prerequisite.obligationId": "SGS-H"
+    },
+    "1": {
+      "dependent.obligationId": "SGS-S",
+      "prerequisite.obligationId": "SGS-I"
+    },
+    "2": {
+      "dependent.obligationId": "SGS-S",
+      "prerequisite.obligationId": "SGS-E"
+    },
+    "3": {
+      "dependent.obligationId": "SGS-S",
+      "prerequisite.obligationId": "OCL-S"
+    }
+  }
+}

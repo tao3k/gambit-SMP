@@ -1,0 +1,199 @@
+#+TITLE: Stable View Issuance, Revocation and Continuation Reentry
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Separate read authority from physical custody
+:PROPERTIES:
+:ID: a66477e0-7dd0-4b13-a77d-893c55784b6d
+:CUSTOM_ID: stable-view-lifecycle-design
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitStableView; GambitAssuranceRelations
+:STATUS: conditional-ledger-concrete-issuer-open
+:EVIDENCE_CLASS: source-and-standalone-kernel
+:DEPENDS_ON: BF-BUILD-CUT; ROOT-HANDOFF; CONTROL-ORIGIN; RETIRE-WINDOW
+:END:
+
+Modern generated C is the required engineering direction. Scheme owns
+continuation, dynamic environment, metadata, reader/writer and exception
+semantics. A native lifetime ledger must cooperate with these semantics;
+ordinary stack return or a C cleanup suffix cannot replace them.
+
+[[file:models/sysml/stable-view.sysml][Owned SysML]] defines the issuance/release/resume requirements, eight duties
+and nine transition mappings. [[file:stable-view-map.org][The evidence and transition matrix]] and
+[[file:diagrams/stable-view.svg][lifecycle D2]] derive from it. [[file:../../modeling/models/sysml/assurance.sysml][Assurance SysML]] binds the existing
+[[file:../../../models/build/incremental_build.qnt][QNT]] and [[file:../../../models/build/IncrementalBuild.lean][Lean]] sources; no second runtime root registry is added.
+The existing [[file:../../modeling/correspondence.org::#root-handoff][ROOT-HANDOFF]], [[file:../../modeling/correspondence.org::#control-origin][CONTROL-ORIGIN]] and [[file:../../modeling/correspondence.org::#retire-window][RETIRE-WINDOW]] remain
+shared dependencies with their existing open refinement boundaries.
+
+* RESEARCH Identity and custody records
+:PROPERTIES:
+:CUSTOM_ID: stable-view-records
+:END:
+
+The concrete identity must include issuer domain/VM/context, acquisition,
+issuer generation, dynamic entry, writer-set epoch, payload epoch and the
+qualified source read set. The new formal ledger is scoped to one issuer:
+its Nat identities do not prove an injective mapping of actual VM/owner tuples.
+Finite native counters need wrap refusal or a separately proved no-ABA policy.
+
+#+NAME: stable-view-record-matrix
+| Record | Purpose | Lifetime rule |
+|---+---+---|
+| Issuer ledger | Current generation, entry, writer/content epochs and qualification state | Owned mutable state outside the continuation-restored parameter payload |
+| Read token | Permission to read the particular captured view | Every identity and guard must still match; revocation invalidates permission |
+| Read pin | Prevent conflicting source mutation/reclamation during a bounded source-read section | Returned only after the last actual source read and interior-pointer use |
+| Acquisition cleanup ticket | Custodian of roots, partial buffers, ports and handoff obligations | Bound to acquisition identity; survives read-token revocation |
+| Owned result | Independent immutable content with accepted destination custody | Source roots may be released after complete transfer; origin/currentness remains separate |
+| Resume intent | Reenter the Scheme computation | Requests new authority; captured token is not a grant |
+
+A stale read token cannot issue a read, but it may still name the acquisition
+whose cleanup must finish. Comparing cleanup solely against the newly advanced
+read generation would lose that responsibility. Conversely, a late cleanup
+callback for an older acquisition cannot clear a newer acquisition's debt.
+
+* RESEARCH Issuance, revocation and drain cuts
+:PROPERTIES:
+:CUSTOM_ID: stable-view-issuance-protocol
+:END:
+
+[[file:script-line-reflection-design.org][The actual script-line chain]] captures a shallow association list and later
+reads retained strings during both Scheme writing and C-string emission. The
+new protocol governs these real reads rather than declaring the list frozen.
+
+#+NAME: stable-view-protocol-summary
+| Step | Guard / transition | Failure responsibility |
+|---+---+---|
+| Acquire | Bind exact captured objects, actual writer/provider manifest and input identity; protect acquisition itself | Partial copy, roots and resources stay with the acquiring owner |
+| Issue | Serialized writer ingress, no conflicting writer, qualified roots, protected read pins and no unsettled acquisition | Any missing witness denies the managed credential |
+| Read | Token identity and current guard checked before the actual load or resumed read section | Stale token refuses observation; it does not authorize a speculative racy C load |
+| Revoke | Advance read generation before admitting conflicting stores | Keep pins, roots and acquisition cleanup debt |
+| Return pin | No remaining load or raw/interior pointer use in that section | Other pins and physical cleanup remain outstanding |
+| Acknowledge cleanup | Pins drained and actual resource/root handoff completion established for this acquisition | Error or unknown completion remains owned/pending |
+| Resume | Old acquisition settled; fresh entry/generation/acquisition, fresh root coverage and current qualification | Restored old token never regains permission |
+
+Revocation is not reclamation. In particular, a writer must not race a C load
+and rely on a later epoch mismatch to make it safe. The actual implementation
+needs a qualified synchronization/ownership relation. The logical gate does not
+supply C atomicity or memory ordering. Native failure, cancellation and scheduler
+migration cannot bypass that relation.
+
+The QNT legal-step projection models a single active borrow with a read pin,
+pre-issue acquisition failure, revocation, pin return, acquisition-scoped cleanup acknowledgement and reentry.
+Unknown writer ingress invalidates allWriters and has no automatic requalification
+path. rootGrant and cleanupAck denote independently established evidence; neither
+is proof of real GC scanning or successful I/O. Owned-result transfer and liveness
+are additional refinement obligations, not completed behavior in this projection.
+
+* RESEARCH Dynamic writers, aliases and FFI admission
+:PROPERTIES:
+:CUSTOM_ID: stable-view-provider-admission
+:END:
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1437][Compilation metadata mutation]], [[file:../../../vendor/gambit/lib/_eval#.scm::256][context vector replacement]],
+[[file:../../../vendor/gambit/lib/_std#.scm::373][generated mutation families]] and [[file:../../../vendor/gambit/include/gambit.h.in::5509][native string stores]] are different
+capabilities. A static name census cannot prove their combined closure.
+
+#+NAME: stable-view-provider-route-matrix
+| Provider / alias route | Admitted mechanism to prove | Refusal boundary |
+|---+---+---|
+| Controlled Scheme store | Generated mutation boundary covers every relevant object/field; actual read/write critical sections are serialized | Untracked alias or generated primitive bypass denies the profile |
+| Dynamic macro/eval | Effect/provider provenance extends the closed writer-set identity before observation proceeds | Unknown code does not receive a self-attested read-only flag |
+| Read-only FFI | Provider identity, no-write/no-reentry behavior and qualified root lifetime | Language syntax alone does not establish read-only native behavior |
+| Mediated native write | End/drain the source borrow before the store; reacquire/revalidate before further reads | Raw store while a pin is live is outside the legal refinement |
+| Reentrant same-owner callback | No source pin held across an uncertified callback, or an independently proved nonconflicting protocol | Do not deadlock waiting for a pin held by the callback's own suspended caller |
+| Owned-copy boundary | Protected acquisition followed by complete immutable transfer | Copying a changing string is not a stable snapshot |
+| Unsafe/unclassified provider | Existing execution remains available without managed reuse | Refuse the credential; preserve legal Scheme mutation semantics |
+
+Modern generated C can centralize store/FFI boundary descriptors and shared
+lifetime support, including contracts also needed by GC/control. Existing direct
+stores would need migration or explicit exclusion. Adding Zig does not establish
+this census, synchronize a store or register a Gambit root. No such implementation
+or store migration is added here.
+
+* RESEARCH Continuation entry is not ordinary stack resumption
+:PROPERTIES:
+:CUSTOM_ID: stable-view-continuation-entry
+:END:
+
+[[file:../../../vendor/gambit/lib/_thread.scm::4794][##dynamic-wind]] calls before, constructs a dynamic-wind record, executes the
+body, then calls after on normal return. [[file:../../../vendor/gambit/lib/_thread.scm::4914][Continuation winding]] invokes after
+on exited extents and before on entered extents. [[file:../../../vendor/gambit/lib/_thread.scm::5047][Continuation return]] has a
+same-extent fast path that continues without winding. [[file:../../../vendor/gambit/lib/_thread.scm::322][parameterize1]] also
+selects specialized dynamic binding for genuine parameters rather than always
+using the generic before/after wrapper.
+
+Therefore a token placed in captured dynamic parameters can be restored while
+its external issuer ledger has advanced. Reentry must consult that issuer and
+obtain fresh authority. Even equal payload bytes do not make the old acquisition
+current. Same-extent continuation jumps also require the actual read guard;
+correctness cannot depend exclusively on before being called again.
+
+Before can allocate or fail before its new wind record is installed. Partial
+acquisition needs an enclosing owner/guard that can retain and settle it; the
+body's after hook cannot be assumed to clean a failed before. An after hook can
+also raise, reenter or suspend, so initiating release is not acknowledging drain.
+Multi-shot entries must not share exclusive mutable borrow state or replay native
+cleanup effects. The ledger's idempotent acknowledgement concerns bookkeeping,
+not permission to call close/free twice.
+
+[[https://small.r7rs.org/attachment/r7rs.pdf][R7RS section 6.10]] specifies before/after on dynamic-extent entry/exit and
+leaves continuation entry/exit into before/after itself unspecified. Gambit's
+extension behavior and actual hook/provider composition need separate proof.
+The profile can refuse an unqualified observation while retaining ordinary
+language execution; it must not silently alter Scheme continuation semantics.
+
+* RESEARCH Actual readback and exceptional cleanup refinement
+:PROPERTIES:
+:CUSTOM_ID: stable-view-concrete-refinement
+:END:
+
+[[file:../../../vendor/gambit/lib/_io.scm::11435][Escaped-string writing]] and [[file:../../../vendor/gambit/lib/_io.scm::13828][escaped-string reading]] need actual content,
+readtable and port identities. [[file:../../../vendor/gambit/gsc/_t-c-1.scm::880][The generated record reader]] consumes one datum
+prefix before the C suffix; mathematical whole-wire decoding is not a whole-C-file
+EOF requirement. [[file:../../../vendor/gambit/gsc/_utils.scm::426][Compiler continuation-abort handling]] and normal input/output
+close suffixes do not establish arbitrary-exception resource drain.
+
+#+NAME: stable-view-refinement-obligations
+| Actual operation | Required model correspondence | Still missing |
+|---+---+---|
+| Metadata selection/copy | Actual captured read set and scalar content refine acquisition | Alias/provider closure, race-free copy and input stability |
+| Root/register/frame access | Existing ROOT-HANDOFF grant covers every live temporary/read | Actual nonzero RC scanner and all GC-capable callback coverage |
+| Source load / store | Readable token and pin protect load; admitted store occurs after drain | Concrete C memory ordering and complete store mediation |
+| Wind / same-extent jump | Fresh entry or current per-read guard; no restored stale authority | Full Scheme control simulation, hook exceptions and multi-shot ownership |
+| Text write/read | One governed view maps to actual consumed record and content | Full lexical/port inverse and exceptional I/O outcomes |
+| Close/free/handoff | Actual completion maps to the right acquisition acknowledgement | Unknown completion, late callbacks, native effect and final-user census |
+| Linker observation | Complete result/exception/diagnostic/effect/custody projection | Real factorization and selected safety-property reflection |
+
+An unknown close result remains unknown. Blindly retrying a numeric fd after
+reuse can close an unrelated resource. Likewise, treating a thrown condition as
+successful cleanup can authorize early root release. These are design-negative
+histories, not claims of observed failures in the configured native runtime.
+
+* ESTABLISHED Conditional proof scope and benefit
+:PROPERTIES:
+:CUSTOM_ID: stable-view-proof-benefit
+:EVIDENCE_CLASS: mathematical-model-only
+:END:
+
+The standalone Lean source now has 82 statements, including 12 new lifecycle
+results and two development-work inequalities. The previous 68 theorem bodies
+remain unchanged. Ten QNT modules typecheck; no exploration or native refinement
+is claimed. The retained first Lean failure and corrected checks are in
+[[file:../../../evidence/research/script-view-lifecycle-darwin/checks.json][the receipt]]. New source branches and model requirements do not close any
+previously open runtime contract.
+
+#+NAME: stable-view-benefit-matrix
+| Mechanism | Avoided / enabled work | Mandatory cost and positive condition |
+|---+---+---|
+| Separate read token and cleanup acquisition | Prevent duplicate ownership and stale callback corruption | Identity ledger, pins and trusted completion; no native exactly-once proof yet |
+| Fresh continuation entry | Reuse construction code without reviving old state | Root reacquisition, epoch validation and multi-shot support where admitted |
+| Owned immutable transfer | End long-lived source borrow and pointer reloads | Stable acquisition/copy must cost less than retained coordination or avoided work |
+| Governed store/FFI contract | Share support across necessary modern C services | Migrate every applicable direct path or refuse the profile; Zig does not remove this work |
+| Scoped dependencies | Avoid revalidating unrelated cells after proven noninterference | Actual read-set/alias refinement and current-input checks remain |
+| Developer latency integration | Stop a correctness layer becoming another startup tax | Charge all issuer, hashing, copy, cleanup and retry work in [[file:macos-development-design.org][the Darwin development matrix]] |
+
+No runtime/build implementation, original GSC invocation, native test, performance
+measurement or old-path retirement is performed. SysML remains the organization
+source; Org/D2/ASCENT are derived associations, not acceptance authority.

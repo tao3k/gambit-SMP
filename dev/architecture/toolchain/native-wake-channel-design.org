@@ -1,0 +1,289 @@
+#+TITLE: Native Wake Channel: Durable Requests, Endpoint Pins and Old-Roster Progress
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+OPTIONS: toc:3 num:nil
+
+* RESEARCH Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: native-wake-channel
+:STATUS: conditional-models-source-open
+:CANONICAL_MODEL: models/sysml/native-wake-channel.sysml
+:END:
+
+Modern C is the required direction. Reconstruct the notification protocol around
+three distinct facts: semantic request acceptance, delivery responsibility and
+owner participation. Pipe bytes establish none of these alone. Extend the frozen
+[[file:device-cleanup-wait-design.org][device cursor/WaitContext study]] with generation-pinned channel lifetime,
+classified native returns, signal ingress and a conditional progress fallback.
+No runtime implementation, native test, compiler build or performance experiment
+is included. SysML owns eight contracts, ten dependencies, seven open gates and
+four benefit rows. Python queries native SysML and derives Org/D2; ASCENT checks
+actual action/lemma/source/dependency bindings and subject hashes/scopes.
+
+* RESEARCH Actual source paths
+:PROPERTIES:
+:CUSTOM_ID: native-wake-source
+:END:
+
+| Producer or lifecycle seam | Source anchor | Established fact | Remaining duty |
+|-
+| Generic interrupt | setup.c:66–106 | Sets interrupt bit, tests masking, trips stack, barrier, then abort notification | Concurrent flag/mask accesses and PSTATE lifetime |
+| Global VM routing | setup.c:110–136 | Walks VM list; disabled mutex block explicitly mentions recursive-lock deadlock investigation | Signal-safe VM routing and membership lifetime; no assumption a new mutex is universally legal |
+| GC/sync requests | setup.c:1143–1149; mem.c:7071 | Collective request raises interrupt; GC raises completion interrupt | Selected request/result and real roster protocol |
+| High/procedural interrupt | setup.c:255–283,392 | Publishes queue work then raises OTHER | Queue custody and semantic payload roots are separate from pipe byte |
+| Direct scheduler abort | _kernel.scm:4529; _thread.scm:2548–2562 | Gets processor by id and calls device_select_abort directly | Direct wake can have no new semantic task; audit both routed and raw callers |
+| POSIX sender | os_io.c:1532–1553 | Writes one byte and ignores return; Win32 uses SetEvent separately | Full, EINTR, hard and unknown returns need classification |
+| POSIX consumer | os_io.c:1472–1528 | Reads chunks, retries read EINTR, stops at EAGAIN/short read, checks device readiness, then may return EINTR | Request recheck and sync-op dispatch after native return |
+| Endpoint creation | os_setup.c:424–464; os.h:215–227; os_io.c:11780–11784 | pipe or socketpair selected; descriptors set nonblocking during PSTATE I/O setup | Exact native selected configuration; initialization rollback and alias closure |
+| Endpoint destruction | os_setup.c:468–486; os_io.c:11808–11828 | close helper then fd=-1; no generation or in-flight lease is visible in this helper | Whole-syscall pin and staged destruction; unknown close retains generation |
+| Current flag representation | gambit.h.in:8490–8505,11014–11082,11655–11657 | Volatile flags, ordinary mask fields, platform barrier/builtin/emulated paths | This is not itself an ISO C atomics/data-race proof |
+| Signal producers | os_setup.c:3037–3056,3188–3192; os_time.c:987–996; os_tty.c:8700–8713 | Heartbeat/TTY handlers reach runtime interrupt callbacks | Signal lane cannot acquire ordinary lifecycle mutex or allocate a pin dynamically |
+
+The source census records textual call sites and guarded bodies. It is not proof
+of all exported/FFI aliases, active Darwin features or a native reproducible bug.
+Existing reads of masks and flags must be audited with all writers; upgrading one
+store to an atomic through a cast while leaving conflicting ordinary accesses is
+not an admissible migration.
+
+* RESEARCH Outcome and custody matrix
+:PROPERTIES:
+:CUSTOM_ID: native-wake-outcomes
+:END:
+
+Use a generation-bound NotificationRight, separate from RequestId and its semantic
+payload. Producer publication reserves responsibility before native notification.
+No retry may republish the semantic request. Multiple bytes, duplicate wakeups or
+coalesced heartbeat bits are not duplicate execution authority.
+
+| Native observation | Delivery interpretation | Custodian and permitted continuation |
+|-
+| write returns exactly one | Level token was deposited at that instant | Retire producer pin only after channel accepts responsibility; owner still checks semantic pending state |
+| EAGAIN/EWOULDBLOCK on qualified full pipe/socketpair | Coalescing witness, not one token per request | Require both endpoints pinned, unique drain ownership and mandatory post-drain recheck; otherwise retain producer responsibility |
+| EINTR with classified no-transfer result | No successful delivery receipt | Keep generation pin and notification identity; retry same byte under profile or transfer to rescue record |
+| Zero/short/unexpected count, hard failure or unobservable outcome | No reliable success inference | Keep request and producer/rescue custody; wake via independent qualified fallback, not a fabricated success |
+| EPIPE / EBADF | Channel lifetime/configuration fault or uncovered alias | Retain VM dependencies; do not retry numeric fd after unpin; settle SIGPIPE behavior in profile before admitting this path |
+| Consumer read EINTR | Drain incomplete | Retry/reconcile under the pinned owner; pending ledger unchanged |
+| Consumer read EAGAIN/short read | May finish this drain pass | Always check durable requests before next sleep; short read does not prove nobody can write later |
+| Close returns unknown | Endpoint retirement unknown | Quarantine this generation and backing services; no generation reuse or unconditional close replay |
+
+A full-pipe return can race with the owner draining before the sender observes it.
+That is safe only because the owner has already returned to its serialized
+recheck path. It cannot drain then re-enter an unchecked sleep. A later producer
+is either observed at recheck or leaves another wake obligation. Only the pinned
+channel profile may infer that full implies existing readable data. The finite
+model abstracts saturation as one level token, not a measured kernel capacity.
+
+The actual backend may be socketpair rather than pipe. Its flow-control and error
+profile must be bound separately; a generic byte stream cannot borrow pipe-only
+atomicity assumptions. A one-byte success is a count, not application request
+identity. Preserve errno in the signal adapter and avoid arbitrary logging,
+allocation or Scheme callbacks from its error path.
+
+* RESEARCH Generation pin and close state machine
+:PROPERTIES:
+:CUSTOM_ID: native-wake-generation
+:END:
+
+EndpointRecord contains immutable generation and endpoint identity, descriptor
+pair and backend profile, OPEN/CLOSING/CLOSED/QUARANTINED state, producer pins,
+wait/scanner leases, signal-generation lifetime authority, pending delivery/rescue
+records and close journal identity. Raw fd number is never the authority token.
+
+Thread admission acquires the registry/lifecycle gate G, resolves the live record,
+checks generation and OPEN state, increments its pin, and captures descriptors
+before unlocking. The record itself must be protected by the registry during
+lookup: loading a pointer then incrementing a possibly freed refcount is invalid.
+The pin spans syscall entry, native return classification and notification
+responsibility transfer. Generation comparison alone cannot close the interval
+between comparison and write. Both descriptor endpoints remain alive while any
+writer/wait user is admitted; keeping only the write end alive does not prevent
+reader disappearance and SIGPIPE.
+
+Close withdraws public thread admission under G and changes to CLOSING. Already
+pinned producers can publish/settle their accepted work. New requests are rejected
+or rerouted by an explicit semantic owner before acceptance; no silent drop.
+The old roster and abort channel remain available. Stop signal routing, establish
+all required signal/handler grace receipts, drain producer and wait pins and all
+semantic delivery debt, then accept the prior roster retirement receipt. Only
+then close descriptors. A close uncertainty keeps an external/native debt and
+prevents generation reuse. A new generation can reuse a numeric fd only after the
+old lifetime is known retired and every old handle rejects new admission.
+
+Native aliases (dup, external close, process inheritance and raw PSTATE exports)
+can bypass this authority. They must be enrolled or forbidden for managed
+endpoints. The existing helper's fd=-1 stores do not establish alias closure or
+prevent a racing syscall using a captured old integer. Unknown aliases remain an
+explicit admission gap.
+
+* RESEARCH Memory-order design and signal boundary
+:PROPERTIES:
+:CUSTOM_ID: native-wake-memory-order
+:END:
+
+** Thread lane: use one control gate before weakening orders
+| State | Publication / consumption rule | QNT abstraction |
+|-
+| Registry pointer, life, generation and pin counts | G protects lookup/pin/withdraw/close; no close while pinned | acquire, startClose, closeEndpoints |
+| Accepted request identity and payload handle | Initialize payload/root, commit durable ledger under G; consumer reads under same gate | publish, dispatch |
+| Owner arm, recheck and drain responsibility | Same G serializes eligibility and request inspection; no lock held across select/syscall/GC | arm, block, drain, recheckAfterLoop |
+| Queue nodes shared outside G | Explicit release publication and acquire consumption that reads its publication; retire through lease/grace protocol | Separate source refinement, not kernel wake bytes |
+| Signal ingress atomic flags | Separate preallocated lock-free contract and generation lifetime; no mixed ordinary accesses | beginSignal/endSignal with external route/quiescence premises |
+
+An unlock/lock synchronization edge and matching atomic publication make payload
+visibility explicit. A system call, volatile field or standalone barrier does not
+substitute for all required C object synchronization. Release/acquire operations
+on different flags can both read old values without synchronizing. A proposed
+lock-free arm/pending optimization therefore needs a separate proof; it is not
+obtained by replacing every store with release and every load with acquire.
+The Lean SC-order lemma rules out the double-miss cycle under its total-order
+premises, not under arbitrary release/acquire or the current source macros.
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570, 5.1.2.4, 7.14.1.1 and 7.17]] supplies the language constraints.
+The QNT models serialized control transitions, not C weak memory. Full C refinement
+and a DRF argument across interrupt masks, root cells and retirement remain open.
+
+** Signal lane: lifetime-prepinned, separately qualified
+Actual heartbeat and TTY signal paths prevent replacing every sender with G.
+A signal handler may interrupt a thread already holding G. Give the handler a
+prepublished, immutable endpoint route whose generation remains pinned for the
+entire route epoch. It may set only qualified lock-free/coalescing ingress state
+and attempt bounded signal-safe notification. It does not walk mutable VM lists,
+allocate request nodes, take ordinary mutexes, call Scheme, wait for GC or perform
+cleanup. Do not silently change a coalescing interrupt reason into counted events,
+or vice versa. Ordinary code merges ingress into the durable semantic ledger.
+
+On notification failure the preallocated failure flag remains with the route
+custodian; the owner observes it through the qualified finite-wait fallback.
+No unbounded EINTR retry loop is required inside the handler. Exact operations
+and lock-free representation are platform/ABI obligations. sig_atomic_t alone is
+not a general cross-thread root/queue synchronization design.
+
+Closing thread ingress is insufficient. Stop every source route, account for
+queued and active handlers on every relevant OS thread, then retire its immutable
+route and static pin. Blocking a signal on one thread or changing its disposition
+is not by itself an all-handler grace receipt. The model separates signal ingress
+withdrawal, active-handler exit and quiescence; it assumes the platform implements
+those cuts. It does not prove all-thread routing, signal delivery or VM-list safety.
+
+* RESEARCH No loss, detection and old-roster progress are different claims
+:PROPERTIES:
+:CUSTOM_ID: native-wake-progress
+:END:
+
+Safety: every accepted semantic request remains in a rooted ledger until its
+actual selected operation is acknowledged; notification failure retains a producer,
+channel or rescue custodian. Generation reuse cannot erase that debt.
+
+Detection: a pending request must reach an active owner. A producer retry right
+alone does not guarantee progress if it is never scheduled. Under native hard
+failure, an infinite OS wait cannot be admitted merely because pending memory
+still exists. This design qualifies finite native waits with an absolute monotonic
+recheck bound T. On expiration the owner returns, acquires G and inspects durable
+requests even if the channel never delivered a byte. Spurious wake/EINTR does not
+restart an unbounded deadline. An alternative independent reliable wake transport
+would need its own lifetime/failure proof and is not assumed here.
+
+The bound is conditional: detection ≤ T + OS/scheduling delay + return/recheck work.
+It is neither a measured latency nor a bound on arbitrary OS failure. QNT uses two
+abstract timer ticks; Lean proves deadline arithmetic. Neither proves wall-clock
+progress. An infinite profile with arbitrary failed signal and no fallback is
+preserved as a negative control, not declared supported.
+
+Participation: native return must retire scratch borrow, publish relocating roots,
+enter actual service_sync_op and keep both old members alive. Snapshot acknowledgement
+settles only the requests in that selected round. Another producer arriving during
+the collective remains pending for the next round. Sync-op reset/NOOP/tree rules
+and resize priority remain the prior source contract. Pending memory and a wake
+byte do not let an independent worker impersonate an old member.
+
+Producer pins prevent endpoint retirement, not GC progress: producers must not
+hold G, wait for receiver acknowledgement while withholding a required GC role,
+or leave Scheme payloads unscannable. GC can proceed while native endpoint pins
+remain, provided their payload root adapters and old-roster participants are ready.
+This avoids the cycle: collector waits for old member, member waits for delivery,
+closer waits for pin, producer waits for collector. Unknown join, foreign cleanup
+children, RC/still transfer and whole-VM quarantine constraints remain inherited.
+
+* RESEARCH Conditional models and evidence chain
+:PROPERTIES:
+:CUSTOM_ID: native-wake-models
+:END:
+
+[[file:../../../models/build/native_wake_channel.qnt][QNT]] models two thread producers, one lifetime-prepinned signal publication,
+one generation with one possible reuse, a level-token channel, deadline ticks,
+old two-member participation and known/unknown close. Positive histories include
+full→drain-before-sender-retire, EINTR retry, hard-failure fallback, late request
+after drain/during collective, pinned producer during close, signal in flight
+while routing closes, unknown close and stale handle rejection. Negative controls
+remove pin, token, request custodian, member or signal fence, or force premature
+close/reuse/exit. They are contract counterexamples, not observed native failures.
+
+The set ledger preserves each abstract request identity; source interrupt bits can
+coalesce equivalent reasons, while queued work must retain its own semantic IDs.
+Full concrete request selection/combining is not modeled. The model's served set
+means selected-operation completion, not merely reading bytes. Tick/dispatch
+fairness and OS timeout semantics are premises, not established liveness. Signal
+start/end and route withdrawal are logical cuts; their real signal-safe implementation
+and nested handler coverage remain unresolved. Kernel byte buffering, fd reuse and
+C weak-memory execution are abstracted, not emulated.
+
+[[file:../../../models/build/NativeWakeChannel.lean][Lean]] proves notification debt transition preservation, failure custody, pinned
+close rejection, stale generation rejection, drain preserving request state, SC
+order-cycle exclusion and conditional deadline/boundary lemmas. It also supplies
+a witness that wake custody alone does not imply eventual service. This is not
+whole-QNT induction or a forward simulation of Gambit C or Darwin syscalls.
+
+[[file:../../modeling/ascent/native-wake-channel.rules.scm][Actual ASCENT DSL]] routes SysML obligations by kind, digest and scope; joins
+eight contract action/lemma/source bindings and ten contract dependency edges;
+checks four frozen prior invariants; rejects stale scope/hash, missing step,
+component/prior mapping and open-parent scenarios. Only synthetic complete evidence
+is a candidate; real source/platform receipts are absent. All seven gates remain
+open. Frozen prior models are hash-checked and not rerun or rewritten.
+
+* RESEARCH Benefits, added work and retirement cuts
+:PROPERTIES:
+:CUSTOM_ID: native-wake-benefits
+:END:
+
+[[file:native-wake-channel-matrix.org][The canonical matrix]] reports architectural work bounds. For N semantic requests,
+a full channel may require zero additional notification bytes; it does not remove
+N semantic obligations. With P producers, W waiting owners and S signal routes,
+control storage is O(P+W+S), plus queued semantic payloads and retained roots.
+Pin/publication/return classification are constant logical work per transition;
+actual lock contention, select scratch, root scans and timer wakeups remain costs.
+For K idle waits, periodic fallback can add approximately K/T wake attempts per
+unit time before scheduling effects; T is a policy parameter, not a tuned result.
+
+Modern C supports the required structs, tagged outcomes, synchronization gates
+and generated wrappers. Zig cannot eliminate signal safety, root schemas, lease
+retirement or progress assumptions. No positive incremental Zig benefit or numeric
+speedup is established. Positive net work benefit requires avoided duplicate work,
+stalls and rebuild/recovery overhead to exceed gate, retry, timer and retention
+costs. Reliability admission and throughput improvement are separate judgments.
+
+Retire old paths only in dependency order:
+1. Classify every routed/direct/thread/signal producer and raw descriptor alias;
+   bind backend and endpoint lifetime before admission.
+2. Add one semantic ledger and native generation authority; generate whole-syscall
+   leases and tagged write outcomes. Retire ignored-return writes per admitted path.
+3. Add owner arm/recheck and qualified finite fallback; retain I/O readiness and
+   actual sync-op semantics. Retire byte-count-as-completion assumptions.
+4. Establish signal route epoch and all-handler grace protocol separately; do not
+   route signal callbacks through the ordinary lifecycle mutex.
+5. Gate endpoint close, processor retirement and VM/global service teardown; retire
+   raw bulk close only after every reader/writer/handler and uncertain close settles.
+No old path is removed merely because these finite checks pass.
+
+* RESEARCH Reproducibility and external evidence
+[[file:../../modeling/tools/native-wake-channel-study.py][Python driver]] invokes native SysML, local ASCENT, QNT/Lean, D2 and Org parsing;
+[[file:../../../evidence/research/native-wake-channel/checks.json][structured checks]] retain hashes and open gates. Raw diagnostics are task-cache-local;
+model authoring failures are retained separately. No Babel or native runtime test runs.
+
+Apple archived [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/write.2.html][write(2)]] lists nonblocking and interrupted/error outcomes.
+Archived [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/pipe.2.html][pipe(2)]] describes descriptor pairing, EOF and SIGPIPE on a widowed pipe.
+Archived [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/close.2.html][close(2)]] documents descriptor deletion and EINTR without supplying the
+complete current-kernel close-outcome protocol needed here. Archived
+[[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/sigaction.2.html][sigaction(2)]] lists signal-safe calls and interrupted/restarted I/O behavior;
+[[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/select.2.html][select(2)]] distinguishes timeout and error return. These are historical platform
+contracts, not current local ABI/kernel qualification. POSIX write/close pages
+returned HTTP 403 and are not treated as evidence. The standard and platform
+references constrain this design; they do not establish the missing source refinement.

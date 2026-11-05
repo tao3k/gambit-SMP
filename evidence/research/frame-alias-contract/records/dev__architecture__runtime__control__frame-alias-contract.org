@@ -1,0 +1,367 @@
+#+TITLE: Shared Frame Aliases, Logical Revisions and Moving Roots
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: control
+#+PROPERTY: header-args :eval never :tangle no
+#+STARTUP: overview
+
+[[file:../../../refactoring/modern-c/smp-factor-conditions.org][SMP factors and necessary conditions]] connects this adapter to all eight
+canonical modernization pressures and their dependency graph. Frame aliases are
+one necessary contract; the root, worker, release, capacity and native conditions
+remain separately accountable.
+
+* Decision and scope
+:PROPERTIES:
+:CUSTOM_ID: frame-alias-contract
+:AUTHORITY: GambitFrameAliasContract
+:STATUS: SOURCE-MAPPED; ADAPTER-REFINEMENT-OPEN; SMP-ACCEPTANCE-OPEN
+:COMMIT_ADMITTED: false
+:END:
+
+Modern C realizes one Scheme-generated frame/root ABI. This study refines
+=CS-BRIDGE= and =CS-WRITERS=, not another Quint scheduler or Lean image proof.
+[[file:models/sysml/frame-alias-contract.sysml][SysML]] owns ten adapter premise clauses, seventeen source witnesses, six
+necessary SMP criteria and the benefit matrix. These clauses are subordinate
+questions of the two existing source obligations, not ten new formal duties.
+
+[[file:../../../modeling/ascent/frame-alias-contract.rules.scm][ASCENT]] keeps located source, supplied refinement premises, native SMP evidence
+and submission admission distinct. The current source has neither the complete
+adapter nor qualifying native results for it. The existing QNT/Lean artifacts
+and their checked logs are reused unchanged. The LLM is the working environment.
+
+The key correction to the earlier [[file:continuation-segments.org][RestoreView design]] is its consumption scope:
+coherence is required for the fragment actually restored now. An invocation-wide
+frozen copy of the whole continuation is not a justified replacement for the
+current lazy break-handler behavior. The full continuation remains multi-shot;
+each invocation has private active frames and a rooted, not pre-snapshotted,
+unconsumed tail.
+
+* Current source chain
+#+NAME: frame-alias-witnesses
+#+BEGIN: sysml-view :kind frame-alias-witnesses :source architecture/runtime/control/models/sysml/frame-alias-contract.sysml
+| Witness | Source | Lines | Clause-or-SMP-link | Finding |
+|---+---+---+---+---|
+| shallow-copy | vendor/gambit/lib/_kernel.scm | 3612-3640 | alias-domain; copy-root-issuance | Wrapper allocation shares frame/denv and checks heap afterwards |
+| reflect-store | vendor/gambit/lib/_kernel.scm | 3435-3555 | managed-frame-store | Plain heap/stack stores use descriptor-derived coordinates |
+| wrapper-select | vendor/gambit/lib/_kernel.scm | 3153-3170 | selection-and-topology; copy-root-issuance | Frame materialization can collect; wrapper frame/denv setters are separate |
+| traversal-update | vendor/gambit/lib/_kernel.scm | 3640-3725 | selection-and-topology | next! updates wrapper selection and stack RA; copied wrappers may share tails |
+| lazy-consumer | vendor/gambit/lib/_kernel.scm | 1182-1288 | lazy-fragment-commit; exact-dependency-certificate | Break handler copies one reached caller frame from stack or heap |
+| graft-selection | vendor/gambit/include/gambit.h.in | 6659-6671 | lazy-fragment-commit; scheme-hook-reentry; selection-and-topology | Graft reads actual continuation frame/denv and installs current thread caches |
+| capture-source | vendor/gambit/include/gambit.h.in | 6594-6611 | cross-context-export; alias-domain | Capture can publish a stack-backed frame selection through a break frame |
+| heapification | vendor/gambit/lib/mem.c | 4046-4197 | relocation-projection; cross-context-export; gc-round-progress | GC copies frame payload and repairs forwarding/structural roots |
+| heap-frame-scan | vendor/gambit/lib/mem.c | 4459-4519 | relocation-projection | Ordinary slots, link and return address have distinct scan roles |
+| denv-records | vendor/gambit/lib/_thread#.scm | 742-786 | denv-and-referents | Denv, environment and dynwind data use mutable vector records |
+| deserialize-writer | vendor/gambit/lib/_system.scm | 4140-4227 | denv-and-referents; managed-frame-store | Deserializer registers shells and fills continuation/frame values recursively |
+| io-writer | vendor/gambit/lib/_io.scm | 11690-11730 | denv-and-referents; managed-frame-store | Separate explode/implode path creates and fills frame objects |
+| physical-frame-gate | vendor/gambit/lib/mem.c | 3708-3733 | managed-frame-store; same-vm-mutators; independent-read-domains; measured-net-parallelism | Collector frame gate is VM-wide; raw reflective setters do not call it |
+| frozen-root-origin | vendor/gambit/lib/mem.c | 7282-7305 | relocation-projection; cross-context-export; origin-task-worker | Worker scans the supplied frozen participant context, registers, startup marker and RC roots |
+| carrier-index | vendor/gambit/lib/mem.c | 7462-7475 | origin-task-worker | Dispatch and strong completion still use carrier processor ID |
+| synchronous-binding | vendor/gambit/lib/mem.c | 7570-7598 | origin-task-worker; failure-scope | GC requires synchronous carrier/context binding and checks unknown-resize isolation |
+| wind-and-current-selection | vendor/gambit/lib/_thread.scm | 5049-5077 | scheme-hook-reentry | Scheme computes destination winding and calls a suffix that invokes current continuation fields |
+#+END:
+
+The chain is concrete: capture can retain stack-backed frames; continuation-copy
+allocates a shallow wrapper with the same frame and denv; reflection writes
+through either wrapper; graft installs the selected frame chain and denv; the
+break handler copies a reached caller frame into the execution stack. GC can
+materialize the captured stack chain and later repair its roots, ordinary slots,
+structural links and code references. These operations do not all mean the same
+kind of mutation.
+
+* Four identities and three distinct changes
+
+The proposed records below are design shapes, not an implemented C header:
+
+#+NAME: frame-alias-records
+#+begin_example
+WrapperSelection = { rootedHead, rootedDenv, selectionRevision, incarnation }
+FrameDomain      = { logicalIdentity, rootedPayload, contentRevision,
+                     topologyRevision, accessState, incarnation }
+FragmentPermit   = { issuer, contextGrant, selectedWrapper,
+                     orderedDependencies, metadataRoots, sourceRoots,
+                     relocationEpoch, reservedDestination, completionState }
+ExecutionView    = { privateActiveFrames, rootedUnconsumedTail, pendingValues }
+#+end_example
+
+Wrapper identity selects a head and denv; shared FrameDomain identity follows
+actual aliased payload or a conservatively grouped segment. Execution context
+identity names authoritative root slots and private active storage. Collector
+worker identity names a task executor. None is a raw moving address or a synonym
+for processor ID.
+
+| Change | Logical content | Physical coordinates | Required action |
+|---+---+---+---|
+| Copy a wrapper | New selection record; existing frame/denv identity shared | New wrapper allocation may collect | Root original before allocation; register copied selection before exposing it |
+| Reflective frame-slot write | Changes the shared domain's logical slot map | Target address may be unchanged | Synchronize store and publish domain revision; all dependent permits become stale |
+| Wrapper head/denv write or next! | Changes that wrapper's selection; traversal may also repair stack RA | May change which domains are reachable | Update selection/topology under the correct permission; rediscover dependency scope |
+| GC relocation or stack heapification | Preserve abstract Scheme values and control meaning | Addresses, tags, forwarding and layouts change | Update all authoritative roots, advance physical epoch and reload caches |
+| Mutation of a referenced Scheme object | Preserve slot's referent identity; shared heap effect remains | Referent may separately move | Obey shared-heap memory/barrier rules; do not roll back it during continuation replay |
+| Restore a reached fragment | Establish private active execution slots from the current admitted source | Copy into reserved execution storage | Retain shared source and remaining tail; no consumption of full multi-shot capability |
+
+Two captures can overlap only in their tails. Canonicalization therefore cannot
+key solely on the first frame or wrapper. Rooted live domain/segment records
+must represent shared tails before cross-context access is granted. A capture
+that stays local can remain lazy and stack-backed. Export to another context
+requires owner freeze or completed managed materialization, with destination
+root registration before source acknowledgement. The current implementation
+does not yet supply this complete transition.
+
+Domain incarnation cannot be reused while a reader, native borrower, rooted
+certificate or unknown completion can still name it. Metadata is bounded by
+live wrappers/domains/certificates, rather than an ever-growing alias history.
+Its exact native layout, canonicalization allocation path and safe reclamation
+remain source/native obligations. A design name is not an allocation solution.
+
+* How the adapter must satisfy the existing model premises
+#+NAME: frame-alias-clauses
+#+BEGIN: sysml-view :kind frame-alias-clauses :source architecture/runtime/control/models/sysml/frame-alias-contract.sysml
+| Clause | Original-obligation | Operation | Existing-model-premise | Real-adapter | Failure-custody | Source-gap |
+|---+---+---+---+---+---+---|
+| alias-domain | CS-WRITERS | Capture, continuation-copy, shared-tail discovery and cross-context export | A logical frame/segment domain survives address movement; overlapping captures share domains; wrapper identity does not identify the aliased payload | Rooted domain records and nonreused incarnation, wrapper selection stamp, domain content/topology revisions and separate relocation epoch; register before aliases escape | Unproved overlap, exhausted incarnation or unknown stack owner refuses optimized export and retains source custody | Current copy shares raw frame and denv fields but creates no canonical domain or managed alias publication |
+| copy-root-issuance | CS-BRIDGE | Copy wrapper and prepare the next restore fragment | Authentic view issuance reads authoritative rooted head/denv and the admitted fragment under an access lease; allocation cannot lose the source | Preallocate rooted metadata at a complete checkpoint, capture a consistent wrapper selection, preserve shared payload identities and give the new wrapper its own selection record | Allocation or registration failure leaves original roots owned; no ACK or complete-view publication on unknown outcome | continuation-copy allocates a shallow wrapper and check-heap may collect; source adapters and issuance evidence are absent |
+| managed-frame-store | CS-WRITERS | frame-set!, continuation-set!, initialization stores and admitted frame reflection | All readers/writers of a shared physical field obey C synchronization; a logical store invalidates every dependent view through its shared domain | Reserve noncollecting remembered-log capacity before the short write lease; validate slot role via FrameSpec; perform store and revision publication under exclusion; release publishes to acquiring readers | Log overflow or capacity failure releases lease before a safe collecting retry; root value retained; partial/unknown writes keep domain unresolved | Current setters perform plain C stores under local not-interrupts-enabled declarations, not interprocessor ownership enforcement |
+| selection-and-topology | CS-WRITERS | continuation-frame-set!, denv-set!, next!, structural-link changes and scheduler save/restore | Wrapper head/denv selection is a coherent pair; membership and ordering of dependent domains cannot change unnoticed | Wrapper selection revision covers its head/denv; link-domain topology revisions cover shared tails; compare exact ordered domain/incarnation/revision lists, never an unchecked hash or sum | Changed topology invalidates certificate and triggers rooted rediscovery; scheduler-owned slot consumption never consumes a general full continuation | next! mutates wrapper fields and sometimes stack RA; raw link/RA setters cannot be treated as ordinary payload stores |
+| relocation-projection | CS-BRIDGE | GC heapification, forwarding, root repair and post-GC reload | Logical slot values use Scheme object identity; relocation changes physical coordinates without changing logical payload revisions | Frozen context/domain access authorizes one structural updater; collector updates every authoritative root/handle; a fresh relocation epoch revokes raw address caches before resume | Unsettled native borrow or missing frozen root view denies movement; matching logical revision never authorizes reuse of an old address | Collector frame access is VM-wide and distinct from raw mutator stores; stable identity and complete address reload correspondence remain unimplemented |
+| exact-dependency-certificate | CS-BRIDGE | Validate a prepared fragment after writes, GC or winding | Issuance is authentic and complete relevant writer histories are represented; equality includes domain membership, incarnation and revisions | For one fixed certificate scope, use a ghost serial history to interpret Lean ImageHistory; physical dependency vectors are evidence for unchanged history, not a global VM counter | Counter wrap/reuse, incomplete writers or changed scope expires certificate; reissue under new scope; finite Quint ticket IDs do not prove unbounded implementation traces | The existing Lean scalar version is an abstraction premise; no source refinement of a distributed revision vector exists yet |
+| lazy-fragment-commit | CS-BRIDGE | Graft/return installation and each break-handler caller restoration | Coherence is required at the actual fragment-consumption point; an invocation-wide frozen snapshot must not hide later legal writes to its unconsumed tail | Retain rooted tail selection, pre-reserve bounded destination space, acquire short source read leases and current context grant, copy one admitted fragment into private execution storage, then release; revalidate next fragment when reached | Insufficient contiguous reserve or stale certificate returns to complete rooted checkpoint before copy; partial initialization cannot be published as an executable frame | Current break handler restores a reached caller frame and rewrites links; no complete generated modern-C fragment adapter or whole-round capacity proof |
+| scheme-hook-reentry | CS-BRIDGE | Scheme wind hooks and multiple restoration of saved hook suffixes | User hooks run without physical frame leases; restored Scheme suffixes acquire new physical permission; unchanged winding policy owns observable effects | Keep logical transfer roots and selected Scheme continuation, release C leases before hook, then reread/reload current source fields and reissue only physical certificates; do not replay completed hooks merely because addresses changed | Abandoned helper completion is stale while legal Scheme suffix remains reusable; native origin expiration refuses only the unsupported C return | Source winding computes a destination then invokes hooks; graft later reads actual continuation fields, so automatic semantic replanning is not justified |
+| denv-and-referents | CS-WRITERS | Denv/winder vector mutation, referenced Scheme objects and deserialized shells | Denv identity is not deep immutability; referenced heap effects remain shared; derived cached fields need their own synchronization and dependency coverage | Distinguish wrapper selection, shared record field changes, ordinary shared referents and private execution stores; initialization records remain scannable and non-executable until complete | Unsupported alias/native writer removes optimized admission; conservative scanning alone cannot repair a C data race | Denv records are vectors, serializers fill shells and I/O rebuild writes separate frame objects; complete indirect writer coverage remains open |
+| cross-context-export | CS-WRITERS | Publish a stack-backed capture for another execution context or collector | Local lazy capture may remain stack-backed; cross-context access requires a frozen owner view or a fully initialized managed shared representation before publication | Use existing root-transfer custody boundary: register destination before source ACK, preserve native-origin identity, publish shared status before withdrawing private-owner privileges | Unknown owner writes cannot be guessed stopped; no unrestricted foreign writer is isolated without a proven physical access bound | Same-VM cross-context export, writer withdrawal and destination registration do not yet form a complete implemented adapter |
+#+END:
+
+** Abstract logical image, physical address map and ghost history
+
+For one prepared fragment, the source abstraction maps FrameSpec slot roles and
+rooted logical object identities into the existing Lean =Image.slots= and =denv=.
+It does not map raw heap/stack addresses into immutable values. Denv identity is
+not a theorem about all nested denv/winder contents. If a derived field is cached,
+the adapter must explicitly cover its actual writers and reread policy.
+
+The logical value encoding must preserve admitted equality, distinct referents,
+aliasing and immediate values; collapsing distinct objects to one abstract
+number would make the existing theorem irrelevant to Scheme observations.
+These may be ghost identities in the source argument, not an unbounded runtime
+object-ID table. FrameSpec/code-lifetime refinement remains a separate dependency.
+
+The dependency certificate records exact wrapper selection, ordered domain
+identities/incarnations, content/topology revisions and metadata lifetime. It
+includes every source component actually read to decide this fragment and its
+next selection. Comparing an unchecked hash, sum of revisions, head pointer or
+wrapper counter is insufficient. Membership changes can make a scalar sum
+repeat even with strictly increasing counters.
+
+A coherent selection is one state between admitted updates. Separate public
+head/denv setters remain separate operations; the adapter must not invent a
+transaction across user calls. Operations that already perform a grouped
+publication, such as an initialized shell or traversal update, need the matching
+group boundary and cannot expose a half-committed record.
+
+For a fixed certificate scope, a ghost serial order of relevant, synchronized
+logical writes supplies the mathematical =ImageHistory=. It is a proof device,
+not a requirement for a single global VM increment counter. Disjoint writes
+may commute; the actual source relation must justify a consistent observation
+cut. Revision-vector equality is useful only after authentic issuance, complete
+writer coverage, membership stability and no wrap/ABA are established. Scope
+change expires the old certificate and starts a newly issued scope; it is not
+silently treated as the same history.
+
+The existing Lean result can then justify a still-current issued fragment's
+coherence. It does not prove that this vector/ghost-history refinement exists.
+The QNT permit remains an opaque current/stale authorization abstraction within
+its finite experiment. Its one aggregate capture and bounded ticket values do
+not establish multiple mutators, arbitrary execution length or parallel worker
+composition. No duplicate model is added to conceal those boundaries.
+
+** C access and publication protocol
+
+Before a shared payload read, acquire the required domain read permissions and
+the current execution/GC epoch grant. Acquire/release publication must cover
+initialized descriptor fields, wrapper selection and registered root slots.
+When several domain permissions are required, use a canonical identity order
+or restart without holding a partial set; recursive helper and callback paths
+must not violate that order. No allocation, user hook, unknown native call or
+collecting wait occurs while holding those short physical permissions.
+
+A writer reserves noncollecting remembered-log capacity, obtains the proper
+exclusive permission, validates FrameSpec slot role, stores the rooted value,
+updates its logical revision/topology and publishes before releasing access.
+An overflow retry releases permissions before reaching a complete rooted safe
+point. Reacquire and reload after any GC. Initialization and collector repair
+use explicit privileged paths; neither is a blanket permission for arbitrary
+raw writes to live shared frames.
+
+Revision comparison cannot legalize a payload read that already raced a plain
+C write. This follows the data-race boundary in [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][WG14 N1570, 5.1.2.4 paragraph 25]].
+Local Scheme interrupt suppression is not interprocessor synchronization. An
+atomic revision with unsynchronized ordinary payload reads is therefore not
+the proposed modern-C protocol. Conservative GC scanning does not solve that
+access problem either.
+
+Complete owner-exclusive execution may use private fast paths, provided alias
+publication atomically withdraws those privileges before sharing. That is a
+source refinement requirement for generated ordinary stores and stack capture,
+not an assumption that all existing writes are already managed. Raw C/FFI or
+unclassified reflective writers keep affected optimized operations unqualified.
+Any retained legacy path is explicit migration debt and contributes no claimed
+retirement saving; the goal remains replacement of actual responsibilities.
+
+** Per-fragment prepare and consume, not a frozen whole invocation
+
+At a complete caller checkpoint, keep source selection, arguments/results and
+pending transfer rooted. Preallocate permit metadata and reserve the continuous
+destination span before the noncollecting copy. Prepare one fragment under a
+consistent access cut, then copy it while the read permissions remain valid.
+Publish only a complete private execution frame, release physical permissions
+and continue Scheme execution. The tail stays a logical rooted source. When
+the break handler reaches its next frame, obtain a fresh permit from the then
+current source and reload all moved references.
+
+This preserves the existing lazy observation boundary: a legal write to a not
+yet restored frame can be observed when that frame is actually consumed. The
+new adapter may not hide that write by eagerly cloning the whole chain at the
+first continuation invocation. Conversely, modifying a saved source frame does
+not retroactively rewrite a private active copy already restored. The admitted
+concurrent access contract must define overlapping writes at a synchronized
+copy boundary; source behavior for racy legacy native accesses is not promoted
+to a portable modern-C guarantee.
+
+A destination span that cannot fit the admitted fragment returns to the rooted
+preflight point before any partial frame becomes executable. Per-copy reserve
+is not a whole-round capacity proof. Unknown initialization or publication owns
+the roots, span and domain debt until settlement; a timeout is not rollback.
+The existing GC planner and restore-headroom dependencies remain open.
+
+** Winding and destination mutations
+
+Scheme computes winding destinations and runs arbitrary hooks. The final graft
+macro subsequently reads the continuation's actual frame/denv fields. Thus a
+physical revalidation failure must not automatically restart Scheme winding or
+replay hook effects. Preserve the actual Scheme suffix and reread/reissue only
+the physical fragment/root permission at its next consumer boundary. Capturing
+and repeatedly restoring a hook suffix remains legal; an old C helper's stale
+completion is a different identity.
+
+All physical domain permissions are released before a hook. Rooted logical
+transfer custody remains. Same-extent return can skip hooks, so every actual
+physical consume needs its own permission, even when no hook ran. NativeOrigin
+is validated separately; rebuilding Scheme frames cannot revive an expired
+foreign C activation.
+
+* Source counterexamples that determine the replacement
+
+| Source-derived counterexample | Required correction | Remaining boundary |
+|---+---+---|
+| k1 and its shallow copy k2 share frame F; write through k1, check only k2 wrapper revision, restore old cached slot | Shared payload-domain revision, complete alias dependencies and authentic issuance | Canonical shared tails and all indirect writers not implemented |
+| GC moves F while logical contents and revisions stay unchanged; restore through saved address | Root/handle repair plus relocation epoch and physical cache reload | Every address borrower and code-metadata lifetime must be covered |
+| Prepare an entire chain, resume user code, then modify a future saved frame before its break handler is reached | Per-fragment consumption certificate and rooted live tail | Source-equivalent concurrent copy boundary and complete capacity preflight needed |
+| Root heads from one wrapper state and denv from another are combined during a multi-field update | Coherent selection read/publication and topology dependency | Existing raw setters are not this adapter |
+| Change a dependency set or wrap a counter so a scalar hash/sum repeats | Exact ordered identity/incarnation/revision membership and explicit expiry | No-wrap/reissue and metadata reclamation still open |
+| One VM-wide gate serializes every collector's frame copy; structs have distinct names | Claimed task/phase and local domain permissions; independent readers/domains proceed | Removing the old gate without complete ownership is unsafe; scaling is unmeasured |
+
+These are source-guided arguments and negative input classifications, not newly
+model-checked traces or native demonstrations. Existing QNT/Lean evidence keeps
+its original scope.
+
+* Why this is a necessary part of a modern SMP design
+#+NAME: frame-alias-smp
+#+BEGIN: sysml-view :kind frame-alias-smp :source architecture/runtime/control/models/sysml/frame-alias-contract.sysml
+| Criterion | Existing-native-case | Necessary-contract | Native-observation | Limitation |
+|---+---+---+---+---|
+| same-vm-mutators | context-worker | Multiple mutators execute in the same VM without a VM-wide lock across Scheme work or hooks | Actual simultaneous active contexts with correct shared heap/control observations; processor population alone is insufficient | Frame aliases cover only part of the shared heap memory model; existing Quint is a bounded single aggregate control model |
+| independent-read-domains | context-worker | Read sharing and disjoint frame domains proceed independently; only overlapping writes/copiers serialize locally | Concurrent distinct-domain restoration and collection with contention/work counts; no global frame gate on the hot path | A per-domain lock design alone proves neither fairness nor speedup |
+| origin-task-worker | context-worker | Context owns roots, participant owns epoch authorization and worker owns claimed copying tasks independently of carrier ID | Worker count and root-origin count need not match; each claimed task updates the correct frozen roots and phase | Current source still indexes participants/completion by carrier and checks synchronous binding |
+| failure-scope | context-worker | Unknown outcomes retain exact roots/resources; isolation requires known writable intervals and physical stop or exclusion | Distinguish healthy other-VM GC from progress inside the affected VM; test known quarantine bounds and unresolved writes | Current moving arena may remain blocked by unknown writes; alias records do not magically enable selective collection |
+| gc-round-progress | capacity-benefit | Frozen roots, publishing/private/Tail work, weak cleanup, termination and contiguous reserve form one admitted round | No unfinished task is hidden by carrier-idle counts; capacity failure retains source before flip under unchanged limits | These GC/capacity obligations are dependencies, not proved by CS-BRIDGE/CS-WRITERS or the existing Lean law |
+| measured-net-parallelism | capacity-benefit | Parallel useful work exceeds access, root, barrier, dispatch and retention overhead for a stated workload | Same-source/profile single-versus-multicore work, latency, throughput and physical peak; include ordinary fast paths and failure histories | No measured scaling result in this research; Scheme map ordering is preserved |
+#+END:
+
+Modern SMP means useful, correct simultaneous execution of multiple mutators in
+one shared VM, with a defined shared-heap/control protocol and collection that
+can progress under stated participation and failure assumptions. Gambit already
+has SMP mechanisms; this study does not redefine its history as single-threaded.
+The question is how to make those mechanisms compositional and dependable.
+
+The proposed leverage is one capture representation and one Scheme control
+semantics serving independent execution contexts and GC workers. Immutable
+observations can be shared under read permissions, private active frames belong
+to each invocation, and overlapping mutations have explicit local ownership.
+Root origin survives worker migration. The carrier processor no longer chooses
+which context's roots or completion phase a task belongs to.
+
+This two-obligation adapter is necessary, not sufficient. The current source
+still selects participants/completion by carrier ID, requires synchronous
+worker/context binding and serializes frame work through a VM-wide gate. Full
+SMP qualification also requires shared-heap stores, safe-point/membership
+closure, publication/Tail accounting, weak/foreign cleanup, native participation,
+capacity and scheduling progress. Those are existing module obligations; they
+are not silently proved again here or by the single aggregate control QNT.
+
+Short root-freeze/collection coordination can coexist with genuine parallel
+execution; the target is not an unsupported promise of pause-free GC. Unknown
+join/owner writes require real access bounds and exclusion/stop evidence. An
+unknown writer into the current shared moving arena can still block that VM's
+movement. Healthy-other-VM GC is useful isolation evidence, but does not prove
+independent progress within the affected VM. Do not claim that a handle table
+or revision counter removes this architectural dependency.
+
+The decisive native experiment is same-VM simultaneous active contexts with
+correct shared capture/heap observations, independent claimed GC tasks and
+measured contention/throughput/physical peak under unchanged limits. An eleven-
+processor population and a sequential map pass do not supply that evidence.
+This study executes no such native experiment and claims no SMP speedup.
+
+* Benefit and added-cost matrix
+#+NAME: frame-alias-benefits
+#+BEGIN: sysml-view :kind frame-alias-benefits :source architecture/runtime/control/models/sysml/frame-alias-contract.sysml
+| Mechanism | Avoided-work | Added-work | Positive-gain-condition |
+|---+---+---+---|
+| lazy-multishot | No repeated eager whole-chain snapshot by the new adapter; preserve existing reached-frame restoration | Per-fragment grant, root reload and dependency validation; copy reached payload and perform required hooks | For r shots compare actual reached words sum(Rj), not r times an invented full-image baseline |
+| alias-invalidation | No scan of all A wrapper aliases and no global historical identity table for each payload write | O(1) revision work per touched admitted domain and O(d) validation per certificate with d dependencies | Canonical shared-tail domains and complete writers; multi-domain operations pay for every touched domain |
+| gc-relocation | Address-only changes need not rebuild logically unchanged payload or rerun winding effects | All authoritative root updates and physical address reload remain mandatory | Stable logical identity, frozen access and complete reload; pointer equality or matching logical revision alone is insufficient |
+| parallel-domain-work | Unnecessary VM-wide serialization of independent frame copies/readers | Domain metadata, local contention, task accounting and coordinator publication | For P workers and serial fraction s, ideal speedup is bounded by 1/(s+(1-s)/P) before extra overhead; neither s nor realized speedup measured |
+| metadata-and-peak | Share eligible capture payload across wrappers and invocations rather than cloning all tails up front | O(A+D+sum(dj)) wrapper/domain/live-certificate metadata plus rooted transfer, active copies and GC/native reserves | D is live canonical domains, not unbounded request history; retained unknown observers prevent unsafe domain reuse |
+| generational-path | Eligible clean mature frame payload can eventually skip repeated minor traversal | Remembered stores, overflow handling, scans and promotion/resume reserve | Zero claimed gain until all writers and generational runtime qualify; ordinary root visits and relocation are not eliminated |
+#+END:
+
+For fixed useful work, write the target time as serial work plus parallel work
+divided by worker count, plus domain/root/GC/scheduler/failure-retention overhead.
+The ideal serial-fraction bound is only a ceiling under that fixed-work model.
+Net gain requires the complete new total to beat the source-bound baseline;
+no serial fraction, throughput improvement or byte saving is invented here.
+
+Domain state and live dependency metadata add storage; source payload sharing
+counts once. Physical peak additionally includes active restore copies, rooted
+transfers, GC/promotion/resume reserve and unresolved native debt. A refund
+after the peak is not peak reduction. New canonicalization and remembered-set
+paths must be included in ordinary allocation/store costs, not only in rare
+capture benchmarks.
+
+* Complete responsibility replacement and closure
+
+The dependency-ordered integration cut is: Scheme FrameSpec/slot roles and
+semantic liveness; registered wrapper/domain publication; all kernel reflection,
+traversal, serializer/I/O and admitted native writers; per-fragment rooted
+prepare/copy; unchanged Scheme winding with fresh physical permissions; GC
+root repair and explicit task/participant mapping; generated FFI and code
+metadata lifetime; then complete bootstrap and native acceptance.
+
+Retire raw authoritative frame interpretations, per-wrapper-only invalidation,
+unregistered source/address caches, global frame-copy serialization and carrier-
+indexed root/completion selection only after their actual producers, consumers,
+failure paths and unsupported clients are accounted for. Migrating names or
+leaving both owners authoritative does not achieve the replacement.
+
+#+NAME: frame-alias-closure
+#+BEGIN: ascent-view :kind frame-alias-closure :source architecture/runtime/control/models/sysml/frame-alias-contract.sysml
+| Scope | Source coverage / criteria | Supplied implementation or native evidence | Closure | Acceptance owner / dependency |
+|---+---+---+---+---|
+| CS-BRIDGE | 5/5 | 0 | OPEN | CS-NATIVE; not executed |
+| CS-WRITERS | 5/5 | 0 | OPEN | CS-NATIVE; not executed |
+| Modern SMP acceptance | 6 necessary criteria | 0 | OPEN | Existing original obligations and five gates still required |
+#+END:
+
+[[file:../../../../evidence/research/frame-alias-contract/validation.json][The retained evidence]] binds native SysML evaluation, the source intervals,
+exact unchanged formal receipts and ASCENT admission controls. Synthetic premise
+and SMP inputs test routing only; they are not adapter proofs or native runs.
+The five submission gates remain conjunctive and open. No runtime edit, native
+test, staging, commit or push is performed by this research update.

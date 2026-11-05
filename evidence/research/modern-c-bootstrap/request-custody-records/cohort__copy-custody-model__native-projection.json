@@ -1,0 +1,299 @@
+{
+  "contracts": [
+    {
+      "id": "COPY-FROZEN",
+      "cSource": "mem.c setup_stack_heap_vmstate; ___garbage_collect_pstate",
+      "invariant": "Every participant flushes fp/hp, freezes roots, then closes the old-set barrier before the source census or any parity flip. The census counts allocated words, not live words. Two initial destination intervals per participant are necessary, not sufficient.",
+      "quint": "copy_custody.freeze; copy_custody.plan",
+      "lean": "Gambit.CopyCustody.copyBoundNeedsUniqueSources",
+      "open": "Per-worker contiguous capacity, captured-frame duplication, chunk markers/terminal fragments and full root ownership remain unproved. No added heap multiplier is credited.",
+      "sourceScope": "C-simulation:COPY-FROZEN",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-bootstrap",
+      "nativeArtifact": "evidence/research/modern-c-bootstrap/request-custody-hosted-bootstrap.recipe.json",
+      "nativeClass": "native-bootstrap",
+      "nativeScope": "51 generated products and full two-pass bootstrap; not a universal packing proof"
+    },
+    {
+      "id": "COPY-SOURCE",
+      "cSource": "mem.c require_fromspace_copy_source; change_object_scan_state; publish_object_scan; mark_array; mark_captured_continuation; scan",
+      "invariant": "A MOVABLE forwarding attempt must refer to the frozen fromspace half. A tospace input is rejected before forwarding; failure coordinates are retained. CAS losers do not increment copied_words. A winning first field is Tail work and later scan skips it.",
+      "quint": "copy_custody.forward; copy_custody.initializeCopy; copy_custody.publish; copy_custody.claim; copy_custody.observeDuplicate; copy_custody.completeTail; copy_custody.scan",
+      "lean": "Gambit.CopyCustody.copyBoundNeedsUniqueSources; Gambit.CopyCustody.claimPreservesUniqueIdentities; Gambit.CopyCustody.duplicateTaskDoesNotCreateWriter",
+      "open": "Destination objects now publish READY after initialization, claim OWNED before field repair and finish DONE. Repeated tasks acquire no second field-write authority; original owner and Tail debts must drain before termination. This is not yet a proof that chunk/root cells are uniquely scanned; C CAS/read memory order and forwarding-before-payload publication need refinement. Runtime guard costs logarithmic lookup per forwarding attempt.",
+      "sourceScope": "C-simulation:COPY-SOURCE",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-whole",
+      "nativeArtifact": "vendor/gambit/tests/frame-continuation-roots.scm",
+      "nativeClass": "native-whole",
+      "nativeScope": "p11 compiler and host-managed runtime, 80 roots, eleven GCs and multi-shot results, natural shutdown"
+    },
+    {
+      "id": "ABORT-ISOLATION",
+      "cSource": "setup.c start_processor_execution; ___vm_resize_pstate; os_thread.c start_pthread_thread; mem.c ___isolate_aborted_resize",
+      "invariant": "An immutable ABORT permit is independent of join. All contexts initialized, no unknown create, no RUN permit, no allocated movable/still/RC payload, and no activation marker allow heap claims to detach. Native record, gate and descriptors remain retained and cannot be reused. The retained request thunk is scanned by worker zero.",
+      "quint": "copy_custody.abort; copy_custody.unknownJoin; copy_custody.isolate; copy_custody.collectHealthy",
+      "lean": "Gambit.CopyCustody.isolationDoesNotRequireJoin; Gambit.CopyCustody.nativeReuseStillNeedsJoin",
+      "open": "Published retiree, unknown create, raw native borrow, owner interruption or failed isolation remains retained and GC-inadmissible. This is not arbitrary owner-death recovery or a native handle reaper. Historical frame-custody allocation rollback control reaches startup wait failure. Its original failure remains retained; entry-custody distinguishes publication from Scheme readiness and needs a new exact-source managed-startup receipt.",
+      "sourceScope": "C-simulation:ABORT-ISOLATION",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-fault",
+      "nativeArtifact": "evidence/research/modern-c-bootstrap/entry-custody-isolation-multi.scm",
+      "nativeClass": "native-fault-control",
+      "nativeScope": "three healthy members finish three collections while an unpublished native actor stays held and join is unknown; safety exit only"
+    },
+    {
+      "id": "CHUNK-TRANSPORT",
+      "cSource": "mem.c lock_chunk_fifo; unlock_chunk_fifo; take_heap_chunk; require_chunk_transition; end_heap_chunk; scan_complete_heap_chunk; scan_movable_objs_to_scan; mark_reachable_from_marked",
+      "invariant": "Local frontier holds a chunk identity before root copying. Private close publishes queued once; own and stolen dequeue acquire the same FIFO gate and claim queued-to-held before head advance; reaching the terminal marker drains held authority. No unlocked head/tail reads. Chunk completion does not pay object, Tail or frame-link debt.",
+      "quint": "copy_custody.closePrivate; copy_custody.closeHeld; copy_custody.takeChunk; copy_custody.selectFrontier; copy_custody.drainChunk",
+      "lean": "Gambit.CopyCustody.localChunkCannotBeQueued; Gambit.CopyCustody.chunkCompletionDoesNotPayTail; Gambit.CopyCustody.sourceChargePlusPacking",
+      "open": "Packed link/object positions must be disjoint and C adapters must implement acquire/release. A prior p11 own-FIFO claim reached DRAINED state under the generic ticket-lock protocol. The CAS gate retires that transport dependency, not all runtime locks. No fairness, interrupted worker takeover, complete frame-link partition or general physical capacity proof is claimed.",
+      "sourceScope": "C-simulation:CHUNK-TRANSPORT",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-whole",
+      "nativeArtifact": "vendor/gambit/tests/frame-continuation-roots.scm",
+      "nativeClass": "native-whole",
+      "nativeScope": "p11 compiler and host-managed runtime with explicit FIFO gate and frontier, 80 roots and eleven GCs; not C simulation"
+    },
+    {
+      "id": "FRAME-ACCESS",
+      "cSource": "mem.c acquire_frame_access; release_frame_access; mark_captured_continuation_locked; mark_captured_continuation; mark_continuation; mark_frame; scan; ___frame_ordinary_root_begin",
+      "invariant": "Initial captured-link read, stack-root repair, stack-to-heap construction and destination frame-link access share one acquire/release domain. Ordinary root runs exclude the structural link without writing FAL; heap-frame link repair is explicit. READY covers raw payload, while frame access gates semantic link completion. Queue gates are released before frame access.",
+      "quint": "copy_custody.acquireConstructor; copy_custody.beginFrameChain; copy_custody.publishFrameRaw; copy_custody.repairFrameLink; copy_custody.releaseFrameAccess; copy_custody.acquireScanner; copy_custody.scanOrdinaryFrame",
+      "lean": "Gambit.CopyCustody.ordinaryRootsExcludeLink; Gambit.CopyCustody.frameGateExcludesSecondRole",
+      "open": "VM-wide serialization may reduce root-scan parallelism. Actual C pointer/root-map refinement, active-stack versus captured-segment separation, module metadata lifetime and unmanaged FFI writers remain premises. New-stack restoration is private until final resumption barrier; arbitrary failed-worker takeover is not admitted.",
+      "sourceScope": "C-simulation:FRAME-ACCESS",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-whole",
+      "nativeArtifact": "vendor/gambit/tests/frame-continuation-roots.scm",
+      "nativeClass": "native-whole",
+      "nativeScope": "p11 compiler/host runtime, multi-shot continuation and wide roots; frame-domain serialization and ordinary/link partition; not arbitrary FFI writer admission"
+    },
+    {
+      "id": "COPY-RESERVATION",
+      "cSource": "mem.c reserve_copy; cancel_copy; commit_copy; finish_tail; mark_array; mark_captured_continuation_locked; garbage_collect_mark_weak_phase",
+      "invariant": "An actual private contiguous interval precedes header write and source CAS. Known loss cancels the entire unpublished interval, including alignment slack; known win initializes/publishes then commits. Tail is recorded before publication and paid only when its cell is repaired. Reserved minus cancelled equals copied plus committed padding at the completed marking cut. Unknown outcome cannot authorize refund.",
+      "quint": "copy_custody.reservePrivateCopy; copy_custody.loseForwarding; copy_custody.winForwarding; copy_custody.initializeReserved; copy_custody.commitReservation; copy_custody.unknownReservation",
+      "lean": "Gambit.CopyCustody.refundPreservesReservationCharge; Gambit.CopyCustody.commitPreservesReservationCharge; Gambit.CopyCustody.unknownCannotRefund; Gambit.CopyCustody.generatedFrameCopyUpperBound",
+      "open": "Per-copy interval admission is not a complete pre-flip capacity transaction. Current private-context allocation, source census U, frame Amax and marker/terminal packing need a full-round proof. Generator validates stored fs below 16384 and expands internal frames; the 8192 runtime declaration is not that proof. Counter overflow, native cancellation observability and all allocator adapters need qualification.",
+      "sourceScope": "C-simulation:COPY-RESERVATION",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-whole",
+      "nativeArtifact": "vendor/gambit/tests/frame-continuation-roots.scm",
+      "nativeClass": "native-whole",
+      "nativeScope": "whole p11 map/root workload; contiguous per-copy grants and normal CAS-result handling; unknown owner recovery and full-round packing excluded"
+    },
+    {
+      "id": "STARTUP-ACTIVATION",
+      "cSource": "setup.c current_vm_resize_request; start_processor_execution; ___run; include/gambit.h.in ___startup_ready; ___startup_load",
+      "invariant": "Publication authorizes native entry but not Scheme initialization. Immutable per-activation generation binds PUBLISHED to NATIVE to SCHEME to READY. Managed waits hold no native lock, have a complete C-FFI root origin and service pending synchronous GC. Asynchronous callbacks retain publication semantics and cannot be silently upgraded to managed readiness.",
+      "quint": "startup_custody.publish; startup_custody.enterNative; startup_custody.enterScheme; startup_custody.ready; startup_custody.waitForReady; startup_custody.serviceGC; startup_custody.consumeReceipt",
+      "lean": "Gambit.StartupCustody.publicationDoesNotImplyReadiness; Gambit.StartupCustody.yieldCountDoesNotProveReadiness; Gambit.StartupCustody.receiptNeedsExactGeneration",
+      "open": "Original 10000-yield failure did not record which wait failed; bounded diagnostic passes do not reconstruct its execution. Current source controls and scheduling-sensitive collision fixture must qualify independently. Fair OS scheduling and full C/FFI root refinement remain premises. Managed readiness is an explicit contract for callbacks that acknowledge scheduler initialization. Concurrent non-combining resize requests must not keep a movable thunk only in sync-op C copies across another request GC; this is outside the single-request native fixture.",
+      "sourceScope": "C-simulation:STARTUP-ACTIVATION",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/startup_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/StartupCustody.lean",
+      "nativeMethod": "native-startup",
+      "nativeArtifact": "evidence/research/modern-c-bootstrap/entry-custody-managed.scm",
+      "nativeClass": "native-managed-startup",
+      "nativeScope": "same 25-second external watchdog; explicit generation and Scheme scheduler-ready receipt, ordinary and failed allocation/create cases; no yield count used as readiness"
+    },
+    {
+      "id": "STARTUP-REUSE",
+      "cSource": "mem.c ___reserve_vm_resize; ___rollback_vm_resize; ___can_retire_pstate; setup.c ___vm_resize_pstate; ___setup_vmstate",
+      "invariant": "A new reservation requires EMPTY plus NONE or known CLOSED, never a numerical thread handle or elapsed yield count. Retirement requires exact-generation READY and external-root admission. STOPPING does not mean CLOSED; only known join or known never-created rollback may authorize CLOSED and metadata reuse. Unknown native results retain slot and source-root custody.",
+      "quint": "startup_custody.stop; startup_custody.joinKnown; startup_custody.joinUnknown; startup_custody.reserveNext; startup_custody.rejectLate",
+      "lean": "Gambit.StartupCustody.unknownJoinCannotReuse; Gambit.StartupCustody.closedIdentityCannotAcknowledgeNewGeneration",
+      "open": "Native join/FFI exception and stop-origin refinement, generation exhaustion and arbitrary foreign callbacks remain open. Fixed slots remove no need for a real native-close receipt. No unbounded identity map is introduced.",
+      "sourceScope": "C-simulation:STARTUP-REUSE",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/startup_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/StartupCustody.lean",
+      "nativeMethod": "native-startup",
+      "nativeArtifact": "evidence/research/modern-c-bootstrap/entry-custody-managed.scm",
+      "nativeClass": "native-managed-startup",
+      "nativeScope": "known rollback and repeated slot reuse; query generation, READY before retirement, successful join before CLOSED; unknown join remains retained"
+    },
+    {
+      "id": "ROUND-CAPACITY",
+      "cSource": "mem.c setup_stack_heap_vmstate; reserve_copy; cancel_copy; next_heap_msection; ___garbage_collect_pstate",
+      "invariant": "Before flipping parity, a closed source/root/frame inventory and an injective destination layout must cover copying, chunk links and terminal slack, per-worker fragmentation, stack restoration and retained domains. Disjoint real intervals and known allocator outcomes are mandatory. Unknown outcomes retain old roots and reservations; cancellation of a private attempt cannot refund an earlier section close or committed publication.",
+      "quint": "round_capacity.freeze; round_capacity.reserve; round_capacity.acknowledge; round_capacity.publishPlan; round_capacity.flip; round_capacity.unknownResult; round_capacity.retain",
+      "lean": "Gambit.RoundCapacity.disjointGrantCoversRequest; Gambit.RoundCapacity.cancelDoesNotRefundSectionWaste; Gambit.RoundCapacity.aggregateWordsDoNotImplyContiguousGrant",
+      "open": "Current C code supplies per-copy intervals and the two-initial-section check only. A whole-round pre-flip planner and source-to-layout simulation remain unimplemented; no heap multiplier or performance gain is admitted. Exact source-header/frame inventory, legal maximum request and packing policy still need qualification.",
+      "sourceScope": "C-simulation:ROUND-CAPACITY",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/round_capacity.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/RoundCapacity.lean",
+      "nativeMethod": "native-round-plan",
+      "nativeArtifact": "dev/refactoring/modern-c/models/sysml/copy-custody.sysml",
+      "nativeClass": "unimplemented-preflip-plan",
+      "nativeScope": "target pre-flip reserve-or-retain transaction; not implemented by current per-copy grants"
+    },
+    {
+      "id": "CAS-REFUND-CONTROL",
+      "cSource": "mem.c reserve_copy; cancel_copy; commit_copy; mark_array; ___GC_COPY_CONTROL; ___GC_ROOT_CONTROL",
+      "invariant": "Two workers reserve disjoint real intervals and reach the same source-header CAS with the same old header. Exactly one actual CAS loses and cancels the entire unpublished private grant; its cursor returns to begin, it publishes no object and charges no copied words. The winner initializes and commits one object; roots agree and payload remains intact.",
+      "quint": "copy_custody.reservePrivateCopy; copy_custody.loseForwarding; copy_custody.winForwarding; copy_custody.initializeReserved; copy_custody.commitReservation",
+      "lean": "Gambit.CopyCustody.refundPreservesReservationCharge; Gambit.CopyCustody.commitPreservesReservationCharge",
+      "open": "Scheduling control is a distinct native evidence class and cannot stand in for unmodified whole-runtime acceptance, C memory-model simulation, 32-bit alignment or unknown-outcome recovery. Default production macros generate no code or storage.",
+      "sourceScope": "C-simulation:CAS-REFUND-CONTROL",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/copy_custody.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/CopyCustody.lean",
+      "nativeMethod": "native-collision",
+      "nativeArtifact": "evidence/research/modern-c-bootstrap/entry-custody-collision.scm",
+      "nativeClass": "native-collision-control",
+      "nativeScope": "separately linked real mem.c with compile-time scheduling controls, two actual GC workers and real forwarding CAS; no injected outcome, no uninstrumented race-frequency or 32-bit claim"
+    },
+    {
+      "id": "RESIZE-SOURCES",
+      "cSource": "setup.c current_vm_resize_request; execute_sync_op; execute_sync_op_loop; ___cleanup_vmstate; ___cleanup; mem.c mark_vm_scmobj; ___can_retire_pstate; include/gambit.h.in ___resize_request_root",
+      "invariant": "A fixed VM origin root publishes before the sync tree transports its bounded serial token. Worker zero scans every slot regardless of membership. Selection reloads the relocated cell before transferring to the resize ledger; only consumed plus drained transport authorizes source ACK. Unknown unwind retains the slot, excludes retirement and prevents clean setup. Serial exhaustion refuses admission, and same-origin reentry cannot overwrite an outer root.",
+      "quint": "resize_sources.register; resize_sources.freeze; resize_sources.collect; resize_sources.selectRequest; resize_sources.reload; resize_sources.complete; resize_sources.drain; resize_sources.ack; resize_sources.unknown; resize_sources.rejectReentry; resize_sources.rejectLate",
+      "lean": "Gambit.ResizeSources.pendingNeedsRoot; Gambit.ResizeSources.transportPreventsRootAck; Gambit.ResizeSources.reloadUsesRelocatedCell; Gambit.ResizeSources.movingRootPreservesScan; Gambit.ResizeSources.pendingOriginCannotRetire; Gambit.ResizeSources.boundedTokenInjective; Gambit.ResizeSources.exhaustionCannotWrap",
+      "open": "QNT bounds two origins and three serials, while C uses MAX_PROCESSORS and refuses machine-bound exhaustion. Frozen root completeness, CAS/barrier memory-order refinement, raw longjmp/OS owner death, rejected shrink retry policy and whole-round pre-flip capacity remain open. Known Gambit deferred error is caught only after sync drain; unknown interruption retains, never fabricates completion.",
+      "sourceScope": "C-simulation:RESIZE-SOURCES",
+      "quintArtifact": "dev/refactoring/modern-c/models/quint/resize_sources.qnt",
+      "leanArtifact": "dev/refactoring/modern-c/models/lean/ResizeSources.lean",
+      "nativeMethod": "native-request",
+      "nativeArtifact": "evidence/research/modern-c-bootstrap/request-custody-concurrent.scm",
+      "nativeClass": "native-request-custody",
+      "nativeScope": "qualification-only scheduling of two real requests and actual GC, source-cell relocation and selection reload, same-origin rejection; no arbitrary owner-death proof"
+    }
+  ],
+  "edges": [
+    {
+      "producer": "COPY-FROZEN",
+      "consumer": "COPY-SOURCE",
+      "obligation": "Source upper bound may become capacity evidence only after unique scanning and destination packing are proved."
+    },
+    {
+      "producer": "ABORT-ISOLATION",
+      "consumer": "COPY-FROZEN",
+      "obligation": "Old collective publishes abort_isolated before healthy GC; detached empty intervals may be reused, stable native identity must not be overwritten."
+    },
+    {
+      "producer": "CHUNK-TRANSPORT",
+      "consumer": "COPY-SOURCE",
+      "obligation": "Disjoint chunk traversal requests do not replace the per-object write claim; copy-winner Tail and special frame links retain separate custody."
+    },
+    {
+      "producer": "FRAME-ACCESS",
+      "consumer": "COPY-SOURCE",
+      "obligation": "A scanner claiming a raw-ready frame must acquire the frame domain before reading the structural link or ordinary roots; constructor writes precede release."
+    },
+    {
+      "producer": "COPY-RESERVATION",
+      "consumer": "COPY-FROZEN",
+      "obligation": "Private grants and known-result refunds provide physical accounting premises; they do not alone establish U, Amax or a pre-flip whole-round grant."
+    },
+    {
+      "producer": "COPY-RESERVATION",
+      "consumer": "FRAME-ACCESS",
+      "obligation": "Captured-frame payload construction uses the same contiguous reservation and commit endpoints; frame/link publication does not erase allocation debt."
+    },
+    {
+      "producer": "STARTUP-ACTIVATION",
+      "consumer": "STARTUP-REUSE",
+      "obligation": "READY certifies Scheme initialization for one generation; successful join closes its native identity before slot overwrite."
+    },
+    {
+      "producer": "STARTUP-ACTIVATION",
+      "consumer": "COPY-FROZEN",
+      "obligation": "A readiness waiter remains a GC participant with a complete C-FFI root origin; no native lock is held while servicing GC."
+    },
+    {
+      "producer": "ROUND-CAPACITY",
+      "consumer": "COPY-RESERVATION",
+      "obligation": "Local cancellation is only one term of whole-round physical accounting and cannot authorize a parity flip or refund section publication."
+    },
+    {
+      "producer": "COPY-RESERVATION",
+      "consumer": "CAS-REFUND-CONTROL",
+      "obligation": "Observed known loss uses the production reservation and cancellation functions; a scheduler control may not write the CAS result or fabricate accounting."
+    },
+    {
+      "producer": "RESIZE-SOURCES",
+      "consumer": "COPY-FROZEN",
+      "obligation": "All source slots join the frozen VM root inventory before source-word census and copying. Root aliases do not justify duplicated copy work or a larger heap."
+    },
+    {
+      "producer": "RESIZE-SOURCES",
+      "consumer": "STARTUP-ACTIVATION",
+      "obligation": "Selection reloads the source cell; ledger then context startup roots take responsibility before source ACK. Managed readiness starts after source transport drain and owns no source-root dependency."
+    },
+    {
+      "producer": "RESIZE-SOURCES",
+      "consumer": "ROUND-CAPACITY",
+      "obligation": "Reserve the fixed registry outside the GC transaction and include its payload reachability in the closed source inventory. A valid root handoff cannot authorize parity flip without the separate physical layout receipt."
+    }
+  ],
+  "sourceLock": "evidence/research/modern-c-bootstrap/request-custody-source.lock.json",
+  "runtimeAdmitted": false,
+  "commitAdmitted": false,
+  "physicalPackingClosed": false,
+  "capacityRule": "Conditional: G=L-Amax-4-ceil(L/K)>0; H <= W+floor(U/G); P >= Q+S+H+R, where S already includes all initial and restored stack sections. U, Amax, source identity, packing and Tail/worker closure must be proved before issuing a pre-flip grant. No automatic heap growth from this formula is implemented.",
+  "benefits": [
+    {
+      "id": "explicit-startup-receipt",
+      "eliminated": "Inferring Scheme initialization from member count, resize return, native handle or a fixed number of Scheme yields; slot reuse without a native-close identity",
+      "added": "Fixed generation/state records, Scheme readiness acknowledgement, separate managed completion, cooperative sync/GC service and READY retirement admission",
+      "bound": "Expected two native words per slot and one per context; configured sizeof must measure the total. Readiness polling/atomics and possible wait CPU use are costs; no startup speedup or peak reduction is claimed.",
+      "gate": "Exact-source native managed controls, unknown-join retention and C root/liveness refinement are separate gates"
+    },
+    {
+      "id": "object-scan-authority",
+      "eliminated": "Second ordinary field writer on duplicate chunk/frontier delivery; pair fast path bypassing authority",
+      "added": "Per-destination READY/OWNED/DONE packed CAS state, initialization publication and first-field Tail exclusion",
+      "bound": "Two bits per destination word: 16384 bytes per 1048576-byte section in the measured profile. O(M) trailer reset plus object state lookups/CAS. No speed or RSS claim.",
+      "gate": "Native whole passes; packed CAS/C memory-order and arbitrary root/FFI refinement remain open"
+    },
+    {
+      "id": "native-heap-custody-split",
+      "eliminated": "Whole-VM GC refusal solely because a never-entered empty startup actor lacks a successful join",
+      "added": "Empty-domain/immutable ABORT checks, retained native records and source root, fixed isolated receipt",
+      "bound": "Unknown 3-to-5 growth detaches four empty section claims; three healthy members complete three GCs while one native actor remains held. No native handle or OS-stack refund is claimed.",
+      "gate": "Known managed abort only; published retiree, unknown create, raw borrow and native reclamation remain excluded"
+    },
+    {
+      "id": "pre-copy-accounting",
+      "eliminated": "Using a post-copy heap resize or aggregate logical free words as evidence of pre-copy capacity",
+      "added": "Frozen source census, per-worker copy counts, explicit physical packing and restoration proof obligations",
+      "bound": "No new Scheme root cells or configured heap increase in the transport cut. The historical transport VM was 90016 bytes; current configured VM is 95144 bytes, including all worker state. Existing trailer remains 16384 bytes per section; overlapping fields must not be added twice.",
+      "gate": "General U/Amax/packing and pre-flip all-or-retain allocator transaction are not implemented or admitted"
+    },
+    {
+      "id": "explicit-chunk-transport",
+      "eliminated": "Allocation-range ownership inference, duplicated own/stolen dequeue implementations, unlocked head/tail prefilter, collector FIFO dependency on volatile ticket-grant polling",
+      "added": "Worker-owned frontier and active progress fields, chunk claim/drain CAS in existing non-object trailer positions, acquire-CAS/release-clear FIFO gate",
+      "bound": "Zero additional trailer bytes per section over object scan authority. Worker 120 to 168 bytes; VM 86944 to 90016 bytes, a 3072-byte total delta including all 64 worker slots. Three p11 graph GCs publish/take 239/239, 253/253, 241/241 chunks with zero observed duplicate object scans. Extra atomic attempts per steal and identity lookups are paid; no speed/RSS reduction is inferred.",
+      "gate": "Whole native, finite history and conditional laws are separate from actual C pointer/memory-order simulation and capacity admission"
+    },
+    {
+      "id": "frame-root-partition",
+      "eliminated": "Unlocked initial link read, frame constructor/scanner races, temporary FAL writes used to suppress structural-link scanning",
+      "added": "One VM frame access gate, explicit ordinary-root cursor excluding the link, independent heap-link repair and live frame descriptor/payload admission",
+      "bound": "Worker 248 bytes (80 added); VM 95144 bytes (5128 added over transport). One gate serializes frame-domain operations. No speed or peak-RSS claim.",
+      "gate": "Normal multi-shot/GC qualification does not admit unmanaged FFI writers, arbitrary metadata or failed collector owners"
+    },
+    {
+      "id": "private-copy-grants",
+      "eliminated": "Duplicated inline capacity loops and alloc-- rollback tied to one header; alignment padding published before knowing the CAS result",
+      "added": "Private begin/header/past grant, complete known-loss cancellation, commit endpoint and Tail/conservation records",
+      "bound": "No configured heap increase. The shared frame/grant records add 5128 VM bytes total; this overlaps the frame benefit and must not be added twice. No whole-round peak reduction is claimed; a shared bump allocator cannot reuse this private rollback contract.",
+      "gate": "Amax and full-round physical reservation, unknown outcome recovery and finite counter bounds remain open"
+    },
+    {
+      "id": "vm-owned-request-roots",
+      "eliminated": "Movable thunk pointers in sync-tree C copies; loss of roots with origin membership; unbounded identity maps; retirement that silently abandons a pending caller",
+      "added": "Three native words per fixed origin, bounded serial admission, CAS state publication, full-slot root scan, selection reload and exception completion guard; busy shrink can fail",
+      "bound": "At 64 slots and 8-byte words: 1536 bytes VM metadata; at most 64 additional root cells per collection. Retained payload graph is unbounded without a separate heap bound. No speedup or RSS reduction claim.",
+      "gate": "Actual competing requests with collection, deferred error and unknown custody, independent C refinement and full-round capacity admission remain distinct"
+    }
+  ]
+}

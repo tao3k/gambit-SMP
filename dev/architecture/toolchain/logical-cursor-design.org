@@ -1,0 +1,220 @@
+#+TITLE: Unified Logical Cursor for gxi/gxc Reader Sessions
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH One authoritative reader domain :modern_c:gxi:gxc:
+:PROPERTIES:
+:CUSTOM_ID: logical-cursor
+:AUTHORITY: LogicalCursor
+:EVIDENCE_CLASS: source-and-conditional-formal-models
+:STATUS: design-source-refinement-open
+:END:
+
+The refactoring replaces split character/token/physical-reader authority with
+one session-owned logical input domain. Scheme continues to own reader,
+binding, exception and continuation semantics. Modern C supplies native
+root/lifetime/I/O support; Zig is not a prerequisite or an additional mandatory
+implementation language. No reader, compiler, runtime or native test is built.
+
+[[file:models/sysml/logical-cursor.sysml][SysML]] is authoritative for six facets, six gates, three retirement cases,
+typed records and LC-H/I/S/E needs. Python invokes native OpenSysML; it does
+not parse SysML or reimplement its evaluator. It transports facts to the
+[[file:../../modeling/ascent/logical-cursor.rules.scm][actual ASCENT rules]], invokes [[file:../../../models/build/logical_cursor.qnt][QNT]] and [[file:../../../models/build/LogicalCursor.lean][Lean]], and derives [[file:logical-cursor-matrix.org][the matrix]] and
+[[file:diagrams/logical-cursor.svg][D2]]. There are no new shell/jq pipelines. The existing broad
+[[file:../../modeling/tools/sync-views.py][Python view tool]] remains intact; the scoped [[file:../../modeling/tools/logical-cursor-study.py][study runner]] adds actual
+model/receipt checks rather than changing concurrent studies' projections.
+
+Research checkout =2211f9d400b65ecfeeb4b154004b8b43da0a36b1=, Gerbil
+=1cfb032c7a1612637da6205f5f8a15683eba3ba0=, Gambit vendor
+=7c490c3ab5b5a4238b26f4a59d8cd9fd4b085882=.
+[[file:../../../evidence/research/logical-cursor-contract/checks.json][The receipt]] binds bytes and exact scopes; retained ancestor receipts are
+conditional evidence, not fresh native acceptance. [[file:ebnf-cursor-handoff-design.org][The prior quote-loss derivation]]
+and its earlier negative/unresolved evidence remain unchanged.
+
+* RESEARCH Raw span and location contract
+:PROPERTIES:
+:CUSTOM_ID: logical-cursor-spans
+:END:
+
+#+name: cursor-interface-sketch
+#+begin_src text :eval never
+SourceIdentity = (origin, inputGeneration, decodingPolicy, eolPolicy)
+RawSpan        = (SourceIdentity, firstBoundary, limitBoundary) // [first,limit)
+TokenView      = (canonicalTokenObject, acceptedSpan, precedingTriviaSpans,
+                  originalLocationObject, parserTailIdentity, reductionReceipt)
+CursorDomain   = (domainIdentity, sourceIdentity, owner, fetchedNext,
+                  logicalNext, committedIntervals, characterResidue,
+                  canonicalTokenViews, readerInstance, readtableOwner,
+                  locationHistory, liveCaptures, pendingDeliveries, nativeBorrows)
+ReadInvocation = (domainIdentity, invocationIdentity, declaredObservationMode,
+                  startBoundary, completionBoundary, valueOrErrorOrEscape,
+                  performedEffects, deliveryState)
+#+end_src
+
+Raw means the exact decoded characters delivered at the character-port
+boundary, before lexeme reduction; it does not mean original OS bytes.
+UTF-8 decoding and EOL conversion can change widths. Byte-exact tooling needs
+a separately retained byte-to-character map; no subtraction of character
+offsets establishes such a map. On streaming or effectful inputs, retained
+segments record already-read characters; they do not assume a frozen whole
+file or permit rereading the resource. Mutable input aliases need ownership
+or an explicit stable-source contract, not a hash taken after reading.
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/lexer.ss::23][The ignored token is a singleton]] with no per-occurrence location;
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/lexer.ss::62][token-stream-get discards it]]. Consequently neither token-e nor token-loc
+can account for ignored trivia. [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/lexer.ss::155][The accepted reduction]] receives only the accepted
+lexeme string/location after extra characters have been pushed back. Raw span
+capture must occur at the character-domain/accept boundary, before ignored
+reductions disappear. It must also retain failure spans on the no-lexeme path
+at lines 128-130 and 185-190; an exception is not a successful accepted span.
+
+| Interval/view | Responsibility | Invariant |
+|---+---+---|
+| Accepted lexeme | Canonical token side record | Exact accepted interval, original token object; reduction runs once for that production |
+| Ignored lexeme | Trivia ledger | Recorded even though singleton $ is discarded; not fabricated from printed payload |
+| Speculative lookahead | Unread character residue | Fetched but not committed to accepted lexeme; not counted twice |
+| Pending parser tokens | Canonical token view | Earlier effects already happened; rewind revisits objects, not reductions |
+| Embedded Scheme datum | Read invocation | Uses unread logical suffix in coherent mode; does not reinterpret delivered tokens without a separate proof |
+| Error/failure horizon | Error-rooted invocation | Preserves consumed characters, raised object/translation and effects; no cursor rollback inferred |
+
+For a contiguous selected transaction, committed intervals partition its
+consumed prefix; unread lookahead plus unfetched suffix conserve the remainder.
+Token rewind moves a token-view frontier, not the physical character frontier.
+Thus one scalar cursor cannot replace all frontiers. An implementation may use
+segments and side records without changing public token layout; it must not
+change token eq identity or the parser's [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/defparser.ss::17][list-tail identity rewind]].
+
+** Positions are mode-qualified observations
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/stream.ss::40][getc/ungetc]] maintain a last-character location and newline history.
+The next logical boundary, next character-port boundary, last-character
+location and OS offset are distinct. A proxy with a different port name or
+zeroed counters is not position-equivalent. Preserve source container/name,
+line/column, decoded extent and exported intermediate location objects, then
+prove their mapping to [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/base.ss::72][AST source locations]]. Gambit [[file:../../../vendor/gambit/lib/_io.scm::10314][normally packs line/column]] and
+ignores the third make-filepos argument; only its overflow path uses that
+argument. The fresh-reset negative intermediate extent therefore does not
+alone prove a normal displayed diagnostic defect. Replacing that intermediate
+observation requires explicit repair qualification if observable.
+
+* RESEARCH Errors, dynamic callbacks and continuation delivery
+:PROPERTIES:
+:CUSTOM_ID: logical-cursor-control
+:END:
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/lang-reader.ss::59][read-%%-section]] translates ParseError into syntax error with mapped token
+irritants; it rethrows other exceptions. [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/base.ss::28][ParseError display]] can perform output and
+inspect ports. Preserve the translation boundary, irritant/token roots and
+already-performed callback/refill/output effects, not just an error string.
+EOF is a distinct reader result; action helpers at lines 166-168 and 238-241
+then raise their own syntax errors. A callback escape is neither EOF nor
+automatically an ordinary error result.
+
+Arbitrary [[file:../../../vendor/gambit/lib/_io.scm::12694][readtable callbacks]] and refill paths remain owned by their original
+session. Captures may occur without call/cc appearing in lang-reader.ss. A
+captured continuation pins references to the original domain, token/error
+objects and outstanding invocation state. Resumption observes the domain's
+current mutable state; it does not restore saved characters/counters. Gambit's
+[[file:../../../vendor/gambit/lib/_thread.scm::8302][dynamic-wind installation]] and [[file:../../../vendor/gambit/lib/_thread.scm::8555][continuation-return winding]] must retain their
+ordering, including exceptions or further captures in before/after thunks.
+
+Exactly-once delivery is scoped to one authoritative invocation receipt.
+It means that an unknown response is settled without blindly repeating the
+read or its effects. It does NOT mean memoizing a continuation globally or
+forbidding legitimate multi-shot continuation execution. A fresh execution
+after reentry needs a distinct invocation identity; the current QNT model
+covers only one invocation, not full multi-shot scheduling. Generation is
+source/domain identity, not an immutable progress snapshot; ordinary reads
+must not invalidate captures merely because the cursor advanced.
+
+If the resource was closed on normal return by [[file:../../../vendor/gambit/lib/_io.scm::10003][call-with-input-file]], a later
+continuation retains the object but does not reopen the resource. Changing
+that behavior is a separate language/resource decision. Retirement waits for
+capture, token, exception and native-borrow aliases and unknown deliveries;
+resource close and memory reclamation remain separate events. A user can
+retain a multi-shot continuation indefinitely, so no constant retention bound
+is claimed. Serial ownership preserves arbitrary stateful callbacks; it is
+not permission to freeze them or silently reject language-valid input.
+
+* RESEARCH Preservation, repair and old-path retirement
+:PROPERTIES:
+:CUSTOM_ID: logical-cursor-migration
+:END:
+
+| Current real caller | Required migration | Classification / retirement blocker |
+|---+---+---|
+| lang-reader.ss:23 read-module-body | Domain-aware Scheme-body entry | Preserve source/binding/reader-instance identity; repeated section transitions must keep one authority |
+| :99 read-id; :123 read-options | Same domain for section header | Preserve header datum, options and error locations; cannot migrate only embedded actions |
+| :166 parser action | Domain-aware datum read then grammar-view continuation | Pending parser tokens and eq-tail aliases need an independent handoff proof |
+| :238 lexer action | Buffered logical suffix then remaining source | Quote-loss witness is an explicit accepted-behavior repair, not legacy equivalence |
+| :169 and :242 action reset | Replace with grammar-view switch on same domain | Retire only after token, location, EOF-cache, callback and continuation aliases are covered |
+| :207 and :252 section constructors | Retain necessary per-section grammar selection | Per-section entry remains needed; existing grammar-definition reuse is baseline |
+| module.ss:275-318 exported reader invocation | Admit domain-capable reader or retain owned legacy instance | Unknown exported reader cannot acquire an untracked raw alias |
+| stream.ss:37; lexer.ss:50 close | Separate resource close from last-root release | No reopening on continuation reentry; no reclamation while aliases survive |
+
+The five direct read-syntax sites and two action resets are a complete textual
+census of this selected file, not proof that the entire repository has no
+other physical-port aliases. Native I/O, reflective access, custom reader
+instances and external clients remain LC-S/LC-E obligations. Unknown aliases
+retain the serialized legacy instance or deny a reuse/parallelization
+credential; they are not discarded to make an optimization admissible.
+
+The coherent mode preserves the quote in the prior source-derived
+=x ->'(T 42)= witness; the old physical entry loses it. Changing the accepted
+action is an explicit repair. Ordinary whitespace examples may have the same
+datum but still differ in locations, effects or errors. Legacy mode needs its
+own observation relation and retained residue; it cannot be labeled coherent
+merely because an AST happens to match. No production mode is selected here.
+
+** Dependency order
+1. Introduce source/domain identities and authoritative character/trivia ledger.
+2. Account for maximal-munch accepted/failure boundaries and canonical tokens.
+3. Qualify all five reader entries, both grammar switches, exceptions and captures.
+4. Record preserve/repair decision; qualify owner/roots/result settlement.
+5. Drain or preserve old aliases before retiring physical entry and reset paths.
+
+* RESEARCH Proof boundaries and net benefit
+:PROPERTIES:
+:CUSTOM_ID: logical-cursor-proof
+:END:
+
+LC-H checks interval accounting, token identity, live-domain captures, rooted
+errors and pending-delivery drain in a bounded QNT fixture. LC-I proves seven
+conditional Lean kernels. Neither proves the real reader, UTF-8/EOL mapping,
+unbounded callback effects, full dynamic-wind or native C memory ordering.
+LC-S requires a forward simulation from actual producer/consumer events,
+with failure/escape observations and a mode-indexed observation relation;
+LC-E requires rooted lifetimes, exclusion of unmanaged borrowers and a
+linearizable invocation settlement adapter. A source proof must establish
+the predicates; setting model fields true is not such a proof.
+
+The retained assurance policy includes all ancestor obligations. LC-S depends
+on LC-H/I/E and CH-S; ASCENT derives the resulting unresolved frontier. Wrong
+scope, stale source hash, missing QNT receipt and missing lifetime gate are
+negative controls. A synthetic all-gates-positive case tests inference only.
+
+For S sections and A completed embedded actions, the selected current path
+constructs T=S+A character streams, token streams and initial locations.
+After qualifying one domain/view per section, the SOURCE-CALL upper bound
+removed by eliminating action resets is 2A stream-constructor calls plus A
+initial-location calls. It is not an allocation or time benchmark; optimizing
+compilers, aliases and required retained views affect realizable savings.
+Do not add this again to the prior study's same saving.
+
+Let avoided work be W_reset + W_relex + W_false_serialization on a qualified
+workload, and added work be W_spans + W_pins + W_adapter + W_validation.
+Positive net work requires avoided > added; each term needs independent
+measurement later. Native I/O, actual readtable effects and necessary reader
+execution are not eliminated. Retention is O(retained decoded input + live
+token/trivia/location records + pending/captured invocation records), with
+the oldest live alias controlling reclamation. Shared physical input remains
+serialized; independent qualified domains may execute concurrently. None of
+this establishes a macOS speedup or an explanation of a reported 5x gap.
+
+Modern C and Zig need the same semantic ledger, root/owner protocol, adapter
+and proofs. Zig allocation APIs or defer cannot erase continuation, nonlocal
+exit or GC rooting duties. No uniquely Zig saving has been established here;
+modern generated C remains the mandatory refactoring baseline. The value is
+one explicit semantic contract that enables reuse and removes split authority,
+subject to the costs and gates in [[file:logical-cursor-matrix.org][the generated net-benefit matrix]].

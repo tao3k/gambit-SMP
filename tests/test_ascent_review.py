@@ -123,7 +123,7 @@ class EvidenceProjectionTest(unittest.TestCase):
             specs, current = bindings(root, base, [observation], "snapshot")
             self.assertEqual(specs["audit:observed"]["depends"], ["m:" + expected])
             self.assertEqual(current["evidence/m.json"], expected)
-            self.assertTrue(specs["m:" + expected]["rawLogEvidencePending"])
+            self.assertTrue(specs["m:" + expected]["recordedOutputPending"])
             facts = project(base, [], "snapshot", observations=[observation],
                             bindings=specs, current_inputs=current, task_model="m")
             from gambit_smp.ascent_program import engine_api
@@ -204,15 +204,19 @@ class EvidenceProjectionTest(unittest.TestCase):
                                   "sha256": digest(log)}]}]}))
             base = {"facts": {"model_receipt": [["m", digest(receipt), "finite-state-TLC"]]}}
             specs, _ = bindings(root, base, [], "snapshot")
-            self.assertFalse(specs["m:" + digest(receipt)]["rawLogEvidencePending"])
-            self.assertEqual(specs["m:" + digest(receipt)]["binding"], "raw-log-revalidated")
+            self.assertFalse(specs["m:" + digest(receipt)]["recordedOutputPending"])
+            self.assertEqual(specs["m:" + digest(receipt)]["binding"], "recorded-output-validated")
             (evidence / "m.qnt").write_text("different model\n")
             with self.assertRaisesRegex(ValueError, "model snapshot identity mismatch"):
                 bindings(root, base, [], "snapshot")
             (evidence / "m.qnt").write_bytes((model / "m.qnt").read_bytes())
             log.write_text("missing completion evidence\n")
-            with self.assertRaisesRegex(ValueError, "raw log identity mismatch"):
+            with self.assertRaisesRegex(ValueError, "output observation"):
                 bindings(root, base, [], "snapshot")
+            log.unlink()
+            specs, _ = bindings(root, base, [], "snapshot")
+            self.assertTrue(specs["m:" + digest(receipt)]["recordedOutputPending"])
+            self.assertNotEqual(specs["m:" + digest(receipt)]["binding"], "recorded-output-validated")
 
 
 if __name__ == "__main__":

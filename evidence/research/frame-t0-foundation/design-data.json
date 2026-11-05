@@ -1,0 +1,370 @@
+{
+  "coordinates": [
+    [
+      "CO-STACK",
+      "Stack word coordinates",
+      "S(F)=round_up(F+3,4); P[0]=saved return marker; B=P+S(F); slot(i)=B[-i], 1<=i<=F",
+      "P names the stored-RA origin; B names the base after FP_ADJFP(fp,-S(F)); addresses are word offsets in one admitted stack region",
+      "vendor/gambit/include/gambit.h.in:6572-6578; vendor/gambit/include/gambit.h.in:6745-6747; vendor/gambit/lib/mem.c:3700-3727"
+    ],
+    [
+      "CO-HEAP",
+      "Heap word coordinates",
+      "H[0]=saved return marker; H[F+1-i]=stackSlot(i); E=H+F+1; FP_STK(E,i)=H[F+1-i]",
+      "H is body after subtype header; FRAME_EXTRA_SLOTS=1; E is one-past body; one-based slots exclude saved RA at H[0]",
+      "vendor/gambit/lib/mem.c:3738-3768; vendor/gambit/lib/mem.c:4104-4141"
+    ],
+    [
+      "CO-LINK",
+      "Return link and caller edge",
+      "L is zero-based; linkSlot=L+1; stack=B[-(L+1)]; heap=H[F-L]",
+      "Capture/control rewrite the caller edge and forwarding marker; equality of every copied slot is not a post-rewrite invariant",
+      "vendor/gambit/lib/mem.c:3724-3729; vendor/gambit/lib/mem.c:3766-3795; vendor/gambit/lib/_kernel.scm:1190-1278"
+    ],
+    [
+      "CO-INTERNAL",
+      "Internal return coordinate law",
+      "F=align(cfs)+S(N+1)-3; S(F)=F+3; RETI_RA=-(S(N+1)-(N+1)); H[1-3-RETI_RA] names actual_ra",
+      "Actual return differs from wrapper marker; equality requires canonical internal F; retain stored cfs as well as physical F",
+      "vendor/gambit/gsc/_t-c-3.scm:502-521; vendor/gambit/include/gambit.h.in:6572-6578; vendor/gambit/include/gambit.h.in:9261-9262"
+    ],
+    [
+      "CO-MAP",
+      "Random and streaming bitmap coordinates",
+      "q=(i-1) div W; b=(i-1) mod W; word(0)=firstgcmap; word(q>0)=nextgcmap[q-1]; live(i)=unsignedBit(word(q),b)",
+      "OFD decoder consumes header and first map word, leaving nextgcmap at the second word; masks require word-sized unsigned operands",
+      "vendor/gambit/include/gambit.h.in:9301-9320; vendor/gambit/lib/mem.c:3816-3891; vendor/gambit/lib/_kernel.scm:3342-3412"
+    ],
+    [
+      "CO-OFD",
+      "Bound outline descriptor extent",
+      "boundOFDWords=1+ceil(F/W); map chunks emitted low 32 bits first; setup cursor uses actual F once",
+      "Raw OFD(kind,...) is an IFD-shaped placeholder with zero map; it is not a ready descriptor pointer; table order must match labels",
+      "vendor/gambit/gsc/_t-c-1.scm:1938-2014; vendor/gambit/gsc/_t-c-3.scm:489-500; vendor/gambit/include/gambit.h.in:9232-9259; vendor/gambit/lib/setup.c:1803-1839"
+    ]
+  ],
+  "laws": [
+    [
+      "FL-ENCODE",
+      "FS-PHYSICAL",
+      "ND-ENCODE; ND-ABI",
+      "DM-CONTRACT; DM-FRAME",
+      "T0-ROOTS",
+      "kind; storedFs; physicalFs; link; map; wordWidth; descriptorState",
+      "validateBounds; lower; encodeInline; encodeOutline; reject",
+      "admitted implies disjoint finite fields and Decode(Encode(Lower(f)))=Lower(f)",
+      "Prove width/shift/overflow bounds and preserve kind plus stored cfs; inverse only on admitted domain",
+      "Native C integer promotions and pointer-tag facts; logical decoding does not prove C expressions defined",
+      "Packed IFD/OFD machinery remains until generated encoder and every decoder migrate",
+      "CEX-FIELDS",
+      "vendor/gambit/include/gambit.h.in:9208-9320; vendor/gambit/gsc/_t-c-3.scm:489-532"
+    ],
+    [
+      "FL-BIND",
+      "FS-PHYSICAL; MS-INSTANCE",
+      "ND-ENCODE; ND-PUBLISH",
+      "DM-INSTANCE; DM-FRAME",
+      "T0-ROOTS; T0-EXECUTION",
+      "unresolvedPoints; labelOrder; ofdCursor; extent; boundSet; published",
+      "reserveDescriptors; bindOutline; checkExtent; publishReady; failRetain",
+      "no scanner sees unresolved outline marker; cursor prefix equals lengths of prior accepted outline frames",
+      "Prove label-order/OFD-order correspondence, extent prefix sums and bind-before-publish; zero-map ambiguity requires actual producer-domain proof",
+      "All valid inline return maps nonzero or explicit state distinction; host label setup and C visibility are separate premises",
+      "Implicit sequential OFD cursor and overloaded marker convention may retire after bound PointId table accepted",
+      "CEX-UNBOUND",
+      "vendor/gambit/include/gambit.h.in:9252-9262; vendor/gambit/lib/setup.c:1740-1844; vendor/gambit/gsc/_t-c-1.scm:1978-2014"
+    ],
+    [
+      "FL-COORD",
+      "FS-SEMANTIC; FS-PHYSICAL",
+      "ND-ENCODE; ND-CONTROL",
+      "DM-FRAME",
+      "T0-ROOTS; T0-CONTROL",
+      "origin; F; P; B; H; E; slotMeaning; initializedPrefix",
+      "copySlot; finishPayload; rewriteLink; reconstruct; restore",
+      "logical slot i in stack and heap has the same meaning before distinguished control rewrites",
+      "Prove i -> F+1-i is a bijection on 1..F, E[-i]=H[F+1-i], link index and region bounds; separate pre/post rewrite relations",
+      "C object provenance, allocation extents, subtype header/body tags and overlap-safe copying; not equality of native addresses",
+      "Repeated hand-coded stack/heap offsets retire only across capture, heap scan, access, restore and rebuild consumers",
+      "CEX-COORD",
+      "vendor/gambit/include/gambit.h.in:6745-6747; vendor/gambit/lib/mem.c:3724-3795; vendor/gambit/lib/mem.c:4104-4152; vendor/gambit/lib/_kernel.scm:3414-3459"
+    ],
+    [
+      "FL-INTERNAL",
+      "FS-SEMANTIC; FS-PHYSICAL",
+      "ND-ENCODE; ND-CONTROL; ND-ROOT",
+      "DM-FRAME",
+      "T0-ROOTS; T0-CONTROL",
+      "kind; cfs; F; savedGvmRegs; wrapperRa; actualRa; actualRaLocation",
+      "saveRegisters; derivePhysical; capture; locateActualRa; restore",
+      "internal actual size transform applied exactly once; actual_ra location and saved-register root interpretation agree",
+      "Derive S(F)=F+reserve from canonical internal transform, then derive FRAME_RETI_RA; cfs cannot be replaced by F alone",
+      "Register count, target constraints, full saved-register materialization and special-return origin match",
+      "Duplicated internal-size conversion and special-return coordinate rules retire together",
+      "CEX-INTERNAL",
+      "vendor/gambit/gsc/_t-c-2.scm:865-904; vendor/gambit/gsc/_t-c-3.scm:502-521; vendor/gambit/include/gambit.h.in:6572-6578; vendor/gambit/lib/mem.c:4114-4124"
+    ],
+    [
+      "FL-MAP",
+      "FS-PHYSICAL",
+      "ND-ENCODE; ND-ROOT",
+      "DM-FRAME",
+      "T0-ROOTS",
+      "mapWords; firstWord; nextWordBase; scanSlot; randomSlot; loadedWord",
+      "decodeHead; streamNext; lookupSlot; refuseOutOfBounds",
+      "streaming and random lookup agree on bit i-1; all word reads and unsigned shifts are defined",
+      "Prove 32-bit chunk aggregation for W=32/64, quotient/remainder lookup and first/next base convention",
+      "Check actual serializer/introspection callers and finite C masks; conditional source discrepancies are not a native reproduction",
+      "Separate scan/introspection bit-extraction algorithms can retire into one generated access contract",
+      "CEX-MAP-INDEX; CEX-SHIFT",
+      "vendor/gambit/include/gambit.h.in:9244-9259; vendor/gambit/include/gambit.h.in:9301-9320; vendor/gambit/lib/mem.c:3816-3891; vendor/gambit/lib/_kernel.scm:3342-3412; vendor/gambit/lib/_io.scm:11688-11706"
+    ],
+    [
+      "FL-COVERAGE",
+      "FS-SEMANTIC; FS-CUSTODY",
+      "ND-ROOT; ND-CONTROL",
+      "DM-FRAME",
+      "T0-ROOTS; T0-CONTROL; T0-WORK",
+      "semanticLive; savedRegisters; dataSlots; returnRoots; controlEdges; externalRoots; scanResult",
+      "completeLiveness; materialize; enumerateData; visitControl; scan",
+      "every required logical root is in the union of admitted data, return, control and external-root routes; selected slots initialized/tag-valid",
+      "Compose source liveness, representation map, coordinate relation and scanner policy; bitmap equality alone is insufficient",
+      "Whole checkpoint and FFI/native temporary census; closure environment special case; frame RA scanned separately and link tag policy preserved",
+      "Duplicate root-interpretation policy may retire; necessary root visits and relocation work remain",
+      "CEX-ROOT-UNION",
+      "vendor/gambit/gsc/_gvm.scm:137-148; vendor/gambit/gsc/_t-c-2.scm:825-904; vendor/gambit/lib/mem.c:4092-4155; vendor/gambit/lib/mem.c:6830-6870"
+    ],
+    [
+      "FL-UPDATE",
+      "FS-CUSTODY; FS-PHYSICAL",
+      "ND-ROOT; ND-CONTROL; ND-LIFETIME",
+      "DM-FRAME",
+      "T0-CONTROL; T0-WORK",
+      "copyCustodian; initializedPrefix; originalLink; forwardingState; temporaryMask; nextOrigin",
+      "reserveCopy; initializePrefix; finishCopy; rewriteLink; hideRawLink; scan; restoreTag",
+      "partial copy never becomes completed frame; control-edge suppression retains custody; no mutator observes scanner-private rewrite",
+      "Relate capture states before/after link/RA rewriting, full payload initialization, forwarding and temporary-tag restoration",
+      "Current capture copies before leaving forwarding under MISC_MEM_LOCK; do not import another copier publication order; C locking/epoch proof still open",
+      "Separate implicit capture/scan control-state interpretations retire after one explicit state relation",
+      "CEX-COPY-CONTROL",
+      "vendor/gambit/lib/mem.c:3690-3809; vendor/gambit/lib/mem.c:4132-4155; vendor/gambit/lib/_kernel.scm:1190-1278"
+    ],
+    [
+      "FL-HANDOFF",
+      "FS-CUSTODY",
+      "ND-PUBLISH; ND-ROOT; ND-LIFETIME",
+      "DM-FRAME; DM-BIND",
+      "T0-EXECUTION; T0-ROOTS; T0-WORK",
+      "vm; executionOwner; participantEpoch; rootCut; scanGrant; relocationEpoch; loadedEpoch",
+      "materialize; freezeFinalWrites; publishRootCut; grantScanner; relocate; acknowledge; reload; resume",
+      "scanner sees final roots; relocated roots loaded before resumed managed access; scan grant is independent of processor identity",
+      "Refine C release/acquire or locks to ROOT-HANDOFF; prove ownership/epoch and location/currentness under worker reassignment",
+      "Participant census and context grants, register cache reload and origin leases; current W_ALL/R_ALL wrapper already exists",
+      "PSTATE-coupled scan entry selection and hand-coded generated choreography only after target protocol accepted",
+      "CEX-EARLY-SCAN",
+      "vendor/gambit/lib/_kernel.scm:4505-4524; vendor/gambit/lib/mem.c:276-311; vendor/gambit/lib/mem.c:6830-6870; vendor/gambit/lib/mem.c:7014-7048"
+    ],
+    [
+      "FL-WRITERS",
+      "FS-SEMANTIC; FS-CUSTODY",
+      "ND-ROOT; ND-CONTROL",
+      "DM-FRAME; DM-RETIRE",
+      "T0-HEAP; T0-CONTROL; T0-FOREIGN",
+      "slotKind; writeSet; nurseryEpoch; rememberedEdges; rebuildProgress; publishedFrame; aliasClass",
+      "admitWriter; writeSlot; rememberEdge; rebuildFrame; publishFrame; refuseUnknown",
+      "every admitted mutation preserves scan/reload contract; mature-frame scan exclusion only with complete writer/barrier closure",
+      "Prove per-writer root/store obligations and initialization-before-publication; then separately prove generational remembered-edge completeness",
+      "frame-set!, continuation-set!, denv setters, deserialize, foreign aliases and all actual callers; unchanged full-scan route remains sound where necessary",
+      "Raw frame writes retire only in migrated scope; no unconditional removal of full scan",
+      "CEX-ROOT-UNION; CEX-EARLY-SCAN",
+      "vendor/gambit/lib/_kernel.scm:3153-3162; vendor/gambit/lib/_kernel.scm:3439-3597; vendor/gambit/lib/_io.scm:11705-11730"
+    ],
+    [
+      "FL-T0",
+      "FS-CUSTODY",
+      "ND-LIFETIME; ND-CONTROL; ND-PUBLISH",
+      "DM-FRAME; DM-RETIRE",
+      "T0-EXECUTION; T0-WORK; T0-CONTROL; T0-PROGRESS",
+      "vmDomain; contextLease; descriptorLease; taskCustody; participantSet; workSet; closeState",
+      "reassignWork; migrateContext; park; capture; closeIngress; drainUsers; retire",
+      "worker reassignment cannot move Scheme ownership implicitly; closure counts all metadata/control users; safety does not imply SMP progress",
+      "Compose frame laws with execution/work/control refinement and noncircular progress obligations; cross-VM continuation needs separate admission",
+      "Existing root models supply scoped contracts only; full GC/SMP target transition systems and fairness still need design/proof",
+      "Implicit equality of execution owner, root owner, GC worker and processor can retire only after every adapter migrates",
+      "CEX-WORKER-OWNER",
+      "vendor/gambit/lib/mem.c:276-311; vendor/gambit/lib/mem.c:6830-6870; vendor/gambit/lib/mem.c:6938-6958; vendor/gambit/lib/mem.c:7014-7048"
+    ]
+  ],
+  "counterexamples": [
+    [
+      "CEX-FIELDS",
+      "FL-ENCODE",
+      "Encode a link or fs beyond its packed field, or use a signed shift whose result is not representable",
+      "Field domain admitted without bound/definedness proof",
+      "algebraic-counterexample-sketch; no executed model/native trace"
+    ],
+    [
+      "CEX-UNBOUND",
+      "FL-BIND",
+      "Raw OFD(kind,...) retains nonzero low kind bits; ordinary decoder classifies it as inline with zero fs/map before setup replaces it",
+      "A reader admitted before bind; actual inline zero-map domain also requires proof",
+      "source-derived-conditional-cut; not a demonstrated supported native execution"
+    ],
+    [
+      "CEX-COORD",
+      "FL-COORD",
+      "Use H[F-i] for one-based i=F; it aliases H[0] (saved RA) instead of the first copied payload slot H[1]",
+      "Missing +1 in stack-to-heap map",
+      "algebraic-counterexample-sketch; not native reproduction"
+    ],
+    [
+      "CEX-INTERNAL",
+      "FL-INTERNAL",
+      "Treat stored internal cfs as already physical F, or apply internal size expansion twice; actual_ra slot changes",
+      "Wrong kind/size domain; canonical internal F law omitted",
+      "conditional-algebraic-sketch; no model exploration"
+    ],
+    [
+      "CEX-MAP-INDEX",
+      "FL-MAP",
+      "At i=W+1 decoder nextgcmap already names map word 1, but current random reader indexes nextgcmap[1], selecting map word 2; streaming reader takes nextgcmap[0]",
+      "Requires a legal multiword frame and actual caller; _io explode-frame calls frame-slot-live? across slots; native witness remains open",
+      "conditional-source-discrepancy; reachability and native effect unresolved"
+    ],
+    [
+      "CEX-SHIFT",
+      "FL-MAP",
+      "Current random reader uses int literal 1 << b; b>=width(int) is invalid, and shifting into signed sign bit can be invalid before that",
+      "Requires target integer widths and a legal requested high slot; not every frame reaches it",
+      "conditional-C-definedness-gap; no native failure claimed"
+    ],
+    [
+      "CEX-ROOT-UNION",
+      "FL-COVERAGE; FL-WRITERS",
+      "Map bits agree yet H[0], saved internal actual_ra, control link, denv or foreign root route is omitted; alternatively an untracked write introduces young reference",
+      "Treat data bitmap as complete root census or allow unregistered writer",
+      "architecture-counterexample-sketch; complete source/caller admission unresolved"
+    ],
+    [
+      "CEX-COPY-CONTROL",
+      "FL-UPDATE",
+      "Require byte equality after capture rewrites link/RA, or grant access to temporary FAL-masked control edge while scanner owns it",
+      "No phase/owner relation for distinguished control fields",
+      "architecture-counterexample-sketch; current capture order not relabeled as partial publication"
+    ],
+    [
+      "CEX-EARLY-SCAN",
+      "FL-HANDOFF; FL-WRITERS",
+      "Scanner gets grant before producer final store or mutator resumes without relocation reload; captured token or process flag is mistaken for current authority",
+      "Missing handoff/reload or rebuilt frame exposed before complete initialization",
+      "architecture-counterexample-sketch; weak-memory refinement open"
+    ],
+    [
+      "CEX-WORKER-OWNER",
+      "FL-T0",
+      "Assign work to a new worker, then interpret worker identity as Scheme context/VM ownership or reclaim image because active calls are zero",
+      "Descriptor/code still referenced by stored continuation, scanner, callback or rebuilding frame",
+      "T0-architecture-counterexample-sketch; no native reproduction"
+    ]
+  ],
+  "lanes": [
+    [
+      "T0-EXECUTION",
+      "Execution and participation separation",
+      "execution; roots",
+      "VmDomain + ExecutionContext grant + separate ParticipantRecord and membership epoch",
+      "Replace assumption that processor/PSTATE identity alone authorizes execution, root participation or removal",
+      "Explicit owner grant, park/reentry and final-root handoff; frame addresses alone grant nothing",
+      "workCore; entryPark; exitLifecycle",
+      "ROOT-HANDOFF; RETIRE-WINDOW",
+      "FL-HANDOFF; FL-T0",
+      "Context/epoch descriptors and acquisition checks; existing parking/root flush remains required",
+      "Full supported participant census and same-VM multi-thread progress; distinct VM capability is not shared-VM SMP",
+      "vendor/gambit/lib/mem.c:276-311; vendor/gambit/lib/_kernel.scm:4505-4524"
+    ],
+    [
+      "T0-ROOTS",
+      "Generated root and frame contract",
+      "semantic; native; roots",
+      "One completed FrameSpec with generated encode/decode, slot transforms and RootCut view",
+      "Replace independent layout/root interpretations across generator, live scanner, heap scanner, control and FFI",
+      "FrameSpec is the common interface; root coverage includes control/register/foreign routes",
+      "schema; entryPark; workCore",
+      "ROOT-HANDOFF; CONTROL-ORIGIN",
+      "FL-ENCODE; FL-BIND; FL-COORD; FL-INTERNAL; FL-MAP; FL-COVERAGE; FL-HANDOFF",
+      "Generated projections and admission validation; precise metadata/lifetime cost charged against current maps",
+      "No standalone new GC model copied into DEV; source liveness and actual C refinement still required",
+      "vendor/gambit/gsc/_t-c-2.scm:825-904; vendor/gambit/lib/mem.c:3896-3968; vendor/gambit/lib/mem.c:4104-4155"
+    ],
+    [
+      "T0-WORK",
+      "Collector work independent of mutator storage",
+      "collector; execution",
+      "CollectorWorkContext + task/copy custody + root-scan grants + phase coordinator",
+      "Retire PSTATE-selected queues/cursors as universal ownership; worker need not be its source mutator",
+      "A scanner carries VM/epoch/FrameSpec view and lease; reassigning work never implicitly resumes/migrates Scheme",
+      "workCore; generation",
+      "GC-WORK-CLOSURE; ROOT-HANDOFF",
+      "FL-COVERAGE; FL-UPDATE; FL-HANDOFF; FL-T0",
+      "Task/context records, queue/handoff and cache-line traffic; gain requires actual load-balance/work reduction",
+      "Root participants and collector workers are distinct sets; producer closure, resize common result and independent-worker capacity remain obligations",
+      "vendor/gambit/lib/mem.c:276-311; vendor/gambit/lib/mem.c:6830-6870; vendor/gambit/lib/mem.c:7014-7048"
+    ],
+    [
+      "T0-HEAP",
+      "Allocation, generations and capacity ownership",
+      "collector; roots",
+      "Context allocation grants + VM capacity epoch + remembered-edge protocol + accepted promotion policy",
+      "Replace conflated allocation/worker/context accounting; skip old-frame scans only for writer-complete admitted classes",
+      "All frame/denv/foreign writes obey root/store contract; FrameSpec is necessary but does not prove barrier closure",
+      "generation; workCore",
+      "ROOT-HANDOFF; GC-WORK-CLOSURE",
+      "FL-COVERAGE; FL-WRITERS",
+      "Barriers, remembered logs, promotion reserve and overflow handling; full-scan baseline retained where required",
+      "Do not copy OCaml algorithm by name; compare actual repeated scan work against barrier/promotion/cache cost",
+      "vendor/gambit/lib/mem.c:288-311; vendor/gambit/lib/mem.c:6300-6365; vendor/gambit/lib/_kernel.scm:3439-3597"
+    ],
+    [
+      "T0-CONTROL",
+      "Continuation and frame lifetime independent of carrier",
+      "control; roots; native",
+      "Logical continuation chain + current/saved/heap origins + descriptor/image leases",
+      "Replace implicit offsets/origin/lifetime and one carrier equated with one continuation owner",
+      "Same coordinate, root, control-edge and lease laws across capture, restore, serialize and frame mutation",
+      "schema; entryPark; exitLifecycle",
+      "CONTROL-ORIGIN; RETIRE-WINDOW",
+      "FL-COORD; FL-INTERNAL; FL-COVERAGE; FL-UPDATE; FL-WRITERS; FL-T0",
+      "Origin/lease metadata and governed writers; necessary copy and dynamic-wind effects remain",
+      "Preserve supported multi-shot Scheme behavior; cross-VM movement is not granted by worker migration",
+      "vendor/gambit/lib/mem.c:3667-3809; vendor/gambit/lib/_kernel.scm:1170-1278; vendor/gambit/lib/_io.scm:11688-11730"
+    ],
+    [
+      "T0-FOREIGN",
+      "Root-safe host ownership and resource release",
+      "foreign; release; execution",
+      "Native borrow/root handles + blocking participation + nested callback custody + owner-qualified release",
+      "Replace implicit marker/root/OS-thread assumptions and ungoverned callback cleanup roles",
+      "Frame view and native roots compose; unknown aliases must be governed, conservatively covered or refused",
+      "entryPark; releaseDrain; exitLifecycle",
+      "ROOT-HANDOFF; RETIRE-WINDOW",
+      "FL-COVERAGE; FL-WRITERS; FL-HANDOFF",
+      "Root/borrow records, callback admission and deferred release bookkeeping; old required root protection is baseline",
+      "Do not run arbitrary foreign destructor on a GC worker; actual owner/cancel/exception callers remain gates",
+      "vendor/gambit/lib/c_intf.c:6511-6547; vendor/gambit/lib/_kernel.scm:4505-4524; vendor/gambit/lib/_io.scm:11705-11730"
+    ],
+    [
+      "T0-PROGRESS",
+      "Whole SMP safety plus progress and scalability",
+      "collector; execution; control; release",
+      "Epoch-coherent participant/root cuts + independent work closure + reclaim permits + fairness/wait graph",
+      "Replace equating local queue-empty, fixed BARRIER population or successful finite safety with global completion",
+      "Frame coverage is only one rely/guarantee input; no waits may conceal a root/task required by the awaited GC",
+      "workCore; exitLifecycle; qualification",
+      "GC-WORK-CLOSURE; ROOT-HANDOFF; CONTROL-ORIGIN; RETIRE-WINDOW",
+      "FL-T0; FL-HANDOFF",
+      "Coordinator/ack/progress machinery, contention and drain latency; per-epoch capacity publication must be consistent",
+      "No forced single processor/global lock as the gain claim; build parallelism and separate VMs do not establish same-VM SMP",
+      "vendor/gambit/lib/mem.c:6938-6958; vendor/gambit/lib/mem.c:7014-7048"
+    ]
+  ]
+}

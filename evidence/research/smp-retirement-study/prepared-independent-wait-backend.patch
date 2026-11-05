@@ -1,0 +1,183 @@
+--- a/lib/os_io.c
++++ b/lib/os_io.c
+@@ -933,22 +933,41 @@
+ #endif
+ 
+ 
+-___SCMOBJ ___device_select
++/* Private typed outcome: scheduler recheck is not a public I/O timeout. */
++enum {
++  DEVICE_WAIT_READY,
++  DEVICE_WAIT_DEADLINE,
++  DEVICE_WAIT_RECHECK,
++  DEVICE_WAIT_ERROR
++};
++
++#ifndef ___SCHEDULER_NATIVE_WAIT_CAP_SECONDS
++/* Candidate value for matched qualification, not an acceptance budget. */
++#define ___SCHEDULER_NATIVE_WAIT_CAP_SECONDS 0.050
++#endif
++
++static ___SCMOBJ device_select_with_cap
+    ___P((___device **devs,
+          int nb_read_devs,
+          int nb_write_devs,
+          int nb_event_devs,
+-         ___time timeout),
++         ___time timeout,
++         ___F64 native_cap,
++         int *wait_reason),
+         (devs,
+          nb_read_devs,
+          nb_write_devs,
+          nb_event_devs,
+-         timeout)
++         timeout,
++         native_cap,
++         wait_reason)
+ ___device **devs;
+ int nb_read_devs;
+ int nb_write_devs;
+ int nb_event_devs;
+-___time timeout;)
++___time timeout;
++___F64 native_cap;
++int *wait_reason;)
+ {
+   ___SCMOBJ e;
+   int event_pos = nb_event_devs;
+@@ -960,12 +979,16 @@
+   int i;
+   int prev;
+   ___time delta;
++  ___BOOL capped_native_wait = 0;
+ 
+ #ifdef USE_ASYNC_DEVICE_SELECT_ABORT
+ 
+   ___BOOL aborted = 0;
+ 
+ #endif
++
++  if (wait_reason != NULL)
++    *wait_reason = DEVICE_WAIT_READY;
+ 
+   state.devs = devs;
+ 
+@@ -1095,6 +1118,13 @@
+   else
+     state.relative_timeout = NEG_INFINITY;
+ 
++  /* Keep state.timeout and device-relative polling semantics intact. */
++  if (native_cap > 0.0 && ___time_to_seconds (delta) > native_cap)
++    {
++      ___time_from_seconds (&delta, native_cap);
++      capped_native_wait = 1;
++    }
++
+   e = ___FIX(___NO_ERR);
+ 
+   ___ACTLOG_BEGIN(io_wait,darkgray);
+@@ -1505,6 +1535,16 @@
+ 
+ #endif
+ 
++  /* A native slice expiry is not a device deadline.  In particular,
++     device_timer_select_virt must not see timeout_reached for this case. */
++  if (e == ___FIX(___NO_ERR) && capped_native_wait && state.timeout_reached)
++    {
++      state.timeout_reached = 0;
++      if (wait_reason != NULL)
++        *wait_reason = DEVICE_WAIT_RECHECK;
++      return e;
++    }
++
+   if (e == ___FIX(___NO_ERR))
+     {
+       for (i=read_pos-1; i>=0; i--)
+@@ -1531,7 +1571,39 @@
+ 
+ #endif
+ 
++  if (wait_reason != NULL)
++    {
++      if (e == ___FIX(___NO_ERR))
++        *wait_reason = state.timeout_reached
++                       ? DEVICE_WAIT_DEADLINE : DEVICE_WAIT_READY;
++      else
++        *wait_reason = DEVICE_WAIT_ERROR;
++    }
++
+   return e;
++}
++
++
++___SCMOBJ ___device_select
++   ___P((___device **devs,
++         int nb_read_devs,
++         int nb_write_devs,
++         int nb_event_devs,
++         ___time timeout),
++        (devs,
++         nb_read_devs,
++         nb_write_devs,
++         nb_event_devs,
++         timeout)
++___device **devs;
++int nb_read_devs;
++int nb_write_devs;
++int nb_event_devs;
++___time timeout;)
++{
++  /* Preserve native cleanup callers until their ownership migration. */
++  return device_select_with_cap (devs, nb_read_devs, nb_write_devs,
++                                 nb_event_devs, timeout, 0.0, NULL);
+ }
+ 
+ 
+@@ -11706,6 +11778,7 @@
+ {
+   ___SCMOBJ e;
+   ___time to;
++  int wait_reason = DEVICE_WAIT_READY;
+ 
+   if (timeout == ___FAL)
+     to = ___time_mod.time_neg_infinity;
+@@ -11716,7 +11789,9 @@
+ 
+   if (___FALSEP(devices))
+     {
+-      e = ___device_select (NULL, 0, 0, 0, to);
++      e = device_select_with_cap (NULL, 0, 0, 0, to,
++                                  ___SCHEDULER_NATIVE_WAIT_CAP_SECONDS,
++                                  &wait_reason);
+     }
+   else
+     {
+@@ -11769,11 +11844,13 @@
+ 
+       ___PRIMITIVEUNLOCK(devices,___FIX(___OBJ_LOCK1),___FIX(___OBJ_LOCK2))
+ 
+-      e = ___device_select (devs,
++      e = device_select_with_cap (devs,
+                             read_pos - write_pos,
+                             write_pos - event_pos,
+                             event_pos,
+-                            to);
++                            to,
++                            ___SCHEDULER_NATIVE_WAIT_CAP_SECONDS,
++                            &wait_reason);
+ 
+       ___PRIMITIVELOCK(devices,___FIX(___OBJ_LOCK1),___FIX(___OBJ_LOCK2))
+ 
+@@ -11787,7 +11864,10 @@
+         }
+     }
+ 
+-  return e;
++  /* Only scheduler callers map the internal reason to their recheck path.
++     Native ___device_cleanup keeps the uncapped compatibility contract. */
++  return wait_reason == DEVICE_WAIT_RECHECK
++         ? ___FIX(___ERRNO_ERR(EINTR)) : e;
+ }
+ 
+ 

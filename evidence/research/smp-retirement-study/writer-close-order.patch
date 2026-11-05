@@ -1,0 +1,38 @@
+--- a/lib/os_io.c
++++ b/lib/os_io.c
+@@ -1636,8 +1636,11 @@
+ 
+   ___virtual_machine_state vm = ___VMSTATE_FROM_PSTATE(___ps);
+   int n, saved_errno, retry = 0;
+-  __atomic_fetch_add (&vm->os.wake_writers, 1, __ATOMIC_ACQ_REL);
+-  if (__atomic_load_n (&vm->os.wake_fault_phase, __ATOMIC_ACQUIRE) >= 5)
++  /* This count and the close flag form a two-atomic admission handshake.
++     SC prevents both sides observing the other's old value. A live VM borrow
++     is still required before this first dereference. */
++  __atomic_fetch_add (&vm->os.wake_writers, 1, __ATOMIC_SEQ_CST);
++  if (__atomic_load_n (&vm->os.wake_fault_phase, __ATOMIC_SEQ_CST) >= 5)
+     { __atomic_fetch_sub (&vm->os.wake_writers, 1, __ATOMIC_RELEASE); return; }
+   do { n = write (___ps->os.select_abort.writing_fd, buf, 1); }
+   while (n < 0 && errno == EINTR && ++retry < 4);
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -5229,7 +5229,7 @@
+ static int vm_native_consumers_clear (___virtual_machine_state vm)
+ {
+   int i;
+-  if (__atomic_load_n (&vm->os.wake_writers, __ATOMIC_ACQUIRE) != 0 ||
++  if (__atomic_load_n (&vm->os.wake_writers, __ATOMIC_SEQ_CST) != 0 ||
+       __atomic_load_n (&vm->os.wake_selectors, __ATOMIC_ACQUIRE) != 0)
+     return 0;
+   for (i=0; i<___MAX_PROCESSORS; i++)
+@@ -5462,7 +5462,9 @@
+ 
+   /* Workers have joined; late producers require the existing host lifetime
+      contract. Never free a descriptor, selector or VM still in actual use. */
+-  __atomic_store_n (&___vms->os.wake_fault_phase, 5, __ATOMIC_RELEASE);
++  /* Paired with writer count/flag SC operations; acquire/release on
++     separate atomics alone would permit both admission checks to miss. */
++  __atomic_store_n (&___vms->os.wake_fault_phase, 5, __ATOMIC_SEQ_CST);
+   if (!vm_native_consumers_clear(___vms))
+     { cleanup_error = ___FIX(___INVALID_OP_ERR); cleanup_phase = 2;
+       return cleanup_error; }

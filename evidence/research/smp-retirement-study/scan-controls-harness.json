@@ -1,0 +1,248 @@
+{
+  "schema": "scan-controls-existing-harness-handoff.v1",
+  "inputs": {
+    "src/gambit_smp/framework.py": "fd13673d301165c8a111f36507ddeca92c15aa3edfe2859deaa8db2de0cd2f0a",
+    "src/gambit_smp/spawn_protocol.py": "f55c48c60916e4c92fe716a1e8f5ba5403e9e322c7b90674b5e4483cce0b167b",
+    "src/gambit_smp/recipes.py": "9c8822561524fb68c96b878774bd14f21a01670109febf144da0a25b0b548546",
+    "src/gambit_smp/native_capabilities.py": "7501fa5d77f53cd163dcfca34d63df80d0be97b5caff2813a340c2226dc4ef97",
+    "src/gambit_smp/suite_primitives.py": "c375327ecbae1831b1791b446cb17704dcdbe5c5a1ed5b9e6ea6645b6c78cd58",
+    "evidence/research/smp-retirement-study/verify-owned-request-native.py": "3a91d95fae72a89662eddac86c0bde1a6fcf366cfaa6bddf99863c1fbaa6f73f",
+    "models/gambit/native/root_cleanup_sticky_retention.scm": "bfecd4c2145752d6cdf0e6e5306a511520ec7c39a6da89b23ea770815e552488",
+    "evidence/research/processor-interrupt-collective-wait/current-lock-scan-diag.lock.json": "20e7af89a4895075adb9c3f39422a8e46aa7aeafa0f05969cf47ee048a592de8",
+    "patches/fixtures/current-lock-scan-diag-cumulative.patch": "fbf60628d163f88d376ad7623fd37d9be102ee8c610c0168234a15717c334b5f",
+    ".cache/tasks/repair-9-12/processes/audit/runs/cc40ed3003854cf4bc48b2ec439d94b1/outputs/scan-slot-implementation/candidate/lib/mem.c": "477f301eb1350fd91e4deebe23891e89933872d2665d0779ab0fa81f5ffd32dd",
+    "evidence/research/smp-retirement-study/scan-slot-memory-order.json": "cf62307bac1c245e2aca9ec378619b0e60792f2ab1ed59a5d06b9e154c2ac916"
+  },
+  "lockedMemSha256": "477f301eb1350fd91e4deebe23891e89933872d2665d0779ab0fa81f5ffd32dd",
+  "existingRunner": {
+    "function": "gambit_smp.framework.execute",
+    "rawSignalExitPreserved": true,
+    "carrierCreationProvided": false,
+    "slotInjectionHooksProvided": false,
+    "fields": [
+      "name",
+      "exit",
+      "timedOut",
+      "seconds",
+      "process"
+    ],
+    "processFields": [
+      "pid",
+      "startedAt",
+      "endedAt",
+      "parentReaped",
+      "processGroupQuiescent",
+      "processGroupProbes"
+    ]
+  },
+  "historicalRunner": {
+    "path": "evidence/research/smp-retirement-study/verify-owned-request-native.py",
+    "fixedC86": true,
+    "reusableAsPatternOnly": true,
+    "injects": [
+      "write",
+      "close"
+    ]
+  },
+  "typedCapabilityLimits": {
+    "gambitExecutableTestRequiresZero": true,
+    "nativeTestSignalCannotPass": true,
+    "noNewRecipeArguments": true
+  },
+  "caseDefinitionsAreProposed": true,
+  "cases": [
+    {
+      "id": "S1",
+      "name": "initializer-close",
+      "scope": [
+        "actual-helper-race",
+        "separate-legal-setup-failure"
+      ],
+      "sites": [
+        "setup_mem_pstate5126:final CLAIMING->READY CAS",
+        "setup_mem_vmstate5261:attachment",
+        "cleanup5673/5691:close"
+      ],
+      "schedules": [
+        "close-before-ready",
+        "ready-before-close"
+      ],
+      "required": [
+        "actual final CAS result",
+        "no reopened READY",
+        "no published partial view",
+        "retained raw slot"
+      ]
+    },
+    {
+      "id": "S2",
+      "name": "admit-close",
+      "scope": [
+        "actual-helper-race",
+        "GC-integration"
+      ],
+      "sites": [
+        "GC7776:after active CAS before final state RMW",
+        "cleanup5673/5691:close"
+      ],
+      "schedules": [
+        "close-before-final-state-validation",
+        "validate-before-close"
+      ],
+      "required": [
+        "null refusal context or retained admitted writer",
+        "no foreign active release",
+        "original GC phases/result"
+      ]
+    },
+    {
+      "id": "S3",
+      "name": "two-worker-reentry",
+      "scope": [
+        "actual-GC-integration",
+        "actual-helper-contention"
+      ],
+      "sites": [
+        "helper chain:actual mark_array/publish3901",
+        "active admission:GC7776"
+      ],
+      "schedules": [
+        "two-distinct-native-workers",
+        "same-slot-contender-or-nested-refusal"
+      ],
+      "required": [
+        "native worker/slot identities",
+        "distinct actual roots/context",
+        "winner-only payload",
+        "sticky coverage and null rejected context"
+      ]
+    },
+    {
+      "id": "S4",
+      "name": "sequence-exhaustion",
+      "scope": [
+        "actual-helper-boundary",
+        "GC-integration"
+      ],
+      "sites": [
+        "attempt reservation before cell3994/publish4002"
+      ],
+      "schedules": [
+        "last-pair-then-refusal-and-later-lifecycle"
+      ],
+      "required": [
+        "actual width and max",
+        "no wrap or reset",
+        "old banks intact",
+        "new setup new slot"
+      ]
+    },
+    {
+      "id": "S5",
+      "name": "partial-bank",
+      "scope": [
+        "actual-publish-cut"
+      ],
+      "sites": [
+        "publish3901:after invalidation ordering",
+        "publish3901:mid-payload before footer",
+        "publish3901:after footer/trailing ordering before load"
+      ],
+      "schedules": [
+        "post-invalidate",
+        "mid-payload",
+        "post-footer-pre-load"
+      ],
+      "required": [
+        "declared ordinary abrupt-exit or separately declared exact fault",
+        "actual checkpoint hit",
+        "target invalid or complete pending only",
+        "other bank intact"
+      ]
+    },
+    {
+      "id": "S6",
+      "name": "active1-fault-read",
+      "scope": [
+        "actual-core-load-fault",
+        "normal-carrier-control"
+      ],
+      "sites": [
+        "actual cell4003",
+        "actual header4021 after original cell read"
+      ],
+      "schedules": [
+        "normal-exit",
+        "cell-fault",
+        "header-fault"
+      ],
+      "required": [
+        "actual crashing image UUID/hash and PC",
+        "predeclared exact signal",
+        "cell/header presence semantics",
+        "active1 retained",
+        "all-writer quiescence and surviving raw carrier"
+      ]
+    },
+    {
+      "id": "S7",
+      "name": "partial-initialization",
+      "scope": [
+        "legal-setup-unwind",
+        "actual-helper-failure"
+      ],
+      "sites": [
+        "mapping validation before attachment",
+        "post-claim pre-READY",
+        "native BINDING before BOUND at actual startup1140/P07894"
+      ],
+      "schedules": [
+        "mapping-refusal",
+        "claim-failure",
+        "native-bind-failure"
+      ],
+      "required": [
+        "original setup error semantics",
+        "no uninitialized token/view access",
+        "retained consumed slot",
+        "no cleanup flush dependence"
+      ]
+    },
+    {
+      "id": "S8",
+      "name": "retained-reuse-writer-set",
+      "scope": [
+        "lifetime-integration",
+        "registered-writer-observation"
+      ],
+      "sites": [
+        "cleanup5673/5691",
+        "framework.execute184..230:writer completion and group probes"
+      ],
+      "schedules": [
+        "same-address-new-instance",
+        "other-registered-writer-still-active"
+      ],
+      "required": [
+        "fresh slot/incarnation",
+        "old banks unchanged",
+        "no premature snapshot/unmap",
+        "all registered writers and readers completed before release"
+      ]
+    }
+  ],
+  "caseClasses": 8,
+  "subSchedules": 18,
+  "nativeControlsExecuted": 0,
+  "nativeHooksPresentInLockedMem": false,
+  "newFixtureCreated": false,
+  "newCapabilityCreated": false,
+  "newRecipeCreated": false,
+  "modelReruns": 0,
+  "productionCompile": false,
+  "runtimeChanged": false,
+  "qualifierChanged": false,
+  "historicalReceiptsChanged": false,
+  "peerAction": false,
+  "commitOrPush": false
+}

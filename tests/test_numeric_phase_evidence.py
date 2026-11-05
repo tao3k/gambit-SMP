@@ -1,8 +1,11 @@
 """Bind diagnostic numeric observations without admitting a continuous campaign."""
 import json
+import hashlib
 import unittest
 
 from gambit_smp.framework import ROOT, digest
+from gambit_smp.output_observations import recorded
+from tests.support import published_digest
 
 
 BASE = ROOT / "evidence/source-results/fixtures/sfun-owned-unwind"
@@ -14,7 +17,7 @@ class NumericPhaseEvidenceTests(unittest.TestCase):
         archive = json.loads((folder / "archive.json").read_text())
         self.assertTrue(archive["archiveOnly"])
         for path, expected in archive["files"].items():
-            self.assertEqual(digest(folder / path), expected)
+            self.assertEqual(published_digest(ROOT, folder / path), expected)
         receipt = json.loads((folder / "receipt.json").read_text())
         self.assertEqual(receipt["continuousPhaseCampaignPassed"], continuous)
         self.assertFalse(receipt["runtimeAdmitted"])
@@ -44,13 +47,15 @@ class NumericPhaseEvidenceTests(unittest.TestCase):
             self.assertFalse(row["timeout"])
             self.assertTrue(row["process"]["parentReaped"])
             self.assertTrue(row["process"]["processGroupQuiescent"])
-        self.assertEqual((folder / "compiled-execution.log").read_text(),
-                         "COMPILER-PHASE:module-initialized,assertions-passed\n")
+        self.assertEqual(recorded(ROOT, folder / "compiled-execution.log")['sha256'],
+                         hashlib.sha256(b"COMPILER-PHASE:module-initialized,assertions-passed\n").hexdigest())
 
     def test_current_predicate_validates_witness_without_readmitting_history(self):
         from gambit_smp.compiler_phase_primitives import EXECUTION_WITNESS, stage_accepted
         folder, receipt = self.receipt("numeric-continuous-loader-contract", continuous=True)
-        output = (folder / "compiled-execution.log").read_text()
+        output = EXECUTION_WITNESS + '\n'
+        self.assertEqual(recorded(ROOT, folder / "compiled-execution.log")['sha256'],
+                         hashlib.sha256(output.encode()).hexdigest())
         self.assertTrue(stage_accepted(0, False, output, None, EXECUTION_WITNESS))
         self.assertFalse(stage_accepted(0, False, "", None, EXECUTION_WITNESS))
         self.assertFalse(stage_accepted(0, False, output + output, None, EXECUTION_WITNESS))
@@ -67,7 +72,7 @@ class NumericPhaseEvidenceTests(unittest.TestCase):
         for row in receipt["stages"]:
             self.assertFalse(row["timeout"])
             self.assertTrue(row["process"]["processGroupQuiescent"])
-        self.assertIn("___LNK_probe_2e_o1", (folder / "compiled-execution.log").read_text())
+        self.assertIn("___LNK_probe_2e_o1", recorded(ROOT, folder / "compiled-execution.log")['linkerSymbols'])
 
     def test_identified_loader_binds_exact_module_and_original_failure_flag(self):
         folder, receipt = self.receipt("numeric-sentinel-load")

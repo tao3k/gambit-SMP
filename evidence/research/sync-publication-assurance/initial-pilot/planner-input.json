@@ -1,0 +1,111 @@
+{
+  "component": {
+    "id": "gc-synchronous-publication",
+    "owner": "dev/architecture/runtime/gc",
+    "binding": "synchronous-publication",
+    "quint": "models/gambit/synchronous_publication.qnt",
+    "quintSymbols": "init; initReference; initFusedExplicit; step; safe; allFourFusedTest; escapedErasureCounterexampleTest",
+    "lean": "models/gambit/lean/SynchronousPublication.lean",
+    "leanSymbols": "zeroOwnersDischargesAllDebt; receiptCoverageAloneInsufficient; reservePreserves; settlementPreserves; knownReturnPreserves",
+    "report": "evidence/research/sync-publication-assurance/checks.json",
+    "scope": "Four symbolic sites, two workers, three protocols, explicit notify/residual/unknown ownership; parametric debt and accounting lemmas; no source or weak-memory simulation"
+  },
+  "routes": [
+    {
+      "id": "MOVABLE-ROLLOVER",
+      "source": "vendor/gambit/lib/mem.c",
+      "lines": "3543-3555;3375-3406",
+      "after": "next_heap_msection -> prepare_heap_msection -> reload alloc/limit; copy and local scan still owed",
+      "idle": "only later at mark_reachable_from_marked:6740 after private/local/steal work",
+      "premise": "custom_msection_alloc, fatal heap path, allocator locks and all native exits must be admitted"
+    },
+    {
+      "id": "MOVABLE-THRESHOLD",
+      "source": "vendor/gambit/lib/mem.c",
+      "lines": "3598-3625",
+      "after": "start_heap_chunk; reload alloc; possible goto again for Tail marking",
+      "idle": "mark_array returns through local/root scan before idle decrement",
+      "premise": "publisher return does not discharge Tail or scan-frontier debt"
+    },
+    {
+      "id": "CAPTURED-ROLLOVER",
+      "source": "vendor/gambit/lib/mem.c",
+      "lines": "3696;3742-3752;3804-3810",
+      "after": "msection helpers while MISC held; remaining frame copy/links; MISC unlock at outer endpoint",
+      "idle": "outer captured/root or object scan returns before mark_reachable idle",
+      "premise": "include existing MISC -> ALLOC order; no G/Q-held allocation and no unmanaged hook escape"
+    },
+    {
+      "id": "CAPTURED-THRESHOLD",
+      "source": "vendor/gambit/lib/mem.c",
+      "lines": "3794-3813",
+      "after": "start_heap_chunk; pending ptr/cf and next_frame traversal; final pointer normalization and MISC unlock",
+      "idle": "publication itself has no worker-count decrement",
+      "premise": "guard uses alloc_heap_ptr rather than local alloc; QNT site enablement does not prove actual threshold reachability"
+    }
+  ],
+  "methods": [
+    {
+      "kind": "interleaving",
+      "method": "QNT",
+      "check": "bounded-histories"
+    },
+    {
+      "kind": "induction",
+      "method": "Lean",
+      "check": "inductive-preservation"
+    },
+    {
+      "kind": "source-refinement",
+      "method": "Lean",
+      "check": "source-simulation"
+    },
+    {
+      "kind": "native-memory-order",
+      "method": "C-memory",
+      "check": "native-memory-refinement"
+    }
+  ],
+  "needs": [
+    {
+      "id": "SP-HISTORY",
+      "kind": "interleaving",
+      "premise": "Positive and fault-controlled last-use/idle/unknown/fusion histories; no native reachability claim"
+    },
+    {
+      "id": "SP-INDUCTION",
+      "kind": "induction",
+      "premise": "Parametric finite owner/debt cover and issued/unfinished/settled/returned conservation"
+    },
+    {
+      "id": "SP-SOURCE",
+      "kind": "source-refinement",
+      "premise": "Initial relation and each actual C step refines a QNT step or justified stutter; progress and complete writer/hook domain"
+    },
+    {
+      "id": "SP-MEMORY",
+      "kind": "native-memory-order",
+      "premise": "Actual compiler and synchronization access paths; C happens-before, OS errors and lifetime"
+    }
+  ],
+  "dependencies": [
+    {
+      "dependent": "SP-SOURCE",
+      "prerequisite": "SP-HISTORY"
+    },
+    {
+      "dependent": "SP-SOURCE",
+      "prerequisite": "SP-INDUCTION"
+    },
+    {
+      "dependent": "SP-SOURCE",
+      "prerequisite": "SP-MEMORY"
+    }
+  ],
+  "quintHash": "37e325fa644471f1b7e8df1fda61c64b1d6a9c3a735038c2029cb393f7ced54d",
+  "leanHash": "894dd407f0b31671f93d69fb669bca2976e18b153553e31b3fc9c6cf5dee1412",
+  "dslHash": "180d0c743a29e406a39cee1afc103e09ddd7df3a1fcecbf6d4acf1e6c522360c",
+  "nativeHash": "d731f6e4cab7bd2b63eb0b06511a273f4a26373c7bfbe6a0d4a2344c5d668860",
+  "bundleHash": "19fc186cd6204a8204fc23572d63dd15be9c9357356516b009af872416d500a0",
+  "claim": "component-assurance:gc-synchronous-publication:19fc186cd6204a8204fc23572d63dd15be9c9357356516b009af872416d500a0"
+}

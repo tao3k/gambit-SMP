@@ -26,6 +26,24 @@ success, stale reuse, deadlock, disabling SMP and relaxing the budget. This is
 a bounded reference design, not yet composition of the whole source GC chain
 or proof of native elapsed time.
 
+### Lifecycle Admission Work
+
+The [source-bound admission rollback contract](../evidence/research/processor-interrupt-collective-wait/cleanup-admission-observation.md)
+checks correctness and work together. QNT rejects redundant VM visits even
+when rollback safety still holds, and retains cumulative work across its finite
+retry composition. The conditional Lean proof uses an arbitrary list of actual
+processor populations: frame probes plus gate operations are at most the sum
+of those populations plus twice the number of visited VMs, assuming single
+visits and at most one reopen per attempted gate. Arbitrary attempt lists add
+cost; neither checkpoint reuse nor counter reset makes prior work disappear.
+
+This is an operation-count bound for the admission helper, not an elapsed-time
+bound for global teardown or GC. Lock waiting, concurrent FFI entry retries,
+hardware CAS behavior and OS scheduling are separate obligations. The observed
+0.889-second predecessor and 0.583-second expanded fixture have different
+workloads and establish neither speedup nor a new performance threshold.
+Existing release/build/test gates remain unchanged.
+
 ## Current Callback Repair
 
 The source-shaped return-value loss is addressed by retaining the result as a

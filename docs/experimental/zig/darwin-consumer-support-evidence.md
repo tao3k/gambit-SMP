@@ -1,0 +1,70 @@
+# Darwin Consumer Support: TAPI, dyld and libdtrace Evidence
+
+Date: 2026-10-20. [Support design and matrices](darwin-consumer-support-matrix.md).
+Research HEAD `b67da6262a973a0ae898002d5c7f5be2d8b5a90d`.
+Static inspection and official-source research only. No consumer build/load,
+device access, probe enumeration, calibration or performance validation.
+
+## Evidence Map
+
+| ID | Source and inspected anchors | Scope |
+| --- | --- | --- |
+| B1 | Local SDK libdtrace.tbd:1-6; dtrace.h:108-145,251-273,329-386 | Stub targets, interface version, typed callbacks and distinct result constants; declarations are not runtime support |
+| B2 | Apple ld64 main src/ld/parsers/textstub_dylib_file.cpp:92-121,365-380 | Reader inputs and optional exact subtype; not the installed linker's identity |
+| B3 | TAPI tapi-1300.0.6.5 tools/libtapi/LinkerInterfaceFile.cpp:150-174 | Historical same-CPU selection branch |
+| B4 | TAPI tapi-1600.0.11.8 same path:160-171,222-299 | Different missing-exact path and architecture-filtered exports; parse success is not import support |
+| B5 | dyld-1378 dyld/DyldProcessConfig.cpp:743-775; dyld/DyldDelegates.cpp:257-265 | Main-image mode to runtime architecture selector |
+| B6 | dyld main mach_o/GradedArchitectures.cpp:37-68,82-123,147-175 | Separate launch/load architecture sets and conditional OS-binary restrictions |
+| B7 | dyld main mach_o/Architecture.cpp:159-217; common/MachOFile.cpp:1659-1699; dyld/Loader.cpp:1515-1544 | ABI names/versions, compatibility/platform and file-backed validation branches; not proof of installed cache behavior |
+| B8 | dtrace-413 lib/libdtrace/common/dt_open.c:882-958,1033-1065 | Version/device/model initialization; modifies collector resources |
+| B9 | dtrace-413 lib/libdtrace/common/dt_consume.c:2038-2079,2172-2199,2413-2467 | Callback phase/end marker and borrowed buffer lifetime |
+| B10 | dtrace main lib/libdtrace/common/dt_handle.c:44-91,177-215,219-255 | Registration and error message ownership; no thread-safety qualification |
+| B11 | dtrace main lib/libdtrace/common/dt_pid.c:664-720 | Internal fasttrap/process-grab dependency of user probe creation |
+| B12 | Clang Pointer Authentication, Dynamic symbol lookup / C function pointers | Standard versus variant pointer-auth ABI; no Zig-release qualification |
+
+## Primary Source Links and Revision Limits
+
+- [TAPI 1300](https://github.com/apple-oss-distributions/tapi/blob/tapi-1300.0.6.5/tools/libtapi/LinkerInterfaceFile.cpp) and [TAPI 1600](https://github.com/apple-oss-distributions/tapi/blob/tapi-1600.0.11.8/tools/libtapi/LinkerInterfaceFile.cpp) are named published revisions. Neither is identified as the installed reader. Their tag listings associate abbreviated commits c8c4d8e and b824911 respectively; these are not full content hashes.
+- [ld64 stub reader](https://github.com/apple-oss-distributions/ld64/blob/main/src/ld/parsers/textstub_dylib_file.cpp) is a public reference path; new linkers need their own mapping.
+- [dyld-1378 ProcessConfig](https://github.com/apple-oss-distributions/dyld/blob/dyld-1378/dyld/DyldProcessConfig.cpp) and [delegates](https://github.com/apple-oss-distributions/dyld/blob/dyld-1378/dyld/DyldDelegates.cpp) were read at named revision. [GradedArchitectures](https://github.com/apple-oss-distributions/dyld/blob/main/mach_o/GradedArchitectures.cpp), [Architecture](https://github.com/apple-oss-distributions/dyld/blob/main/mach_o/Architecture.cpp), [MachOFile](https://github.com/apple-oss-distributions/dyld/blob/main/common/MachOFile.cpp) and [Loader](https://github.com/apple-oss-distributions/dyld/blob/main/dyld/Loader.cpp) were read from rolling main; a tagged GradedArchitectures URL failed. No content equality with that tag or this host is claimed.
+- [dtrace-413 open](https://github.com/apple-oss-distributions/dtrace/blob/dtrace-413/lib/libdtrace/common/dt_open.c) and [consume](https://github.com/apple-oss-distributions/dtrace/blob/dtrace-413/lib/libdtrace/common/dt_consume.c) bind named-revision paths. [Handlers](https://github.com/apple-oss-distributions/dtrace/blob/main/lib/libdtrace/common/dt_handle.c) and [pid provider](https://github.com/apple-oss-distributions/dtrace/blob/main/lib/libdtrace/common/dt_pid.c) remain rolling references.
+- [Clang pointer-auth ABI](https://clang.llvm.org/docs/PointerAuthentication.html) is current upstream documentation, not evidence of local Apple Clang or Zig behavior.
+
+This ledger deliberately does not stitch these releases into one proven shipped
+stack. Conditional paths in the design require a coherent installed-stack
+receipt. A source branch is sufficient to reject a universal incompatibility
+claim, but not sufficient to admit the particular host/profile.
+
+## Local Byte Identity Rechecked
+
+SDK alias: `/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk` (MacOSX26.5.sdk
+in the previous platform ledger). SHA-256 of reread files:
+
+| File | SHA-256 |
+| --- | --- |
+| [libdtrace.tbd](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/lib/libdtrace.tbd) | `ad62632d9aefb0561888f39f932ab440e30bdc6da47830d1aee838eb846c2412` |
+| [dtrace.h](/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk/usr/include/dtrace.h) | `8a7bab21a6934f0c453e70083f7d02b18a58180a0b94697056f299f739e3421a` |
+
+Kernel record layouts and project spawn sources retain the identities in the
+[adapter ledger](darwin-dtrace-adapter-evidence.md) and
+[external observer ledger](darwin-external-observer-evidence.md). None became a
+new runtime witness in this turn.
+
+The 15 proposed import names listed in the design were checked against the
+stub text; none were missing. They belong to its shared export group. This
+does not establish reader selection, successful relocation, a loaded symbol
+provider or callback behavior for either C0 or C1.
+
+## Research Gaps and Failed Retrievals
+
+Initial guessed TAPI lib/NoInits and lib/Core implementation URLs failed. The
+actual linker interface was found under tools/libtapi. Direct Python network
+reads failed DNS; research continued using web access. GitHub tree/API failures
+are retrieval limits, not source absence evidence. Named-version and rolling
+paths are distinguished above. No failed fetch was replaced by an invented hash.
+
+XNU mach_loader.c was inspected as an additional lead; it did not close private
+arm64e executable-policy correspondence, which stays U02. No third-party boot
+argument workaround or live policy audit was used. U01-U06, all P-row runtime
+gates and all A01-A06 controls remain unresolved/unrun. Existing native
+equivalence and retirement verdicts are unchanged.

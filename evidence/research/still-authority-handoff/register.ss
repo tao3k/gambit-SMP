@@ -1,0 +1,7 @@
+(define-evidence (register) (sources binding) (outputs clue factor)
+ (relation binding (name value)) (relation clue (id claim polarity source)) (relation factor (id name value))
+ (fact (clue "still-authority-handoff:1fa35fc5a5e33a05365efaa6a104d985c6f0c45892dc790caec2c1b9666f1a5a" "still-authority-handoff:1fa35fc5a5e33a05365efaa6a104d985c6f0c45892dc790caec2c1b9666f1a5a" "support" "dev/architecture/runtime/gc/models/sysml/still-authority-handoff.sysml"))
+ (fact (factor "still-authority-handoff:1fa35fc5a5e33a05365efaa6a104d985c6f0c45892dc790caec2c1b9666f1a5a" "target-model-bundle-sha256" "1fa35fc5a5e33a05365efaa6a104d985c6f0c45892dc790caec2c1b9666f1a5a"))
+ (fact (factor "still-authority-handoff:1fa35fc5a5e33a05365efaa6a104d985c6f0c45892dc790caec2c1b9666f1a5a" "native-output-sha256" "98a242845e6bce98b1394164cac1c59720d75c53907ba0330333b7fe3ce796b2"))
+ (fact (factor "still-authority-handoff:1fa35fc5a5e33a05365efaa6a104d985c6f0c45892dc790caec2c1b9666f1a5a" "planner-dsl-sha256" "cc9c8d1947556b15cb655ea9fad522fceca8463a32c506f0245126e213e6fac7"))
+)

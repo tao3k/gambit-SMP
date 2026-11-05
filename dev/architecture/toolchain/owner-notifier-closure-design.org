@@ -1,0 +1,191 @@
+#+TITLE: Owner Holders and the Restricted GC Notifier Closure
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Notification must survive a closure and exit audit :modern_c:gxi:gxc:
+:PROPERTIES:
+:CUSTOM_ID: owner-notifier-closure
+:AUTHORITY: OwnerNotifierClosure
+:STATUS: actual-holder-shapes-derived-notifier-refinement-open
+:EVIDENCE_CLASS: source-and-conditional-formal-models
+:END:
+
+This continues [[file:stream-release-authority-design.org][old-stream release authority]] on the #lang module-reading path used
+by gxi/gxc compilation sessions. There is no existing reader owner token or
+restricted notification adapter in the selected sources. The study identifies
+actual holders that a future ownership contract must cover, rather than
+claiming that proposed owner fields are already present. Scheme owns semantic
+identity/control; modern C remains the native baseline.
+
+[[file:models/sysml/owner-notifier-closure.sysml][SysML]] owns seven holder boundaries, seven gates, four gain cases and NC-H/I/S/E.
+The [[file:../../modeling/tools/owner-notifier-study.py][Python entry]] invokes native SysML and [[file:../../modeling/ascent/owner-notifier-closure.rules.scm][ASCENT]], checks [[file:../../../models/build/owner_notifier_closure.qnt][QNT]] and [[file:../../../models/build/OwnerNotifierClosure.lean][Lean]], and derives
+[[file:owner-notifier-closure-matrix.org][the matrix]] and [[file:diagrams/owner-notifier-closure.svg][D2]]. [[file:../../../evidence/research/owner-notifier-closure/checks.json][Receipts]] retain exact subjects/scopes and source bytes.
+No runtime implementation, native test or performance run is performed.
+
+* RESEARCH Actual holders before adding a token
+:PROPERTIES:
+:CUSTOM_ID: notifier-holder-census
+:END:
+
+| Actual holder | Current source edge | Required owner relationship |
+|---+---+---|
+| Token-stream / char-stream | [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/lexer.ss::20][cs, buf, Ls, Rs, EOF]]; [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/stream.ss::19][port, buf, loc, lines]] | Each governed stream-capable facade keeps the owner anchor reachable |
+| Parser calls and K/E closures | [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/lang-reader.ss::131][read-parser-body/read-lexer-body]] passes ts/port/rules/tokens through nested control | Preserve actual live/captured references, not assumed lexical snapshots |
+| Parser rewind stacks | [[file:../../../../gerbil-gambit-bootstrap-audit/src/std/text/parser/ebnf/defparser.ss::17][eq list-tail identity and original token objects]] | Keep token identity; only resource-capable views need the old stream owner |
+| Reader environment / handler | [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/runtime/syntax.ss::255][get-readenv]] binds port/readtable; [[file:../../../vendor/gambit/lib/_io.scm::12694][dispatch]] passes readenv to selected handler | Cover dynamic handler captures/native aliases or retain owned legacy route |
+| Error / StackTrace | [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/runtime/error.ss::16][continuation slot]] populated by [[file:../../../../gerbil-gambit-bootstrap-audit/src/gerbil/runtime/error.ss::37][raise]]; catch uses graft | Include original/replacement/secondary errors and actual surviving control frames |
+| Native RC payload | [[file:../../../vendor/gambit/lib/os_dyn.c::764][RC data stores proc]]; [[file:../../../vendor/gambit/lib/mem.c::3969][mark_rc]] scans it | True native borrows keep managed owner alive; notification/control records do not |
+| Will/action/job/controller | [[file:../../../vendor/gambit/lib/mem.c::4039][Action is strong]], [[file:../../../vendor/gambit/lib/_kernel.scm::1934][job FIFO retains thunks]], action gets testator | No action/job/controller backedge to owner; ephemeral frame roots must retire |
+
+Tail calls and generated root maps determine which lexical values survive at
+a capture point. This census does not prove every error retains every ts.
+It identifies the graph that must be refined. A token's location points to its
+port, not structurally back to token-stream; detached span/chunk/origin owners
+must not accidentally introduce a new owner-stream backedge.
+
+The coverage implication is resource-capable view -> owner token. Token ->
+stream alone is the wrong direction: an external stream alias can remain usable
+after that token dies. Existing exported structures/unsafe/native aliases need
+explicit migration or retained legacy ownership, not a fabricated GC credential.
+
+* RESEARCH Will provenance, resurrection and live callback roots
+:PROPERTIES:
+:CUSTOM_ID: notifier-will-closure
+:END:
+
+Three source facts rule out a generic will callback as the release issuer:
+
+1. [[file:../../../vendor/gambit/lib/mem.c::4039][The GC scans action strongly]]. A closure that captures the owner, a stream
+   view leading to it, or an error/continuation leading to it prevents the intended
+   weak observation. The transitive closure matters, not just the action's name.
+2. [[file:../../../vendor/gambit/lib/_nonstd.scm::1892][Public will-execute!]] checks the will's type and calls the same primitive;
+   it does not require membership in the GC-selected queue. [[file:../../../vendor/gambit/lib/_nonstd.scm::1881][will-testator]] also
+   exposes the testator while the slot remains. If a supposedly private will or
+   action leaks, manual execution/direct invocation is not GC provenance.
+3. [[file:../../../vendor/gambit/lib/_kernel.scm::2106][will-execute!]] binds local testator/action, clears the will slots, enables
+   interrupts for action(testator), and then evaluates void. Slot clearing does
+   not erase the live parameter or dispatcher frame. An action can publish or
+   capture its argument; [[file:../../../vendor/gambit/tests/mem.scm::453][Gambit's own source test]] explicitly stores testator in
+   obj9 to resurrect it. That test is read as evidence here, not executed.
+
+[[file:../../../../gerbil-gambit-bootstrap-audit/src/std/db/sqlite.ss::42][SQLite]] registers module-level __sqlite-driver-close/__sqlite-statement-close
+actions rather than per-owner capturing lambdas. This is a real useful shape,
+but those actions perform resource cleanup and do not qualify a nonallocating,
+noncapturing notification leaf or establish cleanup thread affinity.
+
+* RESEARCH Restricted closure and publication protocol
+:PROPERTIES:
+:CUSTOM_ID: notifier-restricted-protocol
+:END:
+
+The proposed notifier is a private generated/runtime primitive boundary, not
+an arbitrary user Scheme finalizer with a reassuring annotation. Its admissible
+environment consists only of stable scalar owner/generation/close identities,
+an independently live rootless control/slot reference and a private GC dispatch
+ticket. The will/action handles are not exported. The caller must prove that
+the slot, queue and ticket carry no Scheme owner/error/capture or resource-capable
+back pointer. A numeric-looking C pointer is not automatically rootless or safe.
+
+The bounded action path may validate identity, write a PREPARED marker into a
+slot reserved before will registration, and return a status. It may not call
+user code, format/raise/log exceptions, allocate event objects, invoke a reader,
+publish testator, capture control, or wait for a service needing GC/owner reentry.
+Direct calls, indirect callbacks, interrupt/safepoint paths and implicit exception
+wrappers must all be audited. Zig's lack of automatic GC does not establish any
+of these Scheme control properties.
+
+Registration failure needs ordinary rollback custody. Once registered, queue
+pressure must not require allocation while holding testator: retain the existing
+per-owner slot and publish/query its canonical state. Unknown publication replies
+are settled against that slot; they do not cause the action to run again.
+The outcome path must retain stable control storage until all delayed notices/
+acknowledgements drain. No mailbox/pointer implementation is supplied here.
+
+| Stage | Meaning | Still insufficient for release evidence |
+|---+---+---|
+| SELECTED | GC's past strong-reachability observation | Action not dispatched; later weak access/resurrection still possible |
+| DISPATCHED | Private GC dequeue ticket binds owner generation and close epoch | Testator/action locals are live |
+| PREPARED | Rootless identity/outcome deposited in reserved slot | Action/frame may still be active or later fail/escape |
+| ACTION-RETURNED | Action returned normally to will-execute! | Dispatcher locals/root maps may still retain testator |
+| FRAME-RETIRED | Relevant invocation roots retired on a qualified path | Need no captured callback, publication, secondary error and identity mismatch |
+| SEALED | Qualified normal return, frame exit, private nonresurrection and rootless payload joined | Only one contribution to RA's borrow/drain/outcome/permit join |
+
+The source has no dedicated per-will frame-retirement acknowledgement. A lexical
+return or void expression is not a machine root-map proof. The required cut must
+be mapped to actual GVM/compiler frame descriptors and GC-safe root retirement,
+or to an equivalent admitted native boundary. NC-E remains open.
+
+The concrete consumers are [[file:../../../vendor/gambit/lib/mem.c::3898][mark_continuation]] for active frames,
+[[file:../../../vendor/gambit/lib/mem.c::4103][the heap-frame scanner]], and [[file:../../../vendor/gambit/lib/mem.c::6511][mark_registers/mark_saved]]. Frame scanners obtain
+size/link/GC maps through [[file:../../../vendor/gambit/include/gambit.h.in::9301][RETI/RETN descriptor decoding]] before mark_frame;
+the procedure scanner at mem.c:4149-4172 also follows closure free variables.
+Consequently removing one stack slot does not prove that registers, saved
+roots, captured heap frames or helper closures have stopped retaining testator.
+The model's frameAlive/frameRetired pair abstracts this complete invocation-root
+obligation; it does not claim those consumers have been simulated individually.
+The selected action and dispatcher still need exact generated program points,
+descriptors and liveness/root maps as source evidence before that abstraction
+can be qualified. Naming a top-level action is not a substitute for that check.
+
+* RESEARCH Escape, exceptions, repeated control and GC jobs
+:PROPERTIES:
+:CUSTOM_ID: notifier-exit-and-jobs
+:END:
+
+[[file:../../../vendor/gambit/lib/_kernel.scm::2082][gc-finalize!]] calls will-execute! then continues finalization; the selected
+path has no per-action catch/normal-return receipt around that call. If action
+raises, Gerbil's StackTrace machinery can retain testator through its captured
+control; if action captures, later reentry can revisit the callback after an
+earlier return. A dynamic-wind after thunk runs on escape too and may run again
+on repeated winding. Therefore after-thunk execution is not normal return or
+proof that no captured frame can reappear. Such a callback is outside the
+restricted credential profile; its actual Scheme exception/control semantics
+remain intact on the legacy route. It is not silently swallowed to seal a notice.
+
+[[file:../../../vendor/gambit/lib/_kernel.scm::2153][handle-gc-interrupt!]] runs gc-finalize! before execute-jobs! on gc-interrupt-jobs.
+That provides a candidate normal-path drain boundary, not an implemented proof
+that every per-action root is absent. Exceptions, recursive GC, captured control,
+the interrupt owner and source/native frame maps must be qualified. Jobs are
+arbitrary thunks and preceding jobs may fail or delay processing; no fixed latency
+or dedicated collector-worker execution is inferred.
+
+[[file:../../../vendor/gambit/lib/_kernel.scm::1925][add-job!]] inserts into a FIFO, and execute-jobs! traverses a snapshot without
+clearing the registry. A per-owner thunk capturing its owner can retain that
+owner indefinitely until explicit removal/clear. The global clear function is
+not a safe way to delete one owner's dependency while preserving unrelated jobs.
+Prefer one owner-independent module/runtime drain job per qualified VM/notifier
+service, operating on rootless slots. It must not capture owner via a logger,
+exception handler or per-owner helper. This changes a proposed W-owner job design
+from W persistent capturing registrations to one registration plus O(W) slots;
+it is not a claim that gxi/gxc currently implements such a notifier.
+
+* RESEARCH Admission, retirement and proof closure
+:PROPERTIES:
+:CUSTOM_ID: notifier-closure-proof
+:END:
+
+The actual holder graph and private closed action must be qualified before
+registration; otherwise maintain legacy ownership and deny sharing/reclamation
+credentials. Retire old monitor/job paths only when the rootless replacement
+can publish and settle all notices, old closures/captures drain, and registry/
+frame-exit proof is complete. Public make-will/will-execute!/resurrection behavior
+is retained outside this internal profile. No general finalizer API is removed.
+
+Net work includes registration-time slot/control allocation, ticket checks,
+prepared/sealed state, frame exit qualification and queue/drain work. The benefit
+is avoiding self-retention, false reclamation and mandatory callback-time event
+allocation, not an assumed end-to-end speedup. Genuine live errors/captures still
+permit unbounded retention. Earlier reset/ignored-string/rootless-ack savings
+are not added again. Modern C and Zig require the same semantic support.
+
+NC-H models holder edges, GC/manual provenance, preparation, normal return,
+dispatcher-frame retirement, resurrection, exception/capture/reentry and stale
+identity controls. NC-I has eight conditional kernels. It does not prove the
+actual closure free-variable graph, native no-allocation property or GC root maps.
+NC-S requires those source/control refinements; NC-E requires dispatch provenance,
+safe frame cut, ABI/interrupt behavior, mailbox memory order and control-storage
+grace. SysML links NC-S to NC-H/I/E and RA-S; ASCENT preserves the ancestor frontier.
+All seven new gates remain unresolved; sealed-notice model success is not a native
+release permit or runtime acceptance.

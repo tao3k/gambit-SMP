@@ -1,0 +1,101 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "audit-checkpoint-gerbil-full",
+  "scope": "Complete pinned upstream Gerbil build and default recursive gxtest over the same retained native producer. No runtime repair admission. Exact numeric-host checkpoint; its gsi bytes equal the ready managed c86dff86 workspace. Existing per-target watchdogs are unchanged.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "per-stage",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json",
+    "patches/fixtures/vm-registry-resize-grace-numeric-host.patch",
+    "evidence/research/incremental-builds/qualified-runtime-input.json",
+    "evidence/research/incremental-builds/qualified-gerbil.source.lock.json",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "arguments": {
+        "sourceLock": "evidence/fixtures/vm-registry-reader-lease/resize-grace-numeric-host-source.lock.json"
+      },
+      "budgetSeconds": 30
+    },
+    {
+      "id": "runtime",
+      "capability": "gambit.runtime-import",
+      "dependsOn": [
+        "candidate"
+      ],
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "archive": "evidence/research/incremental-builds/qualified-runtime-input.json"
+      },
+      "budgetSeconds": 60
+    },
+    {
+      "id": "gerbil",
+      "capability": "gerbil.build",
+      "dependsOn": [
+        "runtime"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "sourceLock": "evidence/research/incremental-builds/qualified-gerbil.source.lock.json",
+        "runtime": {
+          "step": "runtime",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "runtime",
+          "output": "identity"
+        }
+      }
+    },
+    {
+      "id": "tests",
+      "capability": "gerbil.test",
+      "dependsOn": [
+        "gerbil"
+      ],
+      "budgetSeconds": 600,
+      "arguments": {
+        "build": {
+          "step": "gerbil",
+          "output": "observations"
+        }
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "runtime",
+        "gerbil",
+        "tests"
+      ],
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      },
+      "budgetSeconds": 10
+    }
+  ]
+}

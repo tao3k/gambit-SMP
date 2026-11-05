@@ -1,0 +1,646 @@
+{
+  "source": [
+    {
+      "key": "chunk-start",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc_heap_chunk_limit = work->context->mem.alloc_heap_ptr_ + ___MSECTION_CHUNK;",
+      "obligation": "Threshold is a rollover trigger, not a minimum size for every closed chunk"
+    },
+    {
+      "key": "empty-close",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK;",
+      "obligation": "Even empty closure consumes a terminal word; prove non-reuse across manifest intervals"
+    },
+    {
+      "key": "node-alias",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___WORD *new_tail = alloc_heap_chunk_start-1;",
+      "obligation": "Replace old link address, not merely wrap enqueue"
+    },
+    {
+      "key": "section-slack",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->context->mem.alloc_heap_limit_ -= 2;",
+      "obligation": "Two terminal markers; charge partial and empty sections separately"
+    },
+    {
+      "key": "section-prefix",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "*work->context->mem.alloc_heap_ptr_++ = NULL_CHUNK_LINK; /* link of msection's first chunk */",
+      "obligation": "First prefix is not a new copied object"
+    },
+    {
+      "key": "no-fit",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->context->mem.alloc_heap_limit_-alloc < required",
+      "obligation": "Partial section rollover occurs before next reservation"
+    },
+    {
+      "key": "private-rollback",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "alloc = cancel_copy(work,&grant);",
+      "obligation": "Only failed forwarding CAS private reservation may roll back; no terminal/node duplication"
+    },
+    {
+      "key": "forwarding",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___COMPARE_AND_SWAP_WORD(&body[-1],",
+      "obligation": "Node capacity must precede winning forwarding; failure cannot abandon initialization"
+    },
+    {
+      "key": "custom-sections",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "return custom_msection_alloc ();",
+      "obligation": "Reject uncertified address reuse or extension without atomic storage-plus-node budget admission"
+    },
+    {
+      "key": "shared-section",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "result = ms;",
+      "obligation": "Distinct section identity alone does not establish disjoint heap lease intervals"
+    },
+    {
+      "key": "dequeue-head",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "owner->heap_chunks_to_scan_head_ = node;",
+      "obligation": "Empty queue can retain last consumed address"
+    },
+    {
+      "key": "local-owned",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "work->local_scan_chunk_ = ptr;",
+      "obligation": "Local frontier owns a private chunk; no extra admission on eventual publication"
+    },
+    {
+      "key": "weak-copy",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "process_wills (work);",
+      "obligation": "Weak producers can add copies; strong-only budget is insufficient"
+    },
+    {
+      "key": "weak-end",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "move_continuation (work);",
+      "obligation": "Final worker context restoration remains a future user until separately qualified"
+    },
+    {
+      "key": "cleanup-hash",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "process_gc_hash_tables (work);",
+      "obligation": "Cleanup frontier not equivalent to weak scan completion"
+    },
+    {
+      "key": "cleanup-foreign",
+      "path": "vendor/gambit/lib/mem.c",
+      "needle": "___release_foreign",
+      "obligation": "Native callback potential must be closed or routed into next epoch"
+    },
+    {
+      "key": "destructor-call",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "if ((e = release_fn (ptr)) != ___FIX(___NO_ERR))",
+      "obligation": "Unrestricted foreign destructor is not automatically a no-reentry user"
+    },
+    {
+      "key": "chunk-size",
+      "path": "vendor/gambit/lib/mem.h",
+      "needle": "#define ___MSECTION_CHUNK       ___MSECTION_BIGGEST",
+      "obligation": "Selected source threshold K=255; not proof of current compiled profile"
+    },
+    {
+      "key": "section-size",
+      "path": "vendor/gambit/lib/mem.h",
+      "needle": "#define ___MSECTION_SIZE        131072",
+      "obligation": "Illustrative half section 65536 words; actual lease manifest separately checked"
+    },
+    {
+      "key": "legacy-cas",
+      "path": "vendor/gambit/include/gambit.h.in",
+      "needle": "__sync_val_compare_and_swap(p,oldval,newval)",
+      "obligation": "Native adapter is not itself portable C11 proof"
+    }
+  ],
+  "capacity": [
+    {
+      "key": "physical-ceiling",
+      "bound": "Bdata <= W + P; Btotal = Bdata + D",
+      "premise": "Distinct terminal addresses in disjoint fixed epoch intervals W; at most P open chunks; D independent dummy nodes",
+      "counterexample": "Custom allocator repeats an interval or phase resets rewind its cursor",
+      "status": "conditional arithmetic proved; source injection open"
+    },
+    {
+      "key": "charged-ceiling",
+      "bound": "255*Bdata <= A + 255*(V+P)",
+      "premise": "All threshold closures charged to disjoint 255-word spans; at most V partial section closes; private cancellation does not rewind committed spans",
+      "counterexample": "Count copied payload only; omit empty close or repeated lease visit",
+      "status": "conditional arithmetic proved; complete charge classification open"
+    },
+    {
+      "key": "epoch-admission",
+      "bound": "capacity >= certified total demand including strong weak and restore users",
+      "premise": "Reserve all pool pages and check size arithmetic before flipping or forwarding; no GC-recursive fallback",
+      "counterexample": "Pool native allocation fails after forwarding is visible",
+      "status": "design; native preflight issuer absent"
+    },
+    {
+      "key": "dense-fallback-cost",
+      "bound": "Selected 3-pointer fields: >=24*(W+P+D) bytes when Psizeof=8",
+      "premise": "Capacity is logical records, not just occupied/live records; allocator and pin bytes additional",
+      "counterexample": "Treat loose ceiling as a cheap production pool",
+      "status": "mathematical bound can be too costly; not accepted as performance design"
+    },
+    {
+      "key": "tighter-example",
+      "bound": "A=65536 V=1 P=1 D=1 => Btotal<=260; fields>=6240 bytes",
+      "premise": "Illustrative certified one-lease geometry; physical case not measured; A includes allocation spans",
+      "counterexample": "Claim every real section produces exactly 260 nodes",
+      "status": "arithmetic example only"
+    }
+  ],
+  "progress": [
+    {
+      "key": "no-node-wait",
+      "mechanism": "Every remaining certified demand has a free node since issued<budget<=capacity",
+      "condition": "Admission covers whole epoch; nodes retained, never depend on mid-epoch recycle",
+      "gap": "Formal space theorem; source demand permit injection remains open"
+    },
+    {
+      "key": "undersized-pool",
+      "mechanism": "Reject before admission or choose separately qualified plan before forwarding",
+      "condition": "Existing committed work keeps custody after any contract breach",
+      "gap": "Helping scan cannot free retained nodes; no post-forward rollback guarantee"
+    },
+    {
+      "key": "finite-drain",
+      "mechanism": "Rank=4*private+3*sealed+2*queued+owned decreases on each drain step",
+      "condition": "No new tasks; sealed payload ready; fair scheduling and terminating scan callbacks",
+      "gap": "Enabledness and rank proved; not fairness, wait-freedom, or full GC termination"
+    },
+    {
+      "key": "unknown-outcome",
+      "mechanism": "Same node and accepted task survive lost ack; observe receipt without reenqueuing",
+      "condition": "Stable epoch identity and protected custody slot; retries use identity",
+      "gap": "Aggregate model does not prove per-task replay deduplication"
+    },
+    {
+      "key": "late-child",
+      "mechanism": "Parent reserves child budget and node before final settlement, even after root close",
+      "condition": "Child remains within certified physical geometry; no implicit Scheme allocation",
+      "gap": "Children modeled as node tasks; non-node Tail/initialization debt imported separately"
+    }
+  ],
+  "receipt": [
+    {
+      "key": "pool-plan",
+      "issuer": "VM epoch coordinator plus storage manifest owner",
+      "prerequisite": "Disjoint leases; K/ABI; checked size; pool memory; all stage producers; stable roster",
+      "revocation": "Any resize extension allocator/profile change requires joint new admission before use",
+      "gap": "No current native issuer"
+    },
+    {
+      "key": "work-complete",
+      "issuer": "Global work ledger coordinator",
+      "prerequisite": "All roots/producers closed; delayed copies/Tail/owned/private tasks settled",
+      "revocation": "Late accepted work prevents signature or belongs to distinct later epoch",
+      "gap": "Model aggregate slice proved; all native producers open"
+    },
+    {
+      "key": "users-closed",
+      "issuer": "Epoch admission owner plus every queue/source reader",
+      "prerequisite": "Stop new borrowers and publishers; drain admitted users; cleanup callbacks rerouted or proven non-reentrant",
+      "revocation": "Late closure attempt fails rather than clearing debts",
+      "gap": "C gate linearization and callback closure open"
+    },
+    {
+      "key": "reclaim-permit",
+      "issuer": "Pool lifecycle coordinator under closure serialization",
+      "prerequisite": "Work complete + users closed + heads detached + all receipts/borrowers gone + generation match",
+      "revocation": "Single-use permit consumed once; never reopen same generation",
+      "gap": "Model safety proved; native generation and permit issuer open"
+    }
+  ],
+  "memory": [
+    {
+      "key": "reserve",
+      "ordering": "Owner-local cursor or native pool gate acquire/release",
+      "obligation": "Reserve node and task responsibility before winning forwarding CAS; no failure in commit segment",
+      "gap": "Global lock fairness and owner interruption open"
+    },
+    {
+      "key": "publish",
+      "ordering": "Initialize immutable bounds and payload before release unlock; acquire before reading queue",
+      "obligation": "All next/head/tail accesses use same gate; scanner holds independent lifetime pin outside gate",
+      "gap": "Exact effective Darwin adapter and payload readiness mapping open"
+    },
+    {
+      "key": "last-user",
+      "ordering": "Final borrower release or RMW sequenced after last dereference; reclaimer acquire",
+      "obligation": "Admission close and borrower registration serialized; count zero after gate closure; no hidden reader",
+      "gap": "Acquire zero without closed admission is invalid"
+    },
+    {
+      "key": "receipt",
+      "ordering": "Serialized immutable receipt publication release; consumer acquire and generation check",
+      "obligation": "Must observe every last decrement through selected gate/RMW release sequence; no relaxed-zero shortcut",
+      "gap": "No operational C11 weak-memory model or compiled witness"
+    },
+    {
+      "key": "overflow",
+      "ordering": "Checked native size multiplications and counts before admission",
+      "obligation": "No wrap in capacity budget debt pin generation; saturation retains custody/rejects",
+      "gap": "Mathematical integers do not prove machine arithmetic safety"
+    }
+  ],
+  "gain": [
+    {
+      "key": "ordinary-C-scan",
+      "avoided": "No whole-header atomic conversion or mutable sentinel classifier race",
+      "added": "Independent record initialization and queue transfer",
+      "condition": "Full source replacement and payload publication qualified"
+    },
+    {
+      "key": "capacity",
+      "avoided": "No allocation failure or free-node wait after winning forwarding",
+      "added": "Reserve Btotal*recordStride + pool/pin bookkeeping before epoch",
+      "condition": "Valid complete capacity receipt and admitted memory budget"
+    },
+    {
+      "key": "publication",
+      "avoided": "No extra work acceptance or debt when sealing/publishing",
+      "added": "O(1) state transition per transfer; aggregate counts or worker-local batches",
+      "condition": "Same logical task identity; no second enqueue after unknown ack"
+    },
+    {
+      "key": "retention",
+      "avoided": "No per-node reuse ABA within epoch; no per-node free in scan loop",
+      "added": "Retain every issued record through global reclamation cut",
+      "condition": "No overlapping epoch reuse; late pin can delay reclamation indefinitely"
+    },
+    {
+      "key": "tight-budget",
+      "avoided": "For illustrative one half-section K255 geometry fields lower bound6240 bytes (~1.19% of 524288 payload-space bytes)",
+      "added": "Actual stride pool padding global roots and late-epoch retention not included",
+      "condition": "Conditional geometry; not measured residency or speedup"
+    },
+    {
+      "key": "loose-budget",
+      "avoided": "Can state finite upper bound independently of payload occupancy",
+      "added": "At least ~3 times tospace bytes for dense three-pointer records at one record per word",
+      "condition": "Useful as safety ceiling; too costly to justify production selection alone"
+    },
+    {
+      "key": "net-benefit",
+      "avoided": "Saved header-atomic tax and useful scan overlap",
+      "added": "Node/pool cost + admission/custody + retention; reduced heap may cause more GC",
+      "condition": "Positive only if saved work exceeds total new cost and memory budget fits"
+    },
+    {
+      "key": "retirement",
+      "avoided": "Old terminal-as-next and implicit queue-head lifetime can retire",
+      "added": "Migrate enqueue/dequeue/classifier local frontier epoch setup cleanup debug all together",
+      "condition": "No speed credit for already-existing queue gate; no runtime replacement yet"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "manifest",
+      "toNode": "preflight",
+      "custody": "Disjoint spans and bounded producers yield pool demand budget"
+    },
+    {
+      "fromNode": "preflight",
+      "toNode": "pool",
+      "custody": "Allocate before flip/forward; reject undersized plan"
+    },
+    {
+      "fromNode": "pool",
+      "toNode": "copy",
+      "custody": "Reserve node with work debt before forwarding"
+    },
+    {
+      "fromNode": "copy",
+      "toNode": "sealed",
+      "custody": "Complete payload and frame links; retain Tail debt"
+    },
+    {
+      "fromNode": "sealed",
+      "toNode": "queue",
+      "custody": "Publish moves same accepted debt under queue gate"
+    },
+    {
+      "fromNode": "queue",
+      "toNode": "scanner",
+      "custody": "Claim node while retaining lifetime outside gate"
+    },
+    {
+      "fromNode": "scanner",
+      "toNode": "work-complete",
+      "custody": "Settle scan debt after deriving all children"
+    },
+    {
+      "fromNode": "work-complete",
+      "toNode": "users-closed",
+      "custody": "Drain future publishers callbacks and borrowers separately"
+    },
+    {
+      "fromNode": "users-closed",
+      "toNode": "receipt",
+      "custody": "Detach dummy heads and retire receipts and pins"
+    },
+    {
+      "fromNode": "receipt",
+      "toNode": "reclaim",
+      "custody": "Generation-bound permission; epoch reuse only after consumption"
+    }
+  ],
+  "obligation": [
+    {
+      "key": "induction",
+      "status": "proved",
+      "scope": "Actual pool typed AST all-step and reachable safety",
+      "gap": "Abstract integers and atomic steps"
+    },
+    {
+      "key": "capacity",
+      "status": "conditional-proved",
+      "scope": "Physical and threshold arithmetic plus permitted reserve room",
+      "gap": "Native geometry injection and all producer coverage open"
+    },
+    {
+      "key": "progress",
+      "status": "conditional-proved",
+      "scope": "Drain enabledness and strictly decreasing pipeline rank",
+      "gap": "Fairness terminating callbacks and complete finite task supply open"
+    },
+    {
+      "key": "composition",
+      "status": "proved-slice",
+      "scope": "17 pool actions simulate actual weak-admission AST or stutter; common delayed-ledger view",
+      "gap": "Per-object identity full marker product and native source composition open"
+    },
+    {
+      "key": "reclaim",
+      "status": "proved-slice",
+      "scope": "No receipt with borrowers heads or unresolved receipts; no premature reclaim",
+      "gap": "Native late-registration exclusion and generation ABI open"
+    },
+    {
+      "key": "C11",
+      "status": "open",
+      "scope": "Release/acquire handoffs and ordinary record accesses",
+      "gap": "No weak-memory execution/refinement checker claimed"
+    },
+    {
+      "key": "net-benefit",
+      "status": "open",
+      "scope": "Cost inequalities and explicit memory ceilings",
+      "gap": "No native performance or runtime implementation"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "chunk_node_pool.admit",
+      "lemma": "NodePool.admitPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.admitSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.reject",
+      "lemma": "NodePool.rejectPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.rejectSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.reserve",
+      "lemma": "NodePool.reservePreserves",
+      "targetStep": "weak_producer_admission.continuationProducer",
+      "simulation": "NodePoolComposition.reserveSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.derive",
+      "lemma": "NodePool.derivePreserves",
+      "targetStep": "weak_producer_admission.deriveChild",
+      "simulation": "NodePoolComposition.deriveSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.seal",
+      "lemma": "NodePool.sealPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.sealSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.publish",
+      "lemma": "NodePool.publishPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.publishSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.claim",
+      "lemma": "NodePool.claimPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.claimSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.finish",
+      "lemma": "NodePool.finishPreserves",
+      "targetStep": "weak_producer_admission.settleTask",
+      "simulation": "NodePoolComposition.finishSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.observe",
+      "lemma": "NodePool.observePreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.observeSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.borrow",
+      "lemma": "NodePool.borrowPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.borrowSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.returnBorrow",
+      "lemma": "NodePool.returnBorrowPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.returnBorrowSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.closeRoots",
+      "lemma": "NodePool.closeRootsPreserves",
+      "targetStep": "weak_producer_admission.closeRoots",
+      "simulation": "NodePoolComposition.closeRootsSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.complete",
+      "lemma": "NodePool.completePreserves",
+      "targetStep": "weak_producer_admission.finishWeak",
+      "simulation": "NodePoolComposition.completeSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.closeUsers",
+      "lemma": "NodePool.closeUsersPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.closeUsersSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.detachHead",
+      "lemma": "NodePool.detachHeadPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.detachHeadSimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.certify",
+      "lemma": "NodePool.certifyPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.certifySimulates"
+    },
+    {
+      "actionName": "chunk_node_pool.reclaim",
+      "lemma": "NodePool.reclaimPreserves",
+      "targetStep": "weak_producer_admission.stutter",
+      "simulation": "NodePoolComposition.reclaimSimulates"
+    }
+  ],
+  "proof": [
+    {
+      "key": "room",
+      "lemma": "NodePool.permittedReserveHasSpace",
+      "scope": "Admitted remaining demand has free record"
+    },
+    {
+      "key": "child-room",
+      "lemma": "NodePool.permittedChildHasSpace",
+      "scope": "Parent child budget remains bounded"
+    },
+    {
+      "key": "balance",
+      "lemma": "NodePool.conservation",
+      "scope": "Issued equals retained done plus active debt"
+    },
+    {
+      "key": "publish",
+      "lemma": "NodePool.publicationDoesNotAllocate",
+      "scope": "Queue publication allocates no additional record or debt"
+    },
+    {
+      "key": "receipt",
+      "lemma": "NodePool.receiptExcludesUsers",
+      "scope": "Receipt excludes unresolved borrower/head/ack"
+    },
+    {
+      "key": "enabled",
+      "lemma": "NodePool.drainAvailable",
+      "scope": "Some pipeline drain enabled for positive debt"
+    },
+    {
+      "key": "coarse",
+      "lemma": "NodePool.coarseCapacity",
+      "scope": "Assumed terminal injection ceiling"
+    },
+    {
+      "key": "charged",
+      "lemma": "NodePool.chargedCapacity",
+      "scope": "Assumed disjoint threshold charges"
+    },
+    {
+      "key": "retained",
+      "lemma": "NodePool.fullRetainedPool",
+      "scope": "Zero debt and full pinned pool coexist"
+    },
+    {
+      "key": "refinement",
+      "lemma": "NodePoolComposition.stepSimulates",
+      "scope": "Every actual pool action to old weak AST"
+    },
+    {
+      "key": "common-ledger",
+      "lemma": "NodePoolComposition.commonWeakLedger",
+      "scope": "Aggregate and delayed slice share same weak ledger projection"
+    },
+    {
+      "key": "reachable-refinement",
+      "lemma": "NodePoolComposition.reachableProjects",
+      "scope": "Actual pool initial projects to reachable old weak cut; steps preserve old reachability"
+    },
+    {
+      "key": "strong-storage-carry",
+      "lemma": "NodePool.weakEntrySafe",
+      "scope": "Strong phase retained records receipts borrowers reduce remaining weak-phase capacity; source issuer open"
+    },
+    {
+      "key": "warm-induction",
+      "lemma": "NodePool.runsFromSafe",
+      "scope": "Every pool step preserves safety from arbitrary qualified imported occupancy"
+    },
+    {
+      "key": "warm-composition",
+      "lemma": "NodePoolComposition.weakEntryProjectIsWeakCut",
+      "scope": "Retained strong storage projects to the same old work-complete weak cut"
+    }
+  ],
+  "seam": [
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "collector",
+      "contract": "Native node pool and total work ledger",
+      "modelNeed": "NP-induction"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "control",
+      "contract": "Epoch close and reclaim authorization",
+      "modelNeed": "NP-composition"
+    },
+    {
+      "producer.moduleId": "collector",
+      "consumer.moduleId": "native",
+      "contract": "Native storage publication C11",
+      "modelNeed": "NP-platform"
+    }
+  ],
+  "need": {
+    "history": {
+      "obligationId": "NP-history",
+      "kind": "interleaving",
+      "subjectPath": "dev/refactoring/modern-c/models/quint/chunk_node_pool.qnt",
+      "subjectScope": "Capacity publication pins and failure histories",
+      "owner.componentId": "gc-work"
+    },
+    "induction": {
+      "obligationId": "NP-induction",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/NodePool.lean",
+      "subjectScope": "Actual typed AST all-step safety and conditional capacity progress",
+      "owner.componentId": "gc-work"
+    },
+    "composition": {
+      "obligationId": "NP-composition",
+      "kind": "induction",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/NodePoolComposition.lean",
+      "subjectScope": "Actual weak AST simulation and common delayed-ledger view",
+      "owner.componentId": "gc-work"
+    },
+    "projection": {
+      "obligationId": "NP-projection",
+      "kind": "restricted-projection",
+      "subjectPath": "dev/refactoring/modern-c/models/lean/NodePoolAst.lean",
+      "subjectScope": "Restricted scalar typed IR with binding validation",
+      "owner.componentId": "gc-work"
+    },
+    "source": {
+      "obligationId": "NP-source",
+      "kind": "source-refinement",
+      "subjectPath": "dev/refactoring/modern-c/chunk-node-pool-design.org",
+      "subjectScope": "Native geometry producers and epoch closure remain open",
+      "owner.componentId": "gc-work"
+    },
+    "platform": {
+      "obligationId": "NP-platform",
+      "kind": "native-memory-order",
+      "subjectPath": "dev/refactoring/modern-c/chunk-node-pool-design.org",
+      "subjectScope": "C11 storage memory order machine arithmetic and generation remain open",
+      "owner.componentId": "gc-work"
+    }
+  }
+}

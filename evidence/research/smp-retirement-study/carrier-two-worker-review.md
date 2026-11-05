@@ -1,0 +1,87 @@
+# Carrier lock: two-worker timeout and fault-control scope
+
+2026-10-24. Evidence-only review on new `current-lock-scan-carrier.lock.json`, main7c490c3, patch bec577eac5d44fc31cbf2bc23f99678748175f561c991bec03537e865797473b. Runtime/header/generator, qualifier/Recipe/history and peer work remain untouched. No production compile, native execution, timeout increase, commit or push. Recorded8/12 remains; original TFIB has not run.
+
+## Source and observed progress
+
+Companion evidence reconstructs all26 locked files from the SHA-bound main base and new cumulative patch, without touching a managed producer. Exact identities: mem.c0c9e59a8cb66665d5b42051c0ba4c38e0db298b040019dba859318f0d99f3f05; header9e823dc21b5d3f9ae50789c58ef5f9533802dcb7d72ebe9f01b446a43fae1f12; setup.c84f2cbc1c359fc2c25c9d5703c8c287fa5d88ec609cbede52d79cf506e9d5843. Earlier477f301e coordinates do not apply here.
+
+The landed note and user's native report identify gsi d03d6e2620cd497b15decc0971442d30661055f32c811ff285fa69dced456b24 / UUID E2BB92CC-7B30-347F-A4FE-EE981A54B21B. Normal exit and injected cell/header SIGSEGV leave readable shared records; split exits86 with prior complete record and current footer1/commit2; bad nonce leaves no claimed slot. These are meaningful owned-carrier observations, not merely the previous standalone-C controls. This turn hashes their published summary but has not independently re-attested the raw gsi/crash/snapshot/command artifacts. The note has no raw run paths. The user corrected the entry to `.cache/tasks/repair-9-12/`. This directory resolves in the SMP checkout. Follow-up inspection covers programs, processes, build metadata, fixtures, outputs and runs. The exact two-worker fixture, argv/environment, native exit receipt and raw carrier snapshot have not been identified in the currently visible materials; this does not mean the task has no source changes or runtime evidence. No further path clarification is pending.
+
+The two-worker20-second timeout stays a failed/unfinished native control, **not** a diagnosed lock location. No rerun occurred here. Original fixture/argv/environment/topology, stdout/stderr, birth/process/quiescence receipt, raw slots and progress are needed to name its actual last transition. Do not increase20 seconds or substitute a smaller fixture/processor count.
+
+## Exact current binding and GC chain
+
+`___setup_pstate` in setup.c initializes per-pstate entry/depth/attached/coverage/seq and private record pointers at5840ff. `___garbage_collect_pstate:7976` reaches setup phase7809 at8045, strong7847 at8052, weak7910 at8059, cleanup7948 at8066, with existing collective barriers. Strong/weak call `mark_reachable_from_marked:7673`, which drives scan workers including `scan_still_objs_to_scan:4957`. Actual mark-array body4139 first calls `gc_diag_bind_owner:4007` at4161, before checking per-pstate depth4162ff. The critical side path is therefore:
+
+```
+GC/member barriers -> root/queue scanner -> mark_array body
+ -> bind_owner -> note_fault -> bind_shared (possibly lazy OS work and spin)
+ -> slot[id] claim/pointer assignment -> depth/coverage -> publish/read
+ -> original queue/GC phase completion/barriers
+```
+
+| Current step | Established source behavior | Causal limit / next fact |
+| --- | --- | --- |
+| note_fault3915..3932 | CAS fault_ready0->1 occurs **before** getenv and plain gc_diag_fault assignment. Contender returns immediately. | The1 is a claim, not completed fault-mode publication. With a nonempty recognized mode, a concurrent reader has no acquire-after-payload edge; do not treat this as race-free initialization. With no FAULT text, no nonzero payload store occurs, so this defect does not by itself explain a default-mode two-worker stall. |
+| bind_shared3934..4005 | CAS bind_state0->1; losers spin while state1 at3948..3949. Winner runs getenv/shm_open/fstat/mmap/header validation, then publishes shared pointer and release state2; errors release state3. | This is the **explicit diagnostic wait loop** in the inspected binding chain. It can hold a GC participant waiting for external initialization. Source alone does not prove that either failed worker reached it or why its owner did not finish. mmap/libc/error logging are not GC service points. |
+| bind_owner4020..4026 | attached is set1 before terminal shared binding and slot assignment. Bind state<2 calls the lazy initializer. Failed mapping leaves private pointers usable. | Removing the spin without changing this attached ordering would strand a worker with a permanently premature attachment decision. Missing/bad carrier currently means shared rejection with private fallback, not a proved global diagnostic OFF mode. |
+| owner assignment4027..4043 | Index is processor ID **within its VM**; owner_id is plain checked/set and accepts same id. No CAS, VM incarnation or native-owner token. | Two different IDs in one valid VM choose different slots. Two VMs both at id0, or id reuse, can alias a slot; this is a concrete unsupported path, but not the timeout cause unless the actual fixture uses it. There is no slot-claim wait loop here. |
+| publish4046..4112 | Per-pstate seq increments, shared slot seq updates; cur copied into prev4089; payload and commit then release footer/fence. Sequence stops at ~0ull one publication at a time. | It is not the proposed no-reuse CAS/active/two-bank protocol. A complete stage followed by incomplete HEADER does not reserve an indivisible pair; describe actual behavior. Same-id collisions could race the copy/payload. Never report prior READY/active tests as implemented. |
+| depth/coverage at4161ff /4350ff | Plain per-pstate depth detects nested array invocation; coverage is cleared locally. | No shared `active` field exists in this lock. Shared slot.coverage is declared but this mem.c never writes it. Parent cannot infer no diagnostic drop from that field's initial/default value. |
+
+The shared pointer's normal success path has a real release/acquire terminal publication through bind_state2. Do not falsely label every shared-pointer access racy. The fault-mode flag has a different, incomplete publication sequence. The fstat failure branch also prints st_size even when fstat failed; separate that uninitialized-error-path issue from any assertion that it caused the20-second timeout.
+
+## Finite timeout decision, without peer sampling or more protocol
+
+Read the existing failing run first. Keep each actor's VM/P identity and ordering; a last record is not a stack or global progress clock.
+
+| Existing/raw evidence cut | What it would establish | Local action |
+| --- | --- | --- |
+| Worker bound/scan entry absent | Fixture startup, scheduling or pre-GC problem still possible | Inspect original fixture and actual thread start/pin/join/GC calls before changing scanner/binding. Do not call it binding deadlock. |
+| Initializer entered, no terminal binding; peer demonstrably observes state1 | Binding wait is the blocking cut; initializer's last OS boundary still needed | Remove waiting/OS attach from scanner as below. The peer spinning is a consequence; do not reset its state/steal initialization. |
+| Header rejected or mapping unavailable; slot owners all-1 | Shared attach refused, not a GC phase location | Validate original env/object/nonce/layout/size. Current private fallback means this is not an uninstrumented matched control. |
+| Both intended distinct workers bind and publish, then no phase return | Lazy binding completed; timeout is downstream or overhead/fixture | Use the actual per-worker phase/queue completion cut, not another binding patch. Both slots populated alone does not prove both completed GC. |
+| Both native GC/fixture workers finish but parent/controller waits | Harness completion/remaining writer transport | Inspect declared writer/reader set and actual exit/pipe/quiescence, not collector roots. |
+| Only timeout summary plus latest slots | Insufficient to locate the stall | Preserve UNKNOWN; do not reclassify on the basis of source loops. |
+
+If the old run lacks those observations, add only bounded native progress at bind begin/terminal, owner-bind completion, GC entry/strong completion/GC return and fixture-worker return. Use the existing owned control trace/harness sidecar, not the scan record's stage/footer or a Scheme controller requiring the paused cohort. Bind these observations to each actual VM/P/native actor; no assumed global ordering. This is a finite local cut, not an all-runtime logging system, catch or new coordinator. Keep the same failing fixture and20-second cap; do not repeat unchanged execution merely to hope it passes.
+
+## Necessary diagnostic repair, even before timeout causality is known
+
+1. Prepare the carrier and parse immutable fault configuration once on the existing serialized setup path **before the first possible GC/member startup**. Use explicit setup context, not an uninitialized P0 VM pointer. `___setup` and `___setup_vmstate` call order must be checked; merely inserting after a convenient thread_set_pstate is not proof no earlier GC occurs. Ready state2 is published only after both pointer/layout and mode payload are complete. Terminal failure3 makes diagnostics unavailable. No getenv, shm_open, mmap, fprintf or waiting loop belongs in mark_array.
+2. `gc_diag_bind_owner` on the scan path performs only a bounded acquire of a terminal bind result plus a validated per-owner attachment; pending/error skips diagnostic recording and leaves actual GC phases unchanged. Do not spin or return early from GC. Set attached only for a correctly recorded terminal decision, and never let an in-progress observation permanently masquerade as success. Do not turn a bad nonce into a runtime failure or an admissible private-record fallback.
+3. Preserve one writer per slot under the actual supported fixture topology. Before a broader VM/reuse claim, replace processor-index identity with validated VM/pstate/native incarnation ownership and bounded no-reuse claim, as already specified; do not claim that redesign is present. For the failing same-VM fixture, prove actual IDs are distinct before blaming aliasing. Publish actual coverage loss through the existing coverage field or an explicit sidecar observation; do not let a default value certify full coverage.
+4. Keep actual per-pstate local context; do not reintroduce process-global parent/site. Current shared prev/cur copy is a limited two-version carrier, not the ordered inactive-bank protocol; partial overwrite acceptance still needs actual invalidation/commit checks. Do not widen this review into retirement/reaper/request-ID work.
+5. Freeze the causal diagnostic delta as new producer C, preserve B's timeout/raw carrier receipts, and use same fixture/topology/20-second cap with startup/bind/GC completion observations. No producer relink between control rows. A source-causal change is required before re-executing the unchanged failed lane. If both bindings complete but it still stalls, stop at the downstream cut; do not enlarge budget or declare the binding change sufficient.
+
+Removing lazy blocking from the collector is a concrete diagnostic correctness correction. It is **not** a proved repair of the original TFIB or the currently unlocated two-worker timeout. The current B can establish shared-storage survival while still having a diagnostic concurrency/initialization gap.
+
+## Current null probes versus the original scan reads
+
+| Mode | Exact current source | Accepted existing scope | Still missing |
+| --- | --- | --- | --- |
+| cell | Record at4186..4187, separate `*(volatile unsigned long long *)0` at4189, original `obj=*cell`4191 | Committed CELL_PENDING can survive a later controlled process fault; raw_present0 is appropriate | Fault was deliberately caused through address0, not necessarily the recorded cell. No original-cell-load PC/operand proof. |
+| header | First ordinary cell4191, HEADER_PENDING4208..4209, separate null dereference4211, original header4213 | Record can contain already-read obj and survive later controlled fault, with prior CELL record | The recorded header address is not the null injection operand; original body[-1] has not been demonstrated to fault. |
+| split | _exit86 at4108..4109 before footer4110 | Actual incomplete footer1/commit2 must be rejected; previous record can survive abrupt exit | Not a signal or original scan-load fault; does not cover every interrupted payload position or slot race. |
+
+No raw faultPC/object disassembly was independently checked in this turn. Compiler optimization can change source-line attribution/instruction layout; the proof must follow actual load operand/dataflow in the actual d03 image, not merely a nearby line or old +104. Even if a compiler merges paths, a selected null address is not proof the recorded original cell/header address faulted. Retain the controls' real value rather than discard them or rename them original-read evidence.
+
+For a true original-read control, change only the **owned test selector** before publication so the chosen actual cell is inaccessible, or the already-read tagged word computes the intended inaccessible header, then let4191/4213 themselves execute. Use correct B tag/layout and legitimate diagnostic GC context, with an injected-origin label so this test root cannot masquerade as TFIB provenance. Do not add a second faulting dereference, fake success, catch or unrelated invalid root. Earlier consistency validation4202 can fault first; if so retain that exact outcome as uncovered for header4213, not a passing header-load control. Couple an injected fault to an actually committed publication: current unconditional mode check can fault even if publish returned without coverage, which must remain non-attributable.
+
+Acceptance is one immutable producer/image/object and parent carrier: actual original-load PC/address equals the record's selected operand, correct stage/raw-presence/context/native actor, raw signal/exit, all writers quiescent, snapshot/hash before last-reader release. The null probes keep their own narrower positive label. No new signal handler or peer debugging is required.
+
+## Next execution order for Grok
+
+First identify/read the existing `.cache/tasks/repair-9-12/` raw fixture/run/logs and bind them to d03/UUID; do not rerun anything to replace missing provenance. Then resolve the earliest cut above and apply only the corresponding source-causal diagnostic correction. Preserve the failed20-second receipt and rerun only the targeted corrected two-worker control under the same cap after a real input/source delta. Revalidate normal/null/split/bad-nonce shared storage on the new image without translating statuses, and add exact original-read controls as a distinct scope. Only after two-worker GC completion and trustworthy fault-to-record association run original TFIB15/5000 in its unchanged original harness/budget. A valid fixture carrier is necessary, not a TFIB repair or9/12 receipt.
+
+
+## Corrected cache entry and tighter initialization placement
+
+Follow-up 2026-10-24: the task directory exists. The retained qualification-gc-bind.log is ten qualification unit tests, not the double-worker control. Recent ordinary-task spawn requests inspected here are Git source queries, not that control. Filename/content searches did not identify the new carrier run; neither the published timeout summary nor a source loop supplies its missing last-progress observation. Do not replace the missing receipt by an unchanged rerun or claim a diagnosed deadlock.
+
+The exact locked setup.c narrows the preparation location. `setup_os_and_mem:5698` calls `___setup_os`, then `___setup_mem`; global `___setup` calls this wrapper before module setup and before `___setup_vmstate` (7881), while TLS association is later at7903. Thus a proposed process-wide diagnostic prepare can be inserted after successful global OS setup and before global memory setup, using no pstate/VM-derived identity. Its failure disables only diagnostics and must preserve ordinary setup cleanup behavior. This is a concrete candidate seam, not an implemented or tested helper.
+
+Do **not** move lazy mapping into every `___setup_pstate`: the growth path calls it from the collective resize sequence at1488, and its OS/memory setup at5865 can allocate. Per-pstate fields are initialized at5840ff after explicit vmstate assignment, before that allocation. Keep that local initialization; a bounded terminal-state attachment may use it. `setup_os_and_mem_vmstate:5682 -> ___setup_mem_vmstate`, P0 setup6163 and global module setup all need to remain downstream of the single prepared process descriptor. Repeated setup must not reset or unmap a descriptor while any prior writer/reader survives; an incompatible nonce/layout is diagnostic refusal, never permission to reuse live slots. This placement removes the need for a scanner initializer to wait for another GC participant, but still does not establish where the historical two-worker run stopped.
+
+Grok's next causal decision remains bounded: inspect the retained run first; if unavailable, retain UNKNOWN. After the preparation delta, the unchanged two-worker fixture needs bind-terminal and per-actor GC-return/worker-return observations within its original20 seconds. A completed binding with missing GC return falsifies a binding-only explanation. Null-probe survival remains separate from original-load fault attribution. No lifecycle expansion or new acceptance claim follows from this cache correction.

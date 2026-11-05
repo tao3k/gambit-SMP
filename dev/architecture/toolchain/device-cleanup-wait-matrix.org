@@ -1,0 +1,61 @@
+#+TITLE: Device Cleanup Cursor, Wait and Old Roster — Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: device-cleanup-wait-matrix
+:AUTHORITY: DeviceCleanupWait
+:STATUS: conditional-models-source-open
+:END:
+
+Derived by native SysML queries. Benefits are conditional work/capacity bounds, not timings.
+
+** Contract
+
+| key | anchor | actionName | lemmaName | duty | status |
+|---+---+---+---+---+---|
+| cursor | os_io.c:1625-1666,9920-9961; os_setup.c:203-221 | qualifyRetry | retrySamePhase | Resume only operation-qualified current phase; never re-enter detached device cleanup or infer kernel completion from CLOSED | adapter required |
+| wait-context | os_io.c:951-1004,11764-11828 | prepareWait | generationMustMatch | Rooted cursor, descriptor generation, native pin, desired interest and owner epoch survive wait/GC; FDSET borrow ends before dispatch | new managed record |
+| lost-wake | setup.c:86-90; os_io.c:1472-1549 | arm | armCheckSafe | Arm then recheck durable request/ready state; notification errors need a qualified level-channel guarantee; readiness survives interrupt | native wake proof open |
+| participant | setup.c:1049-1149; _kernel.scm:1448-1471 | beginGc | rosterEveryParticipant | Return from select is not service_sync_op; attach roots, join both old members, finish loop/NOOP and reload latest epoch | prior tree refinement required |
+| unknown | os_io.c:1603-1622,1640-1666; os_setup.c:203-221 | unknownClose | unknownBlocksExit | Separate retryable partial, consumed error and unknown native effects; unresolved outcomes retain owner and VM custody | profile dependent |
+| derived-credit | os_io.c:1886-1933,2011-2037,2299,2410 | reserveChild | reserveConserves | Reserve child before escape; lost enqueue keeps credit; independent child may outlive source but blocks VM cleanup | Windows branches conditional |
+| storage-commit | mem.c:684-699,4432-4450; setup.c:4572-4605 | moveStorage | commitScanner | Canonical RC/still/scan/census handoff at complete wait-free checkpoint; no live borrowed PSTATE pointers may migrate | source and memory order open |
+| vm-permit | setup.c:932-978; os_io.c:11808-11952; mem.c:4938-4966 | cleanupVm | childBlocksVm | Processor exit needs affinity/wait/roster closure; VM cleanup additionally requires every descendant/outcome/root/service lease drained | separate permits |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| critical-path | Potentially blocking close removed from collective GC for qualified profiles | Capture, wait enrollment, root publication and owner dispatch | Removed collective waiting must exceed added critical-path coordination; no numeric speedup established |
+| resume | Avoid repeated RD/WR work and duplicate wrapper release on retry | Cursor plus native-validity/outcome and desired-interest fields | O(1) state per wait; only proven resumable operations may repeat current phase |
+| sharing | One managed wait/root/epoch protocol serves I/O, cleanup and FFI owners | Per-wait leases, tagged results and shared synchronization | Reuse only if ownership and sync-op participation contracts coincide; a generic thread pool does not suffice |
+| language | Modern C retains Gambit C portability and generated adapters | C atomics, tagged structs, explicit guards and root schemas | Zig cannot remove lifetime, wakeup, affinity or closure proof obligations; no mandatory Zig benefit demonstrated |
+
+** Gate
+
+| key | qualified | duty |
+|---+---+---|
+| profile-coverage | False | All virtual-close branches and aliases classified; retry/interest policy source-qualified |
+| wake-channel | False | Ignored write errors, full pipe and platform memory ordering have a valid no-lost-wakeup refinement |
+| old-roster | False | Every pending operation and resize round keeps both old participants serviceable |
+| root-adapter | False | GC relocates all WaitContext, RC/still and result cells including nonzero processor |
+| source-replacement | False | Stateful close adapter, root checkpoint and staged destruction remain unimplemented |
+| global-closure | False | Child producers, thread affinity, outcome roots and module-global service leases fully closed |
+| platform | False | Actual Darwin config/OpenSSL/OS close outcome, inherited attestation and C memory model unresolved |
+
+** Shared-contract dependencies
+
+| dependent | prerequisite | obligation |
+|---+---+---|
+| wait-context | cursor | Wait captures exact close cursor |
+| wait-context | unknown | Native outcome controls admissible resume |
+| lost-wake | wait-context | Arm requires pinned complete context |
+| participant | lost-wake | Wake reaches serviceable old owner |
+| participant | wait-context | Roots and borrow release precede GC |
+| storage-commit | wait-context | No PSTATE borrow crosses transfer |
+| vm-permit | storage-commit | Storage scanner/census handoff acknowledged |
+| vm-permit | derived-credit | All child work accounted and drained for VM |
+| vm-permit | unknown | Unknown native effects block retirement |
+| vm-permit | participant | Loop closure and old roster receipt precede exit |

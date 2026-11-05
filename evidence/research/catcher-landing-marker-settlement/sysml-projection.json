@@ -1,0 +1,1430 @@
+{
+  "leaf": [
+    {
+      "key": "leaf-no-abandon",
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.beginInnerRelease",
+      "lemma": "CatcherSettlement.innerGapHasCustodian",
+      "producerAnchor": "raw-decrement",
+      "qualification": "No allocation, callbacks, safepoints or non-local exits through effect and commit",
+      "boundary": "Source leaf body alone does not qualify compiler prologue/epilogue instrumentation or asynchronous exits"
+    },
+    {
+      "key": "leaf-writers",
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.decrementInner",
+      "lemma": "CatcherSettlement.innerExactlyOnce",
+      "producerAnchor": "scheme-refcount-writer",
+      "qualification": "Exclusive ownership of this marker count and all its aliases",
+      "boundary": "Public native and Scheme count writers and frame reflection must be closed, mediated or refused"
+    },
+    {
+      "key": "leaf-collector",
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.beginInnerRelease",
+      "lemma": "CatcherSettlement.nativeBorrowFresh",
+      "producerAnchor": "still-root-selection",
+      "qualification": "No collector reads or moving-slot writes overlap the leaf",
+      "boundary": "Use a qualified collective/reader-writer protocol; receipt publication alone does not synchronize GC count reads"
+    },
+    {
+      "key": "leaf-reply",
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.queryInnerRelease",
+      "lemma": "CatcherSettlement.queryInnerDoesNotReplay",
+      "producerAnchor": "marker-kill",
+      "qualification": "Commit stable release ticket before restoring cancellation or delivering reply",
+      "boundary": "Query and new continuation activation cannot replay an already consumed reference"
+    },
+    {
+      "key": "leaf-owner-last-use",
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.nativeTargetReturned",
+      "lemma": "CatcherSettlement.outerAfterInner",
+      "producerAnchor": "owner-reuse-loop",
+      "qualification": "Bounded outer ___run single-call/last-use profile with qualified owner-use closure",
+      "boundary": "A returned ___call cannot close an outer SFUN marker owner that may reenter its conversion-error loop; that profile remains uncertified"
+    }
+  ],
+  "source": [
+    {
+      "key": "return-owner",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "/* not the same processor that created frame */",
+      "obligation": "owner-affinity"
+    },
+    {
+      "key": "return-stale",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "/* not first return */",
+      "obligation": "one-native-return"
+    },
+    {
+      "key": "return-unwind",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___throw_error (___PSP ___FIX(___UNWIND_C_STACK));",
+      "obligation": "live-catcher"
+    },
+    {
+      "key": "call-frame",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___fp[-2] = stack_marker;",
+      "obligation": "frame-marker-coordinate"
+    },
+    {
+      "key": "call-catcher",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "stack_marker != ___ps->context->fp[___FRAME_SPACE(2)-2]",
+      "obligation": "unwind-destination"
+    },
+    {
+      "key": "marker-root",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "proc_or_false = *proc_root; /* reload after allocating the marker */",
+      "obligation": "root-reload"
+    },
+    {
+      "key": "marker-kill",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "___VECTORELEM(marker, 0) = ___FAL; /* invalidate the C stack frame */",
+      "obligation": "return-invalidation"
+    },
+    {
+      "key": "legacy-root",
+      "path": "vendor/gambit/lib/c_intf.c",
+      "needle": "wrapper. Managed startup uses the explicit rooted endpoint above.",
+      "obligation": "legacy-not-rooted"
+    },
+    {
+      "key": "catcher-local",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "___jmpbuf_struct ___jbuf, *___old_catcher = ___ps->catcher;",
+      "obligation": "c-stack-dynamic-extent"
+    },
+    {
+      "key": "catcher-restore",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "#define ___END_TRY } ___ps->catcher = ___old_catcher; }",
+      "obligation": "nested-catcher-restore"
+    },
+    {
+      "key": "continuation-closure",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(##continuation-return-aux cont val1 val2 val3 others)",
+      "obligation": "multi-shot-logical-control"
+    },
+    {
+      "key": "wind-user",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "((macro-dynwind-after src))",
+      "obligation": "reentrant-winding"
+    },
+    {
+      "key": "direct-no-winding",
+      "path": "vendor/gambit/lib/_thread.scm",
+      "needle": "(define-prim ##continuation-return-no-winding",
+      "obligation": "cannot-use-dynamic-wind-only"
+    },
+    {
+      "key": "saved-roots",
+      "path": "vendor/gambit/lib/_mem/root-origins.inc",
+      "needle": "mark_array (work, context->saved, sizeof(context->saved)/sizeof(*context->saved));",
+      "obligation": "saved-registers"
+    },
+    {
+      "key": "entry-root",
+      "path": "vendor/gambit/lib/_mem/root-origins.inc",
+      "needle": "mark_array (work, &context->entry_marker, 1);",
+      "obligation": "context-marker-root"
+    },
+    {
+      "key": "rc-root",
+      "path": "vendor/gambit/lib/_mem/rc-roots.inc",
+      "needle": "context->mem.rc_head_.next",
+      "obligation": "context-owned-rc"
+    },
+    {
+      "key": "tcl-reentry",
+      "path": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___EXT(___data_rc) (___CAST(void*,client_data))",
+      "obligation": "raw-before-guard"
+    },
+    {
+      "key": "tls-status",
+      "path": "vendor/gambit/lib/os_thread.c",
+      "needle": "pthread_setspecific (___thread_mod.tls_ptr_key, ptr); /* ignore error */",
+      "obligation": "checked-binding-required"
+    },
+    {
+      "key": "thread-id",
+      "path": "vendor/gambit/lib/os_thread.c",
+      "needle": "thread->thread_id = pthread_self ();",
+      "obligation": "native-thread-identity"
+    },
+    {
+      "key": "paper-fulltext",
+      "path": "evidence/research/guard-thread-admission/feeley-sfp-paper.txt",
+      "needle": "We have not yet implemented this approa h in Gambit-C.",
+      "obligation": "historical-proposal-not-current"
+    },
+    {
+      "key": "sfun-empty-body",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "#define ___BEGIN_SFUN_BODY",
+      "obligation": "SFUN wrapper is not itself a catcher"
+    },
+    {
+      "key": "sfun-cleanup-after-call",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "#define ___END_SFUN } ___EXT(___kill_sfun_stack_marker) (___marker);",
+      "obligation": "sequential cleanup is not total under outer unwind"
+    },
+    {
+      "key": "sfun-generator",
+      "path": "vendor/gambit/gsc/_ptree2.scm",
+      "needle": "c-id-prefix \"BEGIN_SFUN_BODY\" nl-str",
+      "obligation": "actual generated SFUN body"
+    },
+    {
+      "key": "cfun-conditional-catcher",
+      "path": "vendor/gambit/gsc/_ptree2.scm",
+      "needle": "(if cleanup? \"BEGIN_CFUN_BODY_CLEANUP\" \"BEGIN_CFUN_BODY\")",
+      "obligation": "foreign catchers depend on conversion cleanup"
+    },
+    {
+      "key": "cfun-catcher-macro",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "#define ___BEGIN_CFUN_BODY_CLEANUP ___W_ALL_INL ___BEGIN_TRY",
+      "obligation": "intermediate catcher may intercept and propagate"
+    },
+    {
+      "key": "error-propagation",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___THROW (err);",
+      "obligation": "throw uses current catcher"
+    },
+    {
+      "key": "captured-frame-decode",
+      "path": "vendor/gambit/lib/_mem/object-scanning.inc",
+      "needle": "___decode_frame_descriptor (___LABEL_DESCR_GET(actual_ra), 1)",
+      "obligation": "captured RETI still consumes descriptor after native exit"
+    },
+    {
+      "key": "context-frame-decode",
+      "path": "vendor/gambit/lib/_mem/continuation-roots.inc",
+      "needle": "acquire_frame_access(work);",
+      "obligation": "maintenance scanner has separate descriptor lifetime"
+    },
+    {
+      "key": "captured-frame-copy",
+      "path": "vendor/gambit/lib/_mem/continuation-roots.inc",
+      "needle": "___RETI_GET_FS_LINK(actual_ra,fs,link)",
+      "obligation": "stack to heap copy reads label metadata"
+    },
+    {
+      "key": "native-unload",
+      "path": "vendor/gambit/lib/os_dyn.c",
+      "needle": "dlclose (p->descr);",
+      "obligation": "global loader cleanup is not per-domain retirement"
+    },
+    {
+      "key": "run-landing",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___VOLATILE ___SCMOBJ marker = ___FAL;",
+      "obligation": "run has an enclosing catcher and post-catch cleanup"
+    },
+    {
+      "key": "tcl-source-delete",
+      "path": "vendor/gambit/examples/tcltk/tcltk.scm",
+      "needle": "___EXT(___release_rc) (___CAST(void*,client_data));",
+      "obligation": "close source admission before native storage release"
+    },
+    {
+      "key": "target-invocation-return",
+      "path": "vendor/gambit/lib/setup.c",
+      "needle": "___ps->context->fp += ___FRAME_SPACE(2);",
+      "obligation": "landing precedes target ___call return; caller-side exit receipt is separate"
+    },
+    {
+      "key": "still-body-accounting",
+      "path": "vendor/gambit/lib/_mem/configuration.inc",
+      "needle": "#define ___STILL_BODY (5+1)",
+      "obligation": "current local still object header cost; not allocator overhead"
+    },
+    {
+      "key": "copy-payload-before-publish",
+      "path": "vendor/gambit/lib/_mem/copy-reservations.inc",
+      "needle": "*alloc++ = *body++;",
+      "obligation": "root forwarding can be visible before payload initialization finishes"
+    },
+    {
+      "key": "raw-decrement",
+      "path": "vendor/gambit/lib/_mem/still-refcount.inc",
+      "needle": "___BODY0(obj)[___STILL_REFCOUNT-___STILL_BODY]--;",
+      "obligation": "count update is not idempotent or a receipt transaction"
+    },
+    {
+      "key": "raw-increment",
+      "path": "vendor/gambit/lib/_mem/still-refcount.inc",
+      "needle": "___BODY0(obj)[___STILL_REFCOUNT-___STILL_BODY]++;",
+      "obligation": "all competing writers must be excluded or migrated"
+    },
+    {
+      "key": "scheme-refcount-writer",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "(define-prim (##still-obj-refcount-dec! obj)",
+      "obligation": "managed marker aliases can reach a Scheme-level refcount writer"
+    },
+    {
+      "key": "initial-still-count",
+      "path": "vendor/gambit/lib/_mem/object-allocation.inc",
+      "needle": "base[___STILL_REFCOUNT] = 1;",
+      "obligation": "one native ownership reference at still allocation"
+    },
+    {
+      "key": "vector-constructor",
+      "path": "vendor/gambit/lib/_mem/object-allocation.inc",
+      "needle": "___WORD obj = ___alloc_scmobj (___ps, ___sVECTOR, length<<___LWS);",
+      "obligation": "one logical still vector constructor for each current marker"
+    },
+    {
+      "key": "still-root-selection",
+      "path": "vendor/gambit/lib/_mem/object-scanning.inc",
+      "needle": "if (base[___STILL_REFCOUNT] == 0)",
+      "obligation": "GC observes count and must synchronize with a qualified release leaf"
+    },
+    {
+      "key": "gc-slot-winner",
+      "path": "vendor/gambit/lib/_mem/copy-reservations.inc",
+      "needle": "*cell = ___TAG(alloc - ___REFERENCE_TO_BODY, ___TYP(obj));",
+      "obligation": "collector updates the actual supplied root cell"
+    },
+    {
+      "key": "gc-slot-forwarded",
+      "path": "vendor/gambit/lib/_mem/copy-reservations.inc",
+      "needle": "*cell = ___TAG(___UNTAG_AS(head_now, ___FORW), ___TYP(obj));",
+      "obligation": "loser reloads canonical forwarding result into root cell"
+    },
+    {
+      "key": "native-frame-reflection",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "(define-prim (##frame-ref frame i)",
+      "obligation": "opaque native-token ABI needs reflection semantics and alias policy"
+    },
+    {
+      "key": "frame-serialization",
+      "path": "vendor/gambit/lib/_system.scm",
+      "needle": "(serialize! (frame-ref obj i))",
+      "obligation": "persistent continuations must not reconstruct a live native catcher from stale tokens"
+    },
+    {
+      "key": "scheme-vector-allocator",
+      "path": "vendor/gambit/lib/_kernel.scm",
+      "needle": "___ALLOC_SCMOBJ_INLINE(VECTOR, ___WORD, n, 0);",
+      "obligation": "Scheme allocator is not a drop-in C API for callback bootstrap"
+    },
+    {
+      "key": "owner-reuse-loop",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "needle": "#define ___SFUN_ERROR_VOID while",
+      "obligation": "SFUN conversion-error retry reuses marker; invocation exit is not owner-use closure"
+    }
+  ],
+  "issuer": [
+    {
+      "key": "prepare",
+      "proposedIssuer": "StableSubtreeCoordinator",
+      "actualSource": "setup.c run and preexisting source-owned RootBundle",
+      "status": "required adapter; not a qualified native signer",
+      "responsibility": "record every private candidate before interruptible work; partial/unknown failure retains original roots and native references"
+    },
+    {
+      "key": "landing",
+      "proposedIssuer": "GeneratedCatcherLandingAdapter",
+      "actualSource": "foreign_conversion END_TRY plus setup.c ___call destination check",
+      "status": "required adapter; not a qualified native signer",
+      "responsibility": "sign after exact frame, error kind, marker/context and thread/operation checks; restored current catcher is not caught frame identity"
+    },
+    {
+      "key": "target-return",
+      "proposedIssuer": "NativeInvocationExitAdapter",
+      "actualSource": "setup.c ___call return to ___run",
+      "status": "required adapter; not a qualified native signer",
+      "responsibility": "target catcher arrival precedes invocation exit; outer release also requires owner-use closure; SFUN retries are outside the bounded ___run profile"
+    },
+    {
+      "key": "marker-release",
+      "proposedIssuer": "ManagedMarkerOwner",
+      "actualSource": "kill_sfun_stack_marker and still-refcount plain decrement",
+      "status": "required adapter; NoAbandon and writer exclusion remain open",
+      "responsibility": "one reference release per marker; keep exclusive GC/writer/cancellation custody through effect and receipt commit before reply"
+    },
+    {
+      "key": "root-slot",
+      "proposedIssuer": "RootRegistryScannerAdapter",
+      "actualSource": "mark_array actual *cell stores and execution-context roots",
+      "status": "required adapter; no full native slot map",
+      "responsibility": "enumerate/update registry and live context cells; keep mutators parked through partial updates, then require fresh reload"
+    },
+    {
+      "key": "code-retire",
+      "proposedIssuer": "ImageLeaseCoordinator",
+      "actualSource": "captured-frame descriptor loads and global dlclose",
+      "status": "required adapter; no global native signer",
+      "responsibility": "drain captured frames, admitted readers and native frames before image release; a marker count of zero is insufficient"
+    },
+    {
+      "key": "token-profile",
+      "proposedIssuer": "NativeEntrySpec and FrameSpec generator",
+      "actualSource": "SFUN marker constructor, frame-ref and frame serialization",
+      "status": "research alternative; unqualified",
+      "responsibility": "opaque return-token profile must preserve Scheme control and account for reflection, raw aliases, serialization and ABI invalidation"
+    }
+  ],
+  "need": [
+    {
+      "key": "Catcher-formal",
+      "kind": "formal",
+      "path": "dev/refactoring/modern-c/models/quint/catcher_landing_marker_settlement.qnt",
+      "scope": "bounded-catcher-marker-slot-protocol",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Catcher-bridge",
+      "kind": "bridge",
+      "path": "dev/refactoring/modern-c/models/lean/CatcherSettlement.lean",
+      "scope": "typed-ir-lean-physical-gap-model",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Catcher-prepare",
+      "kind": "native",
+      "path": "vendor/gambit/lib/setup.c",
+      "scope": "stable-private-preparation-and-partial-failure-custody",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Catcher-landing",
+      "kind": "native",
+      "path": "vendor/gambit/include/_gambit/foreign_conversion.h.in",
+      "scope": "target-frame-error-class-and-incarnation-receipt",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Catcher-marker-release",
+      "kind": "native",
+      "path": "vendor/gambit/lib/_mem/still-refcount.inc",
+      "scope": "no-abandon-single-writer-GC-excluded-count-release",
+      "owner.componentId": "control"
+    },
+    {
+      "key": "Catcher-root-slots",
+      "kind": "native",
+      "path": "vendor/gambit/lib/_mem/copy-reservations.inc",
+      "scope": "VM-slot-and-resumed-context-update-freeze",
+      "owner.componentId": "roots"
+    },
+    {
+      "key": "Catcher-descriptors",
+      "kind": "native",
+      "path": "vendor/gambit/lib/os_dyn.c",
+      "scope": "capture-reader-native-global-image-closure",
+      "owner.componentId": "code"
+    },
+    {
+      "key": "Catcher-entry-abi",
+      "kind": "native",
+      "path": "vendor/gambit/gsc/_ptree2.scm",
+      "scope": "all-entry-and-reflection-alias-qualification",
+      "owner.componentId": "control"
+    }
+  ],
+  "binding": [
+    {
+      "actionName": "catcher_landing_marker_settlement.prepareFirst",
+      "lemma": "CatcherSettlement.prepareFirstPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.prepareSecond",
+      "lemma": "CatcherSettlement.prepareSecondPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.rollbackPartial",
+      "lemma": "CatcherSettlement.rollbackPartialPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.rollbackReady",
+      "lemma": "CatcherSettlement.rollbackReadyPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.preparationUnknown",
+      "lemma": "CatcherSettlement.preparationUnknownPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.auditPreparation",
+      "lemma": "CatcherSettlement.auditPreparationPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.publishEscrow",
+      "lemma": "CatcherSettlement.publishEscrowPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.escrowReplyLost",
+      "lemma": "CatcherSettlement.escrowReplyLostPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.queryEscrow",
+      "lemma": "CatcherSettlement.queryEscrowPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.issueTransfer",
+      "lemma": "CatcherSettlement.issueTransferPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.issueOtherError",
+      "lemma": "CatcherSettlement.issueOtherErrorPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.catchInner",
+      "lemma": "CatcherSettlement.catchInnerPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.restoreInnerCatcher",
+      "lemma": "CatcherSettlement.restoreInnerCatcherPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.catchOuter",
+      "lemma": "CatcherSettlement.catchOuterPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.restoreOuterCatcher",
+      "lemma": "CatcherSettlement.restoreOuterCatcherPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.borrowFresh",
+      "lemma": "CatcherSettlement.borrowFreshPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.releaseBorrow",
+      "lemma": "CatcherSettlement.releaseBorrowPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.validateLanding",
+      "lemma": "CatcherSettlement.validateLandingPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.publishLanding",
+      "lemma": "CatcherSettlement.publishLandingPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.landingReplyLost",
+      "lemma": "CatcherSettlement.landingReplyLostPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.queryLanding",
+      "lemma": "CatcherSettlement.queryLandingPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.beginInnerRelease",
+      "lemma": "CatcherSettlement.beginInnerReleasePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.decrementInner",
+      "lemma": "CatcherSettlement.decrementInnerPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.commitInnerRelease",
+      "lemma": "CatcherSettlement.commitInnerReleasePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.innerReplyLost",
+      "lemma": "CatcherSettlement.innerReplyLostPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.queryInnerRelease",
+      "lemma": "CatcherSettlement.queryInnerReleasePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.nativeTargetReturned",
+      "lemma": "CatcherSettlement.nativeTargetReturnedPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.beginOuterRelease",
+      "lemma": "CatcherSettlement.beginOuterReleasePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.decrementOuter",
+      "lemma": "CatcherSettlement.decrementOuterPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.commitOuterRelease",
+      "lemma": "CatcherSettlement.commitOuterReleasePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.outerReplyLost",
+      "lemma": "CatcherSettlement.outerReplyLostPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.queryOuterRelease",
+      "lemma": "CatcherSettlement.queryOuterReleasePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.settleGuards",
+      "lemma": "CatcherSettlement.settleGuardsPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.resumeCaptured",
+      "lemma": "CatcherSettlement.resumeCapturedPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.finishResumption",
+      "lemma": "CatcherSettlement.finishResumptionPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.dropCaptured",
+      "lemma": "CatcherSettlement.dropCapturedPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.startGc",
+      "lemma": "CatcherSettlement.startGcPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.rewriteRootOnly",
+      "lemma": "CatcherSettlement.rewriteRootOnlyPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.rewriteRegistryFirst",
+      "lemma": "CatcherSettlement.rewriteRegistryFirstPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.rewriteContextSlot",
+      "lemma": "CatcherSettlement.rewriteContextSlotPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.initializeCopiedObject",
+      "lemma": "CatcherSettlement.initializeCopiedObjectPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.finishGc",
+      "lemma": "CatcherSettlement.finishGcPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.closeRootAdmission",
+      "lemma": "CatcherSettlement.closeRootAdmissionPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.retireRoots",
+      "lemma": "CatcherSettlement.retireRootsPreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.ackDescriptorGrace",
+      "lemma": "CatcherSettlement.ackDescriptorGracePreserves"
+    },
+    {
+      "actionName": "catcher_landing_marker_settlement.retireDescriptor",
+      "lemma": "CatcherSettlement.retireDescriptorPreserves"
+    }
+  ],
+  "route": [
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.prepareFirst",
+      "lemma": "CatcherSettlement.prepareFirstPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.prepareSecond",
+      "lemma": "CatcherSettlement.prepareSecondPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.rollbackPartial",
+      "lemma": "CatcherSettlement.rollbackPartialPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.rollbackReady",
+      "lemma": "CatcherSettlement.rollbackReadyPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.preparationUnknown",
+      "lemma": "CatcherSettlement.preparationUnknownPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.auditPreparation",
+      "lemma": "CatcherSettlement.auditPreparationPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.publishEscrow",
+      "lemma": "CatcherSettlement.publishEscrowPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.escrowReplyLost",
+      "lemma": "CatcherSettlement.escrowReplyLostPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.queryEscrow",
+      "lemma": "CatcherSettlement.queryEscrowPreserves",
+      "producerAnchor": "run-landing",
+      "obligationId": "Catcher-prepare"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.issueTransfer",
+      "lemma": "CatcherSettlement.issueTransferPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.issueOtherError",
+      "lemma": "CatcherSettlement.issueOtherErrorPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.catchInner",
+      "lemma": "CatcherSettlement.catchInnerPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.restoreInnerCatcher",
+      "lemma": "CatcherSettlement.restoreInnerCatcherPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.catchOuter",
+      "lemma": "CatcherSettlement.catchOuterPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.restoreOuterCatcher",
+      "lemma": "CatcherSettlement.restoreOuterCatcherPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.borrowFresh",
+      "lemma": "CatcherSettlement.borrowFreshPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.releaseBorrow",
+      "lemma": "CatcherSettlement.releaseBorrowPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.validateLanding",
+      "lemma": "CatcherSettlement.validateLandingPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.publishLanding",
+      "lemma": "CatcherSettlement.publishLandingPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.landingReplyLost",
+      "lemma": "CatcherSettlement.landingReplyLostPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.queryLanding",
+      "lemma": "CatcherSettlement.queryLandingPreserves",
+      "producerAnchor": "call-catcher",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.beginInnerRelease",
+      "lemma": "CatcherSettlement.beginInnerReleasePreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.decrementInner",
+      "lemma": "CatcherSettlement.decrementInnerPreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.commitInnerRelease",
+      "lemma": "CatcherSettlement.commitInnerReleasePreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.innerReplyLost",
+      "lemma": "CatcherSettlement.innerReplyLostPreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.queryInnerRelease",
+      "lemma": "CatcherSettlement.queryInnerReleasePreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.nativeTargetReturned",
+      "lemma": "CatcherSettlement.nativeTargetReturnedPreserves",
+      "producerAnchor": "target-invocation-return",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.beginOuterRelease",
+      "lemma": "CatcherSettlement.beginOuterReleasePreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.decrementOuter",
+      "lemma": "CatcherSettlement.decrementOuterPreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.commitOuterRelease",
+      "lemma": "CatcherSettlement.commitOuterReleasePreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.outerReplyLost",
+      "lemma": "CatcherSettlement.outerReplyLostPreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.queryOuterRelease",
+      "lemma": "CatcherSettlement.queryOuterReleasePreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.settleGuards",
+      "lemma": "CatcherSettlement.settleGuardsPreserves",
+      "producerAnchor": "raw-decrement",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.resumeCaptured",
+      "lemma": "CatcherSettlement.resumeCapturedPreserves",
+      "producerAnchor": "native-frame-reflection",
+      "obligationId": "Catcher-entry-abi"
+    },
+    {
+      "component": "control",
+      "actionName": "catcher_landing_marker_settlement.finishResumption",
+      "lemma": "CatcherSettlement.finishResumptionPreserves",
+      "producerAnchor": "native-frame-reflection",
+      "obligationId": "Catcher-entry-abi"
+    },
+    {
+      "component": "code",
+      "actionName": "catcher_landing_marker_settlement.dropCaptured",
+      "lemma": "CatcherSettlement.dropCapturedPreserves",
+      "producerAnchor": "captured-frame-decode",
+      "obligationId": "Catcher-descriptors"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.startGc",
+      "lemma": "CatcherSettlement.startGcPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.rewriteRootOnly",
+      "lemma": "CatcherSettlement.rewriteRootOnlyPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.rewriteRegistryFirst",
+      "lemma": "CatcherSettlement.rewriteRegistryFirstPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.rewriteContextSlot",
+      "lemma": "CatcherSettlement.rewriteContextSlotPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.initializeCopiedObject",
+      "lemma": "CatcherSettlement.initializeCopiedObjectPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.finishGc",
+      "lemma": "CatcherSettlement.finishGcPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.closeRootAdmission",
+      "lemma": "CatcherSettlement.closeRootAdmissionPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "roots",
+      "actionName": "catcher_landing_marker_settlement.retireRoots",
+      "lemma": "CatcherSettlement.retireRootsPreserves",
+      "producerAnchor": "gc-slot-winner",
+      "obligationId": "Catcher-root-slots"
+    },
+    {
+      "component": "code",
+      "actionName": "catcher_landing_marker_settlement.ackDescriptorGrace",
+      "lemma": "CatcherSettlement.ackDescriptorGracePreserves",
+      "producerAnchor": "captured-frame-decode",
+      "obligationId": "Catcher-descriptors"
+    },
+    {
+      "component": "code",
+      "actionName": "catcher_landing_marker_settlement.retireDescriptor",
+      "lemma": "CatcherSettlement.retireDescriptorPreserves",
+      "producerAnchor": "captured-frame-decode",
+      "obligationId": "Catcher-descriptors"
+    }
+  ],
+  "proof": [
+    {
+      "key": "initialSafe",
+      "lemma": "CatcherSettlement.initialSafe"
+    },
+    {
+      "key": "stepPreserves",
+      "lemma": "CatcherSettlement.stepPreserves"
+    },
+    {
+      "key": "reachableSafe",
+      "lemma": "CatcherSettlement.reachableSafe"
+    },
+    {
+      "key": "partialKeepsOriginal",
+      "lemma": "CatcherSettlement.partialKeepsOriginal"
+    },
+    {
+      "key": "landingIssuerCut",
+      "lemma": "CatcherSettlement.landingIssuerCut"
+    },
+    {
+      "key": "transitHasNoReceipt",
+      "lemma": "CatcherSettlement.transitHasNoReceipt"
+    },
+    {
+      "key": "innerGapHasCustodian",
+      "lemma": "CatcherSettlement.innerGapHasCustodian"
+    },
+    {
+      "key": "outerGapHasCustodian",
+      "lemma": "CatcherSettlement.outerGapHasCustodian"
+    },
+    {
+      "key": "innerExactlyOnce",
+      "lemma": "CatcherSettlement.innerExactlyOnce"
+    },
+    {
+      "key": "outerAfterInner",
+      "lemma": "CatcherSettlement.outerAfterInner"
+    },
+    {
+      "key": "preReturnFrameLive",
+      "lemma": "CatcherSettlement.preReturnFrameLive"
+    },
+    {
+      "key": "nativeBorrowFresh",
+      "lemma": "CatcherSettlement.nativeBorrowFresh"
+    },
+    {
+      "key": "unreadyObjectHasCustodian",
+      "lemma": "CatcherSettlement.unreadyObjectHasCustodian"
+    },
+    {
+      "key": "partialCopyNotExposed",
+      "lemma": "CatcherSettlement.partialCopyNotExposed"
+    },
+    {
+      "key": "resumedSlotCoherent",
+      "lemma": "CatcherSettlement.resumedSlotCoherent"
+    },
+    {
+      "key": "retirementCut",
+      "lemma": "CatcherSettlement.retirementCut"
+    },
+    {
+      "key": "captureKeepsDescriptor",
+      "lemma": "CatcherSettlement.captureKeepsDescriptor"
+    },
+    {
+      "key": "queryInnerDoesNotReplay",
+      "lemma": "CatcherSettlement.queryInnerDoesNotReplay"
+    },
+    {
+      "key": "queryOuterDoesNotReplay",
+      "lemma": "CatcherSettlement.queryOuterDoesNotReplay"
+    }
+  ],
+  "paper": [
+    {
+      "key": "gambit-pvm",
+      "title": "Feeley and Miller: A parallel virtual machine for efficient Scheme compilation",
+      "url": "https://www.iro.umontreal.ca/~feeley/papers/FeeleyMillerLFP90.pdf",
+      "section": "2",
+      "basis": "Front/back-end contract carries machine-specific facts",
+      "boundary": "Historical PVM is not a current C23 ABI proof"
+    },
+    {
+      "key": "gambit-c-segments",
+      "title": "Feeley: Portable first-class continuations with C",
+      "url": "https://www.schemeworkshop.org/2000/feeley.ps",
+      "section": "1-5",
+      "basis": "Unlimited Scheme extent differs from dynamic C extent; independent native segments proposed",
+      "boundary": "Section 5 says not implemented then; preserve arbitrary C local state; no historical timings transferred"
+    },
+    {
+      "key": "ocaml-effects",
+      "title": "Retrofitting Effect Handlers onto OCaml",
+      "url": "https://anil.recoil.org/papers/2021-pldi-retroeff.pdf",
+      "section": "3.1 and 5.3",
+      "basis": "Separate system/fiber stacks and explicit callback transitions",
+      "boundary": "One-shot effects do not cross C frames; neither restriction is silently applied to Gambit"
+    },
+    {
+      "key": "c23-draft",
+      "title": "WG14 N3096 C23 working draft",
+      "url": "https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3096.pdf",
+      "section": "5.1.2.4; 7.13.2.1",
+      "basis": "Release/acquire publication; longjmp requires same thread and live setjmp invocation",
+      "boundary": "Working draft, not purchased final ISO text; atomics do not extend C automatic lifetime"
+    },
+    {
+      "key": "chez-stale-native",
+      "title": "Chez Scheme foreign interface",
+      "url": "https://cisco.github.io/ChezScheme/csug10.3.0/foreign.html",
+      "section": "4.4 and callback registration example",
+      "basis": "Nested foreign contexts become stale on return below them; callback code needs explicit retention",
+      "boundary": "Comparative mechanism only; not a Gambit implementation proof"
+    }
+  ],
+  "grounding": [
+    {
+      "component": "control",
+      "producerAnchor": "call-catcher",
+      "paperKey": "gambit-c-segments",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "producerAnchor": "sfun-generator",
+      "paperKey": "gambit-pvm",
+      "obligationId": "Catcher-entry-abi"
+    },
+    {
+      "component": "control",
+      "producerAnchor": "catcher-restore",
+      "paperKey": "ocaml-effects",
+      "obligationId": "Catcher-landing"
+    },
+    {
+      "component": "control",
+      "producerAnchor": "catcher-local",
+      "paperKey": "c23-draft",
+      "obligationId": "Catcher-marker-release"
+    },
+    {
+      "component": "code",
+      "producerAnchor": "captured-frame-decode",
+      "paperKey": "chez-stale-native",
+      "obligationId": "Catcher-descriptors"
+    }
+  ],
+  "gain": [
+    {
+      "key": "G1",
+      "avoided": "One target-classified landing record can replace inferred completion at arbitrary catch sites",
+      "added": "Frame/thread/context/operation identity checks and stable receipt storage",
+      "condition": "Current END_TRY is not a signer; only exact target UNWIND route is modeled as accepted return"
+    },
+    {
+      "key": "G2",
+      "avoided": "Reply replay performs zero additional native reference decrements after commit",
+      "added": "Query lookup, operation retention and generation protection",
+      "condition": "Uncommitted physical effect remains inside an unproven native NoAbandon interval; no crash recovery claim"
+    },
+    {
+      "key": "G3",
+      "avoided": "Two-entry model performs exactly two native marker-reference drops in a completed path",
+      "added": "Exclusive writer/collector participation and two stable commit records",
+      "condition": "Does not reduce the baseline two drops; establishes conditional correctness, not speedup"
+    },
+    {
+      "key": "G4",
+      "avoided": "Opaque return-token candidate could retire one logical marker-vector construction and one native count release per admitted entry",
+      "added": "Stable token slot, RootBundle, generation lookup and FrameSpec/reflection/serialization migration",
+      "condition": "E marker-owning entries: net object constructors E-(R+S), native count releases E-D only if replacement qualifies; R views/S boxes/D new owned releases may erase savings; native paths retired zero"
+    },
+    {
+      "key": "G5",
+      "avoided": "Slot identity survives relocation; stale native cached values need not be trusted",
+      "added": "Mutable registry/context cells, scanner freeze and fresh borrow reload",
+      "condition": "Partial cell updates cannot be exposed to a running borrower or Scheme context"
+    },
+    {
+      "key": "G6",
+      "avoided": "One root/code/receipt ledger could replace separate implicit ownership reconstruction",
+      "added": "Metadata and native pin occupancy plus reader-grace work",
+      "condition": "Savings require deletion of old responsibilities, not a second ledger layered over them"
+    },
+    {
+      "key": "G7",
+      "avoided": "C23 expresses both retained-marker and opaque-token candidates",
+      "added": "Same GC, source, landing and code-lifetime obligations in Zig",
+      "condition": "No Zig-specific net return established; no per-resumption thread saving claimed"
+    }
+  ],
+  "memory": [
+    {
+      "key": "frame-record",
+      "publication": "Initialize stable FrameId/operation before setjmp, publish under owner admission",
+      "observation": "Acquire/pin stable record; use unchanged pre-setjmp local or lookup after landing",
+      "obligation": "Modified nonvolatile automatic values cannot be used as post-longjmp evidence"
+    },
+    {
+      "key": "escrow",
+      "publication": "Release publish immutable subtree membership and owned leases before physical transfer",
+      "observation": "Exact native owner validates the same operation and target incarnation",
+      "obligation": "Partial preparation rollback is private; unknown preparation requires old-executor exclusion before reconciliation"
+    },
+    {
+      "key": "landing",
+      "publication": "Release commit classified target landing after catcher restoration and destination checks",
+      "observation": "Acquire query returns same terminal record without invoking native transfer again",
+      "obligation": "Current ps->catcher has already been restored; it is not the landed-frame identity"
+    },
+    {
+      "key": "marker",
+      "publication": "Exclude all marker-count writers and collector readers; disable non-local exit sources for leaf",
+      "observation": "Perform count decrement then release commit receipt while custody still held",
+      "obligation": "An atomic done flag around a plain decrement is insufficient; no unsupported abandoning profile may enter this leaf"
+    },
+    {
+      "key": "slot-update",
+      "publication": "Collector exclusively writes actual registered cells while mutator/native borrowers are parked",
+      "observation": "Update registry/context cells and initialize payload before publishing completion; reload before native use",
+      "obligation": "Acquire alone does not move a copied SCMOBJ; descriptor and root leases survive the partial-copy interval"
+    },
+    {
+      "key": "descriptor",
+      "publication": "Close future admission and release last capture/scanner/native lease",
+      "observation": "Acquire complete cross-VM closure before unload",
+      "obligation": "Marker invalidation or count zero does not prove descriptor retirement"
+    }
+  ],
+  "contract": [
+    {
+      "fromNode": "Admitted_Roots_and_Catchers",
+      "toNode": "Private_Subtree_Preparation",
+      "custody": "original native references and roots stay owned"
+    },
+    {
+      "fromNode": "Private_Subtree_Preparation",
+      "toNode": "Known_Private_Rollback",
+      "custody": "release private extra leases only"
+    },
+    {
+      "fromNode": "Private_Subtree_Preparation",
+      "toNode": "Unknown_Preparation_Custody",
+      "custody": "old executor/pins retained until qualified reconciliation"
+    },
+    {
+      "fromNode": "Private_Subtree_Preparation",
+      "toNode": "Stable_Escrow_Record",
+      "custody": "atomic commit after full preparation"
+    },
+    {
+      "fromNode": "Stable_Escrow_Record",
+      "toNode": "Inner_Catcher",
+      "custody": "unwind issued; no landing receipt yet"
+    },
+    {
+      "fromNode": "Inner_Catcher",
+      "toNode": "Restored_Parent_Catcher",
+      "custody": "destination mismatch propagates"
+    },
+    {
+      "fromNode": "Restored_Parent_Catcher",
+      "toNode": "Target_Catcher_Restored",
+      "custody": "caught frame is outer; current catcher becomes prior frame"
+    },
+    {
+      "fromNode": "Target_Catcher_Restored",
+      "toNode": "Classified_Landing_Record",
+      "custody": "check operation, frame, thread, error and marker; freshly rooted data"
+    },
+    {
+      "fromNode": "Classified_Landing_Record",
+      "toNode": "Exclusive_Marker_Release",
+      "custody": "NoAbandon and GC/writer exclusion"
+    },
+    {
+      "fromNode": "Exclusive_Marker_Release",
+      "toNode": "Effect_Before_Receipt",
+      "custody": "plain decrement has happened; stable custodian cannot abandon"
+    },
+    {
+      "fromNode": "Effect_Before_Receipt",
+      "toNode": "Committed_Release_Record",
+      "custody": "commit before releasing exclusion or returning reply"
+    },
+    {
+      "fromNode": "Committed_Release_Record",
+      "toNode": "Idempotent_Reply_Query",
+      "custody": "lost reply never replays decrement"
+    },
+    {
+      "fromNode": "Both_Markers_Committed",
+      "toNode": "Captured_Scheme_Resumption",
+      "custody": "guards settled; fresh Scheme ticket; native return remains expired"
+    },
+    {
+      "fromNode": "Captured_Scheme_Resumption",
+      "toNode": "GC_Registry_Cell",
+      "custody": "freeze context before relocation"
+    },
+    {
+      "fromNode": "GC_Registry_Cell",
+      "toNode": "GC_Context_Cell",
+      "custody": "partial update held under scanner ownership"
+    },
+    {
+      "fromNode": "GC_Ready_Join",
+      "toNode": "Root_And_Code_Grace",
+      "custody": "coherent cells AND initialized payload before exposure; final capture and reader closure"
+    },
+    {
+      "fromNode": "Root_And_Code_Grace",
+      "toNode": "Descriptor_Retirement",
+      "custody": "last captured/native/scanner/global owner closure"
+    },
+    {
+      "fromNode": "Classified_Landing_Record",
+      "toNode": "Target_Invocation_Exit",
+      "custody": "caller-side evidence after the identified ___call returns"
+    },
+    {
+      "fromNode": "Target_Invocation_Exit",
+      "toNode": "Owner_Last_Use_Check",
+      "custody": "invocation return alone does not close marker owner; qualify final use"
+    },
+    {
+      "fromNode": "Committed_Release_Record",
+      "toNode": "Outer_Marker_Release",
+      "custody": "inner reference committed; target invocation-exit receipt also required"
+    },
+    {
+      "fromNode": "Outer_Marker_Release",
+      "toNode": "Both_Markers_Committed",
+      "custody": "separate outer effect and commit under same qualified custody"
+    },
+    {
+      "fromNode": "GC_Registry_Cell",
+      "toNode": "Payload_Initialization",
+      "custody": "root address can be updated before copying payload"
+    },
+    {
+      "fromNode": "GC_Context_Cell",
+      "toNode": "GC_Ready_Join",
+      "custody": "all registered cells coherent; payload also required"
+    },
+    {
+      "fromNode": "Payload_Initialization",
+      "toNode": "GC_Ready_Join",
+      "custody": "initialized payload; coherent context cell also required"
+    },
+    {
+      "fromNode": "Owner_Last_Use_Check",
+      "toNode": "Invocation_And_Owner_Closure",
+      "custody": "___run final-use profile; outer SFUN retry closure remains unresolved"
+    },
+    {
+      "fromNode": "Invocation_And_Owner_Closure",
+      "toNode": "Outer_Marker_Release",
+      "custody": "invocation receipt AND owner-use closure; same operation and marker owner"
+    }
+  ],
+  "role": [
+    {
+      "key": "StablePreparation",
+      "identity": "Private progress ledger outside the abandoned C frames",
+      "retirement": "Known rollback returns only private extra leases; original custody persists",
+      "boundary": "Unknown preparation is not permission to free or repeat"
+    },
+    {
+      "key": "CatcherLandingReceipt",
+      "identity": "OperationId, NativeThreadIncarnation, ContextId, TargetFrameId, marker identity and exit kind",
+      "retirement": "Published after exact target restoration/checks, retained for replay",
+      "boundary": "Intermediate catcher and current catcher pointer are not equivalent identities"
+    },
+    {
+      "key": "MarkerReleaseTicket",
+      "identity": "Marker incarnation plus one native-owned reference and committed settlement",
+      "retirement": "Effect and receipt occur inside one qualified NoAbandon/exclusive interval",
+      "boundary": "Ordinary refcount decrement is not idempotent and current code has no durable ticket"
+    },
+    {
+      "key": "MutableRootSlot",
+      "identity": "Stable SlotKey with GC-rewritten SCMOBJ, source/context transfer and borrow lease",
+      "retirement": "Reader/admission grace after final semantic owner exits",
+      "boundary": "C23 visibility does not substitute for root enumeration or slot rewriting"
+    },
+    {
+      "key": "OpaqueReturnTokenCandidate",
+      "identity": "Preissued native return handle separated from Scheme procedure roots",
+      "retirement": "Expired native return traps; storage/descriptor/replay leases retire independently",
+      "boundary": "Requires native-entry ABI and reflection/serialization design; not a drop-in Scheme allocator substitution"
+    },
+    {
+      "key": "MarkerOwnerUseClosure",
+      "identity": "MarkerOwnerId plus final-use generation; distinct from each invocation FrameId",
+      "retirement": "Release only after invocation exit and all future owner uses are closed",
+      "boundary": "Current bounded model admits outer ___run only; outer SFUN retry lifecycle needs additional states and native qualification"
+    }
+  ],
+  "composition": [
+    {
+      "key": "preparation-to-landing",
+      "fromAction": "catcher_landing_marker_settlement.publishEscrow",
+      "toAction": "catcher_landing_marker_settlement.publishLanding",
+      "lemma": "CatcherSettlement.landingIssuerCut",
+      "fromComponent": "control",
+      "toComponent": "control",
+      "sharedConstraint": "Escrow commit is not a landing receipt; same stable operation and actual target frame"
+    },
+    {
+      "key": "landing-to-target-exit",
+      "fromAction": "catcher_landing_marker_settlement.nativeTargetReturned",
+      "toAction": "catcher_landing_marker_settlement.decrementOuter",
+      "lemma": "CatcherSettlement.outerGapHasCustodian",
+      "fromComponent": "control",
+      "toComponent": "control",
+      "sharedConstraint": "Target catcher landing does not authorize outer-marker release before the target invocation exits"
+    },
+    {
+      "key": "landing-to-marker",
+      "fromAction": "catcher_landing_marker_settlement.publishLanding",
+      "toAction": "catcher_landing_marker_settlement.decrementInner",
+      "lemma": "CatcherSettlement.innerGapHasCustodian",
+      "fromComponent": "control",
+      "toComponent": "control",
+      "sharedConstraint": "Physical decrement requires the accepted landing and an exclusive NoAbandon interval"
+    },
+    {
+      "key": "marker-to-query",
+      "fromAction": "catcher_landing_marker_settlement.commitInnerRelease",
+      "toAction": "catcher_landing_marker_settlement.queryInnerRelease",
+      "lemma": "CatcherSettlement.innerExactlyOnce",
+      "fromComponent": "control",
+      "toComponent": "control",
+      "sharedConstraint": "A lost reply queries the committed ticket; no second decrement"
+    },
+    {
+      "key": "gc-to-resumption",
+      "fromAction": "catcher_landing_marker_settlement.rewriteContextSlot",
+      "toAction": "catcher_landing_marker_settlement.finishResumption",
+      "lemma": "CatcherSettlement.resumedSlotCoherent",
+      "fromComponent": "roots",
+      "toComponent": "control",
+      "sharedConstraint": "GC may update cells in steps; a resumed mutator is parked until context and registry agree"
+    },
+    {
+      "key": "root-to-marker",
+      "fromAction": "catcher_landing_marker_settlement.borrowFresh",
+      "toAction": "catcher_landing_marker_settlement.decrementInner",
+      "lemma": "CatcherSettlement.nativeBorrowFresh",
+      "fromComponent": "roots",
+      "toComponent": "control",
+      "sharedConstraint": "Root slot is freshly reloaded and moving GC excluded during raw native effect"
+    },
+    {
+      "key": "capture-to-code",
+      "fromAction": "catcher_landing_marker_settlement.resumeCaptured",
+      "toAction": "catcher_landing_marker_settlement.retireDescriptor",
+      "lemma": "CatcherSettlement.captureKeepsDescriptor",
+      "fromComponent": "control",
+      "toComponent": "code",
+      "sharedConstraint": "Marker release does not discharge captured Scheme frame descriptor leases"
+    },
+    {
+      "key": "root-to-code",
+      "fromAction": "catcher_landing_marker_settlement.retireRoots",
+      "toAction": "catcher_landing_marker_settlement.retireDescriptor",
+      "lemma": "CatcherSettlement.retirementCut",
+      "fromComponent": "roots",
+      "toComponent": "code",
+      "sharedConstraint": "Slot retirement and image retirement have different closure conditions"
+    }
+  ]
+}

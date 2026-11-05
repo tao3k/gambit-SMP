@@ -1,0 +1,70 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "processor-interrupt-collective-wait-original-stress",
+  "scope": "Scoped continuation of this logical campaign: reuse only its unchanged successful source/configure/seed/core contracts. Run only the original-delay cost diagnostic with a declared output observation. The original terminate file has already passed in the retained previous observation and is not repeated here. This diagnostic is not the original TFIB stress, does not close its timeout, and is not a performance admission. The parent full-stress declaration and failures remain immutable.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch",
+    "evidence/research/processor-interrupt-collective-wait/source-review.md",
+    "evidence/research/processor-interrupt-collective-wait/material-state.json",
+    "evidence/research/processor-interrupt-collective-wait/material-reference.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "models/gambit/processor_interrupt_ticket.qnt",
+    "models/gambit/native/tfib_delay_cost.scm",
+    "vendor/gambit/tests/unit-tests/06-thread/tfib_stress.scm",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "source", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 30,
+      "arguments": {
+        "sourceLock": "evidence/research/processor-interrupt-collective-wait/source.lock.json",
+        "workspace": ".cache/fixtures/abandonment-gc-publication-reader-repaired/run/source/source",
+        "workspaceState": "evidence/research/processor-interrupt-collective-wait/material-reference.json"
+      }
+    },
+    {
+      "id": "configure", "capability": "gambit.configure", "dependsOn": ["source"], "budgetSeconds": 60,
+      "arguments": {"source": {"step": "source", "output": "source"},
+                    "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"}
+    },
+    {
+      "id": "seed", "capability": "gambit.seed-core", "dependsOn": ["configure"], "budgetSeconds": 180,
+      "arguments": {"source": {"step": "configure", "output": "source"}}
+    },
+    {
+      "id": "core", "capability": "gambit.source-core", "dependsOn": ["seed"], "budgetSeconds": 180,
+      "arguments": {"runtime": {"step": "seed", "output": "runtime"}}
+    },
+    {
+      "id": "interpreted-atomic", "capability": "gambit.suite", "dependsOn": ["core"], "budgetSeconds": 300,
+      "arguments": {
+        "runtime": {"step": "core", "output": "runtime"},
+        "identity": {"step": "core", "output": "identity"},
+        "mode": "gsi", "regime": "whole-parallel", "inventory": "stress",
+        "selection": ["06-thread/tfib_delay_cost_stress.scm"],
+        "expectedFiles": ["06-thread/tfib_delay_cost_stress.scm"],
+        "additionalFixtures": {"06-thread/tfib_delay_cost_stress.scm": {
+          "source": "models/gambit/native/tfib_delay_cost.scm",
+          "sha256": "140e1fbfab5bfa7409e5a7a3293af49ef80ce9c089ef6fe9f0ed3edd0ea86366"}},
+        "parameters": {"GAMBIT_SMP_DELAY_SAMPLES": 1000},
+        "observationFiles": {"06-thread/tfib_delay_cost_stress.scm": "observations/tfib-delay.json"},
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss"
+      }
+    },
+    {
+      "id": "verdict", "capability": "evidence.evaluate",
+      "dependsOn": ["source", "configure", "seed", "core", "interpreted-atomic"], "budgetSeconds": 10,
+      "arguments": {
+        "rules": ["evidence/research/execution-rules.ss"],
+        "queries": {"missing": "missing_step", "bindings": "bound_source", "controls": "bound_control"},
+        "expected": {"missing": [], "bindings": [], "controls": []}
+      }
+    }
+  ]
+}

@@ -13,6 +13,84 @@ from gambit_smp.framework import digest
 
 
 class CompletedProducerTests(unittest.TestCase):
+    def test_configuration_reuse_output_set_matches_authenticated_source_generation(self):
+        for modern in (False, True):
+            with self.subTest(modern=modern):
+                names = native_capabilities.configuration_output_names(native_profile=modern)
+                files = {name: 'a' * 64 for name in names}
+                identity = {name: {'sha256': sha} for name, sha in files.items()}
+                if modern:
+                    identity['native-profile.m4'] = {'sha256': 'b' * 64}
+                command = {'stage': 'configure', 'state': 'OBSERVED', 'exit': 0,
+                           'timeout': False, 'parentReaped': True,
+                           'processGroupQuiescent': True, 'argv': ['/bin/sh', './configure']}
+                raw = json.dumps(command)
+                import hashlib
+                row = {'configurationReuse': {'schema': 'gambit-configure-reuse.v1',
+                       'receiptBytes': raw, 'receiptSha256': hashlib.sha256(raw.encode()).hexdigest(),
+                       'commands': [command], 'flags': [], 'files': files},
+                       'outputs': {'source': {'identity': identity}}}
+                with patch('gambit_smp.step_checkpoint.stage_commands', return_value=[]):
+                    self.assertEqual(producer.configure_command(self.root, row), command)
+                    for name in names:
+                        missing = copy.deepcopy(row)
+                        del missing['configurationReuse']['files'][name]
+                        with self.assertRaisesRegex(ValueError, 'generated-byte identity'):
+                            producer.configure_command(self.root, missing)
+                    changed = copy.deepcopy(row)
+                    changed['outputs']['source']['identity'][names[-1]]['sha256'] = 'c' * 64
+                    with self.assertRaisesRegex(ValueError, 'generated-byte identity'):
+                        producer.configure_command(self.root, changed)
+                    extra = copy.deepcopy(row)
+                    extra['configurationReuse']['files']['unregistered-output'] = 'a' * 64
+                    with self.assertRaisesRegex(ValueError, 'generated-byte identity'):
+                        producer.configure_command(self.root, extra)
+                    mismatched = copy.deepcopy(row)
+                    if modern:
+                        del mismatched['outputs']['source']['identity']['native-profile.m4']
+                    else:
+                        mismatched['outputs']['source']['identity']['native-profile.m4'] = {'sha256': 'b' * 64}
+                    with self.assertRaisesRegex(ValueError, 'generated-byte identity'):
+                        producer.configure_command(self.root, mismatched)
+
+    def test_malformed_history_cannot_block_or_supply_producer_discovery(self):
+        ctx = self.duplicate_context()
+        path = self.root / "evidence/research/old-native-receipt.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"schema":"native-observation","seconds":.5}')
+        before = digest(path)
+        producer.prevent_duplicate_configuration(ctx.receipt["steps"][1]["arguments"], ctx)
+        self.assertEqual(ctx.receipt["unreadableHistoricalObservations"][0]["sha256"], before)
+        self.assertFalse(ctx.receipt["unreadableHistoricalObservations"][0]["producerAdmitted"])
+        self.assertEqual(digest(path), before)
+        with self.assertRaises(json.JSONDecodeError):
+            producer.discovered_reference(path, ctx, explicit=True)
+        path.write_text('{"schema":"' + producer.SCHEMA + '","seconds":.5}')
+        with self.assertRaises(json.JSONDecodeError):
+            producer.discovered_reference(path, ctx)
+
+    def test_explicit_consumer_uses_reuse_only_without_allocating_source_capacity(self):
+        from types import SimpleNamespace
+        ctx = SimpleNamespace(directory=Path('attempt/candidate'), planned_steps=[
+            {'capability': 'gambit.completed-runtime',
+             'arguments': {'source': {'step': 'candidate'}}}])
+        args = {'sourceLock': 'evidence/source.lock.json'}
+        with patch.object(native_capabilities, '_materialize',
+                          side_effect=ValueError('producer unavailable')) as reuse, \
+                patch('gambit_smp.fixture_storage.source_capacity') as capacity:
+            with self.assertRaisesRegex(ValueError, 'producer unavailable'):
+                native_capabilities.materialize(args, ctx)
+        reuse.assert_called_once_with(args, ctx, reuse_only=True)
+        capacity.assert_not_called()
+
+    def test_owner_shutdown_revalidation_cannot_recover_failed_native_stages(self):
+        outer = {"timeout": False, "parentReaped": True, "processGroupQuiescent": True}
+        for outcome in ("DENY", "TIMEOUT", "STALE", "BLOCKED"):
+            child = {"inputsStable": True, "wholeBudgetExhausted": False,
+                     "steps": [{"outcome": outcome}]}
+            with self.subTest(outcome=outcome), self.assertRaisesRegex(ValueError, "completed stable native"):
+                producer.checked_owner_shutdown_failure(self.run, outer, child)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
@@ -95,6 +173,26 @@ class CompletedProducerTests(unittest.TestCase):
         self.save(".data/fixtures/completed-source/request.json", {"recipe": "evidence/recovery.recipe.json"})
         self.child["inputs"] = {str(recipe): digest(recipe)}
         self.refresh()
+
+    def test_self_source_before_bootstrap_keeps_exact_seed_ancestry(self):
+        rows = {row["id"]: row for row in self.child["steps"]}
+        current = {"id": "self-source", "capability": "gambit.source-core", "outcome": "PASS",
+                   "arguments": {"runtime": {"step": "seed", "output": "runtime"}}}
+        rows[current["id"]] = current
+        target = {"arguments": {"runtime": {"step": "self-source", "output": "runtime"},
+                                "identity": {"step": "self-source", "output": "identity"}}}
+        seed, configured, materialized = producer.bootstrap_ancestry(self.root, rows, target)
+        self.assertIs(seed, current)
+        self.assertIs(configured, rows["configure"])
+        self.assertIs(materialized, rows["source"])
+        for parent in ("self-source", "configure"):
+            current["arguments"]["runtime"]["step"] = parent
+            with self.assertRaisesRegex(ValueError, "typed seed ancestry"):
+                producer.bootstrap_ancestry(self.root, rows, target)
+        current["arguments"]["runtime"]["step"] = "seed"
+        rows["seed"]["outcome"] = "DENY"
+        with self.assertRaisesRegex(ValueError, "exact seed producer"):
+            producer.bootstrap_ancestry(self.root, rows, target)
 
     def test_completed_owner_supersedes_only_obsolete_wall_clock_decision(self):
         self.owner_teardown_denial()
@@ -378,6 +476,29 @@ class CompletedProducerTests(unittest.TestCase):
         lock.write_text('{"different": true}')
         self.assertIsNone(producer.reuse_materialized_source(lock, ctx))
 
+    def test_missing_historical_cache_does_not_block_fresh_materialization(self):
+        self.save("evidence/research/completed.json", self.reference())
+        shutil.rmtree(self.root / ".data")
+        ctx = self.duplicate_context()
+        self.assertIsNone(producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx))
+
+    def test_missing_completed_runtime_does_not_block_configure(self):
+        self.save("evidence/research/completed.json", self.reference())
+        shutil.rmtree(self.run)
+        ctx = self.duplicate_context()
+        producer.prevent_duplicate_configuration(ctx.receipt["steps"][1]["arguments"], ctx)
+        self.assertNotIn("buildReuseDecisions", ctx.receipt)
+
+    def test_explicit_completed_producer_requires_its_runtime(self):
+        selected = "evidence/research/completed.json"
+        self.save(selected, self.reference())
+        shutil.rmtree(self.root / ".data")
+        ctx = self.duplicate_context()
+        ctx.receipt["steps"].append({"id": "reuse", "capability": "gambit.completed-runtime",
+            "arguments": {"source": {"step": "source", "output": "source"}, "producer": selected}})
+        with self.assertRaisesRegex(ValueError, "runtime is unavailable"):
+            producer.reuse_materialized_source(self.root / "evidence/source.lock.json", ctx)
+
     def test_materialized_source_reference_drift_cannot_trigger_rebuild(self):
         proof = self.reference()
         proof["childReceiptSha256"] = "0" * 64
@@ -542,3 +663,101 @@ class CompletedProducerTests(unittest.TestCase):
         proof["run"] = "../outside"
         with self.assertRaises(ValueError):
             self.reuse(proof)
+
+
+class NativeAncestryTests(unittest.TestCase):
+    """Synthetic transport witnesses exercise rejection, never native admission."""
+    def setUp(self):
+        import hashlib
+        from gambit_smp.build_profile import read_profile
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name).resolve();self.run=self.root/'.cache/tasks/unit/runs/bootstrap'
+        self.runtime=self.root/'.cache/tasks/unit/build/core/source';self.run.mkdir(parents=True)
+        def save(name,text):
+            p=self.root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(text);return p
+        self.save=save
+        self.json=lambda name,data: save(name,json.dumps(data))
+        for name in ['lib/x.scm','lib/_x.c','gsc-boot','gsi/gsi','gsc/gsc','lib/libgambit.a',
+                     'include/gambit.h','tests/smp/suite.scm','tests/smp/catalog.scm']:
+            save(str((self.runtime/name).relative_to(self.root)),'unit fixture '+name)
+        profile=Path(__file__).resolve().parents[1]/'evidence/research/worker-role-handoff/profile.json'
+        p=save('evidence/profile.json',profile.read_text());flags=read_profile(p)['flags']
+        patch=save('evidence/source.patch','synthetic source bytes')
+        self.lock=self.json('evidence/source.lock.json',dict(schema='gambit-runtime-source-lock.v1',
+            revision='a'*40,submodule='vendor/gambit',repository='https://git.cons.io/mighty-gerbils/gambit.git',
+            patch='evidence/source.patch',patchSha256=digest(patch),runtimeAdmitted=False,releaseAdmitted=False,
+            files={'lib/x.scm':dict(baseSha256=None,candidateSha256=digest(self.runtime/'lib/x.scm'))}))
+        self.gcc=save('gcc','synthetic compiler; never executed')
+        observer=save('.cache/observer','synthetic Scheme host; never executed')
+        cmd=dict(stage='configure',state='OBSERVED',exit=0,timeout=False,parentReaped=True,
+                 processGroupQuiescent=True,argv=['sh','./configure',*flags])
+        raw=json.dumps(cmd)
+        proof=dict(schema='gambit-configure-reuse.v1',flags=flags,receiptBytes=raw,
+                   receiptSha256=hashlib.sha256(raw.encode()).hexdigest(),commands=[cmd],
+                   files={'include/gambit.h':digest(self.runtime/'include/gambit.h')},
+                   requestIdentity=dict(tools={'gcc':dict(sha256=digest(self.gcc))}))
+        commands=[]
+        for stage in ['bootclean','bootstrap']:
+            text='' if stage=='bootclean' else ''.join('*** making phase'+str(i)+'\n' for _ in range(2) for i in range(1,5))
+            log=save(str((self.run/'native'/(stage+'.log')).relative_to(self.root)),text)
+            commands.append(dict(stage=stage,exit=0,timeout=False,parentReaped=True,
+                                 processGroupQuiescent=True,cwd=str(self.runtime),output=log.name,outputSha256=digest(log)))
+        native=dict(module='gambit.smp.bootstrap.two-pass',outcome='PASS',fullTwoPassBootstrapEstablished=True,
+            phaseCounts={f'phase{i}':2 for i in range(1,5)},commands=commands,
+            generatedAfter={'lib/_x.c':digest(self.runtime/'lib/_x.c')},
+            runnerSha256=digest(self.runtime/'tests/smp/suite.scm'),planSha256=digest(self.runtime/'tests/smp/catalog.scm'),
+            tools=[dict(name='cc',sha256=digest(self.gcc))])
+        native_path=self.json(str((self.run/'native/receipt.json').relative_to(self.root)),native)
+        rows=dict(completion=(self.run/'completion.json',dict(candidateTree='a'*40,wholeSeconds=10,
+                  sourceInode=self.runtime.stat().st_ino,nativeReceiptSha256=digest(native_path),fullTwoPassBootstrapEstablished=True)),
+            request=(self.run/'request.json',dict(candidateTree='a'*40,profile='evidence/profile.json',profileSha256=digest(p),observerSha256=digest(observer))),
+            observations=(self.run/'observations.json',dict(candidateTree='a'*40,wholeBudgetSeconds=600,
+                  commands=[dict(stage='two-pass-bootstrap',argv=[str(observer),str(self.runtime/'tests/smp/suite.scm')],exit=0,timeout=False,group_quiescent=True)])),
+            nativeReceipt=(native_path,native),snapshot=(self.run/'workspace-after.json',recipes.tree_identity(self.runtime)),
+            coreInputs=(self.root/'evidence/core.json',dict(candidateTree='a'*40,
+                  coreInputs=[dict(path='lib/x.scm',sha256=digest(self.runtime/'lib/x.scm'))])),
+            requalification=(self.root/'evidence/requalification.json',dict(schemeInputsStable=True,generatedCStable=1,
+                  requestIdentity=dict(profile=read_profile(p)),commands=[dict(stage=n,exit=0,timeout=False,
+                  parentReaped=True,processGroupQuiescent=True) for n in ['phase3','phase4']])),
+            configuration=(self.root/'evidence/configuration.json',proof),
+            identity=(self.root/'evidence/identity.json',dict(sourceFiles={'lib/x.scm':digest(self.runtime/'lib/x.scm')},
+                  binarySha256=digest(self.runtime/'gsi/gsi'),gscSha256=digest(self.runtime/'gsc/gsc'),
+                  librarySha256=digest(self.runtime/'lib/libgambit.a'))))
+        self.rows={}
+        for key,(path,data) in rows.items():self.rows[key]=self.json(str(path.relative_to(self.root)),data)
+        self.spec=dict(schema='gambit-native-bootstrap-ancestry',sourceLock='evidence/source.lock.json',
+            runtime=str(self.runtime.relative_to(self.root)),witnesses={k:dict(path=str(p.relative_to(self.root)),sha256=digest(p)) for k,p in self.rows.items()})
+        self.declaration='evidence/ancestry.json';self.flush()
+    def flush(self):self.json(self.declaration,self.spec)
+    def observe(self,expected=None):
+        return producer.native_ancestry(self.root,self.run,self.declaration,expected=expected)
+    def test_native_event_exports_a_distinct_non_admitting_reference(self):
+        ref,source,_,_=self.observe()
+        self.assertEqual(ref['schema'],producer.NATIVE_SCHEMA)
+        self.assertEqual(source,self.runtime);self.assertFalse(ref['runtimeAdmitted'])
+        self.assertNotIn('engineId',ref);self.assertEqual(ref['sourceCopies'],0)
+        self.assertEqual(self.observe(ref)[0],ref)
+    def test_changed_witness_is_not_recovered(self):
+        self.rows['nativeReceipt'].write_text('{}')
+        with self.assertRaisesRegex(ValueError,'witness drift'):self.observe()
+    def test_changed_generation_input_invalidates_reference(self):
+        ref=self.observe()[0];(self.runtime/'lib/x.scm').write_text('changed')
+        with self.assertRaisesRegex(ValueError,'workspace changed'):self.observe(ref)
+    def test_generated_product_mismatch_is_rejected(self):
+        (self.runtime/'lib/_x.c').write_text('changed')
+        with self.assertRaisesRegex(ValueError,'generated products changed'):self.observe()
+    def test_rebound_event_file_is_not_an_ancestor(self):
+        p=self.json('evidence/fake-request.json',json.loads(self.rows['request'].read_text()))
+        self.spec['witnesses']['request']=dict(path=str(p.relative_to(self.root)),sha256=digest(p));self.flush()
+        with self.assertRaisesRegex(ValueError,'cannot be rebound'):self.observe()
+    def test_profile_content_must_remain_bound(self):
+        (self.root/'evidence/profile.json').write_text('{}')
+        with self.assertRaisesRegex(ValueError,'profile drift'):self.observe()
+    def test_log_digest_is_required(self):
+        (self.run/'native/bootstrap.log').write_text('changed')
+        with self.assertRaisesRegex(ValueError,'command or output drift'):self.observe()
+
+    def test_missing_observed_launch_is_not_a_completed_bootstrap(self):
+        p=self.rows['observations'];data=json.loads(p.read_text());data['commands']=[]
+        p.write_text(json.dumps(data));self.spec['witnesses']['observations']['sha256']=digest(p);self.flush()
+        with self.assertRaisesRegex(ValueError,'actual native Scheme bootstrap launch'):self.observe()

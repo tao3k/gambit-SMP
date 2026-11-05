@@ -1,0 +1,103 @@
+{
+  "contracts": [
+    {
+      "id": "producer",
+      "route": "_system.scm make-table-aux checks-done -> table flags -> table-get-gcht/allocate",
+      "invariant": "test-fn=false selects C identity index; a Scheme test/hash selects persistent SCHEME_INDEX bit 128. Same existing flags word; never infer ownership from KEY_MOVED or weak-key bits.",
+      "benefit": "Native layout records the semantic algorithm owner before collector sees a table",
+      "cost": "One constructor flag decision; no extra table field or root word"
+    },
+    {
+      "id": "reference-repair",
+      "route": "mem.c scan -> process_gc_hash_tables -> repaired key/value references and owner dispatch",
+      "invariant": "Collector transports references. Scheme hashes must be stable for unchanged semantic keys across GC. Clear only address-driven KEY_MOVED for Scheme indexes; preserve pre-existing NEED_REHASH. Never call Scheme from GC or replace its index with the C address hash.",
+      "benefit": "Eliminate wrong C rehash and its full-table traversal for Scheme-owned indexes; avoid adding a first-reader mutation after ordinary GC",
+      "cost": "One owner branch per reached GC table. Correctness depends on hash stability; arbitrary physical-address-dependent custom hashes are not qualified."
+    },
+    {
+      "id": "native-index",
+      "route": "Native identity tables and union/find -> existing eager SMP rehasher",
+      "invariant": "Physical-address indexes rehash with the native algorithm after movement. New owner branch does not globally disable eager reconstruction.",
+      "benefit": "Preserve existing C identity lookup and shared-read preparation",
+      "cost": "Existing native rehash work retained; concurrent mutation and raw misuse remain separate contracts"
+    },
+    {
+      "id": "scheme-index",
+      "route": "_system.scm table-access -> recorded test/hash -> existing resize/reinsert for explicit reconstruction debt",
+      "invariant": "Ordinary GC does not create Scheme rebuild debt for stable hashes. Deserialization NEED_REHASH still blocks direct indexed lookup until Scheme reconstructs. GC never executes user hash callbacks.",
+      "benefit": "Semantic key/index agreement and no extra Scheme O(n) rebuild after every collection",
+      "cost": "Existing explicit rebuild may allocate/call user hash. Same-table mutating reentrancy and simultaneous reconstruction are not proved by this cut."
+    },
+    {
+      "id": "owner-lifetime",
+      "route": "gc-hash-table-resize flag retention; table-copy -> make-table-aux; serialize/deserialize flags",
+      "invariant": "Ownership survives allocation, resize, copy and current-format roundtrip. Older serialized images without owner metadata and external raw flag writers remain unqualified.",
+      "benefit": "Owner is a persistent native contract, not a GC-mode switch or an exception for GSC",
+      "cost": "Additional serialization/FFI producer inventory and native tests required; no compatibility inference"
+    },
+    {
+      "id": "witness",
+      "route": "new target gsc default heap -> full two-pass bootstrap -> compiled map/multishot/GC and hash-index-owner controls",
+      "invariant": "Default profile, real new runtime, both Scheme and native indexes. Large-heap and flag-intervention diagnostics explain failure but cannot confer acceptance.",
+      "benefit": "Check actual generator, runtime index ownership, collector and repeatable control consumers together",
+      "cost": "Full native and source-refinement gates; first target link is insufficient"
+    }
+  ],
+  "proofs": [
+    {
+      "id": "HI-QNT",
+      "method": "quint",
+      "artifact": "dev/refactoring/modern-c/models/quint/hash_index_owner.qnt",
+      "premise": "Finite two-owner relocation, lookup/debt guards and four retained counterexamples; stable semantic hash is an assumption",
+      "component": "reference-repair"
+    },
+    {
+      "id": "HI-LEAN",
+      "method": "lean",
+      "artifact": "dev/refactoring/modern-c/models/lean/HashIndexOwner.lean",
+      "premise": "Conditional semantic transport, native rebuild, incompatible-algorithm counter-law and debt guard; not a C pointer or complete hasher proof",
+      "component": "scheme-index"
+    },
+    {
+      "id": "HI-NATIVE",
+      "method": "native",
+      "artifact": "evidence/research/modern-c-bootstrap/hash-index-bootstrap.recipe.json",
+      "premise": "Whole target cohort, real default-heap official bootstrap and compiled semantic fixtures; retain all failures and stage/source identities",
+      "component": "witness"
+    },
+    {
+      "id": "HI-REFINE",
+      "method": "source-refinement",
+      "artifact": "vendor/gambit/lib/_system.scm",
+      "premise": "Trace all active C-target constructors, copies, resizing, serialization and raw producers; old images, reentrant mutation and concurrent reconstruction remain open",
+      "component": "owner-lifetime"
+    }
+  ],
+  "edges": [
+    {
+      "from": "producer",
+      "to": "reference-repair"
+    },
+    {
+      "from": "reference-repair",
+      "to": "native-index"
+    },
+    {
+      "from": "reference-repair",
+      "to": "scheme-index"
+    },
+    {
+      "from": "producer",
+      "to": "owner-lifetime"
+    },
+    {
+      "from": "owner-lifetime",
+      "to": "witness"
+    },
+    {
+      "from": "scheme-index",
+      "to": "witness"
+    }
+  ],
+  "runtimeAdmitted": false
+}

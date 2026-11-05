@@ -2,7 +2,40 @@
 
 The Action interface exposes an additional perspective, not a procedure for an Agentic AI to obey. The evidence graph constrains supported claims, identity and execution authorization; it does not constrain the model's reasoning universe. No read-count or attempt-count threshold, fixed ranking, mandatory QNT-before-Lean step, model-before-code gate, or exhaustion of the graph is introduced.
 
-The caller-owned `evidence/dsl/modeling-guidance.ss` derives source-bound options through the existing declarative Evidence API. Python transport, Action selection and the sealed execution kernel are unchanged. Downstream still supplies definitions/data via Python/C ABI; no downstream import, build or compiler.
+The caller-owned `evidence/dsl/modeling-guidance.ss` derives source-bound options through the existing declarative Evidence API. The dispatcher transports these results; the sealed execution kernel does not import discovery or historical producers. Downstream still supplies definitions/data via Python/C ABI; no downstream import, build or compiler.
+
+## Missing Reviews And Observation Delivery
+
+A registered, source-bound `signal_witness` reaches the existing Clue exchange
+even when `assessment` is empty. Scheme derives `coverage_gaps` with status
+`unreviewed` rather than silently treating the absence as coverage. A model
+receipt alone does not create a coverage assessment. A review for another
+obligation does not discharge this one; missing provenance and stale candidate
+bindings cannot be cherry-picked into a current review. An empty model list is
+allowed: it conveys no invented model or refutation and grants no admission.
+
+The caller registers factor associations and expandable references in existing
+Evidence views. The TFIB research view links the published retirement index,
+last-consumer inventory and existing QNT sources to the retained candidate.
+These are conditional research references. Scheme thread join, OS pthread join,
+processor retirement and callback activation remain distinct; the association
+does not establish that a failing TFIB execution used the retirement path.
+
+The existing `research --run` summary and `research --read` presentation include
+the ordinary `{brief, checkpoint}` packet selected by the observed recipe ID.
+The CLI supplies this context, while Scheme derives the slice. No new flag,
+query interface, Python model-selection rule or receipt store is added. The
+presenter is attached only by the dispatcher and reset on return; workers have
+no presenter and retain the strict sealed import boundary. A presentation-query
+failure is reported as `evidenceError`, never as an empty successful review.
+
+This packet does not rewrite native outcomes, source identities or recovery
+authorization. Its checkpoint continues through the existing Trajectory API;
+omitting a checkpoint still means a caller-requested fresh read. Display history
+is not model understanding or execution completion. An unknown recipe remains
+an explicit unknown binding, not a finding that no applicable model exists.
+The Agent remains responsible for proposing hypotheses, reviewing applicability,
+updating QNT and selecting experiments. No deterministic next action follows.
 
 ## Signals and options
 

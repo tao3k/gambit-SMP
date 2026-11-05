@@ -1,0 +1,62 @@
+#+TITLE: Modern C Runtime Roles: Replacement and Cost
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* Native SysML projection
+
+[[file:runtime-role-realization.org][Source, evidence and boundaries]]. This is a synchronous source realization, not admission of independent GC carriers. Reference repair patches are not imported.
+
+| Role | Real source path | Retired responsibility | Benefit | Added cost / remaining boundary |
+|---+---+---+---+---|
+| VM-owned execution context | gambit.h.in execution_contexts -> PSR/PSFP accessors -> setup.c and embedded Scheme C | Remove GVM registers, fp/hp, processor Scheme object and execution mem from processor_state | Root and continuation storage no longer occupies carrier state; one owned root origin survives clearing the carrier representation | Extra root-access indirection; old PSTATE was already VM-embedded; cleanup still follows the carrier; not independent retirement or live migration |
+| Closed root participant | garbage_collect_pstate -> frozen participant -> mark_execution_roots -> prepare/final acknowledgement | Remove carrier-local register/saved/cache visitor trio and master-only RC root selection | Root origin is explicit; every participant scans its own RC chain; incomplete phase transitions fail rather than silently scan | 16 bytes per configured slot; phase checks per collection; foreign writers and whole-source freeze proof remain open |
+| VM-owned collector work | collector_workers -> explicit worker kernels -> chunk publication/dequeue -> strong/weak completion | Remove chunk FIFO, scan cursor, weak-discovery state and copy-chunk bounds from execution/PSTATE mem | Queue/cursor custody belongs to the worker record; stealing indexes the worker census rather than peer PSTATE mem | Worker allocation region and actlog still borrow a synchronous carrier; no independent GC thread-pool or death recovery claim |
+| One GC outcome and final acknowledgement | closed gc_round census -> resize_heap publication -> local outcome copy -> final barrier | Remove processor_count reads for GC work partitioning and processor-local-only overflow outcome | Every caller sees the same capacity outcome; next round cannot overwrite an unconsumed shared result | One additional final collective barrier; 8-byte round record; original barrier C memory-order refinement remains open |
+
+* Proof and native scope
+
+| Obligation | Method | Exact scope | Premises / limit |
+|---+---+---+---|
+| RR-Q | quint | roles:two-participant-publication-and-results | Two participants; phase/readback ordering, four negative transitions; no forwarding/private-Tail termination proof |
+| RR-L | lean | roles:root-origin-and-receipt-laws | Six universal guard/origin/receipt laws; stable-storage and collective publication premises explicit |
+| RR-C | native | roles:bazel-configured-C-object-projection | Six canonical C units compiled with retained Bazel flags/RTS O3; no generated Scheme cohort or runtime link |
+| RR-STORAGE | native | roles:64bit-storage-and-accessors | Actual public accessor/storage checks, sanitizer, negative old-field compilation and matched sizeof; not live rebinding permission |
+| RR-PROFILE | source | roles:configuration-reference-only | Read-only exact profile/header projection; patch candidates are problem evidence and are not imported source |
+| RR-COHORT | native | roles:source-generated-cohort-open | Regenerate Scheme embedded C and compiler/runtime cohort; execute real map/multi-shot/GC; no old runtime reuse |
+| RR-REFINE | lean | roles:whole-source-role-simulation-open | GC private work, all root writers, barriers, resize and failure paths need source/C/weak-memory composition |
+| RR-LIFETIME | native | roles:carrier-lifecycle-and-native-failures-open | Context-resource cleanup still follows PSTATE; independent retirement, joins, old handlers, callbacks and whole SMP scenes remain open; no 8/12 inheritance |
+
+* Component dependencies
+
+| Component | Required obligation |
+|---+---|
+| execution | RR-Q |
+| execution | RR-L |
+| execution | RR-C |
+| execution | RR-STORAGE |
+| execution | RR-PROFILE |
+| execution | RR-COHORT |
+| execution | RR-REFINE |
+| execution | RR-LIFETIME |
+| participant | RR-Q |
+| participant | RR-L |
+| participant | RR-C |
+| participant | RR-STORAGE |
+| participant | RR-PROFILE |
+| participant | RR-COHORT |
+| participant | RR-REFINE |
+| participant | RR-LIFETIME |
+| worker | RR-Q |
+| worker | RR-C |
+| worker | RR-STORAGE |
+| worker | RR-PROFILE |
+| worker | RR-COHORT |
+| worker | RR-REFINE |
+| worker | RR-LIFETIME |
+| round | RR-Q |
+| round | RR-L |
+| round | RR-C |
+| round | RR-PROFILE |
+| round | RR-COHORT |
+| round | RR-REFINE |
+| round | RR-LIFETIME |

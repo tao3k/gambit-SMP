@@ -1,0 +1,290 @@
+#+TITLE: ModuleSpec and FrameSpec Contracts for Modern Generated C
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+#+PROPERTY: COLUMNS %ITEM %OWNER %STATUS %EVIDENCE_CLASS
+
+* RESEARCH One semantic producer, explicit native consumers :modern_c:refactoring:
+:PROPERTIES:
+:ID: 9ac5f1ed-13ae-4ce5-9d60-1a94aeb546fb
+:CUSTOM_ID: native-descriptor-design
+:OWNER: Gambit modern-C refactoring and runtime module owners
+:AUTHORITY: GambitNativeDescriptor
+:STATUS: source-bound-design-native-refinement-open
+:EVIDENCE_CLASS: current-source-and-primary-literature
+:DEPENDS_ON: ROOT-HANDOFF; CONTROL-ORIGIN; RETIRE-WINDOW; GC-WORK-CLOSURE
+:END:
+
+The decision is to research a Scheme-owned native contract generator, with
+modern generated C as the required backend and runtime engineering path.
+A bindgen-like extractor can assist mechanical ABI/declaration work. It cannot
+supply missing Scheme semantics or prove a GC, continuation or initialization
+protocol from a C signature. No new implementation language is required.
+
+[[file:models/sysml/native-descriptor.sysml][Owned SysML]] defines six record groups, seven selected consumer routes,
+eight proposed QNT/Lean duties, five migration cuts, six gain cases and four
+binding-generation alternatives. [[file:native-descriptor-map.org][The complete source/retirement/proof/cost matrix]]
+and [[file:diagrams/native-descriptor.svg][D2 architecture]] derive from it. The
+[[file:../../modeling/ascent/native-descriptor.ss][ASCENT projection]] derives actual code uses, contract fields, consumer routes,
+migration cuts and proof-owner relationships. This extends the existing
+[[file:../../refactoring/modern-c/runtime-blueprint.org][multicore runtime blueprint]] and [[file:macos-development-design.org][macOS development architecture]].
+
+* RESEARCH The source establishes a coupled producer/consumer protocol
+:PROPERTIES:
+:CUSTOM_ID: native-descriptor-source-contract
+:END:
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm][The C emitter]] (1189-1205) writes module counts and MODDESCR before
+including gambit.h. The header's BEGIN_MOD_SYM_KEY (9410-9449) constructs the
+native module structure, including structure sizes, tables and two distinct
+callbacks. setup.c:1522-1844 consumes and modifies that structure: flags,
+aligned tables, tagged references, label addresses and out-of-line descriptors.
+The source explicitly notes that the fixup phase needs atomicity consideration
+for multiple VMs. That TODO is source pressure, not a proved current race.
+
+Fixup sets SETUP_FIXUP_DONE before later checks, allocations and fixups that
+can return errors. It is not a success receipt. Replacing it with a boolean
+called ready would lose the distinction between entry, progress and success.
+No claim is made here that a supported current caller retries this path unsafely.
+
+The module lifecycle continues beyond C fixup. setup_module_collect_moddescrs
+publishes the native structure into a Scheme descriptor and calls setup_mod.
+The emitter's targ-dump-mod emits primitive setup, ordered foreign C init text
+and global initialization. _kernel.scm:5122-5129 invokes init_mod through the
+stored native structure; init-modules at 5275-5301 advances Scheme stages before
+calling native initialization or the Scheme thunk. These writes can prevent
+recursive reentry; they cannot be interpreted as proof that the call returned.
+
+Frame policy is similarly shared. _t-c-2.scm:825-905 computes return kind,
+logical frame contents, return link and live map; internal returns save GVM
+registers as well as Scheme slots. _t-c-3.scm:489-532 determines physical size,
+inline/out-of-line selection and 32-bit map chunks. _t-c-1.scm:1938-2014 emits
+those expressions. gambit.h.in:9208-9324 encodes and decodes the protocol.
+Both Scheme and C independently specify reserve 3 and alignment 4; the Scheme
+comment calls the latter FRAME_ALIGNMENT while the current C macro is FRAME_ALIGN.
+The contract must use actual definitions rather than treating the comment as ABI.
+
+GC consumers are not limited to the active stack. mem.c consumes these facts
+in mark_continuation, mark_captured_continuation, heap FRAME scanning and stack
+section transfer. _kernel.scm's break handler restores either stack or heap
+frames, adjusts links and normalizes break frames for proper tail calls.
+Its frame/continuation primitives inspect and modify these objects; _io.scm's
+explode-frame and implode-frame are real consumers that serialize/rebuild them.
+The generated _kernel.c also exists and is not an independent semantic owner.
+A future migration must regenerate or explicitly admit relevant bootstrap C.
+
+* RESEARCH Concrete record design and responsibility boundaries
+:PROPERTIES:
+:CUSTOM_ID: native-descriptor-record-design
+:END:
+
+** ModuleSpec is an immutable blueprint, not a frozen runtime instance
+
+#+NAME: native-module-field-coverage
+| Existing ___module_struct fields | Proposed contract and custody |
+|---+---|
+| version, kind, four sizeof fields | AbiShape carries compatibility policy plus production-compiler layout witnesses; preserve existing acceptance initially, then strengthen field/type/calling-mode agreement |
+| name, flags | Scheme ModuleKey and immutable mode policy; mutable setup/progress state belongs to an instance |
+| glotbl, glocount, supcount, glo_names | Ordered global declarations and supplied prefix in blueprint; resolved identities/cells under explicit BindingDomain |
+| symtbl/symcount/sym_names; keytbl/keycount/key_names | Semantic interned names and typed references versus resolved symbol/keyword storage |
+| lp, lbltbl, lblcount, ofdtbl, ofd_length | Point/frame plans and counts versus image-owned native label addresses and immutable prepared descriptor storage |
+| cnstbl/cnscount; subtbl/subcount | Constant graphs and typed relocations versus initialized/relocated native object storage |
+| setup_mod, init_mod | Distinct typed native entry protocols and declared allocation/callback/control effects; arbitrary foreign text remains governed |
+| script_line | Complete stable semantic observation and representation contract; reuse the script-line issuance/readback duties |
+| next, moddescr | Runtime membership and mutable Scheme descriptor/flags/module-pointer ownership; never shared as immutable blueprint state |
+
+LoadedImage owns code and address resolution. BindingInstance owns bindings and
+progress under a declared BindingDomain. Current make_global uses interning and
+global-cell services; this study does not establish that those services are VM-local.
+The design must decide and prove process/global/VM sharing policy. Blindly copying
+all tables per VM or globally sharing all initialized Scheme objects are both invalid
+shortcuts. Native image state can be shared only under its actual host/GSTATE policy.
+
+A ModuleSpec contains typed relocation references, not pointer-shaped integers
+with unstated tags. Every index/count, supplied-prefix order, object identity,
+point reference and target conversion has a bound. Relocations must retain
+shared/cyclic graph identity and preserve the existing order where observable.
+Native-ready publication and Scheme initialization completion are separate.
+
+** FrameSpec separates meaning from target encoding
+
+The semantic record contains PointId, return kind, slot meanings, semantic live
+managed locations, return link, saved-register requirements and debug identity.
+PointId is qualified by artifact/module identity and ordinal; an ordinal alone
+cannot distinguish a reloaded image. A PointId is never used as a native return
+address without a live image/domain resolver. The initial policy can preserve
+current native label objects behind explicit resolution accessors.
+
+The target layout record supplies normal/task/internal transforms, stack/heap
+coordinates, reserve/alignment, finite-width map encoding and descriptor bounds.
+The current laws to preserve include:
+
+#+BEGIN_EXAMPLE
+space(fs) = round_up(fs + reserve, alignment)
+internalPhysical(cfs) = round_up(cfs, alignment)
+                     + space(savedGvmRegisterCount + 1) - reserve
+map chunks: low 32 bits first; aggregate according to the target WORD width
+logical slot i -> stack coordinate and heap coordinate with one shared meaning
+#+END_EXAMPLE
+
+These are current policy equations, not a declaration that all future frame
+layouts must retain those constants. Applying the internal-size transform twice
+or confusing zero-based map bits with one-based frame slots is a concrete
+counterexample target. For a 32-bit minimum-word policy the inline threshold
+formula yields 20 slots; that is an example, not a universal target limit.
+Large frames, out-of-range links and overflow must be rejected or use an explicitly
+accepted wider encoding, rather than silently truncate packed descriptors.
+
+For each admitted checkpoint: every live managed value must have a current
+materialized location; every scanner-selected slot must be initialized and valid
+for the scan policy. A correct packed map is not a liveness proof. Raw foreign
+pointers, saved registers, special return slots and native temporaries need their
+own location/effect treatment. Descriptor generation does not qualify a future
+minor collector or permit skipping mature continuation scans without writer/barrier
+closure. The present plan preserves the current collector's obligations first.
+
+* RESEARCH Coordinated migration and failure custody
+:PROPERTIES:
+:CUSTOM_ID: native-descriptor-migration
+:END:
+
+The native preparation protocol is reserve -> initialize tables/objects ->
+register required roots -> resolve labels/descriptors -> publish native-ready.
+This sequence is a partial order: any allocation/callback that can collect must
+already have all its live intermediates protected. Root registration is not
+postponed until after potentially collecting initialization. Publication requires
+one setup owner, complete bounds, initialized metadata and final root handoff.
+Actual C locks/atomics and scanner admission remain open refinement obligations.
+
+Allocating or foreign initialization can fail, reenter or transfer control. The
+acquisition custodian retains partial buffers, native storage, root carriers and
+metadata leases until cleanup/transfer completes. Irreversible global writes and
+foreign effects are not automatically rollbackable. An entered legacy stage and
+its completed receipt are separate; incomplete must not imply safe automatic
+retry. Existing recursive/module-cycle and exception observations require an
+explicit trace relation before changing this behavior.
+
+Frame migration has to move together across live stack scanning, capture/heap
+scanning, restore/break handling, stack-limit transfer, debugging/access primitives
+and serialization/rebuild. make-frame protects its return object with GC_SAVE1
+around allocation; a generated replacement must preserve that protection and
+reload. Frame writes need accepted slot semantics and current GC update policy;
+a generational remembered-set rule would be an additional contract, not something
+that ordinary C binding generation synthesizes.
+
+Native labels and descriptors remain live while any stack frame, heap frame,
+continuation, callback, scanner or admitted reconstruction token can use them.
+No active C call is insufficient for unload permission. Closing producer ingress,
+failed-transfer ownership and every relevant user family belong to RETIRE-WINDOW
+and CONTROL-ORIGIN, not to a private second GC lifetime model in the generator.
+Unknown inline C/FFI users retain old support or refuse the migrated profile.
+
+The five SysML migration cuts identify role-specific retirement gates. The count
+macros, BEGIN_MOD scaffolding and DEF_LBL_RET/DEF_OFD/IFD/OFD layout roles can
+retire only after their producers and all consumers migrate. Typed C accessors may
+still be generated inline: modern C does not require a runtime function call for
+every field. Tail-transfer/trampoline machinery is retained until a separately
+accepted control protocol replaces it. This proposal does not retire all macros.
+
+* RESEARCH Binding generation: evidence, alternatives and limits
+:PROPERTIES:
+:CUSTOM_ID: native-descriptor-binding-generation
+:END:
+
+[[https://www.cl.cam.ac.uk/~jdy22/papers/declarative-foreign-function-binding-through-generic-programming.pdf][Yallop, Sheets and Madhavapeddy, Declarative foreign function binding through generic programming]]
+separates declarative descriptions from binding mechanisms. Its layout discussion
+uses the C compiler as an alternative to reproducing layout rules in the host.
+The inference for Gambit is a shared description with separate semantic, native
+encoding and checking interpretations; the paper does not establish Gambit's
+continuation, root or multi-VM contracts. Its example of compiling and running
+layout queries also needs a different evidence route for cross targets.
+
+[[https://drum.lib.umd.edu/bitstreams/2b011c93-8045-4ed0-a22f-b734c877b6b6/download][Furr and Foster, Checking Type Safety of Foreign Function Calls]] tracks
+representation, offsets/tags and GC effects across OCaml/C. This motivates explicit
+root and may-collect annotations beyond signatures. Its restricted soundness result
+and older OCaml setting are not a proof for Gambit or modern multicore execution.
+The downloaded report is dated November 23, 2004; the repository item has a later
+deposit date, which is not a separate result.
+
+[[https://rust-lang.github.io/rust-bindgen/][Rust bindgen]] generates Rust FFI bindings; its
+[[https://rust-lang.github.io/rust-bindgen/requirements.html][requirements]] use libclang to process headers. The
+[[https://rust-lang.github.io/rust-bindgen/faq.html][FAQ]] documents target arguments and inline-function limitations/wrappers.
+This makes header extraction useful as a candidate ABI observation adapter, but
+not an automatic fit for a Scheme/C core. A standalone tool implemented in Rust would not by itself add a Rust runtime
+to Gambit. The issue here is that Rust declarations have no necessary consumer
+in this Scheme/C design. Adopting rust-bindgen for that output is not selected. Generated wrappers also change call overhead and build
+work; the tool is not a zero-cost semantic bridge.
+
+A Clang observation is conditional when production C uses GCC, different packing,
+SDK, defines or calling modes. An exact target manifest and production-compiler
+correspondence must settle that gap. Prefer ordinary C type declarations and
+compiler-computed layout; do not reimplement ABI layout in a second language.
+Batch ABI extraction/checks at the relevant target identity, not per Scheme module.
+ABI agreement must hold before invoking a native linker/setup entry: calling an
+unknown entry to discover its calling convention is circular. A future governed
+artifact needs a trusted entry protocol or independently readable compatibility
+manifest. OS-loader constructors and arbitrary foreign init effects are not
+covered by a descriptor check and require separate admission. This is an open
+ND-ABI/ND-INIT premise, not a demonstrated restriction in current Gambit.
+A generated offsetof/sizeof/static-assert witness or target-object extraction is
+an alternative to libclang for qualification; none is compiled/executed here.
+
+[[https://gambitscheme.org/research/][The Gambit research index]] identifies Feeley's 2000 C-interoperability continuation
+paper and the 1997 portable tail-recursive C report. Original full-text endpoints
+were unavailable/denied during this read; this study uses them as bibliographic
+context only. Detailed current mechanisms above come from the actual checkout.
+No old paper's performance result is transferred to this architecture.
+
+* RESEARCH Proof obligations and source-to-framework reasoning
+:PROPERTIES:
+:CUSTOM_ID: native-descriptor-proof-and-ascent
+:END:
+
+The owned ND-ABI, ND-ENCODE, ND-PUBLISH, ND-BIND, ND-INIT, ND-ROOT,
+ND-CONTROL and ND-LIFETIME rows specify owner, QNT states/actions/invariants,
+Lean relation/law, premises and counterexamples. They are proposed duties, not
+implemented action/theorem names. Existing 17 formal source bindings, including
+82 build Lean theorems and 10 QNT modules, remain unchanged; no new formal solver
+or proof execution is claimed here. No existing theorem proves this new ABI.
+
+QNT should explore setup ownership, partial failures, allocating reentry, scanner
+publication and descriptor retirement interleavings. Lean should establish
+encoder/decoder and stack/heap coordinate laws, root-coverage composition,
+relocation and trace refinement. A QNT atomic step still needs C memory-model
+refinement; exact struct layout still needs semantic safety reflection.
+
+The ASCENT projection joins hashed current source uses to selected consumers,
+record groups, migration cuts and unresolved duties/owners/shared contracts.
+Its query must carry duty identity through every join; a true law belonging to
+one route cannot discharge another route. These are research hypotheses and
+inspectable associations, not observations of native behavior or execution grants.
+The generated matrix deliberately records seven selected routes; external FFI,
+bootstrap and all callers are retirement gates rather than a falsely complete census.
+
+* RESEARCH Benefits are a vector with explicit break-even conditions
+:PROPERTIES:
+:CUSTOM_ID: native-descriptor-gain
+:END:
+
+#+NAME: native-descriptor-quantification
+| Dimension | Source-grounded quantity or formula | Required boundary |
+|---+---+---|
+| Layout policy ownership | Reserve/alignment currently appear independently in Scheme and C: two authored owners -> one proposed description with generated projections | Generated definitions still exist; remove manual policy duplication, not necessary target facts |
+| Migration scope | 6 record groups; 7 selected consumer routes; 8 open proof duties; 5 dependency cuts | These are design inventory counts, not work or speed measurements |
+| Build work | For n translation units, saved work = n * removed invariant front-end work - generator work - validation work - extra invalidation work | Compare the same compiler work units and full request; no token-to-wall conversion assumed |
+| Descriptor storage | New bytes = frameCount * entryBytes + mapWordCount * wordBytes + resolverBytes + bindingInstanceBytes | Subtract old compact IFD/OFD/label bytes; account sharing, relocation and cache behavior |
+| Runtime overhead | scanCount * deltaDecode + callCount * deltaResolve + bindingCount * deltaSetup + writeCount * deltaGuard | Signed deltas require later native evidence; do not trade correctness for smaller root sets |
+| Backend support | Count independent authored semantic/layout decisions and surviving adapters before/after | Multiple generated outputs are acceptable; duplicated semantic owners and permanent duplicate runtimes are not a gain |
+
+The generated gain matrix gives a disproof condition for every case. Build work,
+runtime latency, peak memory and semantic acceptance are separate objectives.
+A workload-weighted lifetime tradeoff needs actual build/run frequencies and
+measured comparable units; no guessed percentages, person-days or speedup are
+introduced. The modern C design is worth pursuing if it removes real duplicate
+policy/work and supplies accepted ownership/control boundaries without violating
+runtime budgets. Literal rust-bindgen adoption has no established necessity here.
+
+No runtime/build/generator implementation, native compilation, binding smoke test,
+benchmark or old-path retirement is performed. Documentation derivation and
+source/structure/association checks are separate from future native acceptance.

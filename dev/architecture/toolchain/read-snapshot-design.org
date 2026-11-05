@@ -1,0 +1,384 @@
+#+TITLE: Real GSC Read Closure, Snapshot Credentials and Population Refinement
+#+SETUPFILE: ../../modeling/org/setup.org
+#+CATEGORY: toolchain
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Modern C needs a closed producer contract
+:PROPERTIES:
+:ID: c8d1fd52-289a-41c8-957d-1e85f79db853
+:CUSTOM_ID: gsc-read-snapshot-refinement
+:OWNER: Gambit toolchain architecture
+:AUTHORITY: GambitToolchain; GambitAssuranceRelations
+:STATUS: conditional-theory-source-refinement-open
+:EVIDENCE_CLASS: current-source-slice-and-checked-mathematics
+:DEPENDS_ON: BF-BUILD-CUT; BF-BUILD-BUDGET; BF-SCHEMA
+:END:
+
+Modern generated C is the required implementation direction. Scheme continues
+to own expansion, compilation context and semantic ordering. A native service
+owns immutable input views, generated-group custody and publication authority.
+Changing the host language cannot replace these contracts. This study changes
+research/formal specifications and document derivation only, without a build
+implementation, compiler invocation, native test or performance workload.
+
+[[file:read-snapshot-map.org][Read, issuance, refinement and benefits matrices]] derive from
+[[file:models/sysml/architecture.sysml][toolchain SysML]], as do the [[file:diagrams/read-snapshot.svg][read/receipt D2]] and [[file:diagrams/build-refinement.svg][population/refinement D2]].
+[[file:../../modeling/models/sysml/assurance.sysml][Assurance SysML]] binds the unique QNT/Lean sources and ASCENT projection.
+The earlier [[file:correctness-design.org][correctness design]] remains the prerequisite argument. New
+source-slice coverage is not an exhaustive effect census of a configured boot
+compiler; no credential described here exists as an accepted current issuer.
+
+* RESEARCH The actual chain is larger than read-source
+:PROPERTIES:
+:CUSTOM_ID: gsc-read-caller-chain
+:END:
+
+[[file:../../../vendor/gambit/gsc/makefile.in::255][The Make prelude]] supplies a namespace and header include. The generation
+recipe also sets runtime alias roots, dynamic-loader setup, compilation options
+and an explicit .scm pathname. [[file:../../../vendor/gambit/gsi/main.scm::407][The CLI]] installs c#wrap-program, parses prelude
+and postlude strings as source, derives logical .prelude/.postlude locations,
+and inserts them before/after the program. Hashing only _t-c-3.scm misses this
+input and its transitive headers. The actual configured argv, boot executable
+and loaded runtime identity still need binding; template text alone is not a
+receipt for a particular native compiler process.
+
+[[file:../../../vendor/gambit/gsc/_front.scm::194][compile-frontend-aux]] reads either an input path or an already materialized
+source and invokes wrap-program/expand-source. [[file:../../../vendor/gambit/gsc/_front.scm::317][compile-frontend]] sets compilation
+options and initializes env/ptree/virtual/target state, later tearing those down.
+Those calls are reusable semantic support. They do not prove that evaluator
+globals, hooks or callbacks are reset, or that exceptions traverse every normal
+teardown endpoint. A future persistent compiler worker needs that additional
+state contract. A fresh process simplifies previous-state isolation but does
+not constrain effects performed during this compilation.
+
+[[file:../../../vendor/gambit/lib/header.scm::7][header.scm]] includes gambit#.scm and _gambit#.scm. The latter includes
+[[file:../../../vendor/gambit/lib/_gambit#.scm::11][the syntax definition layer]] and [[file:../../../vendor/gambit/lib/_gambit#.scm::1485][subsystem # files]], including _fifo# and
+_module#. These are concrete transitive examples. An excerpt of includes,
+or a filename absent from the broad Make list, does not by itself prove the
+current build is incorrect: indirect prerequisites, producer contents and
+actual conditional paths still matter. No literal include grep is promoted
+to the complete dynamic closure.
+
+** Active calls, quoting and reader state
+:PROPERTIES:
+:CUSTOM_ID: gsc-active-read-semantics
+:END:
+
+[[file:../../../vendor/gambit/gsc/_source.scm::457][The active include]] calls read-source with extension search disabled and
+source-relative path context. The generation recipe already passes explicit
+.scm roots, so the extensionless top-level search is outside these 34 literal
+requests. The historical definition in the quoted datum starting at line 1386
+stays excluded from the active-call argument.
+
+However, skipping extension search does not make the extension table irrelevant:
+[[file:../../../vendor/gambit/lib/_eval.scm::1211][path->start-syntax]] consults it to select reader syntax even for an explicit
+extension. The reader also consumes current readtable, EOL/port settings,
+wrap/unwrap behavior, script handling and logical source names. These belong to
+the producer context when observable. An immutable copy with a different path
+can change source locations or macro path decisions despite equal bytes.
+Preserve logical names while separating the physical snapshot storage path.
+
+[[file:../../../vendor/gambit/lib/_io.scm::9916][The underlying opener]] resolves the path, computes device flags/permissions,
+opens an OS device, and returns an error or port through its continuation. This
+is an actual live filesystem boundary, not a snapshot credential. The compiler
+builds source containers from its logical path; the runtime also passes a
+resolved path. A recorder must bind both roles without replacing user-visible
+names with cache locations. A pathname plus final content hash cannot establish
+coherent path resolution or the meaning of an earlier open outcome.
+
+[[file:../../../vendor/gambit/lib/_eval.scm::1216][The port reader]] copies a readtable shallowly, reads datums and the script
+marker, and closes on normal and exceptional paths. That existing cleanup is
+valuable but does not freeze callback closures or provide leases on a proposed
+image. Reader callbacks are an independent effect boundary.
+
+** Macros and metadata have other read entrances
+:PROPERTIES:
+:CUSTOM_ID: gsc-host-effect-boundary
+:END:
+
+[[file:../../../vendor/gambit/gsc/_ptree1.scm::1502][extract-defs]] preserves macro/declaration/include order and places included
+source back in the stream. [[file:../../../vendor/gambit/gsc/_ptree1.scm::2952][add-macro]] creates an expander via scheme-global-eval;
+[[file:../../../vendor/gambit/gsc/_ptree1.scm::1004][macro-expand]] invokes it. The active Gambit [[file:../../../vendor/gambit/gsc/_host.scm::852][host adapter]] calls eval.
+The fallback near the start of _host.scm is quoted; it is not substituted for
+this active path. These call sites establish a capability boundary, not a
+claim that any particular checked-in macro performs a harmful effect.
+
+An include-only hook does not cover arbitrary file/env/clock/native operations
+from expander or reader procedures. A managed reusable profile must mediate
+such capabilities, fix them as explicit inputs, or reject the producer from
+that profile. Legitimate generated dependencies can become managed child
+actions whose groups must be ready before reading. Arbitrary evaluator behavior
+cannot be declared pure by attaching a string manifest. Volatile execution
+removes reusable-cache claims; it does not manufacture an image-isolation or
+publication proof for uncontrolled effects.
+
+[[file:../../../vendor/gambit/gsc/_t-c-1.scm::880][targ-link-info]] separately opens generated C metadata, validates compiler
+and target, and feeds ordered records to the linker. It is outside read-source.
+Its input is a validated generated group, not a raw source-image file. C compiler
+header reads and native linker inputs are further producer contracts beyond
+this Scheme read slice. They remain required for a complete 74-action build.
+
+* RESEARCH Dynamic closure by an adaptive read trace
+:PROPERTIES:
+:CUSTOM_ID: gsc-adaptive-read-proof
+:END:
+
+The new Lean ReadProgram is an abstract deterministic reader: Done(output) or
+Ask(key, continuation). Answers can determine which key is requested next.
+ReadRun records one successful finite path. Output can represent the complete
+observable group/result, not merely C body bytes. Every effect that influences
+the continuation must be represented by Ask or fixed initial state.
+
+#+NAME: adaptive-replay-law
+#+BEGIN_EXAMPLE
+Run(P, oldImage, trace, output)
+and for each key i in trace: oldImage(i) = newImage(i)
+  => Run(P, newImage, same trace, same output)
+
+Origin(old successful run)
++ validated old-to-snapshot answers
++ snapshot-to-current agreement at admission
+  => receipt-backed reusable result for that closed program
+#+END_EXAMPLE
+
+adaptiveTraceReplay proves this by induction over the successful run: the
+first answer equality selects the same continuation, then the tail induction
+applies. adaptiveOutputUnique proves deterministic output for the same program
+and image. receiptBackedAdaptiveReuse composes trace validation and agreement
+at admission. This provides a dynamic dependency theorem without assuming all
+future requests are statically known.
+
+It does not translate Scheme eval, readtables, FFI or host filesystems into
+ReadProgram. It does not prove that a run exists or terminates. Failed/unfinished
+runs cannot produce a successful reusable origin. Monotone edge discovery and
+a finite action inventory do not prove this read-closure premise. The exact
+remaining translation/capability obligations are owned by the SysML rows.
+
+* RESEARCH Snapshot credentials have distinct issuers and custody
+:PROPERTIES:
+:CUSTOM_ID: gsc-snapshot-issuance
+:END:
+
+The [[file:read-snapshot-map.org][eight issue conditions]] define a proposed credential family. They are
+necessary semantic conditions, not flags that a caller may set to create proof.
+The source/runtime service with the relevant authority must issue each witness.
+A cryptographic signature authenticates an issuer; it does not establish that
+the issuer observed a coherent image or covered every effect.
+
+#+NAME: snapshot-credential-payload
+#+BEGIN_EXAMPLE
+SourceImage = (cohort identity, immutable namespace/content manifest,
+               logical path map, writer/exclusion policy, storage lease)
+ProducerContext = (boot stage + actual executable/library closure,
+                   native request/profile, prelude/postlude, env/cwd,
+                   initial evaluator/reader/hook identity)
+DependencyGroup = (action identity, same cohort/context, complete group manifest,
+                   successful origin, publication identity, read lease)
+ReadTrace = (attempt, ordered key/answer events, source/group receipt references,
+             closure/capability evidence, completed reads/effects)
+StagedAttempt = (successful producer/result, complete staged group,
+                 trace/context binding, drained processes/ports/children)
+Admission = (trace/context/group identities, currentness authority,
+             revocation generation + admission linearization witness)
+#+END_EXAMPLE
+
+Separate source-image immutability from an append-only generated-group catalogue.
+A newly discovered generated dependency waits for its producer to validate
+against the same source cohort; it must not read an old file frozen at cohort
+start. A conflicting second commitment for the same action invalidates the
+consumer attempt instead of mutating its answers in place. Each successful
+group remains leased while readers retain it.
+
+Coherent acquisition must be established before SourceImage issuance. Reading
+live files into a private directory one by one is insufficient. A trusted
+provider or writer-excluding transaction must establish one namespace/content
+view. Current source primitives do not implement that provider. No particular
+Darwin snapshot/sandbox API is qualified by this design.
+
+Admission and relevant writer exposure share a linearization authority. If
+revocation wins, the attempt may retain diagnostic/historical staging but cannot
+publish CURRENT. If publication wins, it creates a valid result for that instant;
+a later writer revokes its currentness without erasing history or reader leases.
+Checking a generation and then publishing outside the authority leaves a race.
+Image identity, all dependency receipts, producer context and group completeness
+must still agree at the commit point. Watches and end hashes do not discharge
+this premise.
+
+On unknown commit outcome there is one custodian until the authoritative manifest
+identity is resolved. On dependency failure, the dependency owner retains its
+uncommitted group while the consumer waits/fails/restarts. On producer failure,
+no completed-success trace is issued; ports, child requests and storage leases
+must be drained by the attempt owner. Existing port and frontend cleanup sites
+are evidence to integrate, not proof of this new custody protocol.
+
+* RESEARCH A precise relation from 74 actions to the ten-node protocol
+:PROPERTIES:
+:CUSTOM_ID: gsc-selected-refinement
+:END:
+
+The population remains 34 generation actions, 34 module-object actions and six
+composition actions. Runtime/boot/header production and root orchestration
+remain external; no complete self-hosting graph is inferred. The selected
+index injection is unchanged. There are 64 omitted actions and 64 incoming
+module-boundary edges at selected consumers.
+
+The QNT gsc_population module now defines smallDeps, boundaryDeps, selectedGraphExact,
+phasesRelated, boundaryReady and ordered boundarySignature/frozenBoundary.
+The original ten-node operational scenario remains byte-identical. No QNT
+exploration is performed. Lean selectedIndexInjective and selectedEdgesExact
+check the concrete finite graph facts; list ordering is retained in the graph
+representation, while per-consumer observation factorization remains separate.
+No theorem equates the two languages' entire specifications.
+
+#+NAME: selected-relation-shape
+#+BEGIN_EXAMPLE
+i = {0->31, 1->1, 2->65, 3->35, 4->68,
+     5->69, 6->70, 7->71, 8->72, 9->73}
+
+Boundary(k) = FullPred(i(k)) minus image(i)
+R(full, small) requires:
+  same selected phases via i, related successful origins/staged groups,
+  adequate observable quotient for signature/calculate and producer context,
+  validated ordered external observations and pending/custody state,
+  a common source cohort and full resource decomposition.
+
+FullReady(i(k)) => SmallReady(k)
+SmallReady(k) and BoundaryReady(k) => FullReady(i(k))
+FullUsed = SelectedUsed + OmittedUsed <= Limit => SelectedUsed <= Limit
+#+END_EXAMPLE
+
+The two readiness directions and budget implication are now checked Lean
+lemmas. BoundaryReady is not optional: the selected graph alone omits 31
+library metadata inputs, 31 library object inputs and two executable inputs.
+For weighted or nested jobs the real credit-to-model mapping is still needed;
+unit counts cannot establish actual memory or jobserver behavior.
+
+The [[file:read-snapshot-map.org][eight refinement rows]] map initialization, readiness, start, finish,
+publication, omitted work, shared macro and revocation. relationalTraceSafety
+proves a generic finite safety transfer from an actual related initial state
+and step-or-stutter witnesses. It uses a relation instead of inventing a known
+functional quotient of compiler output into integers. Actual witnesses for
+GSC transitions are not supplied by this theorem. concreteSafetyFromRefinement
+also requires property reflection: related concrete/abstract states and abstract
+safety must imply the intended concrete safety property. Bool error flags or
+phase equality cannot supply this. In particular SelectedUsed=0, OmittedUsed=3,
+Limit=2 satisfies the selected budget bound while violating the full bound.
+The full budget needs its own admission/accounting proof; safety, cost and
+progress each require an appropriate correspondence.
+
+Three refinement layers therefore remain distinct: actual Scheme effects into
+a closed read program; real producer lifecycle into the 74-action protocol;
+and the restricted 74-action protocol into the selected ten-node scenario.
+The first two are not established by graph facts. In particular, calculate's
+integer addition and zero initial outputs do not represent actual compiler
+cache origins without an independently proved observable relation. Native
+C compilation/linking need their own read and output contracts as well.
+
+* RESEARCH Shared macro changes revoke credentials, not necessarily outputs
+:PROPERTIES:
+:CUSTOM_ID: gsc-shared-macro-boundary
+:END:
+
+The current Make template declares fixnum.scm for all 34 generators. A shared
+macro edit therefore creates 34 declared generator candidates. It does not
+prove that 34 output groups differ; it also does not justify ignoring the 32
+omitted generators. At cohort entry the old input credentials are no longer
+valid for the new macro input. Pure output equality is a different predicate.
+
+After every required omitted group is validated under the new image/context,
+its consumed observations may still equal the old values. Then a frozen-boundary
+safety relation may be recertified for a selected suffix, subject to actual
+producer-oracle and lifecycle correspondence. If any consumed external
+observation differs, changedBoundaryRejectsFrozen rules out that relation.
+A source change alone cannot construct that output-inequality premise.
+
+The old wording that the whole macro case necessarily violates frozen-boundary
+output equality is refined accordingly. The earlier receipt remains unchanged;
+no evidence is rewritten. What is unavailable before revalidation is authority
+to assume the boundary fixed. What can be false after validation is the equality
+itself. Keep invalidated credential, unknown observation, equal revalidated
+observation and changed observation as four distinct states.
+
+Even when equality is recertified, the omitted generation/validation work still
+happened. A safety stutter is not a cost stutter. The ten-node symbolic 0/4/10
+counts do not become total-work counts for the 74-action chain. A trace that
+executes 32 omitted generators while selected phases stay unchanged is an
+immediate counterexample to that cost transfer. It is an authored reasoning
+case, not an executed model trace or observed native workload.
+
+* OPEN Remaining source obligations and benefit accounting
+:PROPERTIES:
+:CUSTOM_ID: gsc-closure-net-benefit
+:END:
+
+The canonical matrices retain every unresolved caller/issuer premise. Necessary
+work includes effect mediation across macros/readtables/native boundaries,
+initial context qualification, coherent view creation, catalogue currentness,
+complete group publication, actual integer-oracle adequacy and full weighted
+scheduler/progress refinement. No source read hook, conditional theorem or
+ASCENT join closes those by itself. The 73 existing global obligations retain
+their earlier dispositions; no native/build path is retired.
+
+The added eleven Lean theorems bring the standalone total to 26. Two exact graph
+facts are finite structural results; adaptive-reader, readiness/budget and trace
+safety results retain their stated semantic assumptions. QNT is typechecked
+only. The older runtime Lean environment is not requalified.
+
+#+NAME: gsc-refinement-benefit-accounting
+| Case | Quantity / condition | Required cost and refutation |
+|---+---+---|
+| No changed validated inputs | Goal zero generation/compile/link recipes across the 74-action slice | Still validate origin, context, ordered answers and groups; if Make already runs zero recipes, recipe saving can be zero |
+| Shared immutable source image | One qualified source cohort may serve 34 isolated compiler contexts | Does not eliminate 34 parsing/expansion computations; copying a new image per action can erase the gain |
+| Adaptive trace reuse | Same closed program plus same answers on old successful trace preserves output and future requests | Source mediation and context identity are not proved; untracked callbacks defeat reuse qualification |
+| Shared fixnum change | 34 declared generator candidates; no guaranteed generation reduction | Changed common file answers prevent immediate old-trace reuse; later output equality can stop downstream work only after validation |
+| Selected projection | 10 selected actions, 64 omitted actions and 64 external module edges | Full boundary validation, omitted resource use and discarded/restarted work stay in the accounting |
+| Metadata-only stability | Qualified unchanged observations can avoid descriptor/linkfile work | C/object/library/native-link inputs still propagate their actual changes; a metadata substring is insufficient |
+
+#+BEGIN_EXAMPLE
+DeltaWork = avoided actual recipe work
+          - source/context acquisition and validation
+          - trace/catalogue/group/manifest support
+          - discarded and restarted work
+SafetyStutter does not imply CostStutter
+#+END_EXAMPLE
+
+Modern C and Zig need the same semantic/ownership support. Reusing Gambit's
+Scheme evaluator and source reader avoids rewriting semantics, while typed
+native contracts replace duplicated currentness and product-existence decisions
+only after all callers migrate. Zig still requires a separately demonstrated
+incremental benefit and an actual retired owner; none is claimed here. No
+person-day estimate, fabricated timing or measured speedup is used.
+
+* RESEARCH Evidence and maintenance boundary
+:PROPERTIES:
+:CUSTOM_ID: gsc-read-proof-chain
+:END:
+
+SysML owns the 13 selected read boundaries, eight issue conditions, eight
+refinement steps, dependencies and proof gaps. Org explains their meaning;
+D2 and ASCENT facts derive from that same metadata. ASCENT associates exact
+source/receipt hashes, read gaps, issuance guards and refinement premises as
+hypotheses, without observation, proof or execution authority. A matching row
+proves association provenance, not a correct runtime mechanism.
+
+[[https://simon.peytonjones.org/assets/pdfs/build-systems-jfp.pdf][Build Systems a la Carte: Theory and Practice]] distinguishes dynamic tasks,
+rebuilding and scheduling, and separates early cutoff from repeated execution
+and nondeterministic inputs. [[https://www.mathematik.uni-marburg.de/~seba/publications/pluto-incremental-build.pdf][Pluto's dynamic dependency model]] requires producer
+consistency before generated-file consumption. We use these distinctions to
+identify Gambit-specific obligations. Neither paper supplies the actual boot
+compiler's closure or the proposed snapshot issuer.
+
+The [[file:../../../evidence/research/gsc-read-snapshot-refinement/checks.json][bounded research receipt]] retains exact source identities, formal checks,
+prior failures and the corrected macro-boundary interpretation. No native
+profile or speed claim is admitted by this study.
+
+* RESEARCH Capability and output-fidelity follow-up
+:PROPERTIES:
+:CUSTOM_ID: gsc-capability-followup
+:END:
+[[file:capability-observation-design.org][The capability/fidelity study]] follows concrete eval, reader handler and C
+device entrances and defines refusal conditions. It retains the original
+integer scenario while adding structured observation contracts; no actual
+GSC oracle is inferred from integer equality. The current standalone theory
+has 31 theorems, retaining this study's earlier 26-theorem receipt unchanged.

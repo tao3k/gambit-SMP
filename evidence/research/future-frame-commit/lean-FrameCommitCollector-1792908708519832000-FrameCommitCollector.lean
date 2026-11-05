@@ -1,0 +1,31 @@
+import FrameCommitAst
+open FrameCommitAst
+namespace FrameCommit
+theorem grantRemotePreserves (q : State) (h : Safe q) (g : grantRemoteGuard q) : Safe (grantRemoteNext q) := by
+ rcases h with ⟨h0,h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12,h13,h14,h15,h16,h17,h18,h19,h20,h21,h22,h23,h24,h25,h26,h27,h28,h29,h30,h31,h32,h33,h34,h35,h36,h37,h38,h39,h40,h41,h42,h43,h44,h45,h46,h47,h48,h49,h50,h51,h52,h53,h54,h55,h56,h57,h58,h59,h60,h61,h62,h63,h64,h65,h66,h67,h68,h69⟩
+ simp only [grantRemoteGuard,and_assoc] at g
+ rcases g with ⟨g0,g1,g2,g3,g4,g5,g6,g7,g8,g9⟩
+ dsimp only [Safe,grantRemoteNext]
+ simp_all
+ all_goals first | omega | grind
+theorem leaveRuntimePreserves (q : State) (h : Safe q) (g : leaveRuntimeGuard q) : Safe (leaveRuntimeNext q) := by
+ rcases h with ⟨h0,h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12,h13,h14,h15,h16,h17,h18,h19,h20,h21,h22,h23,h24,h25,h26,h27,h28,h29,h30,h31,h32,h33,h34,h35,h36,h37,h38,h39,h40,h41,h42,h43,h44,h45,h46,h47,h48,h49,h50,h51,h52,h53,h54,h55,h56,h57,h58,h59,h60,h61,h62,h63,h64,h65,h66,h67,h68,h69⟩
+ simp only [leaveRuntimeGuard,and_assoc] at g
+ dsimp only [Safe,leaveRuntimeNext]
+ simp_all
+ all_goals first | omega | grind
+theorem enterGcPreserves (q : State) (h : Safe q) (g : enterGcGuard q) : Safe (enterGcNext q) := by
+ rcases h with ⟨h0,h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12,h13,h14,h15,h16,h17,h18,h19,h20,h21,h22,h23,h24,h25,h26,h27,h28,h29,h30,h31,h32,h33,h34,h35,h36,h37,h38,h39,h40,h41,h42,h43,h44,h45,h46,h47,h48,h49,h50,h51,h52,h53,h54,h55,h56,h57,h58,h59,h60,h61,h62,h63,h64,h65,h66,h67,h68,h69⟩
+ simp only [enterGcGuard,and_assoc] at g
+ rcases g with ⟨g0,g1⟩
+ dsimp only [Safe,enterGcNext]
+ simp_all
+ all_goals first | omega | grind
+theorem forwardNoCopyPreserves (q : State) (h : Safe q) (g : forwardNoCopyGuard q) : Safe (forwardNoCopyNext q) := by
+ rcases h with ⟨h0,h1,h2,h3,h4,h5,h6,h7,h8,h9,h10,h11,h12,h13,h14,h15,h16,h17,h18,h19,h20,h21,h22,h23,h24,h25,h26,h27,h28,h29,h30,h31,h32,h33,h34,h35,h36,h37,h38,h39,h40,h41,h42,h43,h44,h45,h46,h47,h48,h49,h50,h51,h52,h53,h54,h55,h56,h57,h58,h59,h60,h61,h62,h63,h64,h65,h66,h67,h68,h69⟩
+ simp only [forwardNoCopyGuard,and_assoc] at g
+ rcases g with ⟨g0,g1⟩
+ dsimp only [Safe,forwardNoCopyNext]
+ simp_all
+ all_goals first | omega | grind
+end FrameCommit

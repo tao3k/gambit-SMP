@@ -1,0 +1,329 @@
+#+TITLE: Marker Single-Credit Audit, Writer Closure and Auditor Succession
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+#+PROPERTY: SOURCE_AUTHORITY MarkerAuditQuiescence
+
+* RESEARCH Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-decision
+:MAINLINE: modern-generated-c
+:STATUS: conditional-models-source-open
+:END:
+
+Current Gambit does not establish a universal single-native-reference invariant
+for stack markers. A quiescent audit can use the existing count only for an
+explicitly admitted marker ownership profile. The profile must close every
+count writer, preserve marker storage before old processor cleanup, and give one
+auditor exclusive access under a complete GC/visibility cut. Root reachability,
+native reference count and storage ownership are separate contracts.
+
+The parent [[file:release-commit-custody-design.org][Release Commit Custody]] shows why
+Pending alone cannot decide a retry and why a separate count audit can provide
+more information. This study strengthens that audit's premises. Parent receipts
+remain frozen; current source is hashed independently. No runtime implementation,
+native tests or performance experiments are performed.
+
+Canonical [[file:models/sysml/marker-audit-quiescence.sysml][SysML]] contains eleven
+writer/alias/lifecycle routes, eight component contracts, ten dependencies, nine
+memory/lifetime edges and seven open gates. Native queries generate the
+[[file:marker-audit-quiescence-matrix.org][matrix]] and [[file:diagrams/marker-audit-quiescence.d2][D2]].
+Actual [[file:../../modeling/ascent/marker-audit-quiescence.rules.scm][ASCENT rules]] join
+component, source, action, guard, theorem, writer route and receipt identities;
+missing/wrong writer routes block the synthetic admission control.
+[[file:../../../models/build/marker_audit_quiescence.qnt][QNT]] models admission, late
+leases, collector exclusion and replacement after auditor exit.
+[[file:../../../models/build/MarkerAuditQuiescence.lean][Lean]] proves count/custody
+properties under declared guards. Neither proves whole-program alias closure,
+source refinement, C11 execution coverage, or termination.
+
+* RESEARCH Reference-count writers and real callers
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-writers
+:EVIDENCE_KIND: bounded-source-census
+:END:
+
+The named ___STILL_REFCOUNT field has three arithmetic/initialization write sites
+in current [[file:../../../vendor/gambit/lib/mem.c][mem.c]]: allocation initializes it
+to 1 at 1683, native increment writes it at 1452, and native decrement at 1466.
+The read helper at 1475–1480 and GC seed check at 4221 are consumers. This is a
+named-field census, not a proof excluding pointer aliases, generated inline
+native code or embedding code. The generated matrix classifies every route below
+and deliberately distinguishes actual callers from possible marker aliases.
+
+| Route | Actual source and target | Marker-specific conclusion |
+|---+---+---|
+| Allocation | c_intf.c:6524–6544 -> make_vector -> mem.c:1712–1727,1804 -> still initializer | Fresh marker starts with one native credit; constructor does not prove no later inc/dec |
+| Known marker release | c_intf.c:6555–6562; setup.c:3415; header END_SFUN variants:10047,10053,10059 | In-tree specialized decrement of the actual marker, after slot-0 invalidation |
+| Generic C decrement | mem.c:1730–1737 release_scmobj calls still decrement for still objects | Encoded marker alias is not excluded by this API; actual ordinary conversion arguments need identity proof |
+| Generic native inc/dec | mem.c:1447–1467; header declarations/function table | Neither helper checks marker type, owner or token identity |
+| Scheme inc/dec | _kernel.scm:2411–2417; generated _kernel.c mirrors | Low-level primitives accept an object without a private-marker guard; disabling Scheme interrupts does not gate other native writers |
+| Real Scheme caller | examples/pthread/mylib.scm:26–31 | Exported counter explicitly increments/decrements a still object; this proves actual API use, not an observed marker mutation |
+| Native function table | setup.c:5931–5944; header:13281–13300,14624–14643 | External C may invoke generic writer/release functions; metadata registration is not alias closure |
+| Conversion cleanup | header:10194–10645; _ptree2.scm:2902–3012 | Generic release is generated for converted temporaries; cannot classify all releases as markers or prove all are distinct by name |
+| Payload copying | _kernel.scm:2390–2398 | still-copy copies a new object's body and releases its new credit; not a rewrite of the original marker's native count |
+| GC and cleanup | mem.c:4210–4248,4387–4451,4928–4935 | Count read/scan and storage destruction are lifecycle consumers; free_still_objs ignores the count |
+
+[[file:../../../vendor/gambit/lib/c_intf.c][C interface]],
+[[file:../../../vendor/gambit/lib/setup.c][setup]],
+[[file:../../../vendor/gambit/include/gambit.h.in][header]],
+[[file:../../../vendor/gambit/lib/_kernel.scm][Scheme primitives]],
+[[file:../../../vendor/gambit/lib/_kernel.c][generated consumers]],
+[[file:../../../vendor/gambit/examples/pthread/mylib.scm][real counter caller]],
+[[file:../../../vendor/gambit/gsc/_ptree2.scm][FFI generator]].
+
+** Marker aliases and what the source does not prove
+
+___call stores stack_marker in the native return frame (setup.c:3340).
+_kernel.scm:3145–3152,3415–3501 exposes continuation/frame reads, while
+[[file:../../../vendor/gambit/lib/_io.scm][_io.scm]]:11690–11726 explodes live frame
+slots and rebuilds frames/continuations. These are real introspection and
+serialization mechanisms without a marker-specific reference-count capability
+check. An alias obtained there and forwarded to a generic native-count primitive
+would invalidate a private-marker proof.
+
+This study does not assert a fully qualified executable extraction path at a
+particular generated frame index: frame layout, live-slot maps and actual
+continuation reachability still need refinement. The mechanisms are sufficient
+to prevent inferring privacy merely from absence of a named marker inc call.
+Arbitrary ##c-code, imported native functions and raw body/header pointer access
+are further open alias surfaces. No syntactic census can close arbitrary C writes.
+RC header refcount for a C closure is a different field and ownership system;
+it cannot be substituted for the still marker's native count.
+
+* RESEARCH Exact single-credit relation
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-credit
+:END:
+
+Let d be the number of drops of this activation's acquired credit, and e the net
+additional native credits. A qualified accounting relation is:
+
+#+begin_example
+native_count + owned_drops = 1 + other_native_credits
+0 <= owned_drops <= 1
+#+end_example
+
+Only with known e=0 does count 0 imply d=1 and count 1 imply d=0. Count 1 with
+one extra native credit and one prior owned drop is a concrete counterexample to
+naive inference. Count range alone does not prove reference exclusivity.
+
+The modeled sufficient profile is deliberately strict: no admitted external
+reference-count mutations of this marker. It rejects foreignWrite history rather
+than pretending that balanced opaque calls prove a complete credit ledger. A
+more permissive profile could track independent credits and prove e=0 at the cut,
+but that ledger is additional work and is not implemented or proved here.
+
+The audit/root lookup pin must be independent of the marker's native still
+reference count: VM RootRegistry scanning plus storage/epoch pins. Adding a
+still reference to protect the audit changes its baseline. If such a native pin
+is unavoidable, its precise contribution and lifetime must enter the equation;
+this study's simple 0/1 receipt is refused. Rooting a marker value in an arbitrary
+unscanned C local is also insufficient, especially at nonzero processors.
+
+Marker validity and count are read together under exclusion. Live/count 1 may
+need invalidation and drop; invalid/count 1 needs only the missing drop;
+invalid/count 0 needs recording only. Live/count 0, negative/out-of-range values,
+unknown baseline, wrong generation or inconsistent metadata reject the audit.
+Do not call the full kill again on a marker already at zero.
+
+* RESEARCH Old execution exit, storage and GC handoff
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-exit
+:END:
+
+Current shrink code is decisive: setup.c:931–934 calls ___cleanup_pstate before
+___thread_exit; processor 0 later calls ___thread_join and ignores its error at
+979. cleanup_pstate -> cleanup_os_and_mem_pstate -> cleanup_mem_pstate invokes
+free_still_objs and cleanup_rc (mem.c:4928–4935). free_still_objs:4432–4451 walks
+and frees the whole still chain without consulting reference count or GC roots.
+
+Therefore neither a high reference count nor a root slot prevents this direct
+cleanup, and successful join cannot preserve already-freed marker storage.
+The modern C path must preserve/transfer retained storage before old cleanup:
+
+1. Close generation-aware marker writer admission. New write requests must fail
+   before dereferencing marker storage. Previously admitted writers retain their
+   leases and may still finish after close.
+2. Publish VM-owned roots and transfer the retained still chain, scanner/sweep
+   owner and capacity/deferred census under the shared StorageHandoffReceipt.
+   This is an inherited substantive refactor, not an existing source capability.
+3. Stop original execution through a qualified root/participant cut. Capture the
+   exact thread generation and successful cessation result; failure/unknown join
+   retains old write lease and VM custody. No timeout manufactures this evidence.
+4. Drain every admitted alias writer and exclude unmanaged bypass writers. A
+   successful join of the original thread says nothing about another native alias.
+5. Acquire a collector/root epoch cut with the transferred arena still live.
+   Collector access and plain marker audit are disjoint phases. Count-zero marker
+   remains protected by the independent root domain until actual retirement.
+6. Issue AuditQualificationReceipt only for the same marker generation and exact
+   closed writer/profile, storage, visibility and scanner epoch.
+
+The [[file:../../../vendor/gambit/lib/os_thread.c][native join wrapper]]:546–556 maps
+nonzero pthread_join results through err_code_from_errno, rather than preserving
+the native returned code. os_base.c:1060–1076 maps zero errno to UNKNOWN_ERR.
+This is not a claim of false success, but exact failure diagnosis is not retained
+by that wrapper. Shrink's ignored return cannot be used as a join-success receipt.
+An eventual adapter must retain the actual status and identity; this study does
+not modify it.
+
+A stop acknowledgement must occur after the writer's last possible access,
+including callback/exception epilogue accesses. Retiring an admission bit cannot
+retroactively revoke a raw pointer already escaped. If that pointer has no
+controlled lease, the marker profile is unqualified; reject the receipt rather
+than claiming all such pointers have stopped.
+
+* RESEARCH Audit succession and persistent guardian
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-succession
+:END:
+
+The stable VM guardian owns root registration, retained arena and session custody.
+An auditor only borrows exclusive write authority. Response loss does not stop
+an auditor and must not permit another one. Completion record and physical
+caller completion remain different receipts.
+
+If an auditor exits before invalidation, after invalidation, or after decrement
+but before its record, the guardian retains everything. Confirm that specific
+auditor stopped, drain its write lease, establish visibility, invalidate the old
+observation and old audit receipt, and obtain a new collector cut. The replacement
+then rereads the count/validity of the same rooted generation. Zero means record;
+one permits only the missing decrement under the single-credit premise.
+
+The replacement's decrement and record remain distinct steps. If the replacement
+also disappears, the same succession protocol applies; there is no special
+atomic two-store audit commit. The model contains two auditor identities, not an
+unbounded proof of arbitrary replacements or liveness. A lost/failed join keeps
+the prior lease and blocks overlap indefinitely if necessary.
+
+Known accounting does not restore a dead C catcher, prove dynamic-wind/native
+resources were cleaned, or discharge processor/VM duties. Parent root/continuation
+and physical guard obligations remain open. Only after those independently settle
+may root lookup admission close, readers drain, GC storage grace complete and
+session/arena be reclaimed. Process loss is outside in-memory custody guarantees.
+
+* RESEARCH C11 ordering and late-write exclusion
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-memory
+:STATUS: implementation-refinement-open
+:END:
+
+Nine canonical memory edges cover admission close, final writer decrement,
+join/result visibility, arena transfer, GC cut, plain audit read/write, auditor
+replacement and retirement. SC is the initial model, not a claim about existing
+plain fields or a chosen lock-free representation.
+
+| Edge | Required ordering / lifetime | Rejected shortcut |
+|---+---+---|
+| Close -> drain | Closed generation and writer pin admission serialize on one protocol; last write precedes release of lease; coordinator acquires final drained state after close | Separate check-open then unchecked increment; zero before close |
+| Original exit -> audit | Exact cessation plus platform visibility, all other writers drained | Thread ID absence, timeout, original join while alias writer lives |
+| Arena handoff -> cleanup | Initialize target ownership/census, release receipt; target acquires before source cleanup detaches retained storage | Root count or root reachability overrides unconditional free |
+| GC cut -> read | Parked roots/scanner ownership acknowledge same epoch; plain audit fields accessed only in exclusive phase | Acquire a descriptor pointer and assume all mutable slots are synchronized |
+| Audit drop -> record | Plain writes under exclusive writer/collector cut, then release record; readers acquire matching identity | Cast existing plain counter to atomic while plain writers remain |
+| Auditor exit -> replacement | Confirm exact exit, drain old lease, acquire visibility; invalidate previous observation, obtain fresh cut | Lost reply or failed join permits stealing a write lease |
+| Retirement | Caller Done plus closed/drained root lookup and collector storage grace precede free | Count zero, invalid marker or accounting receipt alone permits VM cleanup |
+
+C11 [[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][N1570]] 5.1.2.4 and 7.17 provide the happens-before and release/acquire
+framework. Plain concurrent count access is not made safe by an unrelated atomic
+flag. The chosen gate, reader counts, writer-stop publication and GC epochs still
+require a concrete source mapping and reads-from proof.
+Apple's [[https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_join.3.html][archived pthread_join manual]] distinguishes successful termination from
+errors and notes concurrent joins are not a recovery strategy. It is historical
+platform documentation, not a matched installed-library receipt. Installed Darwin
+SDK declarations/macro text remain pinned but effective argv, selected SMP object
+and host registration remain unresolved. No native observation was performed.
+
+No admission or root mutex is held while waiting for GC participation or thread
+cessation. Admitted writers park with visible roots and retain external custody;
+collector progress cannot require a lock held by that waiting writer. Late
+unmanaged callbacks must be rejected before marker access; if enforcement cannot
+be established, retain quarantine instead of entering audit.
+
+* RESEARCH Formal chain and counterexamples
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-proof
+:END:
+
+QNT makes old and alias write leases explicit; closing the gate does not clear
+them. Storage handoff must occur while source storage is still owned, whereas
+successful join clears only the old writer's lease. Source-closed profile
+admission is an external proof premise, not an inference from a zero dynamic
+mutation count. GC cut and audit lease exclude one another. Auditor exit keeps
+its lease until confirmed cessation; replacement requires renewed qualification.
+
+The model's handoffArena, admitClosedProfile and admission of caller completion
+are abstract receipt transitions. Their guards cannot establish that current
+Gambit has those facilities. It starts with a rooted stable object, models one
+marker/generation and two possible auditors, and does not compose every parent
+continuation/GC/FFI model or represent arbitrary C11 executions. GC forwarding,
+capacity handoff, all pointer aliases and unbounded replacement progress remain
+source/induction obligations.
+
+Lean proves the owned-drop/extra-credit relation is preserved by admitted count
+steps and extends it by trace induction. Count 0/1 inference requires extra=0;
+a concrete count=1, owned_drops=1, extra=1 state refutes unconditional inference.
+Fence lemmas exclude close-only, join-only and stale-generation admission. Keeper
+lemmas retain custody across auditor loss and keep accounting distinct from
+caller settlement. The Fence and Counter projections are not a mechanized
+simulation of the complete QNT state or actual C source.
+
+Ten negative histories preserve extra-credit masking, ignored late write lease,
+join-only qualification, premature source storage free, audit native-pin baseline
+corruption, replacement before prior lease retirement, missing visibility,
+duplicate audit decrement, lost unknown custody and stale generation.
+Positive histories cover pre/post-drop auditor exit and reread, count-zero roots,
+invalid-only marker, failed join, late reference writer and untransferred exit.
+
+ASCENT adds missing-Scheme-writer and wrong-native-export-anchor controls. It
+checks that writer-route bindings are exact, not that all aliases have been found.
+Source/platform and inherited obligations keep current candidacy blocked; only
+a synthetic all-evidence fixture qualifies. Formal/model success does not grant
+native registration or permission to retire old code.
+
+* RESEARCH Benefits, costs and old-path retirement
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-benefits
+:END:
+
+| Change | Conditional benefit | Added cost / limiting condition |
+|---+---+---|
+| Private-marker writer profile | Makes count audit meaningful without forcing token-managed representation | Complete generic API/Scheme/native alias closure; otherwise refuse audit |
+| Closed admission and writer drain | Prevents late count writes after the chosen audit cut | Per-writer pin/unpin and close/drain; existing raw bypass paths must migrate |
+| Independent roots and retained arena | Allows zero-count marker and processor exit to coexist safely | VM root adapter, scan/sweep ownership, capacity census and cleanup-order refactor |
+| Fresh audit after helper exit | Avoids repeating an already completed owned drop | Exact auditor cessation, visibility, fresh GC cut and reread; no bounded recovery latency proved |
+| Stable guardian | Keeps unresolved work and sessions owned | Potentially indefinite retention if proof or progress never arrives |
+| Shared modern C support | Reuses root domain, writer gate and guard identity across necessary services | Per-marker closure/settlement remains; no automatic throughput gain or Zig-specific saving |
+
+For N quiescent audit attempts and D missing owned credits, the admitted protocol
+performs D actual owned decrements and at least N fresh count observations plus
+N qualification lifecycles. Replacements do not add decrements when observing
+zero. These are operation bounds under exact-credit closure, not timings.
+
+A recovery-latency lower bound includes writer cessation/drain, visibility,
+root/arena handoff, collector cut and the audit itself. An unresponsive leased
+writer makes the upper bound unresolved. Sharing setup can amortize directories
+and root domains, but cannot remove any marker's actual write exclusion or
+physical caller responsibilities. No guessed speed ratios or person-days appear.
+
+Retirement order: admitted marker identity and input roots -> all generic/private
+writer routes -> closed writer gate -> retained still-arena and root scanner
+handoff before old cleanup -> exact stop/join receipt -> GC/visibility cut ->
+exclusive audit and succession -> caller/root/storage retirement. Existing
+normal kill tails can retire only after all those callers use the same ownership
+protocol. Direct free_still_objs for a departing processor's retained chain must
+be replaced, while unrelated still cleanup and ordinary Scheme reachability
+remain required. Open native/unsafe profiles keep conservative custody or use an
+independently qualified release architecture; the audit is not universal.
+
+* RESEARCH Reproducible local receipts
+:PROPERTIES:
+:CUSTOM_ID: marker-audit-quiescence-checks
+:END:
+
+[[file:../../modeling/tools/marker-audit-quiescence-study.py][Python orchestration]] invokes
+native SysML, QNT/Lean, ASCENT, D2 and Org without Babel execution.
+[[file:../../../evidence/research/marker-audit-quiescence/checks.json][Checks]] and
+[[file:../../../evidence/research/marker-audit-quiescence/input.json][source identity]]
+record scoped evidence and frozen parent lineage. The separate named-refcount
+census preserves actual lines, matched paths and hashes without promoting syntax
+matching into whole-program writer closure. Runtime, native and performance
+admission all remain false.

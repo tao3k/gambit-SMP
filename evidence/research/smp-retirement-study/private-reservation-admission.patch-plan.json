@@ -1,0 +1,114 @@
+{
+  "schema": "private-reservation-admission.patch-plan.v1",
+  "status": "design-decision-not-runtime-applied",
+  "supersedesCandidateMechanism": "compensating global msection rewind -> private construction and one shared commit",
+  "supportedContract": {
+    "allocator": "default allocator or separately implemented transactional adapter",
+    "requestEntry": "checked full-incarnation lease; no unleased external bare-pstate enqueue",
+    "binaryCompatibility": "migrate/rebuild native clients and generated headers; no silent void fallback"
+  },
+  "allocatorFunctions": [
+    {
+      "name": "___reserve_private_pstate_sections",
+      "actualAnchors": [
+        "mem.c:next_msection_without_locking",
+        "set_stack_msection",
+        "set_heap_msection"
+      ],
+      "steps": [
+        "preallocate descriptor/node capacity",
+        "old-cohort rendezvous and GC exclusion",
+        "preclose/drain short VM registry readers before ALLOC lock",
+        "capture actual allocator generation/cursor/counts",
+        "walk exact distinct2*k suffix nodes and preflight overflow/capacity",
+        "record private claim; no shared cursor/count/link write"
+      ]
+    },
+    {
+      "name": "___init_empty_pstate_from_sections",
+      "steps": [
+        "native fallible prefix already initialized",
+        "direct local stack/heap views from separate nodes",
+        "empty frame/RC/still/wills/register state only",
+        "no next_msection/fallback/callback/custom allocator invocation",
+        "defer global-budget-dependent memory limits until commit"
+      ]
+    },
+    {
+      "name": "___discard_private_pstate_sections",
+      "steps": [
+        "require no commit/GO and no outside slot users",
+        "invalidate all private pstate views first",
+        "drop private claim",
+        "leave shared cursor/counters/chain untouched",
+        "release ALLOC before registry reopen and native cleanup",
+        "common ABORT/reader agreement; old-cohort GC uses unchanged allocation"
+      ]
+    },
+    {
+      "name": "___commit_private_pstate_sections",
+      "steps": [
+        "validate full key/generation and native resources",
+        "publish exact cursor/base_assigned+2*k/base_stacks+k",
+        "nonallocating limits finalization",
+        "same GC-excluded membership/domain commit through preclosed registry guard",
+        "release GO after count visibility"
+      ],
+      "postCommitCancellation": "explicit TOO_LATE; continue accepted work/active lifecycle, never rewind"
+    }
+  ],
+  "requestFunctions": [
+    {
+      "name": "___pstate_request_acquire",
+      "linearization": "full VM owner/incarnation/ACTIVE_READY validation and producer pin under same short admission mutex",
+      "denial": "caller retains unaccepted node"
+    },
+    {
+      "name": "___publish_high_level_interrupt_leased / ___publish_procedural_interrupt_leased",
+      "linearization": "node publication under existing queue lock with valid nonrevoked lease",
+      "lockOrder": "admission mutex released before taking queue/T/P locks"
+    },
+    {
+      "name": "___pstate_request_close",
+      "steps": [
+        "OPEN->DRAINING under admission mutex",
+        "release mutex",
+        "let prior leases publish/release",
+        "drain accepted queue/handler/wake obligations outside admission and T/P locks",
+        "no slot reuse until all real consumers leave"
+      ]
+    },
+    {
+      "name": "___pstate_request_release",
+      "lastConsumer": "producer final queue/wake access; independent async writers retain separate lifetime accounting"
+    }
+  ],
+  "migrationSites": [
+    "include/gambit.h.in imports/function table13521,13532,15004,15015",
+    "setup.c raw queue functions364,489 and GSTATE assignments6805,6814",
+    "_kernel.scm ##raise-high-level-interrupt1520 and generated _kernel.c",
+    "_thread.scm ##thread-intr-notify!1404: denied hint preserves primary accepted thread queue node and rechecks route"
+  ],
+  "debtAndRoots": [
+    "VM typed carrier remains authoritative across old GC",
+    "native resource failure does not retain unregistered Scheme sections",
+    "service cut may ACK inspected retained resource without freeing it",
+    "watermarks survive retry epoch",
+    "unpublished views do not enter active/pending scan registry"
+  ],
+  "failurePolicy": {
+    "capacity": "common preacceptance failure, no shared mutation",
+    "partialSetup": "discard private views, no inverse global allocator",
+    "nativeCloseFailure": "retain native control/key/VM pin; old GC independent once private views gone",
+    "detectedCorruption": "checked terminal fault, no fabricated rollback",
+    "neverReleasedProducer": "retain incarnation; cannot promise eventual quiescence"
+  },
+  "remainingImplementationWork": [
+    "implement exact function/API split",
+    "preserve preceding common cohort/result/ABORT/root protocols",
+    "regenerate headers/C and migrate supported native callers",
+    "same-producer native fault and concurrent request regressions"
+  ],
+  "nativeAdmitted": false,
+  "runtimeModified": false
+}

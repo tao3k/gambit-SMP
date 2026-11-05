@@ -1,0 +1,198 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "exit-drain-lock-order-repair",
+  "scope": "Registered in-place update of the already configured gambit-core generation from the balanced exit-drain source lock and the pinned Darwin build profile, then the original four upstream stress files in gsi and gsc at the original 3600-second inactivity window. The public-API probe stays a diagnostic. The incomplete-form source-core denial and the previous source lock stay. Not a bootstrap, not a new empty-tree configure, not (go 15 5000), and not native acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {
+    "mode": "progress",
+    "overheadSeconds": 30
+  },
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/balanced-source.patch",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "evidence/research/exit-drain-mutex-lock-order/mutex-exit-lock-order.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss",
+    "evidence/native-failures.json",
+    "evidence/research/suite-review-rules.ss"
+  ],
+  "steps": [
+    {
+      "id": "candidate",
+      "capability": "gambit.materialize",
+      "dependsOn": [],
+      "budgetSeconds": 180,
+      "arguments": {
+        "sourceLock": "evidence/research/exit-drain-mutex-lock-order/balanced-source.lock.json",
+        "buildWorkspace": "gambit-core"
+      }
+    },
+    {
+      "id": "configure",
+      "capability": "gambit.configure",
+      "dependsOn": [
+        "candidate"
+      ],
+      "budgetSeconds": 180,
+      "arguments": {
+        "source": {
+          "step": "candidate",
+          "output": "source"
+        },
+        "buildProfile": "evidence/fixtures/gerbil-bazel-build-profile/profile.json"
+      }
+    },
+    {
+      "id": "seed",
+      "capability": "gambit.seed-core",
+      "dependsOn": [
+        "configure"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "source": {
+          "step": "configure",
+          "output": "source"
+        }
+      }
+    },
+    {
+      "id": "source-core",
+      "capability": "gambit.source-core",
+      "dependsOn": [
+        "seed"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "runtime": {
+          "step": "seed",
+          "output": "runtime"
+        }
+      }
+    },
+    {
+      "id": "probe",
+      "capability": "gambit.executable-test",
+      "dependsOn": [
+        "source-core"
+      ],
+      "budgetSeconds": 180,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "program": "evidence/research/exit-drain-mutex-lock-order/mutex-exit-lock-order.scm",
+        "mode": "gsi",
+        "processorTopology": "host-managed",
+        "executionBudgetSeconds": 120,
+        "stdout": "LOCK-ORDER-EXIT-PASS\n"
+      }
+    },
+    {
+      "id": "stress-gsi",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "source-core"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsi",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "inventory": "stress",
+        "jobs": 1
+      }
+    },
+    {
+      "id": "stress-gsc",
+      "capability": "gambit.suite",
+      "dependsOn": [
+        "source-core",
+        "stress-gsi"
+      ],
+      "budgetSeconds": 3600,
+      "arguments": {
+        "runtime": {
+          "step": "source-core",
+          "output": "runtime"
+        },
+        "identity": {
+          "step": "source-core",
+          "output": "identity"
+        },
+        "failures": "evidence/native-failures.json",
+        "reviewRules": "evidence/research/suite-review-rules.ss",
+        "mode": "gsc",
+        "regime": "whole-parallel",
+        "selection": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "expectedFiles": [
+          "06-thread/tfib_stress.scm",
+          "06-thread/thread_interrupt_stress.scm",
+          "06-thread/thread_interrupt2_stress.scm",
+          "06-thread/thread_terminate_stress.scm"
+        ],
+        "inventory": "stress",
+        "jobs": 1
+      }
+    },
+    {
+      "id": "verdict",
+      "capability": "evidence.evaluate",
+      "dependsOn": [
+        "candidate",
+        "configure",
+        "seed",
+        "source-core",
+        "probe",
+        "stress-gsi",
+        "stress-gsc"
+      ],
+      "budgetSeconds": 30,
+      "arguments": {
+        "dsl": "evidence/research/execution/entry.json",
+        "queries": {
+          "checked": "checked_step",
+          "missing": "missing_step"
+        },
+        "expected": {
+          "missing": []
+        },
+        "recordedQueries": [
+          "checked"
+        ]
+      }
+    }
+  ]
+}

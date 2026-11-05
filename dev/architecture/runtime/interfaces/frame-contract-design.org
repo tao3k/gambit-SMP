@@ -1,0 +1,261 @@
+#+TITLE: FrameSpec as a T0 GC and SMP Refactoring Interface
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: modern-c
+#+OPTIONS: toc:3 num:t
+#+PROPERTY: header-args :eval never
+#+PROPERTY: COLUMNS %ITEM %OWNER %STATUS %REFINEMENT_STATUS
+
+* RESEARCH Target interface, separate from existing root model evidence :modern_c:t0:
+:PROPERTIES:
+:ID: 72af3e61-fcf4-481d-9128-9e66f7a1e8d4
+:CUSTOM_ID: frame-contract-design
+:OWNER: GC, control and execution interface owners
+:AUTHORITY: GambitFrameContract; GambitRuntimeComposition
+:STATUS: target-refactoring-native-refinement-open
+:REFINEMENT_STATUS: proposed-not-mechanized
+:EVIDENCE_CLASS: source-derived-algebra-and-architecture-obligations
+:DEPENDS_ON: ROOT-HANDOFF; CONTROL-ORIGIN; RETIRE-WINDOW; GC-WORK-CLOSURE
+:END:
+
+GC and same-VM SMP are T0 runtime modernization work. This document specifies a
+target shared frame/root interface inside [[file:../../../refactoring/modern-c/t0-foundation-design.org][that redesign]], not a replacement
+model of the current collector and not a local header configuration exercise.
+Existing QNT/Lean sources remain in models/ with their exact scoped bindings.
+No existing proof is relabeled as a proof of the new GC/SMP architecture.
+
+[[file:models/sysml/frame-contract.sysml][SysML]] owns six coordinate laws, ten target proof duties, ten classified
+counterexample sketches and six baseline/delta cost cases.
+The [[file:diagrams/frame-contract.svg][D2 admission-boundary view]] is rendered directly by the installed SysML CLI.
+SysML retains the source, law, T0 lane, migration and counterexample records.
+The existing [[file:../../../modeling/ascent/native-descriptor.ss][parent ASCENT association]] remains available; the fine-grained FL adapter is
+OPEN. A withdrawn Python projection is retained only as historical task evidence.
+It is not a maintained second model processor or current association receipt.
+The earlier [[file:../../toolchain/native-descriptor-design.org][ModuleSpec/FrameSpec study]] remains the parent contract.
+
+* RESEARCH Normalize the coordinate domains before proving consumers
+:PROPERTIES:
+:CUSTOM_ID: frame-coordinate-domains
+:END:
+
+Use word offsets throughout. F is the physical number of ordinary frame slots;
+S(F)=round_up(F+3,4) is the current stack space policy. P is the original pointer
+whose P[0] stores the current return marker. The macro FP_ADJFP(fp,-S(F)) moves
+that pointer forward to B=P+S(F), because FP_ADJFP subtracts its argument.
+FP_STK(B,i) then names B[-i], for one-based slots 1<=i<=F.
+
+Capture allocates a subtype header followed by heap body H. It first writes
+H[0]=ra1, then copies stack slots in descending i order. Hence:
+
+#+NAME: stack-heap-coordinate-equations
+#+BEGIN_EXAMPLE
+StackSlot(i) = B[-i]                       1 <= i <= F
+HeapSlot(i)  = H[F + 1 - i]                 1 <= i <= F
+E            = H + F + 1                   one-past heap body
+FP_STK(E, i) = H[F + 1 - i]
+link slot    = i = L + 1                    L is zero-based
+heap link    = H[F - L]                     0 <= L < F
+saved marker = H[0]                        outside ordinary slot domain
+#+END_EXAMPLE
+
+mem.c's heap FRAME scanner constructs exactly this E by starting at H+1 and
+adding F. _kernel.scm's frame-ref/frame-set! use H[F-i+1]. The break handler
+restores those slots and rewrites the caller link to the break handler.
+These consumers share one coordinate relation, but their state transitions
+have different ownership and initialization requirements.
+
+A proof must distinguish payload copy from subsequent control rewrites.
+mark_captured_continuation copies the payload before leaving its forwarding
+pointer under MISC_MEM_LOCK. It then changes the caller edge and may write the
+next stack return marker. Do not import the PAIR copier's publication order
+into this different routine. Whole-frame byte equality after these rewrites is
+not the preservation law; logical payload, return origin and control-edge
+relations are the preservation law.
+
+The algebra is over offsets within admitted regions. It does not prove actual
+allocation bounds, C pointer provenance, word/tag conversions, overlapping copy
+legality or memory ordering. Those are explicit refinement premises.
+
+** Internal returns require a stronger shape invariant
+
+Let N be the saved GVM-register count, R=3 and A=4 for the current policy.
+The stored internal descriptor size is cfs, while physical size is:
+
+#+NAME: internal-frame-equations
+#+BEGIN_EXAMPLE
+S(x)       = round_up(x + R, A)
+F          = round_up(cfs, A) + S(N+1) - R
+S(F)       = F + R
+RETI_RA    = -(S(N+1) - (N+1))
+actual_ra in stack = P[-RETI_RA]
+actual_ra in heap  = H[F + 1 - S(F) - RETI_RA]
+                  = H[1 - R - RETI_RA] = H[FRAME_RETI_RA]
+#+END_EXAMPLE
+
+The last equality relies on canonical internal F; it is not valid for an
+arbitrary shape merely tagged internal. Preserve both stored cfs and derived F:
+RETI_GET_CFS and RETI_GET_FS have different observations. Lowering twice loses
+that distinction and changes saved-register/root coordinates. The wrapper return
+marker and actual_ra must remain separate identities under the accepted VM/image
+policy. Generated C and the runtime must agree on saved-register materialization.
+
+* RESEARCH Encoding is a bound state transition, not one integer equation
+:PROPERTIES:
+:CUSTOM_ID: frame-encoding-and-binding
+:END:
+
+The current IFD packs kind, stored fs/link and a root map. OFD stores a header
+plus ceil(F/W) map words after target conversion, where W is native word width.
+Scheme emits low 32-bit chunks first; C combines adjacent chunks for a 64-bit
+word. Finite-width bounds, unsigned shifts, padding and pointer alignment all
+belong to the native encoding relation. Current mark_frame starts at slot 1,
+so its admitted profile also requires F>=1; an empty-frame fast path would need
+a separately specified consumer rule. For the current 32-bit minimum-word
+policy the inline threshold is 20 slots; it is not a universal target constant.
+
+The emitted OFD placeholder is IFD(kind,0,0,0). Its low kind bits are nonzero,
+so an ordinary runtime IS_IFD test alone classifies that raw placeholder as an
+inline descriptor. setup_module_fixup recognizes a zero-map return descriptor
+and replaces it with the corresponding prepared OFD pointer. Thus the target
+protocol must distinguish UnresolvedOutline from BoundOutline and must not grant
+a reader on an unresolved placeholder. It also needs proof of the actual valid
+inline-map domain; this study does not assume that an arbitrary zero map is a
+legal current return descriptor.
+
+Binding consumes OFDs in label order using a cursor. Correctness requires the
+emitter's outline-label order to match the consumer order, and each cursor
+increment to use physical F once, including internal returns. A generated
+PointId-indexed plan can replace implicit order, but only after all relevant
+producer and consumer paths migrate. Cursor extents, alignment and table padding
+are not established by a successful scalar encode/decode roundtrip.
+
+The future native representation may differ. The required law is that its
+admitted encoder/decoder preserves the completed FrameSpec and the consumer
+observations. Replacing the entire runtime representation is a separate ABI
+migration; no new representation is implemented here.
+
+* RESEARCH Streaming and random root-map access must share a contract
+:PROPERTIES:
+:CUSTOM_ID: frame-map-access
+:END:
+
+The OFD decoder consumes its header and first map word, leaving nextgcmap at
+map word 1, the second word. For logical slot i:
+
+#+NAME: frame-map-coordinate-equations
+#+BEGIN_EXAMPLE
+q = (i - 1) div W
+b = (i - 1) mod W
+word(q) = firstgcmap                  q = 0
+word(q) = nextgcmap[q - 1]             q > 0
+live(i) = (word(q) & (UWORD(1) << b)) != 0
+#+END_EXAMPLE
+
+mark_frame advances through nextgcmap sequentially. The current frame-slot-live?
+and continuation-slot-live? instead index nextgcmap[(i-1)>>LOG_WORD_WIDTH]
+when i>W. Under the decoder convention, i=W+1 selects the third rather than
+second map word. This is a conditional source discrepancy. _io.scm's actual
+explode-frame calls frame-slot-live? across frame slots, but a legal large-frame
+producer, target profile, exact value difference and native effect still need an
+independent witness. No native bug reproduction is claimed or attempted.
+
+Those random readers also use int literal 1 for their mask. The target contract
+must prove integer promotion, unsigned width and shift bounds, not rely on the
+width of the variable that later receives the result. See
+[[https://www.open-std.org/jtc1/sc22/wg14/www/docs/n1570.pdf][C draft N1570, section 6.5.7]] for promoted-operand and signed-shift conditions.
+This motivates a generated common bit-access contract, rather than isolated
+patches for one consumer. The proof oracle is the completed Scheme bitset and
+independent coordinate relation, not a second copy of the current random reader.
+Any discrepancy remains evidence to explain rather than an expectation to erase. Existing production-profile effects remain unresolved.
+
+* RESEARCH Root coverage is a union with controlled exceptions
+:PROPERTIES:
+:CUSTOM_ID: frame-root-union
+:END:
+
+An exact bitmap does not prove that all semantic roots were materialized or
+that its selected words are initialized/tag-valid. Source frame-live? includes
+special closure-environment handling, and internal-return generation explicitly
+marks saved GVM registers and a saved return value live. A full producer proof
+must follow all liveness transformations and checkpoint paths, not just the final
+bitmap builder. Return-variable initialization in the frontend is supporting
+source context, not a whole-program proof that every return map is admissible.
+
+The admitted root set is a union of data-map slots, saved return objects,
+control-chain roots, register/current/saved context roots, denv and foreign roots.
+Heap FRAME scanning separately visits H[0]. Its link handling temporarily hides
+a raw tagged frame edge, scans, then restores the interpreted link. That edge
+needs its own custody and origin invariant; it cannot be treated as an ordinary
+independent data slot. The current strong phase separately scans registers,
+saved values and processor/VM roots. FrameSpec covers a shared slice of that
+whole system and must not claim its bitmap covers all VM roots.
+
+Frame mutation and reconstruction remain real writers. frame-set!,
+continuation-set!, continuation-denv-set! and implode-frame must preserve the
+same location/root/initialization contract. make-frame already roots its return
+object around allocation; that protection is required baseline work. Future
+mature-frame scan exclusion additionally needs complete barrier/remembered-edge
+closure for every admitted managed and foreign writer. No bitmap generator or
+LLVM stack map supplies that proof. [[https://llvm.org/docs/StackMaps.html][LLVM's stack-map documentation]] describes
+location metadata; it does not choose this Gambit GC/SMP ownership protocol.
+
+* RESEARCH FrameSpec supplies one interface to the T0 target architecture
+:PROPERTIES:
+:CUSTOM_ID: frame-t0-composition
+:END:
+
+The target separates execution ownership, GC participation and collector work.
+A FrameRootView names VM/context incarnation, frame origin, schema/PointId,
+root locations, metadata lease and root/relocation epoch. A scanner operates
+under a scan grant, not because its worker index happens to equal a mutator's
+processor index. A worker reassignment must not silently transfer Scheme
+execution ownership or grant cross-VM continuation movement.
+
+The required order is final root stores -> stopped conflicting mutation ->
+published root cut -> admitted scanner -> relocation -> reload -> managed resume.
+The current device wait wrapper already flushes/restores cached state and return
+address; it is not an absent feature to add again. The redesign must generalize
+its guarantee across actual execution, blocking, callbacks and worker ownership.
+C locks or release/acquire, complete participant membership and all consumers
+remain proof obligations.
+
+Existing ROOT-HANDOFF, CONTROL-ORIGIN, RETIRE-WINDOW and GC-WORK-CLOSURE
+bindings provide scoped reusable relations and counterexamples. They are resolved
+through the existing registry in the [[file:../../../refactoring/modern-c/t0-foundation-design.org::t0-model-ownership][T0 ownership matrix]], not copied into DEV as new
+QNT/Lean sources. The new target protocol still needs its own initial-state and
+step/stutter relation, noncircular rely/guarantee argument, progress and native
+memory refinement. Frame algebra does not prove a scalable or deadlock-free SMP.
+
+* RESEARCH Proof and cost accounting
+:PROPERTIES:
+:CUSTOM_ID: frame-proof-and-cost
+:END:
+
+The ten FL duties refine ND-ENCODE/ROOT/CONTROL/PUBLISH/LIFETIME and identify
+proposed QNT states/actions and Lean laws. They are obligations, not implemented
+symbols or fresh checked proofs. The matrix distinguishes algebraic sketches,
+conditional source discrepancies and architecture counterexamples. The planned ASCENT boundary carries law, T0 lane, case identity and exact
+source bindings; its new FL adapter remains open. A scoped source/model
+association does not discharge any of these duties.
+
+The six cost cases explicitly separate current required baseline, potential
+removed duplication and actual incremental support. Root materialization,
+GC updates/reloads, necessary frame copy and supported continuation effects
+already exist and remain charged. New validation, grants/leases, queue handoff,
+barriers or metadata are evaluated as signed deltas against that baseline.
+Policy-owner reduction is not a runtime speedup; a correct coordinate map alone
+eliminates zero copied payload words. No person-days, guessed percentages or
+unqualified mature-scan reduction are used.
+
+#+NAME: frame-net-work-matrix
+| Mechanism | Work eligible for removal | Required baseline retained | Actual new delta / positive condition |
+|---+---+---+---|
+| One semantic FrameSpec | Independent handwritten field/bitmap policies | Descriptor lookup and root-map reads | Validation + target qualification; old writers/decoders must actually retire |
+| Shared coordinates | Repeated handwritten stack/heap offset decisions | F payload words copied on capture | No copy-word saving from algebra alone; generated access must preserve bounds and C provenance |
+| Root coverage | Eligible repeated mature traversal only | Live root visits, relocation and reload | Barrier + remembered-edge + promotion cost must be below avoided traversal; complete writer census required |
+| Work/context split | Provably avoidable imbalance or context-coupled coordination | Necessary copied/scanned bytes and phase work | Grant, queue and handoff cost must be below removed coordination/idle work; progress must hold |
+| Generated consumers | Repeated target policy expansion | Mechanical C and module descriptor production | Net generated-token work falls only after legacy expansion paths retire |
+| Descriptor lifetime | Unnecessary whole-image retention, if users drain | Legal metadata/continuation last use | Lease/drain metadata and synchronization; no early reclamation or hidden retained growth |
+
+No runtime/build/generator implementation, new QNT/Lean source or proof run,
+native test, native compilation or benchmark is performed. Documentation and
+ASCENT checks qualify correspondence only.

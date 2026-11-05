@@ -1,0 +1,125 @@
+#+TITLE: PutObjs / MoveObjs — pointer graph, source lease and retirement matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:AUTHORITY: GambitPutObjsMoveGraph
+:END:
+Safety-model closure does not certify native caller coverage, C23 execution or performance.
+
+** Gain
+
+| key | saved | added | condition | status |
+|---+---+---+---+---|
+| source-work | 401 kept-prefix reads;799 MoveObjs loop reads plus1 tail-link read advancing shared head;800 pop reads | total2001 selected next-link reads remain; no runtime reduction established | 801 shared nodes,800 transfer, destination empty and no other producer interference | source-bound |
+| independent-last | original lastPtr overwrite can commute with destination tail cut under disjoint ownership | must preserve original source cache metadata and retained401 pointer; no old-tail dereference | native storage/field disjointness and correct native owner | conditional-model |
+| opaque-identity | late query need not pin or inspect a returned/reinitialized tail object | pre-handoff stable NodeId/OperationId record; raw pointer is not a post-handoff lease | all queries/debug/hooks use metadata rather than stale object fields | conditional |
+| unknown-release | separate physical mutex states from unknown original completion; avoid unsafe replay/unlock | source cache/return domain may remain retained indefinitely even after destination drains800 | stable supervisor exists before release; actual cancellation/unwind landing still required | conditional-model |
+| retirement | source cache retirement need not retain transferred nodes once disjointness and all native users are closed | finalization, TLS and shared allocator provider obligations remain; old retired0 | selected consumer shared critical section complete; external finalization attestation | unresolved |
+
+** Consumer
+
+| key | source | access | lifetime | limit |
+|---+---+---+---+---|
+| source-last | put-last | write cache.lastPtr with retained last401 | source cache metadata and retained prefix; not transferred tail payload | native field alias disjointness required |
+| move-cursor | move-next | follow402..1201 with799 next-link reads | objLockPtr and destination-owned transfer | fixed canonical chain proof only |
+| move-tail | move-cut | tail1201.next becomes destination previous head0 | new consumer owns write while source cache may still store address1201 | old source cannot dereference target despite pointer value remaining |
+| allocated-tail | new-object | 800 allocation returns reach tail1201 and initialize Tcl object payload | destination allocation/returned object ownership | semantic role change; no physical free or proven C lifetime-end claim |
+| late-query | prior | read prepublished stable IDs rather than old native tail payload | independent record, source cache lease if needed | no reinterpretation of stale native pointer as a fresh safe identity |
+
+** Issuer
+
+| key | source | signature | gap |
+|---+---+---+---|
+| source-owner | put-last | known original unlock return, source cache alive and retained last401; overwrite only | an observed consumer acquire does not restore abandoned source C stack |
+| consumer-owner | move-publish | correct destination OS thread, objLockPtr held, transfer800 fully linked before unlock | consumer unknown exit/partial detach and arbitrary additional consumers remain open |
+| record-owner | prior | stable cache/node/operation incarnations recorded before old-tail handoff | no reading a stale raw pointer to manufacture identity after reuse |
+| retire-owner | cache-free | closed source admission, all native borrows detached and complete cache finalization known | source receipt is independent of shared-lock/provider retirement |
+
+** Refinement
+
+| key | lemma | source | premise |
+|---+---+---+---|
+| edge-encoding | PutObjsMoveGraph.encodingUnique | move-next | only two noncanonical link boundaries,401 and1201; distinct logical node identities |
+| canonical-witness | PutObjsMoveGraph.expandedEncodes | move-head | expanded graph represents exactly the selected canonical family |
+| cursor-read | PutObjsMoveGraph.physicalWalk | move-next | Safe and actual walkMovedNext guard; no moved-node return yet |
+| shared-detach | PutObjsMoveGraph.physicalDetach | move-detach | cursor reaches1201; graph tail edge matches QNT tailNext |
+| tail-cut | PutObjsMoveGraph.physicalCut | move-cut | destination initially empty and native fields do not alias producer metadata |
+| source-no-edge-read | PutObjsMoveGraph.producerFixPreservesEdges | put-last | actual source overwrite uses retained last pointer, never old tail target |
+| commutation | PutObjsMoveGraph.fixAndCutCommute | move-cut | consumer node link and producer cache metadata are separate native locations |
+| returned-no-free-link | PutObjsMoveGraph.allocatedTailNoLink | pop-return | 800 allocation returns; free-link role is distinct from C allocation lifetime |
+| opaque-no-borrow | PutObjsMoveGraph.opaqueCannotBorrow | prior | post-unlock source no longer has a target read lease |
+| unknown-no-retire | PutObjsMoveGraph.unknownCannotRetire | cache-free | original unlock knowledge remains unknown regardless of destination progress |
+
+** Obligation
+
+| key | status | condition |
+|---+---+---|
+| canonical-graph | conditional-model | injective disjoint node IDs: kept1..401, batch402..1201, old shared1202; destination initially empty |
+| source-order | source-bound | selected MoveObjs transfer800 walks799 links; PutObjs lastPtr store reads no old tail target |
+| native-encoding | unresolved | logical IDs to valid distinct native storage/fields, alias closure and complete writer observation |
+| unknown-unlock | unresolved | retain source C activation/cache/record; consumer success does not restore original native return domain |
+| retirement | unresolved | all source users/TLS, bucket/keep0 cleanup and shared-lock provider lifetimes; no generation ABA |
+| c23-order | unresolved | actual Tcl mutex provider synchronization and protected independent completion publication |
+| full-refinement | unresolved | source CFG, consumer interruption/reentry, arbitrary graphs/competing producers and full parent-product proof |
+
+** Route
+
+| actionName | lemma | source | obligation |
+|---+---+---+---|
+| knownProducerUnlock | PutObjsMoveGraph.knownProducerUnlockPreserves | put-unlock | canonical-graph |
+| unknownReleased | PutObjsMoveGraph.unknownReleasedPreserves | put-unlock | canonical-graph |
+| unknownStillHeld | PutObjsMoveGraph.unknownStillHeldPreserves | put-unlock | canonical-graph |
+| fixProducerLast | PutObjsMoveGraph.fixProducerLastPreserves | put-last | canonical-graph |
+| publishReceipt | PutObjsMoveGraph.publishReceiptPreserves | prior | canonical-graph |
+| closeSourceAdmission | PutObjsMoveGraph.closeSourceAdmissionPreserves | cache-free | canonical-graph |
+| sourceReadersDetached | PutObjsMoveGraph.sourceReadersDetachedPreserves | cache-free | canonical-graph |
+| attestSourceFinalized | PutObjsMoveGraph.attestSourceFinalizedPreserves | cache-free | canonical-graph |
+| reuseSourceCache | PutObjsMoveGraph.reuseSourceCachePreserves | cache-free | canonical-graph |
+| borrowOldTail | PutObjsMoveGraph.borrowOldTailPreserves | put-tail-read | canonical-graph |
+| acquireConsumer | PutObjsMoveGraph.acquireConsumerPreserves | consumer-lock | canonical-graph |
+| selectMove800 | PutObjsMoveGraph.selectMove800Preserves | move-cap | canonical-graph |
+| loadMoveHead | PutObjsMoveGraph.loadMoveHeadPreserves | move-head | canonical-graph |
+| creditDestination | PutObjsMoveGraph.creditDestinationPreserves | move-dest-count | canonical-graph |
+| debitShared | PutObjsMoveGraph.debitSharedPreserves | move-src-count | canonical-graph |
+| walkMovedNext | PutObjsMoveGraph.walkMovedNextPreserves | move-next | canonical-graph |
+| detachSharedHead | PutObjsMoveGraph.detachSharedHeadPreserves | move-detach | canonical-graph |
+| assignDestinationTail | PutObjsMoveGraph.assignDestinationTailPreserves | move-tail | canonical-graph |
+| cutMovedTail | PutObjsMoveGraph.cutMovedTailPreserves | move-cut | canonical-graph |
+| publishDestinationHead | PutObjsMoveGraph.publishDestinationHeadPreserves | move-publish | canonical-graph |
+| releaseConsumer | PutObjsMoveGraph.releaseConsumerPreserves | consumer-unlock | canonical-graph |
+| loadPopHead | PutObjsMoveGraph.loadPopHeadPreserves | pop-load | canonical-graph |
+| advanceInteriorHead | PutObjsMoveGraph.advanceInteriorHeadPreserves | pop-next | canonical-graph |
+| advanceLastHead | PutObjsMoveGraph.advanceLastHeadPreserves | pop-next | canonical-graph |
+| decrementDestination | PutObjsMoveGraph.decrementDestinationPreserves | pop-count | canonical-graph |
+| returnInterior | PutObjsMoveGraph.returnInteriorPreserves | pop-return | canonical-graph |
+| returnTail | PutObjsMoveGraph.returnTailPreserves | pop-return | canonical-graph |
+| initializeTailPayload | PutObjsMoveGraph.initializeTailPayloadPreserves | new-object | canonical-graph |
+
+** Source
+
+| key | path | needle | limit |
+|---+---+---+---|
+| put-unlock | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_MutexUnlock(objLockPtr); | known release and unknown release/held branches are distinct |
+| put-last | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | fromPtr->lastPtr = lastPtr; | overwrite owner cache field without dereferencing old tail |
+| put-tail-read | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | fromPtr->lastPtr->internalRep.twoPtrValue.ptr1 = sharedPtr->firstObjPtr; | last PutObjs target access through old tail occurs under shared lock |
+| consumer-lock | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | numMove = sharedPtr->numObjects; | read under consumer objLockPtr, never pre-lock snapshot |
+| move-cap | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | if (numMove > NOBJALLOC) { | 801 shared nodes implies selected transfer800 |
+| move-head | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_Obj *objPtr = fromPtr->firstObjPtr; | capture batch head before count writes |
+| move-dest-count | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | toPtr->numObjects += numMove; | destination credit precedes graph detach |
+| move-src-count | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | fromPtr->numObjects -= numMove; | source debit precedes traversal |
+| move-next | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | objPtr = objPtr->internalRep.twoPtrValue.ptr1; | 799 link reads for transfer800 |
+| move-detach | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | fromPtr->firstObjPtr = objPtr->internalRep.twoPtrValue.ptr1; | shared head becomes old suffix at node1202 |
+| move-tail | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | toPtr->lastPtr = objPtr; | destination takes tail1201 |
+| move-cut | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | objPtr->internalRep.twoPtrValue.ptr1 = toPtr->firstObjPtr; /* NULL */ | write transferred tail link; original owner must not dereference |
+| move-publish | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | toPtr->firstObjPtr = fromFirstObjPtr; | destination head published under lock |
+| consumer-unlock | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | Tcl_MutexUnlock(objLockPtr); | selected consumer known return; unknown consumer exit not closed |
+| pop-load | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | objPtr = cachePtr->firstObjPtr; | pop current destination head |
+| pop-next | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr->firstObjPtr = objPtr->internalRep.twoPtrValue.ptr1; | native next read before object allocation return |
+| pop-count | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | cachePtr->numObjects--; | debit destination after head change |
+| pop-return | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | return objPtr; | returned storage no longer grants old producer a free-link lease |
+| new-object | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclInt.h | (objPtr)->typePtr  = NULL; | TclNewObj resets payload after allocation; no claim of C storage lifetime end |
+| cache-free | evidence/research/source-references/tcl/cbf86d62348d6b052e1961b4df995960fb21545f/generic/tclThreadAlloc.c | TclpSysFree(cachePtr); | all buckets/keep0/TLS/native borrowers need independent closure |
+| prior | dev/refactoring/modern-c/models/quint/putobjs_custody.qnt | action takePublishedBatch= | actual previous opaque event is replaced at destination publication |

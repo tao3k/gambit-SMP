@@ -1,0 +1,158 @@
+#+TITLE: Frame Contract Realization: First Modern C Source Cut
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+OPTIONS: toc:3 num:nil
+#+PROPERTY: header-args :eval never
+
+* Implemented responsibility replacement :modern_c:compiler:gc:control:
+:PROPERTIES:
+:CUSTOM_ID: frame-contract-realization
+:AUTHORITY: GambitFrameContractRealization
+:STATUS: SOURCE-IMPLEMENTED; FOCUSED-NATIVE-CHECKED; WHOLE-COHORT-OPEN
+:VENDOR_BRANCH: modern-c
+:VENDOR_COMMIT: 5b1232c97a67346040ca14b5b9675214a886cede
+:END:
+This implements the physical-frame portion of the [[file:map-multishot-composition.org][joint map witness]]. It is
+an actual generator/consumer replacement: all return-label producers now create
+one validated Scheme frame plan; every C frame getter uses one typed decoder.
+The latter is consumed by GC and continuation restoration, not an unused API.
+No extra activation gate or second runtime language is introduced in this cut.
+
+[[file:models/sysml/frame-contract-realization.sysml][Native SysML]] references the existing semantic, collector and control owners
+and the canonical internal-frame coordinate law. It assigns six proof scopes
+through fourteen component uses. [[file:frame-contract-matrix.org][The matrix]] and [[file:diagrams/frame-contract-realization.d2][D2]] are projections.
+The [[file:../../modeling/ascent/frame-contract.request.scm][executable ASCENT request]] reuses the [[file:../../modeling/ascent/map-multishot.rules.scm][shared scope-checking DSL]], rather than
+introducing another proof engine. A matching physical slice cannot close the
+whole-runtime semantic or bootstrap scopes.
+
+:LOGBOOK:
+- [2026-10-23 Fri] Source cut implemented and focused native checks executed.
+  All Lean/QNT/DEV artifacts moved out of vendor at the user's request. The
+  prior vendor DEV plan is retained only as a historical source record in DEV.
+:END:
+
+* Code path and what actually retired
+** Scheme producer
+=gsc/_t-c-2.scm= now routes normal, task and internal return labels through
+=targ-make-frame-spec=. The private vector carries tag, kind, stored size,
+actual size, link, root bitmap and inline/outline decision. Validation rejects
+invalid kinds, nonexact/negative fields, unrepresentable 14-bit stored size or
+link, links outside the physical frame and bits outside its extent.
+
+=gsc/_t-c-1.scm= uses named accessors in its three return-table/OFD-count/OFD-
+emission consumers. The old raw four-position vectors and the separate
+=targ-out-of-line-frame?=/=targ-actual-fs= decision path are retired. GC bitmap
+chunks are materialized only at emission, using the stored actual size. They
+are not retained for all frames throughout the module plan.
+
+The physical plan is not yet the full semantic FrameSpec from the blueprint:
+liveness, PointId origins, effect completion and transitive runtime-role closure
+remain separate obligations. The current 5/14-bit descriptor widths and 32-bit
+portable inline threshold are retained format facts, checked against consumers;
+this is not an arbitrary-target layout service.
+
+** C consumer
+=include/gambit.h.in= defines =___frame_descriptor= and the pure, nonallocating
+=___decode_frame_descriptor=. Seven existing getters become mechanical field
+projections. Their generated-code names remain usable; their independent
+IFD/OFD interpretation bodies are gone. =mem.c= stack/captured/heap scans,
+kernel frame inspection and restoration therefore share the decoder.
+
+The caller still selects stored/caller extent versus internal physical extent
+after recognizing the return context. The decoder does not guess this from a
+descriptor kind or establish metadata lifetime. Input module metadata must be
+valid and live, and the existing root/continuation protocol must be admitted.
+Inline bitmap tails are explicitly null. Out-of-line tails follow the first
+native-word bitmap. Current wire tags, packing and frame coordinates are kept.
+
+This is a direct change to the active reader implementations. It does not
+replace the copying collector with a generational one, change GC membership,
+or qualify opaque FFI borrows and independent collector workers.
+
+* Quantitative accounting and counterarguments
+:PROPERTIES:
+:CUSTOM_ID: frame-contract-payoff
+:END:
+| Dimension | Previous responsibility | Implemented result | Added cost / limit |
+|-----------+-------------------------+--------------------+--------------------|
+| Return plan | Four unchecked positions reconstructed by consumers | Seven named logical fields including tag; one validated construction path | Three extra Scheme vector payload words per label: 24 payload bytes at 64 bits, excluding allocator rounding |
+| Physical extent/IFD decision | Two to four computations per return label across count/label/OFD/chunk paths | One computation stored in the plan | Range/root-bound validation, including temporary arithmetic; no compiler-time speedup measured |
+| Root bitmap chunks | Allocated while emitting one OFD entry | Same transient lifetime, derived from completed plan | No module-wide retained chunk-list cache |
+| Native frame readers | Seven IFD/OFD interpretation bodies | One typed decoder, seven stable projections | Inline/local temporaries and metadata loads need machine-code evaluation; zero runtime overhead is not claimed |
+| Persistent runtime state | Existing VM/context layout | No new VM fields, counters, locks or allocator calls in this cut | Existing inactive scope-gate storage from the parent commit is not a benefit of this change |
+| Generated witness ABI | Existing IFD/OFD bytes | Parent-source and new-source generated C are byte-identical for the matched witness | One witness is not universal source or profile equivalence |
+| Semantic work | Multi-shot source behavior | Three results retained; five callbacks, three C calls, three wind pairs survive forced GC | No legal elimination of suffix effects, no claim of concurrent resume safety |
+
+The leverage is a single physical interpretation that later heap, control,
+scheduler and backend work can consume and independently qualify. If future
+work keeps a second authoritative interpretation, this replacement loses its
+architectural purpose. The extra compiler metadata and validation can regress
+compiler cost; measure that instead of treating fewer decision sites as elapsed
+time saved. Existing GCC/Darwin macro costs are not solved by this cut alone.
+
+The matched retained-profile =mem.c= comparison uses identical GCC flags and
+changes only the decoder region. Preprocessed =-E -P= output decreases from
+474,234 to 472,170 bytes (2,064 fewer); the Mach-O object's =__TEXT= segment
+decreases from 37,381 to 36,869 bytes (512 fewer). These are local byte counts,
+not elapsed-time, whole-build or runtime-speedup results. The receipt binds
+both objects, both preprocessed files and the command inputs.
+
+* Executed evidence and boundaries
+:PROPERTIES:
+:CUSTOM_ID: frame-contract-checks
+:END:
+[[file:../../../evidence/research/modern-c-frame-contract/source-bindings.json][Exact input bindings]] distinguish vendor sources, DEV models, retained native
+archive/profile and the copied decoder region. [[file:../../../evidence/research/modern-c-frame-contract/verification.json][The check receipt]] records the
+actual vendor commit and all focused results.
+
+1. The three changed backend Scheme sources were loaded into the retained GSC.
+   The real constructor passed 2,387 checks and produced 306 fixtures for GVM
+   register counts 3, 5 and 25, normal/task/internal kinds, inline boundaries,
+   multiword maps and eleven invalid-input controls. Only the diagnostic sink
+   and register-query dependency are substituted in that unit test.
+2. A C consumer using the configured current header checked all 306 cases
+   across those three register counts, including all seven projections with
+   alternate output variable names and single evaluation of the label operand.
+   ASan/UBSan and C++ header-compatibility controls also passed. These execute
+   on a 64-bit host; a 32-bit native ABI is not qualified by chunk arithmetic.
+3. Both the parent backend sources and the new backend sources compiled the
+   same =frame-continuation.scm= input to byte-identical C. The executable
+   contains a real C suffix, forced GC and repeated =map= continuation restore,
+   with independent value/effect/wind expectations.
+4. The exact new decoder region was projected into the retained GCC-profile
+   configured header. Its existing =mem.c= was rebuilt as one new object and
+   linked ahead of the unchanged archive, using a freshly generated matching
+   program/linker pair. The new-decoder GC witness passed. This is an explicit
+   ABI-preserving consumer slice, not a complete build of the modern-c vendor
+   runtime. No producer tree/archive was edited or duplicated.
+5. All three changed compiler modules produced bootstrap C; syntax checks
+   passed. Generated C stays in task evidence, following the upstream
+   =deselect-gen-for-commit= convention. No two-pass/full compiler bootstrap is
+   claimed. Make's =test-frame-contract= target now includes producer, decoder
+   and continuation checks, but the entire Make suite was not run here.
+6. DEV [[file:models/quint/frame_contract.qnt][QNT]] checks finite descriptor arithmetic, including an omitted internal
+   area counterexample and a deliberately failing invariant control. DEV
+   [[file:models/lean/FrameContract.lean][Lean]] proves seven field-packing laws with explicit bounds. Neither proves C
+   pointer/shift legality, metadata lifetime, all root coverage or scheduler
+   progress. Six ASCENT scenarios reject digest/scope widening.
+
+Retain failures: the initial GSC option order did not enter compile mode; the
+first native driver link lacked system-symbol resolution; an incomplete manual
+profile omitted generated-code flags; a C99 rebuild did not satisfy the retained
+profile's =thread_local= requirement. Clang objects mixed into that retained GCC
+runtime failed with both old and new decoder bodies. Those old/new failures are
+not attributed to this decoder and do not qualify Clang/GCC mixing. Subsequent
+GCC-profile consumer success is a separate, explicitly scoped receipt.
+
+* Repository ownership and remaining adoption gates
+Vendor owns compiler/runtime code and C/Scheme source regressions. DEV owns
+[[file:models/lean/FrameContract.lean][Lean]], [[file:models/quint/frame_contract.qnt][QNT]], SysML, ASCENT, D2, study records and their evidence routes.
+The former native-scope [[file:../../architecture/runtime/gc/models/lean/NativeScopeGate.lean][Lean]] and [[file:../../architecture/runtime/gc/models/quint/write_authority_gate.qnt][QNT]] files moved byte-for-byte to DEV and were
+rechecked there. Historical receipts keep their original vendor commit/paths;
+the old [[file:../../modeling/ascent/history/native-scope-gate.request.scm][native-scope request]] is archived, not relabeled as current admission.
+
+=FC-COHORT= remains open for a coherent compiled compiler/current vendor runtime
+bootstrap, all required profiles and downstream tests. =FC-FULL= remains open
+for the joint semantic/root/writer/GC/scheduler/FFI proof. Existing 8/12 native
+acceptance does not advance. This commit supplies a real shared contract cut;
+the whole-runtime replacement remains governed by the modernization target.

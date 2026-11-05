@@ -1,0 +1,774 @@
+--- a/lib/setup.c
++++ b/lib/setup.c
+@@ -5054,6 +5054,84 @@
+         ());
+ 
+ 
++/* Private to this call. Not a public ABI field, not TLS, and not indexed
++   by processor id. Scalars are copied at the failure site; this struct
++   holds no Scheme reference. */
++#define RUN_SITE_NONE 0
++#define RUN_SITE_OWNER 1
++#define RUN_SITE_ALLOC 2
++#define RUN_SITE_JOURNAL 3
++#define RUN_SITE_CHARGE_CLOSED 4
++#define RUN_SITE_CHARGE_OVERFLOW 5
++#define RUN_SITE_COUNT_OVERFLOW 6
++
++struct ___run_call_outcome
++  {
++    int admitted;
++    int site;
++    int close_origin;
++    int close_proof;
++    unsigned long vm_scalar;
++    ___U64 incarnation;
++    ___U64 destroy_ticket;
++    ___U64 key_instance_epoch;
++    ___U64 key_vm_epoch;
++    ___U64 key_record_slot;
++    ___U64 key_record_epoch;
++  };
++
++static void run_outcome_clear
++   ___P((struct ___run_call_outcome *outcome),
++        (outcome)
++struct ___run_call_outcome *outcome;)
++{
++  if (outcome == 0)
++    return;
++  outcome->admitted = 0;
++  outcome->site = RUN_SITE_NONE;
++  outcome->close_origin = 0;
++  outcome->close_proof = 0;
++  outcome->vm_scalar = 0;
++  outcome->incarnation = 0;
++  outcome->destroy_ticket = 0;
++  outcome->key_instance_epoch = 0;
++  outcome->key_vm_epoch = 0;
++  outcome->key_record_slot = 0;
++  outcome->key_record_epoch = 0;
++}
++
++static void run_outcome_fail
++   ___P((struct ___run_call_outcome *outcome,
++         int site),
++        (outcome,
++         site)
++struct ___run_call_outcome *outcome;
++int site;)
++{
++  if (outcome == 0)
++    return;
++  outcome->admitted = 0;
++  outcome->site = site;
++  outcome->close_origin = 0;
++  outcome->close_proof = 0;
++  outcome->vm_scalar = 0;
++  outcome->incarnation = 0;
++  outcome->destroy_ticket = 0;
++  outcome->key_instance_epoch = 0;
++  outcome->key_vm_epoch = 0;
++  outcome->key_record_slot = 0;
++  outcome->key_record_epoch = 0;
++}
++
++static ___SCMOBJ ___run_with_outcome
++   ___P((___PSD
++         ___SCMOBJ thunk,
++         struct ___run_call_outcome *outcome,
++         int force_site),
++        ());
++
++void service_sync_op ___P((___PSDNC),());
++
+ void ___run_and_throw_error_on_processor_0
+    ___P((___PSD
+          ___SCMOBJ thunk),
+@@ -5065,6 +5143,7 @@
+   ___PSGET
+   ___SCMOBJ ___err;
+   ___sync_op_struct sop;
++  struct ___run_call_outcome outcome;
+ 
+   /*
+    * Start the processor's execution by a call to thunk.  This call
+@@ -5072,15 +5151,24 @@
+    * when the Gambit VM terminates normally or with an error.
+    */
+ 
+-  ___err = ___run (___PSP thunk);
++  run_outcome_clear (&outcome);
++  ___err = ___run_with_outcome (___PSP thunk, &outcome, 0);
+ 
+ #ifndef ___SINGLE_THREADED_VMS
+-  /* A processor that never published scheduler membership has not joined
+-     the cohort. Electing its ___run return, including INVALID_OP, over the
+-     destroy shrink makes P0 abandon a resize that itself returned success.
+-     Stay in the sync loop so that shrink can retire the slot. */
+-  if (___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps)) != 0 &&
+-      __atomic_load_n (&___ps->scheduler_status, __ATOMIC_ACQUIRE) == 0)
++  /* outcome is this frame only. Nested and repeated ___run calls use
++     other frames, so a same processor id cannot overwrite it.
++     Service only when THIS call was not admitted and the charge site
++     itself copied a matching destroy ticket. Admitted marker, malloc,
++     journal, and overflow results fall through and are elected below.
++     The reservation charge and startup_root were published by
++     ___native_owner_reserve_worker before this thread reached ___run.
++     ___native_owner_reclaim_joined calls ___thread_join before it
++     uncharges or drops that owner. This loop does not zero counts,
++     clear startup_root, or set handler_quiet. */
++  if (outcome.admitted == 0 &&
++      outcome.site == RUN_SITE_CHARGE_CLOSED &&
++      outcome.close_proof == 1 &&
++      outcome.close_origin == DELIVERY_ORIGIN_DESTROY)
+     {
+       for (;;)
+         service_sync_op (___PSPNC);
+@@ -5485,7 +5573,7 @@
+             }
+ 
+           __atomic_store_n (&ps->scheduler_epoch, ___vms->startup_epoch,
+-                            __ATOMIC_RELAXED);
++                            __ATOMIC_RELEASE);
+         }
+ 
+       /*
+@@ -5574,9 +5662,14 @@
+         if (target > 0 && target < vms->processor_count)
+           {
+             ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(target,vms);
+-            if (ps->scheduler_epoch == vms->startup_epoch &&
+-                (___WORD)ps->scheduler_epoch == sop_ptr->arg[1])
+-              __atomic_store_n (&ps->scheduler_status, 1, __ATOMIC_RELEASE);
++            {
++              ___U64 epoch = __atomic_load_n (&ps->scheduler_epoch,
++                                              __ATOMIC_ACQUIRE);
++
++              if (epoch == vms->startup_epoch &&
++                  (___WORD)epoch == sop_ptr->arg[1])
++                __atomic_store_n (&ps->scheduler_status, 1, __ATOMIC_RELEASE);
++            }
+           }
+       }
+ #endif
+@@ -5867,9 +5960,14 @@
+               if (winner_id > 0)
+                 {
+                   ___processor_state ps = ___PSTATE_FROM_PROCESSOR_ID(winner_id,___vms);
+-                  if (ps->scheduler_epoch == ___vms->startup_epoch &&
++                  if (sop.arg[0] != ___FIX(___NO_ERR) &&
++                      ps->scheduler_epoch == ___vms->startup_epoch &&
+                       __atomic_load_n (&ps->scheduler_status, __ATOMIC_ACQUIRE) == 0)
+-                    __atomic_store_n (&ps->scheduler_status, -1, __ATOMIC_RELEASE);
++                    {
++                      fprintf (stderr, "STARTUP-FAIL id=%d err=%lx\n",
++                               winner_id, (unsigned long)sop.arg[0]);
++                      __atomic_store_n (&ps->scheduler_status, -1, __ATOMIC_RELEASE);
++                    }
+                 }
+ #endif
+               if (___err == ___FIX(___NO_ERR))
+@@ -5915,11 +6013,24 @@
+       first_iter = 0;
+     }
+ 
++  /* startup_begin/end/epoch stay recorded for this call. Waiting here on
++     scheduler_status deadlocks or times out: a new worker can return from
++     ___run with NO_ERR before READY is visible, and the linked startup
++     path publishes READY only after it has left this barrier. Do not turn
++     that window into UNKNOWN. */
++  (void)startup_call;
++  (void)startup_begin;
++  (void)startup_end;
++  (void)startup_epoch;
++
+   if (resize_caller && ___err != ___FIX(___NO_ERR))
+     sop_ptr->arg[0] = ___err;
+ 
+   if (id == 0 && ___err != ___FIX(___NO_ERR) && ___GSTATE->setup_state != 2)
+-    ___throw_error (___PSP ___err);
++    {
++      fprintf (stderr, "SYNC-THROW-EXIT err=%lx\n", (unsigned long)___err);
++      ___throw_error (___PSP ___err);
++    }
+ }
+ 
+ 
+@@ -8641,7 +8752,9 @@
+    ___P((struct ___native_owner_struct *owner),());
+ static int ___native_owner_charge
+    ___P((___virtual_machine_state ___vms,
+-         ___processor_state ___ps),());
++         ___processor_state ___ps,
++         int *site,
++         struct ___run_call_outcome *outcome),());
+ static void ___native_owner_uncharge
+    ___P((___virtual_machine_state ___vms,
+          ___processor_state ___ps),());
+@@ -8652,43 +8765,69 @@
+ 
+ static int ___run_child_begin
+    ___P((___processor_state ___ps,
+-         struct ___native_owner_struct **out),
++         struct ___native_owner_struct **out,
++         struct ___run_call_outcome *outcome,
++         int force_site),
+         (___ps,
+-         out)
++         out,
++         outcome,
++         force_site)
+ ___processor_state ___ps;
+-struct ___native_owner_struct **out;)
++struct ___native_owner_struct **out;
++struct ___run_call_outcome *outcome;
++int force_site;)
+ {
+   ___virtual_machine_state ___vms = ___VMSTATE_FROM_PSTATE(___ps);
+   struct ___native_owner_struct *owner =
+     ___CAST(struct ___native_owner_struct*,___ps->native_owner);
+   struct ___native_owner_struct *activation;
++  int id = ___PROCESSOR_ID(___ps,___vms);
++  int site = RUN_SITE_NONE;
++  int alloc_fail;
++  int journal_fail;
+ 
+   if (owner == 0 || owner->kind != ___OWNER_KIND_OWNER ||
+       owner->phase != ___OWNER_HOST_OWNER)
+-    return 0;
+-  activation =
+-    ___CAST(struct ___native_owner_struct*,
+-            malloc (sizeof (struct ___native_owner_struct)));
++    {
++      run_outcome_fail (outcome, RUN_SITE_OWNER);
++      return RUN_SITE_OWNER;
++    }
++  alloc_fail = force_site == RUN_SITE_ALLOC;
++  if (!alloc_fail && id != 0)
++    alloc_fail = gate_env_once ("startup-run-alloc");
++  activation = alloc_fail
++    ? 0
++    : ___CAST(struct ___native_owner_struct*,
++              malloc (sizeof (struct ___native_owner_struct)));
+   if (activation == 0)
+-    return 0;
++    {
++      run_outcome_fail (outcome, RUN_SITE_ALLOC);
++      return RUN_SITE_ALLOC;
++    }
+   native_owner_clear (activation);
+   activation->kind = ___OWNER_KIND_RUN;
+   activation->phase = ___OWNER_RUNNING;
+   activation->vm = ___vms;
+   activation->ps = ___ps;
+   activation->parent_key = owner->key;
+-  if (!___native_owner_charge (___vms, ___ps))
++  if (!___native_owner_charge (___vms, ___ps, &site, outcome))
+     {
+       free (activation);
+-      return 0;
++      return site;
+     }
+   activation->charged = 1;
+   activation->held = 1;
+-  if (!native_journal_publish (activation))
+-    {
++  journal_fail = force_site == RUN_SITE_JOURNAL;
++  if (!journal_fail && id != 0)
++    journal_fail = gate_env_once ("startup-run-journal");
++  /* The publish-failure path never links this activation. A cut takes
++     that same branch without leaving a journal slot behind. */
++  if (journal_fail || !native_journal_publish (activation))
++    {
++      run_outcome_fail (outcome, RUN_SITE_JOURNAL);
+       ___native_owner_uncharge (___vms, ___ps);
+       free (activation);
+-      return 0;
++      return RUN_SITE_JOURNAL;
+     }
+   activation->previous_run = owner->child;
+   owner->child = activation;
+@@ -8696,7 +8835,14 @@
+     owner->live_children += 1;
+   ___ps->run_activation = activation;
+   *out = activation;
+-  return 1;
++  if (outcome != 0)
++    {
++      outcome->admitted = 1;
++      outcome->site = RUN_SITE_NONE;
++      outcome->close_proof = 0;
++      outcome->close_origin = 0;
++    }
++  return RUN_SITE_NONE;
+ }
+ 
+ static void ___run_child_finalize
+@@ -8961,13 +9107,89 @@
+   return ___FIX(___NO_ERR);
+ }
+ 
++static void run_outcome_close_proof
++   ___P((___virtual_machine_state ___vms,
++         struct ___run_call_outcome *outcome),
++        (___vms,
++         outcome)
++___virtual_machine_state ___vms;
++struct ___run_call_outcome *outcome;)
++{
++  struct ___native_owner_struct *root;
++  unsigned long vm_bits;
++  ___U64 incarnation;
++  ___U64 ticket;
++  ___U64 inst;
++  ___U64 vm_epoch;
++  ___U64 slot;
++  ___U64 rec;
++  int origin;
++  int proof;
++
++  if (outcome == 0)
++    return;
++  /* Reached only from the closed-bit branch. Scalars are taken here,
++     while the parent lookup pin is still held by the caller. */
++  run_outcome_fail (outcome, RUN_SITE_CHARGE_CLOSED);
++  if (___vms == 0)
++    return;
++  vm_bits = (unsigned long)___vms;
++  origin = 0;
++  proof = 0;
++  incarnation = 0;
++  ticket = 0;
++  inst = 0;
++  vm_epoch = 0;
++  slot = 0;
++  rec = 0;
++  if (__atomic_load_n (&delivery_close.published, __ATOMIC_ACQUIRE) &&
++      delivery_close.vm == ___vms &&
++      delivery_close.origin == DELIVERY_ORIGIN_DESTROY)
++    {
++      origin = DELIVERY_ORIGIN_DESTROY;
++      incarnation = delivery_close.incarnation;
++      ticket = delivery_close.guard_generation;
++      inst = delivery_close.key.instance_epoch;
++      vm_epoch = delivery_close.key.vm_epoch;
++      slot = delivery_close.key.record_slot;
++      rec = delivery_close.key.record_epoch;
++      root = root_instance_owner;
++      if (root != 0 &&
++          root->vm == ___vms &&
++          root->phase == ___OWNER_DESTROY_OWNED &&
++          incarnation == vm_epoch &&
++          root->key.instance_epoch == inst &&
++          root->key.vm_epoch == vm_epoch &&
++          root->key.record_slot == slot &&
++          root->key.record_epoch == rec)
++        proof = 1;
++    }
++  outcome->site = RUN_SITE_CHARGE_CLOSED;
++  outcome->admitted = 0;
++  outcome->close_origin = origin;
++  outcome->close_proof = proof;
++  outcome->vm_scalar = vm_bits;
++  outcome->incarnation = incarnation;
++  outcome->destroy_ticket = ticket;
++  outcome->key_instance_epoch = inst;
++  outcome->key_vm_epoch = vm_epoch;
++  outcome->key_record_slot = slot;
++  outcome->key_record_epoch = rec;
++}
++
+ static int ___native_owner_charge
+    ___P((___virtual_machine_state ___vms,
+-         ___processor_state ___ps),
++         ___processor_state ___ps,
++         int *site,
++         struct ___run_call_outcome *outcome),
+         (___vms,
+-         ___ps)
++         ___ps,
++         site,
++         outcome)
+ ___virtual_machine_state ___vms;
+-___processor_state ___ps;)
++___processor_state ___ps;
++int *site;
++struct ___run_call_outcome *outcome;)
+ {
+   ___UWORD old;
+   ___WORD count;
+@@ -8975,8 +9197,20 @@
+   do
+     {
+       old = ___COMPARE_AND_SWAP_WORD(&___vms->run_cleanup_gate, 0, 0);
+-      if ((old & 1) || old > (~(___UWORD)0) - 2)
+-        return 0;
++      if (old & 1)
++        {
++          if (site != 0)
++            *site = RUN_SITE_CHARGE_CLOSED;
++          run_outcome_close_proof (___vms, outcome);
++          return 0;
++        }
++      if (old > (~(___UWORD)0) - 2)
++        {
++          if (site != 0)
++            *site = RUN_SITE_CHARGE_OVERFLOW;
++          run_outcome_fail (outcome, RUN_SITE_CHARGE_OVERFLOW);
++          return 0;
++        }
+     }
+   while (___COMPARE_AND_SWAP_WORD(&___vms->run_cleanup_gate, old, old + 2) != old);
+   do
+@@ -8985,6 +9219,9 @@
+       if (count == ___MAX_FIX)
+         {
+           ___run_gate_unenter (___vms);
++          if (site != 0)
++            *site = RUN_SITE_COUNT_OVERFLOW;
++          run_outcome_fail (outcome, RUN_SITE_COUNT_OVERFLOW);
+           return 0;
+         }
+     }
+@@ -9023,7 +9260,7 @@
+ 
+   if (owner == 0 || owner->phase != ___OWNER_PRIVATE_BOOTSTRAP)
+     return 0;
+-  if (!___native_owner_charge (___vms, ___ps))
++  if (!___native_owner_charge (___vms, ___ps, 0, 0))
+     return 0;
+   owner->vm = ___vms;
+   owner->ps = ___ps;
+@@ -9053,7 +9290,7 @@
+   owner->ps = ___ps;
+   owner->phase = ___OWNER_RESERVED;
+   owner->create_state = ___CREATE_NOT_ATTEMPTED;
+-  if (!___native_owner_charge (___vms, ___ps))
++  if (!___native_owner_charge (___vms, ___ps, 0, 0))
+     {
+       free (owner);
+       return 0;
+@@ -9682,6 +9919,117 @@
+   return ___FIX(___INVALID_OP_ERR);
+ }
+ 
++static ___SCMOBJ run_site_error
++   ___P((int site),
++        (site)
++int site;)
++{
++  switch (site)
++    {
++    case RUN_SITE_ALLOC:
++      return ___FIX(___HEAP_OVERFLOW_ERR);
++    case RUN_SITE_JOURNAL:
++    case RUN_SITE_CHARGE_OVERFLOW:
++    case RUN_SITE_COUNT_OVERFLOW:
++      return ___FIX(___IMPL_LIMIT_ERR);
++    case RUN_SITE_OWNER:
++    case RUN_SITE_CHARGE_CLOSED:
++      return ___FIX(___INVALID_OP_ERR);
++    default:
++      return ___FIX(___UNKNOWN_ERR);
++    }
++}
++
++static ___U32 run_site_reason
++   ___P((int site),
++        (site)
++int site;)
++{
++  switch (site)
++    {
++    case RUN_SITE_ALLOC:
++    case RUN_SITE_JOURNAL:
++    case RUN_SITE_CHARGE_OVERFLOW:
++    case RUN_SITE_COUNT_OVERFLOW:
++      return ___NATIVE_REASON_LIMIT;
++    case RUN_SITE_OWNER:
++      return ___NATIVE_REASON_BAD_PHASE;
++    case RUN_SITE_CHARGE_CLOSED:
++      return ___NATIVE_REASON_CLOSED;
++    default:
++      return ___NATIVE_REASON_INTEGRITY;
++    }
++}
++
++static ___SCMOBJ ___run_entry_begin_outcome
++   ___P((___native_owner parent,
++         ___native_op_result *r,
++         struct ___run_call_outcome *outcome,
++         int force_site),
++        (parent,
++         r,
++         outcome,
++         force_site)
++___native_owner parent;
++___native_op_result *r;
++struct ___run_call_outcome *outcome;
++int force_site;)
++{
++  struct ___native_owner_struct *owner;
++  struct ___native_owner_struct *activation;
++  int busy;
++  int site;
++  if (!native_result_prefix_ok (r))
++    return ___FIX(___INVALID_OP_ERR);
++  owner = native_lookup_pin (parent, &busy);
++  if (busy)
++    {
++      native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_BUSY,
++                           0, native_handle_none (), 0,
++                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++      return ___FIX(___INVALID_OP_ERR);
++    }
++  if (owner == 0 || owner->kind != ___OWNER_KIND_OWNER || owner->ps == 0)
++    {
++      native_lookup_unpin (owner);
++      native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
++                           0, native_handle_none (), 0,
++                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++      return ___FIX(___INVALID_OP_ERR);
++    }
++  if (owner->phase != ___OWNER_HOST_OWNER)
++    {
++      ___U32 phase = owner->phase;
++      ___native_handle key = owner->key;
++      ___U64 progress = owner->progress;
++
++      native_lookup_unpin (owner);
++      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BAD_PHASE,
++                           phase, key, progress,
++                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++      return ___FIX(___INVALID_OP_ERR);
++    }
++  site = ___run_child_begin (owner->ps, &activation, outcome, force_site);
++  if (site != RUN_SITE_NONE)
++    {
++      ___U32 phase = owner->phase;
++      ___native_handle key = owner->key;
++      ___U64 progress = owner->progress;
++      ___SCMOBJ err = run_site_error (site);
++
++      native_lookup_unpin (owner);
++      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, run_site_reason (site),
++                           phase, key, progress,
++                           ___FIX(___NO_ERR), err);
++      return err;
++    }
++  native_result_write (r, ___NATIVE_DISP_LIVE_RUN, ___NATIVE_REASON_OK,
++                       activation->phase, activation->key, activation->progress,
++                       ___FIX(___NO_ERR), ___FIX(___NO_ERR));
++  native_lookup_unpin (owner);
++  return ___FIX(___NO_ERR);
++}
++
+ ___EXP_FUNC(___SCMOBJ,___run_entry_begin)
+    ___P((___native_owner parent,
+          ___native_op_result *r),
+@@ -9690,56 +10038,7 @@
+ ___native_owner parent;
+ ___native_op_result *r;)
+ {
+-  struct ___native_owner_struct *owner;
+-  struct ___native_owner_struct *activation;
+-  int busy;
+-  if (!native_result_prefix_ok (r))
+-    return ___FIX(___INVALID_OP_ERR);
+-  owner = native_lookup_pin (parent, &busy);
+-  if (busy)
+-    {
+-      native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_BUSY,
+-                           0, native_handle_none (), 0,
+-                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  if (owner == 0 || owner->kind != ___OWNER_KIND_OWNER || owner->ps == 0)
+-    {
+-      native_lookup_unpin (owner);
+-      native_result_write (r, ___NATIVE_DISP_NONE, ___NATIVE_REASON_STALE,
+-                           0, native_handle_none (), 0,
+-                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  if (owner->phase != ___OWNER_HOST_OWNER)
+-    {
+-      ___U32 phase = owner->phase;
+-      ___native_handle key = owner->key;
+-      ___U64 progress = owner->progress;
+-
+-      native_lookup_unpin (owner);
+-      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_BAD_PHASE,
+-                           phase, key, progress,
+-                           ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  if (!___run_child_begin (owner->ps, &activation))
+-    {
+-      ___U32 phase = owner->phase;
+-      ___native_handle key = owner->key;
+-      ___U64 progress = owner->progress;
+-
+-      native_lookup_unpin (owner);
+-      native_result_write (r, ___NATIVE_DISP_LIVE_OWNER, ___NATIVE_REASON_CLOSED,
+-                           phase, key, progress,
+-                           ___FIX(___NO_ERR), ___FIX(___INVALID_OP_ERR));
+-      return ___FIX(___INVALID_OP_ERR);
+-    }
+-  native_result_write (r, ___NATIVE_DISP_LIVE_RUN, ___NATIVE_REASON_OK,
+-                       activation->phase, activation->key, activation->progress,
+-                       ___FIX(___NO_ERR), ___FIX(___NO_ERR));
+-  native_lookup_unpin (owner);
+-  return ___FIX(___NO_ERR);
++  return ___run_entry_begin_outcome (parent, r, 0, 0);
+ }
+ 
+ ___EXP_FUNC(___SCMOBJ,___run_marker_prepare)
+@@ -11084,13 +11383,49 @@
+     fprintf (stderr, "GATE suite-restored ok=0\n");
+ }
+ 
+-___EXP_FUNC(___SCMOBJ,___run)
++static void run_outcome_log
++   ___P((___processor_state ___ps,
++         struct ___run_call_outcome *outcome,
++         ___SCMOBJ err),
++        (___ps,
++         outcome,
++         err)
++___processor_state ___ps;
++struct ___run_call_outcome *outcome;
++___SCMOBJ err;)
++{
++  int id;
++
++  if (outcome == 0 || outcome->admitted != 0 ||
++      outcome->site == RUN_SITE_NONE)
++    return;
++  id = ___PROCESSOR_ID(___ps, ___VMSTATE_FROM_PSTATE(___ps));
++  fprintf (stderr,
++           "RUN-SITE id=%d admitted=%d site=%d close_proof=%d origin=%d vm=%lx ticket=%llx inc=%llx err=%lx\n",
++           id,
++           outcome->admitted,
++           outcome->site,
++           outcome->close_proof,
++           outcome->close_origin,
++           outcome->vm_scalar,
++           (unsigned long long)outcome->destroy_ticket,
++           (unsigned long long)outcome->incarnation,
++           (unsigned long)err);
++}
++
++static ___SCMOBJ ___run_with_outcome
+    ___P((___PSD
+-         ___SCMOBJ thunk),
++         ___SCMOBJ thunk,
++         struct ___run_call_outcome *outcome,
++         int force_site),
+         (___PSV
+-         thunk)
++         thunk,
++         outcome,
++         force_site)
+ ___PSDKR
+-___SCMOBJ thunk;)
++___SCMOBJ thunk;
++struct ___run_call_outcome *outcome;
++int force_site;)
+ {
+   ___PSGET
+   ___SCMOBJ ___err;
+@@ -11106,6 +11441,9 @@
+   volatile ___SCMOBJ stable_marker = ___FAL;
+ #endif
+ 
++  if (outcome != 0)
++    run_outcome_clear (outcome);
++
+ #ifndef ___SINGLE_THREADED_VMS
+   parent_owner = ___CAST(struct ___native_owner_struct*,___ps->native_owner);
+   if (parent_owner == 0 || parent_owner->kind != ___OWNER_KIND_OWNER)
+@@ -11113,10 +11451,58 @@
+   run_step.abi_version = ___NATIVE_OWNER_ABI_VERSION;
+   run_step.struct_bytes = sizeof (run_step);
+   run_step.reserved = 0;
+-  ___err = ___run_entry_begin (parent_owner->key, &run_step);
++  ___err = ___run_entry_begin_outcome (parent_owner->key, &run_step,
++                                      outcome, force_site);
+   if (___err != ___FIX(___NO_ERR))
+-    return ___err;
++    {
++      /* Site was stored before the parent pin was released. Do not
++         reread the VM or the owner to explain this return. */
++      run_outcome_log (___ps, outcome, ___err);
++      return ___err;
++    }
++  {
++    int id = ___PROCESSOR_ID(___ps,___VMSTATE_FROM_PSTATE(___ps));
++
++    /* Admitted, and READY has not been sent yet. One real marker failure
++       must return to the caller instead of being dropped. */
++    if (id != 0 && gate_env_once ("startup-run-fail"))
++      gate_arm_marker_fail = 1;
++    /* Same helper, same processor id, two other stack outcomes.
++       force_site stops the inner calls from entering this probe. */
++    if (outcome != 0 && force_site == 0 && id == 0 &&
++        gate_env_once ("run-outcome-nest"))
++      {
++        struct ___run_call_outcome inner_alloc;
++        struct ___run_call_outcome inner_journal;
++        ___SCMOBJ alloc_err;
++        ___SCMOBJ journal_err;
++
++        alloc_err = ___run_with_outcome (___PSP thunk, &inner_alloc,
++                                        RUN_SITE_ALLOC);
++        journal_err = ___run_with_outcome (___PSP thunk, &inner_journal,
++                                          RUN_SITE_JOURNAL);
++        fprintf (stderr,
++                 "RUN-NEST id=%d outer_admitted=%d outer_site=%d outer_proof=%d alloc_admitted=%d alloc_site=%d alloc_proof=%d alloc_err=%lx journal_admitted=%d journal_site=%d journal_proof=%d journal_err=%lx distinct=%d\n",
++                 id,
++                 outcome->admitted,
++                 outcome->site,
++                 outcome->close_proof,
++                 inner_alloc.admitted,
++                 inner_alloc.site,
++                 inner_alloc.close_proof,
++                 (unsigned long)alloc_err,
++                 inner_journal.admitted,
++                 inner_journal.site,
++                 inner_journal.close_proof,
++                 (unsigned long)journal_err,
++                 &inner_alloc != outcome &&
++                 &inner_journal != outcome &&
++                 &inner_alloc != &inner_journal);
++      }
++  }
+   stable_run = run_step.live;
++#else
++  (void)force_site;
+ #endif
+ 
+   ___ps->r[0] = ___GSTATE->handler_break;
+@@ -11181,6 +11567,21 @@
+ #endif
+ 
+   return ___err;
++}
++
++___EXP_FUNC(___SCMOBJ,___run)
++   ___P((___PSD
++         ___SCMOBJ thunk),
++        (___PSV
++         thunk)
++___PSDKR
++___SCMOBJ thunk;)
++{
++  ___PSGET
++  struct ___run_call_outcome outcome;
++
++  run_outcome_clear (&outcome);
++  return ___run_with_outcome (___PSP thunk, &outcome, 0);
+ }
+ 
+ 

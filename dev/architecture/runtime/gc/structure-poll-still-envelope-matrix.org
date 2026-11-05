@@ -1,0 +1,72 @@
+#+TITLE: Structure POLL, frames and still and peak matrices (native projection)
+#+PROPERTY: header-args :eval never
+
+* Current producer and consumer matrix
+:PROPERTIES:
+:CUSTOM_ID: structure-caller-matrix
+:END:
+#+NAME: structure-callers-native
+| Family | Source | Actual chain | Hazard | Replacement |
+|---+---+---+---+---|
+| poll-dispatch | _kernel.scm:229-298,1285-1344;gambit.h.in:9262-9299 | save GVM+RA -> stack_limit && GC -> interrupt-handler -> internal return | First POLL can service arbitrary Scheme callbacks; R0 heap0 does not cover handler | Effect/capture/exit budget plus fresh PointId/binding after every slow return |
+| stack-section | mem.c:3065-3235,7098-7359 | local free-list reuse or VM unassigned msection or heap sharing; transfer frames | next_stack does not itself call malloc; five/100 checks occur after frame traversal | Backing identity versus assignment ledger; exact post-check transfer envelope |
+| recursive-frame | _kernel.c:23958-23986,30610;mem.c:3671-3811 | RETN fs5 -> stack stride8; heap frame header+RA+fs=7 | Captured frame copies/old stack can overlap; return does not force last-alias death | Typed FrameSpec coordinates, canonical frame identity and durable reader roots |
+| still-allocator | _kernel.scm:43-112;mem.c:1556-1708 | words=a+6; deferred <=1024 or VM charge/GC; native malloc after charge | Successful accounting is not successful allocation or completed initialization | Separate reserved/charged/allocated/initialized/published/failed states |
+| still-return-failure | _kernel.c:23856-23904;mem.c:1457-1467,4387-4420 | dec native ref -> initialize -> result; failure exception may return/retry | refcount0 is neither GC-ready uninitialized data nor immediate free | No new safepoint ack before InitSpec completion; rooted exact error/retry lineage |
+| actual-release | mem.c:989,1065-1083,4387-4420,7371-7408;os_base.c:479-505 | stack undo -> pool; aligned free at resize/cleanup and dead still sweep | Stack pool return and VM-counter refund leave acquired bytes unchanged | Actual allocator-free receipt and last-alias/reader drain; preserve earlier peak |
+
+* Work and whole-round peak matrix
+:PROPERTIES:
+:CUSTOM_ID: structure-benefit-matrix
+:END:
+#+NAME: structure-costs-native
+| Capability | Removed work | Quantified condition | Added cost | Boundary and falsifier |
+|---+---+---+---+---|
+| first POLL | Expose hidden internal-return and arbitrary interrupt work | Default GVM5,cfs0 gives stack12/heap11 internal frame; cfs8 gives stack20/heap19; no whole-call cap from a alone | Bounded handler allocation, retained captures, nested/retry count and failure effects | Refuse finite-peak receipt for unknown effects; do not disable interrupts or change Scheme semantics |
+| recursive stack and heap | Replace padded-stack-as-heap assumption with exact frame descriptor | r=a-1<=8191; stack8r<=65528 words; one canonical heap-frame cohort7r<=57337 words | Break/internal frames, copied roots, duplicate live captured versions and task metadata | Not a whole physical bound; every active version/cohort and transitive graph must be charged |
+| stack transfer | Avoid pretending100 is an exact copy cap | Before final frame words<100; transferred words<=99+maxFrame; threshold count<=5 source-premised | First break4, extra break4, default internal frame12 and possible larger frames | With one default cfs8 RETI and <=4 selected RETN frames, transfer<=52 plus first break4; reaching break may transfer none; other callers need actual descriptors |
+| still request | Separate object charge from requested allocator container | a>=255; charge a+6 words; normal WS8 pointer8 allocator request8a+63<=65599 bytes | Deferred d, VM lock/GC, allocator overhead beyond request and retained failed paths | Low-level-exec/custom allocator and actual generated profile remain unresolved; no RSS bound |
+| deferred vs VM | Centralize ownership without treating counters as backing | a+6+d<=1024 iff a+d<=1018; at d0 a<=1018 defers, a1019 requires VM path | Known allocation failure refunds its exact charge; pending settlement is not free | d belongs to all previous still allocations, not just structure; account before/after GC independently |
+| msection acquisition | Reuse already-acquired sections before additional native backing | Pool/VM assignment delta acquired bytes0; new section request=WS*ceil(sizeof_msection/WS)+alignment extra | Directory replacement overlap, copy envelopes, guards and partial native acquisitions | Conditional LP64 sizeof_msection_base32 gives1048615 requested bytes per section; not measured allocator usable bytes |
+| Qg whole peak | Omit an actually unnecessary acquisition before peak overlap | c_t<=b_t-q_t+o_t; strict gain requires every c_t<max(b); role-compatible demand only | Exact container provenance, accepted transfer, effect budget and all held partials | Heap/stack tail cannot pay separately allocated still block; unchanged still/error phase can erase whole-round gain |
+| release and Qo | Reduce later occupancy only after real release | Stack undo/pool return and pending-charge settlement delta acquired bytes0 | Last alias/captured-root/reader closure; actual shrink/free receipt | Late free never lowers historical peak; existing same-PSTATE/free-list reuse is already in baseline |
+| failure and unknown | Preserve initialization and roots rather than retrying unsafe ownership | No collector admission with allocated/uninitialized body; unknown keeps pins and grants unavailable | Bounded pending slots, fail-delivery/effect budget, same-ID query and quarantine | Synchronous C allocator returns known status; unknown is proposed split-service protocol, not an invented malloc behavior |
+
+* Exact model scopes and dependencies
+#+NAME: structure-needs-native
+| Need | Kind | Subject | Exact scope | Premise |
+|---+---+---+---+---|
+| SP-H | interleaving | models/gambit/structure_poll_still_envelope.qnt | structure_poll_still_envelope:18-named-histories;safe;seed=17;100x80 | One constructor, a255 batch, abstract backing units and bounded effects; initialization, stale binding, unknown retention and historical peak; no source simulation |
+| SP-I | induction | models/gambit/lean/StructurePollStillEnvelope.lean | GambitSMP.StructurePollStillEnvelope:recursiveStack;heapFrameExtent;recursiveHeapFrames;firstInternalFrameDefault;transferPostCheck;selectedTransfer;smallThreshold;stillCharge;stillRequestCap;deferredSplit;accountingSettlementIsNotFree;poolReturnKeepsBacking;netPhaseGain;allPhasePeak;unboundedHandler;unchangedDominant;lateFreeKeepsPeak | Conditional source-layout arithmetic, list-of-phases maximum and independent physical/pending/pool ledger; not C steps or QNT induction |
+| SP-POLL | source-refinement | models/gambit/lean/StructurePollStillEnvelope.lean | SP-POLL:actual-source-refinement | RETI save -> stack_limit or GC -> interrupt handler -> internal return; caller/control roots, bounded effects/exits/captures or refuse finite-envelope receipt |
+| SP-FRAMES | source-refinement | models/gambit/lean/StructurePollStillEnvelope.lean | SP-FRAMES:actual-source-refinement | Real fs5 frame stride8/heap7; break/transfer post-check, moved/captured aliases and pool reuse versus new acquired backing; no sum-to-placement shortcut |
+| SP-STILL | source-refinement | models/gambit/lean/StructurePollStillEnvelope.lean | SP-STILL:actual-source-refinement | a+6 still charge, deferred/VM/GC paths, actual allocator request and failure refund; initialize before safepoint acknowledgement and return-root publication |
+| SP-PEAK | source-refinement | models/gambit/lean/StructurePollStillEnvelope.lean | SP-PEAK:actual-source-refinement | Distinct acquired containers across poll/frame/GC/still/exception/unknown; Qg is role-compatible omitted acquisition, not pool return, still charge or late Qo |
+
+#+NAME: structure-dependencies-native
+| Dependent | Prerequisite |
+|---+---|
+| SP-POLL | SP-H |
+| SP-POLL | SP-I |
+| SP-POLL | CO-S |
+| SP-POLL | HR-BIND |
+| SP-POLL | RG-COMPLETE |
+| SP-FRAMES | SP-H |
+| SP-FRAMES | SP-I |
+| SP-FRAMES | SP-POLL |
+| SP-FRAMES | IH-EXTENTS |
+| SP-FRAMES | CO-S |
+| SP-STILL | SP-H |
+| SP-STILL | SP-I |
+| SP-STILL | SP-POLL |
+| SP-STILL | SP-FRAMES |
+| SP-STILL | IH-MEMORY |
+| SP-PEAK | SP-H |
+| SP-PEAK | SP-I |
+| SP-PEAK | SP-POLL |
+| SP-PEAK | SP-FRAMES |
+| SP-PEAK | SP-STILL |
+| SP-PEAK | RG-LIFETIME |
+| SP-PEAK | IH-READERS |
+| RG-RESUME | SP-POLL |
+| RG-PEAK | SP-PEAK |

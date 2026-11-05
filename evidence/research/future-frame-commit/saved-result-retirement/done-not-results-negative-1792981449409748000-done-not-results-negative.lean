@@ -1,0 +1,8 @@
+import SavedResultRetirement
+open SavedResultRetirementAst
+def witness : State := closeObserverGateNext (completeFirstNext (initial))
+example : completeFirstGuard (initial) := by simp [completeFirstGuard,initial]
+example : closeObserverGateGuard (completeFirstNext (initial)) := by simp [closeObserverGateGuard,initial,completeFirstNext]
+example : Safe witness := by simp [Safe,witness,initial,completeFirstNext,closeObserverGateNext,saveAGuard,installBGuard,beginRestoreGuard,reenterPublishCGuard,loseBGuard,ackBGuard,beginCReleaseGuard,loseCGuard,ackCGuard,commitRestoreGuard,beginDiscardGuard,beginRestoredReleaseGuard,loseAGuard,ackAGuard,completeFirstGuard,completeSecondGuard,lookupRecordGuard,returnRecordGuard,closeObserverGateGuard,closeIssuerGuard,retireRecordGuard,reuseSlotGuard]
+example : ¬ (closeIssuerGuard witness) := by simp [Safe,witness,initial,completeFirstNext,closeObserverGateNext,saveAGuard,installBGuard,beginRestoreGuard,reenterPublishCGuard,loseBGuard,ackBGuard,beginCReleaseGuard,loseCGuard,ackCGuard,commitRestoreGuard,beginDiscardGuard,beginRestoredReleaseGuard,loseAGuard,ackAGuard,completeFirstGuard,completeSecondGuard,lookupRecordGuard,returnRecordGuard,closeObserverGateGuard,closeIssuerGuard,retireRecordGuard,reuseSlotGuard]
+example : closeIssuerGuard witness := by simp [Safe,witness,initial,completeFirstNext,closeObserverGateNext,saveAGuard,installBGuard,beginRestoreGuard,reenterPublishCGuard,loseBGuard,ackBGuard,beginCReleaseGuard,loseCGuard,ackCGuard,commitRestoreGuard,beginDiscardGuard,beginRestoredReleaseGuard,loseAGuard,ackAGuard,completeFirstGuard,completeSecondGuard,lookupRecordGuard,returnRecordGuard,closeObserverGateGuard,closeIssuerGuard,retireRecordGuard,reuseSlotGuard]

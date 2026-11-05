@@ -1,0 +1,34 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "tfib-join-duration",
+  "scope": "Reuse the completed condvar-participation source-core in place. One gsi process runs the original (go 15 5000) body with a flushed start line and a done line. The execution cap is 200 seconds, short of the 3600-second suite inactivity window. Not the four-file inventory, not a configure, seed, source-core, or bootstrap, and not original TFIB acceptance.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation.lock.json",
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation.patch",
+    "evidence/research/exit-drain-mutex-lock-order/condvar-participation-runtime.local.json",
+    "models/gambit/native/tfib_join_duration.scm",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "candidate", "capability": "gambit.materialize", "dependsOn": [], "budgetSeconds": 120,
+     "arguments": {"sourceLock": "evidence/research/exit-drain-mutex-lock-order/condvar-participation.lock.json"}},
+    {"id": "runtime", "capability": "gambit.runtime-import", "dependsOn": ["candidate"], "budgetSeconds": 120,
+     "arguments": {"source": {"step": "candidate", "output": "source"},
+                   "archive": "evidence/research/exit-drain-mutex-lock-order/condvar-participation-runtime.local.json"}},
+    {"id": "duration", "capability": "gambit.executable-test", "dependsOn": ["runtime"], "budgetSeconds": 260,
+     "arguments": {"runtime": {"step": "runtime", "output": "runtime"},
+                   "identity": {"step": "runtime", "output": "identity"},
+                   "program": "models/gambit/native/tfib_join_duration.scm",
+                   "mode": "gsi", "processorTopology": "host-managed", "executionBudgetSeconds": 200,
+                   "stdout": "TFIB-5000-START\nTFIB-5000-DONE\n"}},
+    {"id": "verdict", "capability": "evidence.evaluate",
+     "dependsOn": ["candidate", "runtime", "duration"],
+     "budgetSeconds": 30,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}

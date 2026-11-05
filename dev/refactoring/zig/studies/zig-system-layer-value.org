@@ -1,0 +1,331 @@
+#+TITLE: Zig as a Complete System Engineering Layer: Value and Cost
+#+SETUPFILE: ../../../modeling/org/setup.org
+#+CATEGORY: zig
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Zig as a Complete System Engineering Layer: Value and Cost :zig:
+:PROPERTIES:
+:ID: 65913aa1-ad7e-5c17-a243-e5b91b5cc979
+:CUSTOM_ID: zig-as-a-complete-system-engineering-layer-value-and-cost
+:SOURCE_PATH: docs/experimental/zig/zig-system-layer-value.md
+:SOURCE_SHA256: 2758b354f9553e4048057e1b0b7e1ba56ee75293b030d090caa89073106020db
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Date: 2026-10-19. Source-grounded architecture research only. No implementation,
+toolchain change, model execution or performance experiment. Extends the
+[[file:zig-adoption-decision.org][adoption decision]] with a complete comparison of
+responsibilities, historical failure classes, service lifecycle and economics.
+Source IDs S1-S9, historical observations H1-H3 and upstream references U1-U7
+resolve in the [[file:zig-system-layer-evidence.org][evidence ledger]].
+
+*** 1. Architectural Judgment
+:PROPERTIES:
+:ID: 45ca7989-4ec6-5852-91cf-febb0735f3e6
+:CUSTOM_ID: 1-architectural-judgment
+:END:
+
+The [[file:../../../architecture/toolchain/studies/native-request-configuration-migration.org][native request/configuration replacement design]]
+makes the selected managed path and retirement inventory concrete. It treats
+MLIR/LLVM engineering reuse and independent provider evolution as first-class
+benefits of the boundary, alongside reductions in repeated native work.
+
+Zig has a credible role as the implementation language of a **native system
+subsystem around Gerbil/Gambit**. That subsystem can own effective native
+requests, native data and service lifetimes, artifact compatibility, compiler
+services, diagnostics, target integration and delivery. This is substantial
+executable system software, not just a ~build.zig~ or a distribution wrapper.
+
+Its main potential benefit is reducing the number of places where the project
+must reconstruct platform/native knowledge. The managed path replaces those
+places with explicit requests and one native executor. Compiler services then
+consume semantic products through that boundary rather than becoming another
+set of dependencies embedded in the language runtime.
+
+The structural benefit comes from that ownership change. Zig is a plausible
+carrier because its C interoperability, native data/resource model and build
+tools fit the existing assets [U1, U2]. Neither necessity nor net savings follows
+from those capabilities. For interface AOT alone, existing Gerbil/Gambit is
+sufficient. For the broader modernization objective, retain Zig as the preferred
+candidate to study, conditional on the requirements and cost criteria below.
+No current evidence establishes a positive return or a Darwin startup speedup.
+
+*** 2. What the Existing Paths Actually Do
+:PROPERTIES:
+:ID: 33cdc93e-fca7-5d15-9b5d-eda8de7ffc24
+:CUSTOM_ID: 2-what-the-existing-paths-actually-do
+:END:
+
+[[file:../../../research/diagrams/system-layer-before-after.svg][Existing paths and proposed system ownership]]
+
+The following are inspected responsibility surfaces, not a claim that every
+build always executes every branch:
+
+| Surface | Existing implementation | Implication for a system layer |
+|-
+| Gerbil tool selection and platform orchestration | Environment-selected GSC/GCC/AR, split GSC/CC/LD options, phase paths and Darwin static/dynamic construction in ~compiler/driver.ss~ [S1] | Gerbil must emit semantic/native intent; selected native orchestration can move to the executor |
+| Gambit native request | ~##gambuild-params~ serializes ordered arguments into environment values; ~##gambuild~ selects an operation and driver [S2] | Structured request must replace that representation in the managed path, not encode it a second time |
+| Configured driver | ~gambuild-C~ merges metadata/package options, adjusts mode flags for CC overrides and evaluates command templates [S3] | Resolve one explicit effective recipe preserving mode/option meaning; a new CC value is insufficient |
+| Process execution | Gambit creates process ports, inherits environment and obtains child status; Gerbil maps nonzero status to compilation errors [S1, S4] | Preserve actual status and public errors while making child environment, budgets and diagnostic stages explicit |
+| Language/backend protocol | Gambit target defines representation, registers, linking metadata and embedded C; Gerbil interfaces have live phase/lexical state [S7, S8] | These remain producer/runtime authority, independently of who emits machine code |
+| Admission and retirement | Dynamic mapping precedes setup checks/fixups; loader retains handles for cleanup [S5, S6] | Preflight can reject incompatible candidates earlier, but cannot replace runtime setup or prove safe unloading |
+
+The ordinary architecture already has native execution, module caches, phase
+code reuse, link metadata and parallel jobs. The claim is not that Zig invents
+these capabilities. The opportunity is a less fragmented representation and a
+single implementation of selected native policies. H2 shows why adding another
+coordinator to existing parallelism can be a regression.
+
+*** 3. Historical Problems: Root Change Versus Unaffected Work
+:PROPERTIES:
+:ID: c6cf317a-3bb4-55d8-bf00-7e8c110079ad
+:CUSTOM_ID: 3-historical-problems-root-change-versus-unaffected-work
+:END:
+
+| Historical coupling/problem | Structural remedy | Zig contribution | Required retention / evidence limit |
+|-
+| Native intent repeatedly reconstructed across Scheme, environment and shell | Producer emits typed intent; one resolver creates the effective recipe; execution consumes it directly | Implement resolver/executor and native data model | Producers still define semantics; preserve flag order, metadata and explicit CC override behavior [S1-S3] |
+| Hidden ambient inputs complicate reuse and reproduction | Declare environment/tools/SDK/dependencies and identify actual effective inputs | Validate/manipulate native-owned manifests, snapshots and outputs | No cache is correct if inputs are missing; hashing more state may cost more than saved work [S4, H2] |
+| Generated products confused with compatible loadable modules | Separate artifact role, content, protocol compatibility and runtime admission | Early preflight and role-aware publication/delivery | Native setup and initialization remain Gambit-owned; source/size checks alone do not prove ABI completeness [S5] |
+| Every compiler integration risks adding runtime dependencies and lifetime rules | Separate service protocol and host process; private compiler implementation | Own service launch, native resources, capabilities and diagnostic/result routing | Requires correct child ownership and error handling; not automatic OS sandboxing [S4, S9] |
+| Native object reuse still repeats Scheme generation | Reuse producer-owned semantic/generation products at a correct unit boundary | Consume compatible products and execute only required native work | Gambit/ Gerbil must expose the producer boundary; H1 proves a component opportunity without Zig |
+| Repeated interface interpretation before first compile | Producer-owned construction program and current-instance semantics | Compile/package eligible factory code; host future admitted compiler algorithms | Main fix is Gerbil staging; mutable bindings, phases and callbacks remain [S8, H3] |
+| Macro-heavy C frontend cost on misses | Reuse C/object products or supply a direct semantic MLIR backend for covered units | Carry both native construction paths and their contracts | ~zig cc~ still compiles C; C/FFI coverage and full backend protocol remain obligations [S7, H1] |
+| FFI integration spreads ownership and error conversion across extensions | Narrow ordinary-return native service interface plus Gambit-owned adapter | Implement native providers, buffers/jobs and resource cleanup | Scheme objects, callbacks, nonlocal control and GC are not Zig-owned [S7; native-contract sections 5-6] |
+| Runtime SMP/GC faults, load/unload stalls or unsafe foreign reentry | Repair the actual runtime protocol and prove lifecycle behavior | Isolate new compiler services and avoid adding their lifetimes to the VM | Does not repair existing runtime faults, dyld behavior or root maps; no bypass of cleanup [S5-S7, S9] |
+
+Here “root change” means removing a recurring source of engineering duplication
+from the selected path. It does not mean deleting all historical complexity:
+language/runtime protocols remain complex because they carry real semantics.
+The same structural remedies can be implemented with existing tools or C/C++.
+Zig's incremental case is maintaining the resulting subsystem more coherently,
+not being the only language capable of expressing it.
+
+*** 4. Complete Responsibility Model
+:PROPERTIES:
+:ID: 37007e19-73a5-5c23-9085-169c1249ab6c
+:CUSTOM_ID: 4-complete-responsibility-model
+:END:
+
+| Domain | Language/runtime owner | Proposed Zig subsystem | Change required for a useful boundary |
+|-
+| Configuration | Gambit defines feature/representation meaning and authoritative generated profile | Resolve host tools, target SDK/library set and supported execution recipe | Consume one configuration producer; do not clone ~configure~ feature logic in Zig |
+| Native request resolution | Gerbil/Gambit identify semantic products, roles, order and requirements | Normalize declared inputs, flags, paths, metadata and tool identities into one recipe | Replace selected legacy shell/environment interpretation rather than wrap it |
+| Native work execution | Outer build system supplies action scope/budget; producers define unit independence | Execute required native jobs, archive/link steps and output publication | Use existing parallelism/budgets; no second graph owner deciding Scheme independence |
+| Artifact lifecycle | Producers issue dependencies and compatibility requirements; runtime admits modules | Own native storage, validation, temporary files and completed output envelopes | Artifact availability and live instance state stay separate |
+| Compiler service host | Backend owner defines operation semantics, lowering policy and output role | Negotiate support, launch/budget/collect results, own native transport and diagnostics | No MLIR/C++ handles or Scheme pointers in the project protocol |
+| Native compiler algorithms | Producer/backend owner specifies legality and semantic profile | May implement native-owned IR decoding, analyses and transformations under that contract | A Zig implementation need not stop at orchestration; semantic correspondence is still required |
+| Native service providers | Gambit adapter owns Scheme conversion, rooting, waits and error delivery | Can implement native libraries/services, codecs, data processing or target-specific adapters | Ordinary-return C surface or process boundary; no implicit VM attachment |
+| Embedding and target integration | Existing runtime entry/exit and module protocol remain authoritative | Construct embedding assets, compatible dependencies and host-facing native adapters | Runtime initialization, admission and teardown cannot be reimplemented by accident |
+| Diagnostics and release evidence | Scheme source/error meaning and native acceptance criteria remain with owners | Correlate request/export/recipe/stage/tool/output identities and capture native failures | Keep unsupported/cancel/error distinct from successful output; never mint runtime acceptance |
+
+“Complete” means the native engineering concerns have an owner; it does not mean
+Zig owns the whole compiler or operating system. Named providers above are
+extension classes, not an implementation scope or a claim that the repository
+currently needs each one. Only actual maintained requirements justify adoption.
+
+Configuration is especially important: a Zig executor can still invoke the
+currently required GNU GCC when a profile depends on it. Implementing tools in
+Zig does not require immediately compiling every Gambit C unit with ~zig cc~.
+Compiler replacement and system-layer replacement are separate compatibility
+decisions. SDKs, framework/linker behavior and configured runtime definitions
+remain explicit target inputs, not gifts of cross-compilation.
+
+*** 5. Comparison Under the Same Semantic Requirements
+:PROPERTIES:
+:ID: 4e474ecb-4e09-5b13-89a6-3b4a25e0e601
+:CUSTOM_ID: 5-comparison-under-the-same-semantic-requirements
+:END:
+
+| Architecture | Structural improvement possible | Remaining/additional cost | Judgment |
+|-
+| Existing path with a different CC or external wrapper | May change native compile behavior | Existing config/request reconstruction remains; another adapter added | Insufficient modernization by itself |
+| Existing Gerbil/Gambit plus explicit contracts and consolidated existing tools | Can realize interface staging, reproducible requests and separate MLIR service | Must maintain native libraries/adapters and their lifecycle through chosen existing languages | Real baseline; cannot assign its gains exclusively to Zig |
+| Same contracts with a Zig subsystem | Same semantics plus one native implementation for resolution, resources, services and delivery | New Zig toolchain/API ownership, migration, boundary code and resource obligations | Strongest Zig case when these requirements form a maintained subsystem |
+| Same contracts with a C/C++ subsystem | Direct runtime/native adjacency and MLIR implementation access | C/C++ ownership/diagnostics/packaging maintenance; same semantic contract work | Viable alternative; not dismissed as inherently too costly |
+
+Zig's C compatibility reduces some mechanical binding work [U1]. It does not
+eliminate adapters that carry semantic responsibilities: Scheme boxing/rooting,
+ordinary-return error conversion, request validation and private protocol
+lowering remain necessary. Manual ownership also remains manual. No matched
+study here proves Zig safer, faster to develop or cheaper to maintain than
+all alternatives.
+
+The default managed executor should operate once per admitted native construction
+group, with immutable inputs and explicit per-job outputs, rather than requiring
+another process and complete environment discovery for every tiny HIT. This
+does not merge semantic compilation units or promise a speedup. The group must
+respect the [[file:../../../architecture/toolchain/studies/compilation-unit-artifact-contract.org][unit/invalidation contract]].
+No resident daemon, cross-request live Scheme cache or nested ~zig build~
+scheduler is required by this architecture. ~build.zig~ can construct the system
+tools; execution of a request is a separate product responsibility.
+
+*** 6. How This Layer Carries MLIR
+:PROPERTIES:
+:ID: 9d34bf8c-7684-5d9a-951b-d59088623e1b
+:CUSTOM_ID: 6-how-this-layer-carries-mlir
+:END:
+
+[[file:../../../architecture/compiler/diagrams/mlir-service-lifecycle.svg][MLIR service and process ownership]]
+
+The project boundary is semantic product + target/runtime requirements +
+approved policy -> output role + diagnostics/provenance. The service owns MLIR
+contexts, dialects, passes and LLVM emission. Zig can supervise a separately
+built C++ executable, or a service can use Zig with a C API/native extension
+internally. Do not require pure-Zig reimplementation of dialect infrastructure.
+Upstream uses ODS/TableGen and C++ dialect/conversion libraries [U4]. Retaining
+their build system inside the pinned service is compatible with project-level
+engineering ownership; rewriting LLVM's build is not the objective.
+
+| Export / result | Language-side obligation | Zig/service responsibility | Current boundary |
+|-
+| Interface construction program -> factory code | Gerbil specifies C00-C17, lexical/phase/current-instance semantics | Build compatible factory and preserve effectful residual operations | Design only; no removable dispatch budget established |
+| Bounded native computation -> C-ABI companion | Gambit-owned adapter defines scalar/buffer/control contract | Native lowering, linking requirements and native-owned buffers | Does not require full Gambit code-object lowering |
+| High-level Scheme export -> general Gambit code object | Export before destructive normalization; retain FFI side records, closures/effects/control and private runtime protocol | Multi-level lowering, native code and required metadata under approved backend contract | Major backend research, not automatic consequence of C API access |
+
+The [[file:../../../architecture/compiler/studies/zig-high-level-semantics-design.org][semantic path]] selects Gambit's parsed
+tree boundary before ~normalize-program~ [S7]. An MLIR route consuming only
+macro-expanded generated C has already lost much of that structure. Keeping
+the high-level export separate from the native executor is what makes future
+backend evolution affordable. Zig transports and may implement portions of
+the compiler; it cannot recover erased language facts by changing the linker.
+
+The MLIR paper supports progressive lowering and operation-specific optimization
+interfaces [U3]. Its verifiers and pass infrastructure do not prove Scheme
+semantic equivalence. The existing [[file:../../../architecture/compiler/studies/mlir-pass-admission.org][pass admission design]]
+continues to control effects, continuations, allocation identity and GC. A
+structural MLIR region is not permission to free a Scheme object lexically.
+
+Version the project export, dialect semantics, service implementation, approved
+pipeline, target configuration and runtime protocol separately. MLIR C API
+handles remain inside the service; its API has no stability guarantee [U5].
+Bytecode format/version support is not a frozen semantic contract for a dialect
+[U7]. Upstream pass crash reproduction can supply diagnostic material [U6],
+but a reproducer/valid IR/result digest is not native correctness admission.
+
+Unsupported capabilities reject before native publication. A service crash or
+cancelled compile produces no successful output. Existing textual/C paths may
+remain explicit alternative profiles; selecting one cannot silently discard
+effects, rerun partial interface initialization or change the task's gates.
+
+*** 7. Processes, Resources and Runtime Loading
+:PROPERTIES:
+:ID: 92471a58-396f-5e38-864d-4133b2b2b628
+:CUSTOM_ID: 7-processes-resources-and-runtime-loading
+:END:
+
+Select this process topology for the managed AOT path:
+
+1. A Gerbil/Gambit caller emits inert inputs and starts the Zig executor through
+   its normal process facilities. Gambit owns/reaps that direct child.
+2. The executor owns and reaps its compiler-service/tool children in its own
+   process. It does not embed another child-spawning subsystem inside the Scheme
+   process and compete with Gambit's ~waitpid(-1, ...)~ handler [S9].
+3. Each native job has an owner, outputs, budget and real terminal status. Cancel
+   requests must settle descendants and temporary outputs; a caller timeout
+   alone does not prove descendants are gone. Exact OS cancellation mechanics
+   remain to be specified and qualified, with no deadline widening.
+4. Validate result identities/compatibility before publication. Gambit consumes
+   the resulting artifact through its original module/link/setup authority.
+
+This topology isolates compiler heaps and their signal/allocator/library state;
+it is not an automatic filesystem/network security sandbox. A worker can still
+leave files or descendants unless its lifecycle is implemented correctly.
+Internal service loading is distinct from loading a Gambit code object.
+
+Managed preflight must happen *before* platform mapping where it intends to
+prevent incompatible code from entering the process. S5's current runtime path
+maps first, then runs setup/version/structure checks. A generated manifest can
+improve that seam only when it is bound to the actual artifact and supported
+profile; it does not prove arbitrary machine code safe or replace setup checks.
+
+Ordinary runtime loading, Scheme initialization and final ~dlclose~ remain
+Gambit-owned [S5, S6]. Moving MLIR into a worker avoids adding MLIR libraries to
+that retirement path. It does not remove existing Darwin loader/cleanup work.
+Embedded native providers remain optional and use the
+[[file:zig-native-contract-design.org::#6-host-service-boundary-ordinary-native-work][host-service contract]],
+with no Scheme nonlocal exit across Zig-owned resources and no worker-held
+movable Scheme pointer.
+An in-process provider must not introduce independently reaped child processes
+without a separate protocol compatible with S9; moving only its code into Zig
+does not change process-wide signal ownership.
+
+*** 8. Benefits and Costs That Must Be Accounted Separately
+:PROPERTIES:
+:ID: 079808de-66a8-58c9-929c-84b6e2fa9f02
+:CUSTOM_ID: 8-benefits-and-costs-that-must-be-accounted-separately
+:END:
+
+The [[file:zig-modernization-benefit-ledger.org][18-row quantitative ledger]] expands
+this accounting to FFI conversion/rooting, collector work/scaling, VM lifecycle
+and explicit comparisons against the same contracts implemented in C.
+[[file:../../../architecture/system/studies/zig-llvm-runtime-modernization.org][Runtime modernization]] separately proposes
+R1/R2 research seams; it does not expand ordinary service code's heap access.
+
+| Ledger | Expected mechanism | Available quantitative evidence | Cost / uncertainty |
+|-
+| Semantic work removal | Stage eligible interface/generation work once | H1: 55-file generation HIT 0.077661s versus ordinary midpoint 3.595630s in one component control | Not a Zig gain, cold-start gain or complete native admission |
+| Request/executor overhead | Replace repeated resolution/validation with one compatible native request | H2: prior preparation/coordinator 1.59s versus ordinary 0.88s means, about 81% higher component cost | Added coordination can lose; no promise that Zig changes the result |
+| Darwin pre-first-compile work | Reduce proved interface interpretation/preparation | H3 reader intervals and effectful-dispatch counterexample bound simplistic claims | Unknown exclusive removable fraction; no seconds forecast |
+| Integration maintenance | Consolidate native configuration/process/service ownership | S1-S4 demonstrate concrete surfaces to consolidate | No measured engineering hours, defect reduction or release-cost baseline |
+| New capability | Separate high-level MLIR backend and native providers from base runtime | S7 and U3-U5 support possible seams/infrastructure | Dialect/lowering/GC/control coverage still substantial; C++ service dependencies remain |
+| Continuing platform cost | Support configured compiler, SDK, runtime protocol and service revisions | S3/S5/S7 show these are actual inputs, not optional details | Zig adds a version/toolchain axis; it does not remove the existing ones |
+
+For elapsed time, separate semantic staging savings from incremental executor
+savings, and subtract serialization, manifest validation, process startup,
+image loading and output checking. H1 and H2 use different component workloads
+and cannot be added or compared as rival end-to-end candidates. Complete cold
+build, first genuine compile and complete tests remain distinct measures.
+
+For maintenance, let ~D~ be duplicated engineering work avoided across actual
+integrations, ~C~ required new capability value, ~M~ migration cost, and ~R~
+continuing Zig/service/boundary/platform cost over a stated horizon. Adoption
+is worthwhile only when ~D + C > M + R~, with acceptable correctness and
+delivery obligations. No values for these quantities have been established.
+Do not assign fictional person-month savings or claim all integration edges
+become a simple linear graph: each producer/service capability pair still
+needs semantic qualification even with common transport.
+
+Concrete new costs include toolchain pinning/upgrades, C-header target fidelity,
+native allocator/handle cleanup, mixed-language debugging, schema/source maps,
+service binary size/build dependencies, duplicate cache/scheduler avoidance and
+capability coverage across targets. Zig's resource syntax does not replace the
+Scheme unwind protocol, and MLIR C interoperability does not erase its C++
+maintenance. These are recurring owners to budget, not one-time FFI glue.
+
+*** 9. Worthwhile Scope and Decision
+:PROPERTIES:
+:ID: edf70534-db17-5c3a-9b16-0cc1af6c44e9
+:CUSTOM_ID: 9-worthwhile-scope-and-decision
+:END:
+
+For the stated long-term objective, the strongest proposal is a coherent Zig
+subsystem covering **native request resolution, artifact compatibility/lifecycle,
+compiler-service hosting and native integration/diagnostics**. Retain current
+Gambit C assets and configured compiler profiles while making that system
+replaceable through project-owned contracts. This scope merits design research
+because the source already exposes all these seams; it has not earned production
+adoption or a performance claim.
+
+If only the Darwin interface prefix is in scope, prioritize Gerbil staging
+without making Zig mandatory. If only MLIR access is needed, a separate C++
+service through the same protocol is a sufficient alternative. If the broader
+subsystem is required, Zig's combined fit can justify the additional dependency,
+provided its managed path actually retires selected legacy reconstruction and
+there is an owner for its ongoing costs. “Modern” is not itself a requirement.
+
+Before an implementation decision, finish the native request semantic/flag
+mapping, effective configuration producer, service capability/output-role
+contract, process cancellation ownership and migration replacement inventory.
+Assess the existing-tools baseline against the same requirements. Do not start
+by building an extra wrapper to seek a small timing win. This document selects
+an architectural research scope, not implementation or a minimal validation run.

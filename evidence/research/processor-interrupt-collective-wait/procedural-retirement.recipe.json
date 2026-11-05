@@ -1,0 +1,25 @@
+{
+  "schema": "evidence-recipe.v2",
+  "id": "processor-interrupt-collective-wait-original-stress",
+  "scope": "Public procedural interrupt lifetime witness, not a destructive race or full SMP qualification. Reuse unchanged source/configure/seed/core. Observe a detached callback with an empty queue, enqueue from host-capacity producers, join direct users before retirement, verify exact callback execution/cancellation and resource release while global registry broadcasts continue. No hooks, interposition, debugger or bootstrap.",
+  "workspacePolicy": "in-place",
+  "timeoutPolicy": {"mode":"progress","overheadSeconds":30},
+  "inputs": [
+    "evidence/research/processor-interrupt-collective-wait/source.lock.json",
+    "patches/fixtures/processor-interrupt-collective-wait-cumulative.patch",
+    "evidence/research/processor-interrupt-collective-wait/material-reference.json",
+    "evidence/research/processor-interrupt-collective-wait/material-state.json",
+    "evidence/fixtures/gerbil-bazel-build-profile/profile.json",
+    "models/gambit/native/procedural_interrupt_retirement.scm",
+    "models/gambit/procedural_interrupt_retirement.qnt",
+    "evidence/research/execution-rules.ss"
+  ],
+  "steps": [
+    {"id":"source","capability":"gambit.materialize","dependsOn":[],"budgetSeconds":30,"arguments":{"sourceLock":"evidence/research/processor-interrupt-collective-wait/source.lock.json","workspace":".cache/fixtures/abandonment-gc-publication-reader-repaired/run/source/source","workspaceState":"evidence/research/processor-interrupt-collective-wait/material-reference.json"}},
+    {"id":"configure","capability":"gambit.configure","dependsOn":["source"],"budgetSeconds":60,"arguments":{"source":{"step":"source","output":"source"},"buildProfile":"evidence/fixtures/gerbil-bazel-build-profile/profile.json"}},
+    {"id":"seed","capability":"gambit.seed-core","dependsOn":["configure"],"budgetSeconds":180,"arguments":{"source":{"step":"configure","output":"source"}}},
+    {"id":"core","capability":"gambit.source-core","dependsOn":["seed"],"budgetSeconds":180,"arguments":{"runtime":{"step":"seed","output":"runtime"}}},
+    {"id":"procedural-retirement-native","capability":"gambit.executable-test","dependsOn":["core"],"budgetSeconds":120,"arguments":{"runtime":{"step":"core","output":"runtime"},"identity":{"step":"core","output":"identity"},"program":"models/gambit/native/procedural_interrupt_retirement.scm","stdout":"PROCEDURAL-INTERRUPT-RETIREMENT:PASS\n"}},
+    {"id":"verdict","capability":"evidence.evaluate","dependsOn":["source","configure","seed","core","procedural-retirement-native"],"budgetSeconds":10,"arguments":{"rules":["evidence/research/execution-rules.ss"],"queries":{"missing":"missing_step"},"expected":{"missing":[]}}}
+  ]
+}

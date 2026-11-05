@@ -1,0 +1,327 @@
+#+TITLE: Root Origins, Independent Collector Work and Exit Custody
+#+SETUPFILE: ../../modeling/org/setup.org
+#+LANGUAGE: en
+#+CATEGORY: modern-c
+#+PROPERTY: header-args :eval never :tangle no
+#+STARTUP: overview
+
+* Decision and evidence boundary
+:PROPERTIES:
+:CUSTOM_ID: root-worker-exit
+:AUTHORITY: GambitRootWorkerExit
+:SOURCE_BRANCH: modern-c
+:STATUS: SOURCE-LOCATED; REFINEMENT-AND-NATIVE-OPEN; RETIREMENT-BLOCKED
+:COMMIT_ADMITTED: false
+:END:
+
+This is the complete root-to-worker-to-exit replacement cut for the mandatory
+modern C direction. It refines the existing [[file:smp-factor-conditions.org][ffi/work/exit dependencies]] and
+[[file:../../architecture/runtime/control/frame-alias-contract.org][shared-frame contract]]. It neither implements independent workers nor claims
+that the current copying collector has become generational. The [[file:models/sysml/root-worker-exit.sysml][native SysML model]]
+owns the clauses, prerequisites, witnesses, learning records and native cases.
+[[file:../../modeling/ascent/root-worker-exit.rules.scm][Actual ASCENT rules]] distinguish source location, supplied refinement, upstream
+learning and native acceptance. No new QNT or Lean model is created.
+
+The remaining coupling is larger than a participant array lookup. Setup binds
+execution context, participant and collector by the same processor index. Strong,
+weak and cleanup phases update that indexed participant. Stealing and termination
+use the carrier-derived population. Copy allocation still uses context memory;
+the GC driver supplies context refill, barriers, overflow delivery and resume.
+Removing only the synchronous assertion would remove a real safety check without
+establishing independent work ownership.
+
+* Concrete callers and evidence
+#+NAME: rwe-witnesses
+#+BEGIN: sysml-view :kind rwe-witnesses :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Witness | Source | Lines | Finding |
+|---+---+---+---|
+| role-binding | vendor/gambit/lib/setup.c | 4970-4991 | Setup binds all three roles by processor index |
+| root-scan | vendor/gambit/lib/mem.c | 7282-7305 | Frozen origin supplies registers, startup, marker and RC roots |
+| phase-owner | vendor/gambit/lib/mem.c | 7462-7558 | Carrier chooses participant in all three phases |
+| gc-driver | vendor/gambit/lib/mem.c | 7565-7740 | Synchronous binding, barriers, public outcome, context refill and resume |
+| allocator-origin | vendor/gambit/lib/mem.c | 278-339 | Allocator macros refer to carrier context while work cursors have separate fields |
+| idle-proof | vendor/gambit/lib/mem.c | 7308-7380 | Steal victim count and idle termination derive from participant/carrier population |
+| resize-gc | vendor/gambit/lib/setup.c | 940-970 | Resize invokes GC inside an old-member collective |
+| sync-gc | vendor/gambit/lib/setup.c | 1135-1176 | Sync executor dispatches GC and rooted resize transport |
+| public-gc | vendor/gambit/lib/setup.c | 1420-1440 | Public GC calls on_all_processors |
+| native-worker-run | vendor/gambit/lib/setup.c | 769-867 | Created thread enters sync loop, reloads thunk, runs Scheme then forwards outcome |
+| main-run | vendor/gambit/lib/setup.c | 6805-6840 | Main VM invokes run using module thunk |
+| run-marker | vendor/gambit/lib/setup.c | 3634-3698 | Startup rooted marker path differs from generic raw run entry |
+| marker-root | vendor/gambit/lib/c_intf.c | 6511-6577 | Root endpoint reloads after allocation; raw wrapper does not register its local |
+| generated-entry | vendor/gambit/gsc/_ptree2.scm | 3142-3180 | Scheme generator emits SFUN argument conversion and call body |
+| join-cleanup | vendor/gambit/lib/setup.c | 1019-1116 | Create failure, shrink join, still transfer, retained state and thread exit |
+| host-cleanup | vendor/gambit/lib/setup.c | 4847-4860 | PSTATE cleanup currently calls memory then OS cleanup |
+| rc-writer | vendor/gambit/lib/mem.c | 730-751 | Register RC mutates the current context chain |
+| rc-reader | vendor/gambit/lib/mem.c | 4314-4334 | Collector scans a supplied context RC chain |
+| actor-send | vendor/gambit/lib/_thread.scm | 3401-3423 | Thread message enters shared mailbox FIFO |
+| actor-payload | vendor/gambit/lib/_fifo#.scm | 50-61 | FIFO cons retains the original payload, not a private object-graph copy |
+| otp-scheduler | vendor/erlang-otp/erts/emulator/beam/erl_process.c | 9608-9645 | Scheduler data and scheduled Process are separate objects |
+| otp-progress | vendor/erlang-otp/erts/emulator/beam/erl_process.c | 9859-9872 | Scheduler event loop reports thread progress before auxiliary work |
+| otp-unmanaged | vendor/erlang-otp/erts/emulator/beam/erl_thr_progress.h | 205-220 | Unmanaged delay handles have separate enter/continue accounting |
+| otp-dirty-limit | vendor/erlang-otp/erts/doc/references/erl_nif.md | 430-493 | Dirty scheduling does not authorize early GC or final native-resource destruction |
+| otp-heap-contract | vendor/erlang-otp/erts/emulator/internal_doc/GarbageCollection.md | 24-34 | OTP documents per-process generational semispace copying and process-local stack/heap |
+| otp-grace-contract | vendor/erlang-otp/erts/emulator/internal_doc/ThreadProgress.md | 59-99 | Thread progress requires known managed reporters; blocked unmanaged threads are excluded |
+#+END:
+
+=___garbage_collect_pstate= has two direct source call sites in =setup.c=: the
+resize capacity branch and the synchronous operation executor. The public
+=___garbage_collect= packages its request through =on_all_processors=. Those
+routes must migrate together, including merged still-capacity requests, root
+freeze and result consumption; neither can remain an independent GC driver.
+
+The two direct =___run= callers are the spawned-processor wrapper and initial
+module startup. The former reloads the rooted thunk after the synchronization
+loop; the latter enters through the generic marker path. The rooted marker
+endpoint now reloads its incoming root after allocation. Its raw wrapper passes
+the address of a C local without registering that local: these are different
+admission guarantees. Generated SFUN/CFUN and nested callbacks additionally reach
+the lower call machinery and must obey the same root/activation boundary.
+An individual initial-module thunk may have permanent/nonmoving provenance;
+that classification must be established, rather than declaring every raw call
+movable or treating the raw signature as a registered-root guarantee.
+
+RC registration writes the current context chain, while =mark_rc= scans the
+explicit supplied context. Therefore origin ownership and scanner lifetime must
+survive carrier withdrawal; transferring an RC pointer without transferring the
+whole rooted domain and reader responsibility does not suffice.
+
+* Complete responsibility and retirement matrix
+#+NAME: rwe-replacements
+#+BEGIN: sysml-view :kind rwe-replacements :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Clause | Factor | Old-authority | Replacement | Necessary-condition | Retirement-condition | Failure-custody | C-publication-order |
+|---+---+---+---+---+---+---+---|
+| root-before-collect | ffi | Raw thunk/value C locals, SFUN_ARG and marker setup choreographies | Generated NativeActivation root/borrow plan plus stable VM-owned root origin, before any collecting conversion | Cover both run origins, generated SFUN/CFUN, RC writes and nested exceptional exits; a pointer to an unregistered local is not a root | Retire raw managed-entry choreography only when every admitted generator and native user calls the same plan; unmanaged ABI stays explicitly outside optimized admission | Registration failure leaves parent roots owned; unknown acknowledgement retains source and destination until queried; startup rooted adapter is existing partial progress | Root metadata initialized under origin gate; release-ready publication and acquire validation precede consuming handles; no collecting operation with an incomplete view |
+| frozen-root-publication | ffi | PSTATE index and synchronous barrier imply complete membership and root stability | RoundCoordinator snapshots admitted RootOrigins with incarnations and frozen views independently of OS carrier population | Freeze all root writers/borrowers; registration racing close belongs wholly to this round or retains source for next admission; return cannot mutate an unscanned included view | Remove participant-array-by-carrier construction after all resize, GC and callback admissions publish through one root registry and round gate | Late registration remains VM/parent-root owned and cannot wait for GC while holding a writer lease; no root disappears on a failed close | Mutex release/acquire publishes member set and root view; claim CAS uses acquire-release; plain slot access occurs only under frozen/exclusive authority, not a revision-only race check |
+| origin-task-claim | work | Strong/weak/cleanup completion selected by PROCESSOR_ID(work->carrier) | RootTask names VM, round, origin slot/incarnation, kind and claim generation; worker execution identity supplies no participant authority | One claim owner scans actual frozen root locations; root task completion differs from completion of descendants and of the full strong phase | Replace carrier indexing in strong, weak, cleanup and root dispatch together; keep OS identity only for host instrumentation | Failed dequeue retains queue authority; unknown claim stays recorded in-flight; never recreate a second scanner from an empty queue observation | Initialize task before release queue publication; acquire dequeue/claim, release result/root writes; coordinator acquires completion before phase advance |
+| independent-copy-arena | work | Collector allocation, tospace and private frontier use work->context and carrier PSTATE context memory macros | WorkerArena owns copied intervals, frontier, Tail and destination grants; ContextResumePlan separately owns restored mutator intervals | Migrate reserve/cancel/commit, stack-frame copying, section refill, still accounting, steal victims and instrumentation; pre-flip physical plan covers copy and resume without overlap | Retire collector context allocation macros and synchronous binding assertion only after the entire allocator/scanner/helper call graph consumes work/round/arena explicitly | Unpublished copy or Tail cannot be abandoned; rejected transfer retains donor; unknown stop retains source arena and forbids a second initializer | Arena-exclusive ordinary writes; published object readiness and ownership use release/acquire; migration requires stopped donor plus matching generation, never timeout alone |
+| round-global-tasks | work | Processor zero and each carrier implicitly own VM roots, weak work, still sweep and shared overflow result | Round-scoped task keys and coordinator phase authorization; context root work and VM-global duties are different tasks | VM roots/global variables scanned exactly as required; weak fixed point precedes cleanup; effects/affinity of foreign releases are admitted before movement/resume | Remove processor-zero semantic ownership and per-carrier weak/cleanup phase stores; host coordinator thread may remain a policy choice | Owner-dependent release retains rooted deferred work and budget; collector never waits for callback execution forbidden by its own parked-owner policy | Task and phase publication under round gate; release result before acquire acknowledgement; failure outcome is immutable for this round |
+| descendant-closure | work | scan_workers_count decrements and processor barriers imply no future scan producer | Closed producer set plus explicit queued, claimed, private-copy, Tail and descendant custody; stopped worker transfers its responsibilities | Every publisher/last use is mapped; parent can finish only after children are durably accounted; handoff receipt proves custody rather than implying completed work | Retire idle-count-as-proof and fixed-population GC barriers together; waking/parking mechanisms can remain implementation details | Unknown donor execution or publication leaves an in-flight debt; safeness can hold while progress is unresolved; cannot discharge debt by declaring carrier dead | Reserve child debt before visibility; publish task then transfer authority; terminal transition serialized against producer admission; wait predicates checked under same gate |
+| context-resume | ffi | Returning from identical per-processor GC barriers implies restored roots, capacity and overflow consumption | Whole-round resume seal plus context-specific physical allocation grant, authoritative root reload and immutable outcome receipt | All required phases/results and native restrictions settled; each context consumes the same round outcome once; preserve multi-shot continuation and Scheme winding | Replace post-GC next_heap_msection/prepare_mem_pstate choreography and carrier result overwrite assumptions with one resume plan consumer | Failed capacity admission keeps source before flip; post-flip unknown state forbids Scheme resume; GC movement does not recreate an expired native C activation | Acquire seal and interval grant before address reload/resume; publication of a later round cannot erase unacknowledged result storage |
+| withdrawal-custody | exit | Native thread exit/join result jointly decides membership, work lifetime, roots and cleanup | Separate close-execution, freeze heap writes, transfer work/roots, close native users and recycle host slot authorizations | Prove actual no-write/borrow boundaries and known task transfer; unknown join alone proves neither heap safety nor unsafe heap participation | Replace resize abort/shrink and post-run service-loop authority as one lifecycle cut, including accepted callbacks/errors and partial create failure | VM retains outcomes, roots and resources across carrier loss; known frozen writers may detach with tasks reassigned; unknown shared-heap writers can still block the affected VM | Close gates before draining permits; release custody receipt before source ACK; native handle reuse still needs known last native user, not GC completion |
+| teardown-reclamation | exit | cleanup_pstate destroys RC/memory and synchronization after a successful join | Separate host cleanup from VM-owned root-domain/arena reclamation and managed-reader grace completion | No scanner/borrower/late callback uses reclaimed storage; still/RC roots are transferred or proven dead; queued releases retain payload independently of PSTATE | Replace cleanup_os_and_mem_pstate lifetime coupling after every cleanup/setup/rollback consumer uses the new domain ownership; keep necessary OS resource release | Unknown reader/native user prevents physical recycle; metadata cannot be reused across an unresolved incarnation; VM shutdown must drain or explicitly retain | Acquired transfer ACK plus reader grace and native-close receipt precede free; managed epoch progress excludes unregistered native readers |
+#+END:
+
+** Identity, publication and completion
+
+RootOrigin identifies a VM-owned root domain with a nonreused incarnation.
+RoundMember identifies that origin's inclusion and frozen view for one round.
+RootTask identifies an actual scan obligation. CollectorWorker identifies a
+temporary execution agent. HostCarrier identifies an OS thread and instrumentation
+context. Equality of any two numeric slots supplies none of the other identities.
+Slots may be bounded and reused only after actual readers, tasks and native
+borrowers are closed; unresolved incarnations deny reuse rather than wrap.
+
+The round gate serializes admission against close. Writers publish a complete
+frozen view under that gate after ordinary writes and native borrows have stopped.
+Release/acquire queue publication precedes a task's claim. An origin included in
+this round cannot return and mutate its root slots while an unclaimed or active
+task can still scan them. Late admissions either obtain a complete inclusion
+decision or retain their parent/source roots outside the closed set. They never
+wait for GC while holding a root writer or native reentry permit.
+
+A root task finishes after its authoritative root slots are repaired and its
+children are durably accounted for. It does not finish the strong phase. The
+round coordinator advances only after all relevant producers are closed and
+queued, running, private-copy, Tail and descendant debts have custody/closure
+appropriate to that transition. Worker handoff proves a new custodian, not that
+the work has already completed. Weak/finalizer/hash-table tasks have their own
+round authorization; per-origin phase stores cannot stand in for that authority.
+
+Plain C payload slots are accessed under frozen or exclusive ownership. Atomic
+revision checks alone do not legalize racing non-atomic root or frame accesses.
+Condition-variable predicates and their transitions use the same gate. A failed
+claim has no root-write authority. An unknown claim stays recorded in-flight.
+
+** Worker allocation and context restoration
+
+The collector's arena owns destination spans, publication frontier, first-field
+Tail and refund debt independently of a stopped mutator's allocation tips.
+Every collector-reachable use of context allocator macros, section refill,
+frame copying, still counters, tospace interpretation and actlog/consistency
+helpers needs classification and migration. Replacing =work->context= with a
+different pointer name leaves this coupling intact.
+
+The pre-flip physical plan accounts live copy demand, contiguous maximum request,
+packing loss and first-resume reserves across the actual worker and origin sets.
+Any shared accounting uses one canonical ledger: worker reserved space and the
+same context resume interval cannot both count as free. Known reusable worker
+tails may reduce peak only if committed to the joint plan before that peak.
+Post-round refunds alone do not establish a lower whole-round peak.
+
+A context resumes after acquiring its whole-round seal, immutable outcome and
+physical grant, then reloading every authoritative root/address. This preserves
+Gambit's lazy reached-frame restoration, multi-shot control and Scheme winding.
+It does not migrate a live native C stack or resurrect an expired native origin.
+The existing FrameSpec/alias and whole-round capacity source refinements remain
+external prerequisites of this complete cut, not newly proved lemmas here.
+
+** Exit, failure and physical reclamation
+
+Separate execution admission closure, actual heap-write closure, task/root
+handoff, result delivery, native-user closure and physical recycle. A known
+frozen root domain and safely stopped worker can transfer to VM custody even
+when native-handle join is unknown. Another worker may continue scanning that
+domain. An unknown writer that may still touch the shared moving heap cannot be
+isolated merely by removing it from the member set; the affected VM can remain
+blocked. A healthy separate VM is a different progress observation.
+
+Partial creation failure keeps unpublished origins and grants owned by the VM
+until their disposition is known. Donor rejection keeps the donor responsible;
+unknown transfer keeps both records but only one execution authorization. No
+timeout, logical exiting flag or absent queue item proves physical stop.
+
+Before deferring a foreign release, effects, affinity, rooted payload and budget
+must already be admitted to the round. A cleanup routine cannot create an
+unscanned moving-root dependency after strong closure. Unsupported releases
+remain outside delayed admission. Eligible owner-dependent work is handed to
+rooted VM custody and executed only when the owner is permitted to run, avoiding
+the GC-waits-owner/owner-waits-GC cycle.
+
+Only known final native users, transferred/dead roots, discharged scanner pins
+and qualified reader grace authorize physical freeing. Managed grace cannot
+cover an unmanaged C borrower. Host cleanup may release an OS handle after its
+native receipt; that does not implicitly free the VM-owned root domain or arena.
+
+* Prerequisites and first complete code patch
+#+NAME: rwe-dependencies
+#+BEGIN: sysml-view :kind rwe-dependencies :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Dependent | Prerequisite |
+|---+---|
+| frozen-root-publication | root-before-collect |
+| origin-task-claim | frozen-root-publication |
+| independent-copy-arena | frozen-root-publication |
+| round-global-tasks | origin-task-claim |
+| round-global-tasks | independent-copy-arena |
+| descendant-closure | round-global-tasks |
+| context-resume | descendant-closure |
+| withdrawal-custody | descendant-closure |
+| teardown-reclamation | withdrawal-custody |
+#+END:
+
+These are source-coverage dependencies, not runtime wait edges. They do not
+require the entire GC round to finish before a stopped worker can transfer a
+task. They require that the transfer's actual custody is proved. The candidate
+patch is one generator/runtime/lifecycle integration cut, with these file owners:
+
+| Source boundary | Required replacement |
+|---+---|
+| =gsc/_ptree2.scm= and =include/gambit.h.in= SFUN/CFUN entry macros | Emit/consume NativeActivation root and exceptional-exit plans; public C ABI remains intentional; Scheme semantic ownership remains in Scheme |
+| =include/gambit.h.in= role/round records and =lib/mem.h= | RootOrigin/round/task/worker-arena lifetimes, incarnation and authority types; no participant identity inferred from a carrier pointer |
+| =lib/c_intf.c= and RC APIs in =lib/mem.c= | All admitted pre-marker roots, conversion borrows, nested exits and root-domain ownership; retain explicit raw-entry limits |
+| =lib/mem.c= allocation/copy/root/weak/cleanup helpers | Separate WorkerArena from ContextResumePlan; migrate each helper and all three phase consumers; bind to the physical planner and frame contracts |
+| =lib/setup.c= GC/resize/sync/entry paths | Route both GC callers and both run origins through one coordinator/registry; preserve request combination and round-result ACK; remove the old GC collective as authority |
+| =lib/setup.c= setup/abort/shrink/cleanup and =lib/os_thread.c= adapters | Split logical withdrawal, heap stop, task/root custody, result handoff and known native reclamation; partial and unknown outcomes remain represented |
+| =lib/_thread.scm= and generated continuation consumers | Admit only complete safe points, freeze/reload actual roots, preserve winding and multi-shot observations; scheduler policy does not silently change map evaluation order |
+
+Internal development may sequence edits, but the old GC driver, allocator and
+completion owners cannot be retired independently or remain co-authoritative in
+one admitted execution. Do not remove the synchronous binding assertion until
+all corresponding consumers use the new contract. Keep the pre-refactor producer
+as a separately identified baseline, not a second live policy inside the target.
+
+Portable C integration remains a core objective. This does not promise binary
+compatibility for changed private runtime structures or admission of unrooted
+raw C values into independently moving GC. Generated code, headers and native
+modules must rebuild against the same ABI closure. Native clients need declared
+root handles, qualified borrows or proven nonmoving provenance; the complete
+admission inventory and unsupported-client disposition are still source duties.
+
+* Erlang learning and Gambit-specific counterexamples
+#+NAME: rwe-learning
+#+BEGIN: sysml-view :kind rwe-learning :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Mechanism | Pinned-witnesses | Upstream-fact | Gambit-mismatch | Inference | Refutation |
+|---+---+---+---+---+---|
+| scheduler-process | otp-scheduler;otp-progress | Scheduler execution and process state are separate, with explicit process/runqueue synchronization | Gambit context and root graph are not an isolated Erlang process heap | Separate execution policy from root identity and collector task authority | Renamed carrier fields retain context-owned allocation and carrier-index completion |
+| native-exit | otp-dirty-limit | Dirty scheduler separation permits other work; native execution can outlive logical process termination and delay GC/resources | Unknown native Gambit writers may reach shared movable graphs | Split logical exit, heap freeze, result delivery and physical native reclamation | A timeout or exiting flag is treated as proof that native writes stopped |
+| reader-grace | otp-progress;otp-unmanaged;otp-grace-contract | Managed progress and unmanaged reader accounting have distinct APIs | External C callers cannot promise scheduler event-loop progress automatically | Use qualified reader grace for control metadata; preserve separate unmanaged borrower permits | Managed epoch advances while an unregistered native pointer still accesses freed storage |
+| actor-memory | actor-send;actor-payload;otp-heap-contract | Gambit mailbox payload is a shared Scheme reference; OTP's local process collection relies on its own heap/term ownership contract | Actor API resemblance supplies neither heap isolation nor barriers for mutable shared data or continuations | Keep shared semantics and prove root/write contracts; any isolated actor API is a separately specified optional restriction | Copying all sent mutable values changes alias observations; treating shared values as local loses roots |
+#+END:
+
+[[file:../../knowledge/erlang/index.org][Erlang/OTP is a primary pinned reference]], alongside Gambit, Chez and selected
+OCaml mechanisms. Actor naming does not supply a shared memory contract. OTP's
+per-process generational collection and native-interface restrictions must be
+read together with its scheduler and reader-grace implementation. This study
+does not infer historical implementation ancestry from similar APIs.
+
+* Benefit, overhead and falsification
+#+NAME: rwe-benefits
+#+BEGIN: sysml-view :kind rwe-benefits :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Clause | Avoided-work | Added-cost |
+|---+---+---|
+| root-before-collect | Remove per-caller reinvention and stale-local recovery attempts; root scanning remains necessary | Activation/origin records, root register and post-GC reload; retained payload graphs not bounded by fixed records |
+| frozen-root-publication | Avoid equating every root origin with one runnable collector carrier | Frozen-view metadata, registration arbitration and scanner pins; complete round closure remains required |
+| origin-task-claim | Allow W workers to service R root origins without W=R or fixed carrier affinity | Task claims, root-owner indirection and completion metadata; no automatic speedup when W exceeds useful work |
+| independent-copy-arena | Decouple copying policy and worker count from Scheme context lifetime; eligible arena tails can feed resume plans | Worker arenas, packing and handoff metadata; count simultaneous copy, resume and unknown-retained reserves at physical peak |
+| round-global-tasks | Remove accidental carrier duplication and owner-callback work from GC critical path when effects allow | Explicit global/weak/release task accounting, effects checks and retained deferred payload |
+| descendant-closure | Prevent premature completion and false all-worker participation requirements; permit scheduling independent from membership | Debt/publication traffic and wakeup coordination; fairness and bounded external work remain separate assumptions |
+| context-resume | Avoid unnecessary carrier-wide acknowledgement and reinference of context capacity; required root repair/reload remains | Per-context receipts, restored interval plans and result retention; resume reserve is not post-peak refund |
+| withdrawal-custody | Avoid GC veto solely for a safely detached native handle and avoid retaining an entire idle collective just to hold results | Bounded control records plus possibly large rooted graphs/native arenas; exhaustion policy and failure scope explicit |
+| teardown-reclamation | Reclaim unrelated healthy domains after qualified closure; do not scan a retired PSTATE solely because it owns RC storage | Grace metadata, delayed native/resource frees and reader tracking; unmanaged borrowers need their own protocol |
+#+END:
+
+Let R be admitted root origins, W collector workers, and J root/VM/copy tasks.
+Independent workers remove the requirement W=R; they do not make useful work
+unbounded. Scanning the same roots is still required. A task claim per origin
+adds O(R) claim/dispatch work per admitted root kind; private arenas add O(W)
+control records, plus actual interval/queue/descendant storage. This is not a
+byte bound for live graphs or unknown native resources.
+
+For the same useful workload, net elapsed benefit requires avoided mandatory
+carrier participation, imbalance, redundant work and qualified blocking to exceed
+new root/claim/publication/closure/grace costs on the critical path. R/W/J are
+unmeasured here; no ideal speedup is reported as achieved. A serial scheduler,
+shared global claim bottleneck, unresolved shared writer, incorrect copy capacity
+or broken continuation behavior falsifies the intended benefit. Physical peak
+includes simultaneous copy and context restoration reserves plus retained debt.
+
+* Native acceptance and actual closure
+#+NAME: rwe-native-cases
+#+BEGIN: sysml-view :kind rwe-native-cases :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Case | Required-observation | Execution |
+|---+---+---|
+| entry-roots | Both run origins, generated raw/managed SFUN and CFUN, nonzero processor RC, nested callback and exceptional unwinding under forced GC | NOT EXECUTED |
+| worker-origin-counts | Same VM with different R root-origin and W worker counts; all root/VM tasks once; carriers can change only at qualified cuts | NOT EXECUTED |
+| copy-round | Duplicate delivery, Tail/private frontier handoff, weak descendants, CAS loss and physical pre-flip failure at unchanged heap/wait limits | NOT EXECUTED |
+| exit-custody | Partial create, unknown join, late outcomes and owner-dependent cleanup; distinguish safely stopped actors from unknown shared writers and other-VM from same-VM progress | NOT EXECUTED |
+| scheme-observations | Real map multi-shot capture/restore, shared mutation and dynamic-wind; proper tail space, natural exit and exact existing Bazel profile | NOT EXECUTED |
+#+END:
+
+These are future acceptance families under the exact existing Bazel profile.
+Bootstrap artifacts can be reused only for their exact source/options/dependency
+identity. Existing bootstrap and scoped fault passes do not qualify changed
+GC workers. Preserve failures at the same heap/watchdog limits.
+
+#+NAME: rwe-closure
+#+BEGIN: ascent-view :kind rwe-closure :source refactoring/modern-c/models/sysml/root-worker-exit.sysml
+| Control | Synthetic | Supplied-clauses | Dependency-covered-clauses | Native-case-records | Retirement-admitted |
+|---+---+---+---+---+---|
+| current | false | 0/9 | 0/9 | 0/5 | NO |
+| roots-only | true | 2/9 | 2/9 | 0/5 | NO |
+| carrier-renamed | true | 8/9 | 3/9 | 0/5 | NO |
+| upstream-as-proof | true | 0/9 | 0/9 | 0/5 | NO |
+| conflicting-outcome | true | 8/9 | 7/9 | 0/5 | NO |
+| local-complete | true | 9/9 | 9/9 | 5/5 | NO |
+#+END:
+
+Source/native facts in negative controls are explicitly synthetic. Upstream OTP
+facts cannot discharge Gambit refinement. Root-only coverage cannot retire the
+worker/exit paths; a missing independent arena cannot be hidden by renaming the
+carrier; conflicting pass/unknown results deny closure. Even all local mock facts
+do not supply the original missing obligations, factor conditions or five gates.
+
+Existing QNT owns scheduling/permit histories and Lean owns the separate general
+data/mapping laws. Their exact receipts are reused, not rerun or recopied. Real
+C refinement and native execution are still missing. The five submission gates
+remain open: tests; architectural learning/advantages; current process position;
+model establishment; and answered Gambit-paper leverage questions. No runtime
+implementation, native test or commit occurs in this update. The newly requested
+OTP gitlink and =.gitmodules= entry are staged for review, without a commit.
+
+The reused formal results retain their original control-abstraction scope. They
+do not prove independent worker arenas, concrete C publication or GC termination.
+Existing GC/copy models remain separate source-refinement prerequisites in the
+parent blueprint; this study does not silently readmit or duplicate their laws.
+
+[[file:../../../evidence/research/root-worker-exit/validation.json][Retained evidence and source lock]] preserve the native SysML result, actual
+ASCENT requests, source intervals, OTP pin and interrupted full-download history.
+[[file:diagrams/root-worker-exit.d2][D2 source]] and [[file:diagrams/root-worker-exit.svg][rendered view]] are derived from the same native projection.

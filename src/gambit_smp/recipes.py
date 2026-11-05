@@ -54,9 +54,9 @@ def fields(value, required, optional=()):
         raise ValueError("unsupported capability fields")
 
 
-def budget(value):
-    if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= 600:
-        raise ValueError("finite positive budget at most 600 seconds required")
+def budget(value, ceiling=600):
+    if type(value) not in (int, float) or not math.isfinite(value) or not 0 < value <= ceiling:
+        raise ValueError(f"finite positive budget at most {ceiling} seconds required")
     return value
 
 
@@ -203,7 +203,7 @@ def load(root, path):
     path = source_path(root, path.relative_to(root).as_posix())
     recipe = read_json(path)
     fields(recipe, ("schema", "id", "scope", "inputs", "steps"),
-           ("budgetSeconds", "timeoutPolicy", "workspacePolicy", "continuationRequest", "continuationLedger"))
+           ("budgetSeconds", "timeoutPolicy", "workspacePolicy", "continuationRequest", "continuationLedger", 'buildMigration'))
     policy = recipe.get("timeoutPolicy")
     if policy is None:
         budget(recipe.get("budgetSeconds"))
@@ -225,6 +225,8 @@ def load(root, path):
         raise ValueError("unique explicit recipe inputs required")
     for name in inputs:
         source_path(root, name)
+    if 'buildMigration' in recipe and recipe['buildMigration'] not in inputs:
+        raise ValueError('build migration must be an explicitly declared source input')
     if "continuationRequest" in recipe and recipe["continuationRequest"] not in inputs:
         raise ValueError("continuation request must be a declared Evidence input")
     if "continuationRequest" in recipe and recipe.get("continuationLedger") not in inputs:
@@ -242,7 +244,7 @@ def load(root, path):
             raise ValueError("unique capability step identity required")
         if step["capability"] not in CAPABILITIES:
             raise ValueError("unknown capability; Evidence cannot supply executable code")
-        budget(step["budgetSeconds"])
+        budget(step["budgetSeconds"], 3600 if policy is not None and policy["mode"] == "progress" else 600)
         if not isinstance(step["dependsOn"], list) or any(not isinstance(item, str) for item in step["dependsOn"]) or len(set(step["dependsOn"])) != len(step["dependsOn"]):
             raise ValueError("unique explicit dependencies required")
         CAPABILITIES[step["capability"]].validate(step["arguments"], inputs)
@@ -272,6 +274,40 @@ def load(root, path):
         caps = [step["budgetSeconds"] for step in ordered]
         recipe["budgetSeconds"] = (max(caps) if policy["mode"] == "progress" else sum(caps)) + policy["overheadSeconds"]
     return recipe, ordered
+
+
+def checked_build_migration(root, path, recipe, previous):
+    """Carry actual prior expenditure across an authored storage migration.
+
+    This authorizes no completed stage, restored process, native result or
+    increased budget. It does not redirect a legacy executable entry point.
+    """
+    if 'buildMigration' not in recipe:
+        return None
+    declared = source_path(root, recipe['buildMigration'])
+    migration = read_json(declared)
+    if migration.get('schema') != 'incremental-build-migration.v1':
+        raise ValueError('typed build migration required')
+    if os.environ.get('GAMBIT_SMP_TASK_ID') and migration.get('task') != os.environ['GAMBIT_SMP_TASK_ID']:
+        raise ValueError('build migration belongs to another work item')
+    target = path.relative_to(root).as_posix()
+    allowed = migration.get('allowedSuccessors', {}).get(previous.get('recipe'), [])
+    if target not in allowed:
+        raise ValueError('prior recipe is not an authored predecessor of this build migration')
+    originals = []
+    for name, sha in migration['protectedExistingDeclarations'].items():
+        if previous.get('inputs', {}).get(name, previous.get('inputs', {}).get(str(root / name))) != sha:
+            continue
+        original = source_path(root, name)
+        if digest(original) != sha:
+            raise ValueError('original build declaration changed during migration')
+        if read_json(original)['id'] == previous['recipe']:
+            originals.append(name)
+    if len(originals) != 1:
+        raise ValueError('one bound original build declaration required')
+    return dict(declaration=recipe['buildMigration'], sha256=digest(declared),
+                original=originals[0], predecessor=previous['recipe'], successor=recipe['id'],
+                restoredStages=[], runtimeAdmitted=False)
 
 
 def discover(root):
@@ -339,19 +375,27 @@ class LeasedTreeChecks:
         self.roots = {}
         self.checked = {}
         self.full_reads = self.reused = self.final_reads = 0
+        self.read_seconds = self.reuse_seconds = self.verify_seconds = 0.0
+
+    def costs(self):
+        return {name: getattr(self, name) for name in
+                ('full_reads', 'reused', 'final_reads', 'read_seconds', 'reuse_seconds', 'verify_seconds')}
 
     def identity(self, path):
+        started = time.monotonic()
         self.check_root(path)
         before = _tree_stamp(path)
         previous = self.checked.get(path)
         if previous is not None and before == previous[0]:
             self.reused += 1
+            self.reuse_seconds += time.monotonic() - started
             return deepcopy(previous[1])
         result = _tree_identity_uncached(path)
         self.full_reads += 1
         if before != _tree_stamp(path):
             raise ValueError("leased tree changed during hashing")
         self.checked[path] = (before, deepcopy(result))
+        self.read_seconds += time.monotonic() - started
         return result
 
     def check_root(self, path):
@@ -360,12 +404,16 @@ class LeasedTreeChecks:
             raise ValueError("workspace replaced while leased")
 
     def verify(self):
-        for path, (stamp, expected) in self.checked.items():
-            self.check_root(path)
-            actual = _tree_identity_uncached(path)
-            self.final_reads += 1
-            if actual != expected or _tree_stamp(path) != stamp:
-                raise ValueError("leased tree changed before final verification")
+        started = time.monotonic()
+        try:
+            for path, (stamp, expected) in self.checked.items():
+                self.check_root(path)
+                actual = _tree_identity_uncached(path)
+                self.final_reads += 1
+                if actual != expected or _tree_stamp(path) != stamp:
+                    raise ValueError("leased tree changed before final verification")
+        finally:
+            self.verify_seconds += time.monotonic() - started
 
 
 def tree_identity(path, *, broken_links=None):
@@ -403,13 +451,37 @@ def _tree_identity_uncached(path, *, broken_links=None):
     return result
 
 
-def artifact_path(out, descriptor, *, root=None):
+def artifact_path(out, descriptor, *, root=None, _seen=None):
     """Resolve a managed workspace reference without filesystem aliases."""
+    if "origin" in descriptor:
+        if root is None:
+            raise ValueError("retained artifact requires its repository custody")
+        from gambit_smp.reasoning_history import read_execution_checkpoint
+        from gambit_smp.step_checkpoint import content_id
+        origin = descriptor["origin"]
+        producer = relative(root, origin["run"])
+        from gambit_smp.artifact_storage import observation_root
+        observation_root(root, producer)
+        key = (str(producer), origin["step"], origin["receipt"])
+        seen = set() if _seen is None else set(_seen)
+        if key in seen:
+            raise ValueError("retained artifact provenance cycle")
+        seen.add(key)
+        rows = [entry["payload"]["step"] for entry in read_execution_checkpoint(root, producer)["records"]
+                if entry["payload"].get("schema") == "research-step-observation.v1"
+                and entry["payload"]["step"]["id"] == origin["step"]]
+        if len(rows) != 1 or content_id(rows[0]) != origin["receipt"]:
+            raise ValueError("retained artifact producer identity changed")
+        original = rows[0].get("outputs", {}).get(origin["output"])
+        if original is None or {k: v for k, v in descriptor.items() if k != "origin"} != {
+                k: v for k, v in original.items() if k != "origin"}:
+            raise ValueError("retained artifact does not match its committed output")
+        return artifact_path(producer / "run", original, root=root, _seen=seen)
     path = relative(out, descriptor["path"])
     if "workspace" not in descriptor:
         return path
     if root is None or descriptor.get("type") not in {
-            "source-tree", "configured-tree", "seed-runtime", "source-runtime"}:
+            "source-tree", "configured-tree", "seed-runtime", "source-runtime", "bootstrap-input"}:
         raise ValueError("managed workspace requires same-project source type")
     if digest(path) != descriptor.get("locationSha256"):
         raise ValueError("managed workspace location receipt drift")
@@ -442,6 +514,44 @@ class WorkspaceValidationScope:
             self.checks.checked.clear()
 
 
+def retain_input_validation(root, out, journal, inputs, tools):
+    """Record completed declared-byte checks, not native execution progress."""
+    header_path = Path(journal['path'])
+    if digest(header_path) != journal['sha256']:
+        raise ValueError('run header changed during input validation')
+    header = read_json(header_path)
+    required = header['inputs']
+    if not isinstance(required, dict):
+        raise ValueError('declared input table required')
+    canonical_inputs = {}
+    for name, sha in inputs.items():
+        path = str(Path(name).resolve())
+        if path in canonical_inputs and canonical_inputs[path] != sha:
+            raise ValueError('conflicting validated input aliases')
+        canonical_inputs[path] = sha
+    observed = {}
+    for name in required:
+        relative = Path(name)
+        path = (root / relative).resolve()
+        if relative.is_absolute() or '..' in relative.parts or not path.is_relative_to(root.resolve()):
+            raise ValueError('declared input escapes the project')
+        observed[name] = canonical_inputs.get(str(path))
+    if observed != required:
+        raise ValueError('validated inputs do not cover the run declaration')
+    target = out / 'input-validation.json'
+    if target.exists() or target.is_symlink():
+        raise ValueError('input validation observation already exists')
+    pending = target.with_suffix('.pending')
+    with pending.open('x') as stream:
+        json.dump(dict(schema='recipe-input-validation.v1', header=journal,
+                       scope='declared-inputs-not-native-work', completed=True,
+                       requiredInputs=required, observedInputs=observed, observedTools=tools), stream)
+        stream.write('\n')
+        stream.flush()
+        os.fsync(stream.fileno())
+    pending.replace(target)
+
+
 class ExecutionContext:
     """One deadline and process recorder shared by every capability subcommand."""
     def __init__(self, root, out, directory, environment, deadline, outcomes, receipt, tools, *, workspace_scope=None):
@@ -470,7 +580,7 @@ class ExecutionContext:
             self.lease_check_token = _leased_tree_checks.set(self.leased_tree_checks)
             self.workspace_leases.callback(_leased_tree_checks.reset, self.lease_check_token)
 
-    def lease_workspace(self, path, expected_identity):
+    def lease_workspace(self, path, expected_identity, *, broken_links=None):
         if self.workspace_scope is not None and self.workspace_scope.closed:
             raise ValueError("closed workspace validation scope")
         from gambit_smp.artifact_storage import workspace_lease
@@ -480,7 +590,7 @@ class ExecutionContext:
         path = path.resolve(strict=True)
         if path in self.leased_workspaces:
             self.activate_lease_checks()
-            if tree_identity(path) != expected_identity:
+            if tree_identity(path, broken_links=broken_links) != expected_identity:
                 raise ValueError("held workspace state differs from requested input")
             self.remaining()
             return path
@@ -488,7 +598,8 @@ class ExecutionContext:
         self.leased_tree_checks.roots[path] = (state.st_dev, state.st_ino)
         try:
             leased = self.lease_stack.enter_context(workspace_lease(self.root, path, expected_identity,
-                identity_reader=self.leased_tree_checks.identity))
+                **({'broken_links': broken_links} if broken_links else
+                   {'identity_reader': self.leased_tree_checks.identity})))
         except BaseException:
             self.leased_tree_checks.roots.pop(path, None)
             self.leased_tree_checks.checked.pop(path, None)
@@ -519,7 +630,7 @@ class ExecutionContext:
             with self.progress_lock:
                 self.deadline = time.monotonic() + self.idle_window
 
-    def run(self, name, argv, cwd, cap, *, diagnostic=None, progress=None):
+    def run(self, name, argv, cwd, cap, *, diagnostic=None, progress=None, boundary=None):
         path = self.directory / (name + ".log")
         checkpoint = self.directory / (name + ".process.json")
         if path.exists() or checkpoint.exists():
@@ -531,22 +642,30 @@ class ExecutionContext:
             "state": "STARTED", "completionObserved": False, "runtimeAdmitted": False,
             **request}, sort_keys=True, indent=2) + "\n")
         metadata = {}
+        recorder = None
+        if self.receipt.get("journal"):
+            from gambit_smp.research_kernel import process_recorder
+            recorder = process_recorder(self.root, self.out.parent, self.receipt["journal"], deadline=self.deadline)
         if "engine" in self.receipt:
             from gambit_smp.process_observation import capture
             completed = [0]
 
             def observe(stdout, stderr):
                 count = progress(stdout, stderr)
+                observe.witness = getattr(progress, "witness", None)
                 if count > completed[0]:
                     completed[0] = count
                     self.renew_progress()
                     target = self.directory / (name + ".progress.json")
                     pending = target.with_suffix(".pending")
-                    pending.write_text(json.dumps({"schema": "native-completed-progress.v1", "completed": count}))
+                    pending.write_text(json.dumps({"schema": "native-completed-progress.v1", "completed": count,
+                                                   "witness": observe.witness}))
                     pending.replace(target)
                 return count
 
             observation = capture([str(arg) for arg in argv], cwd, actual, self.env,
+                                  **({"recorder": recorder} if recorder else {}),
+                                  **({"boundary": boundary} if boundary is not None else {}),
                                   **({"diagnostic": diagnostic} if diagnostic is not None else {}),
                                   **({"progress": observe} if self.progress_mode and progress is not None else {}))
             code, timeout, seconds = observation.exit, observation.timeout, observation.seconds
@@ -565,7 +684,8 @@ class ExecutionContext:
                             logOrdering="stdout-then-stderr; streams preserved separately")
         else:
             code, log, timeout, seconds = execute([str(arg) for arg in argv], cwd, actual,
-                                                env=self.env, metadata=metadata)
+                                                env=self.env, metadata=metadata,
+                                                **({"process_recorder": recorder} if recorder else {}))
             self.last_stdout = log
         path.write_text(log)
         record = dict(**request, exit=code, timeout=timeout, seconds=seconds,
@@ -583,9 +703,10 @@ class ExecutionContext:
         self.renew_progress()
         return code, log, timeout, seconds
 
-    def require(self, name, argv, cwd, cap, *, diagnostic=None, progress=None):
+    def require(self, name, argv, cwd, cap, *, diagnostic=None, progress=None, boundary=None):
         code, log, timeout, _ = self.run(name, argv, cwd, cap,
-                                       **({"diagnostic": diagnostic} if diagnostic is not None else {}),
+                                       **({"boundary": boundary} if boundary is not None else {}),
+                                  **({"diagnostic": diagnostic} if diagnostic is not None else {}),
                                        **({"progress": progress} if progress is not None else {}))
         if timeout:
             raise TimeoutError(name + " timed out")
@@ -632,7 +753,7 @@ class ExecutionContext:
         if path.is_dir():
             descriptor["identity"] = tree_identity(path)
             if (self.receipt.get("workspacePolicy") == "in-place" and
-                    kind in {"source-tree", "configured-tree", "seed-runtime", "source-runtime"}):
+                    kind in {"source-tree", "configured-tree", "seed-runtime", "source-runtime", "bootstrap-input"}):
                 from gambit_smp.artifact_storage import cache_path, seal_workspace_state
                 bindings = {Path(key).relative_to(self.root).as_posix(): sha
                             for key, sha in self.receipt["inputs"].items()
@@ -659,7 +780,11 @@ def authorization_preflight(receipt):
 def prior_tool_observation(out, receipt):
     descriptor = receipt.get("toolInputs")
     if descriptor is None:
-        if not authorization_preflight(receipt):
+        configure_preflight = (receipt.get("schema") == "evidence-recipe-run.v1"
+            and receipt.get("outcome") == "DENY" and receipt.get("steps") == []
+            and receipt.get("error") in {"required native tool missing: aclocal",
+                                         "required native tool missing: autoconf"})
+        if not authorization_preflight(receipt) and not configure_preflight:
             raise ValueError("missing prior tool observation outside authorization preflight")
         return None
     path = relative(out, descriptor["path"])
@@ -674,11 +799,77 @@ def authorization_repair(receipt, allow_native, gcc):
             and config.get("allowNative", False) is False)
 
 
+def preserved_successor(root, out, steps, index, path, *, input_bindings=None):
+    """Recognize a checked completed-seed handoff, never an arbitrary copy."""
+    if root is None:
+        return False
+    for position in range(index + 1, len(steps)):
+        later = steps[position]
+        if later.get("outcome") != "PASS" or later.get("capability") != "gambit.seed-core":
+            continue
+        transfer = later.get("preservation", {})
+        if (transfer.get("sourceUnchanged") is not True or transfer.get("exactIdentity") is not True
+                or transfer.get("purpose") != "completed-output-preservation"
+                or "preservationReceipt" not in transfer):
+            continue
+        if relative(root, transfer["sourceWorkspace"]) != path:
+            continue
+        ref = later.get("arguments", {}).get("source", {})
+        producers = [step for step in steps[:position]
+                     if step.get("id") == ref.get("step") and step.get("outcome") == "PASS"]
+        if len(producers) != 1:
+            continue
+        consumed = producers[0].get("outputs", {}).get(ref.get("output"), {})
+        if (consumed.get("type") != "configured-tree" or "stateEvidence" not in consumed
+                or artifact_path(out, consumed, root=root) != path):
+            continue
+        ancestor = steps.index(producers[0])
+        while ancestor > index:
+            upstream = steps[ancestor].get("arguments", {}).get("source", {})
+            parents = [(i, step) for i, step in enumerate(steps[:ancestor])
+                       if step.get("id") == upstream.get("step") and step.get("outcome") == "PASS"]
+            if len(parents) != 1:
+                break
+            parent_index, parent = parents[0]
+            parent_output = parent.get("outputs", {}).get(upstream.get("output"), {})
+            if not parent_output or artifact_path(out, parent_output, root=root) != path:
+                break
+            ancestor = parent_index
+        if ancestor != index:
+            continue
+        saved = later.get("outputs", {}).get("runtime", {})
+        if saved.get("type") != "seed-runtime" or "stateEvidence" not in saved:
+            continue
+        destination = artifact_path(out, saved, root=root)
+        if (destination == path or destination.is_relative_to(path) or path.is_relative_to(destination)
+                or destination != relative(root, transfer["preservedWorkspace"])):
+            continue
+        reference = transfer["preservationReceipt"]
+        receipt = relative(root, reference["path"])
+        if digest(receipt) != reference["sha256"]:
+            raise ValueError("completed preservation receipt changed")
+        record = read_json(receipt)
+        identity = saved["identity"]
+        if (record.get("completed") is not True or record.get("sourceUnchanged") is not True
+                or record.get("identity") != identity
+                or hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest() != transfer["identitySha256"]):
+            raise ValueError("completed preservation identity differs")
+        from gambit_smp.artifact_storage import checked_workspace_state
+        checked_workspace_state(root, saved["stateEvidence"], identity, input_bindings=input_bindings)
+        if tree_identity(path) == identity and tree_identity(destination) == identity:
+            return all(not os.path.samefile(path / name, destination / name)
+                       for name, entry in identity.items() if "sha256" in entry)
+    return False
+
+
 def inspect_outputs(out, steps, *, root=None, input_bindings=None):
     """Inspect disposable output availability separately from evidence binding."""
     rows = []
     for index, step in enumerate(steps):
         for name, descriptor in step.get("outputs", {}).items():
+            material_state = "UNKNOWN"
+            error_detail = None
+            custody_state = "UNVERIFIED" if "stateEvidence" in descriptor else "NOT_REQUIRED"
             try:
                 path = artifact_path(out, descriptor, root=root)
                 if not path.exists():
@@ -689,10 +880,12 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                     matches = (digest(path) == descriptor["sha256"] and
                                path.stat().st_mode & 0o777 == descriptor.get("mode", path.stat().st_mode & 0o777))
                     state = "AVAILABLE" if matches else "MODIFIED"
+                material_state = state
                 if "stateEvidence" in descriptor and root is not None:
                     from gambit_smp.artifact_storage import checked_workspace_state
                     checked_workspace_state(root, descriptor["stateEvidence"], descriptor["identity"],
                                             input_bindings=input_bindings)
+                    custody_state = "VERIFIED"
                     successors = [item for later in steps[index + 1:] if later.get("outcome") == "PASS"
                                   for item in later.get("outputs", {}).values()
                                   if item.get("workspace", item.get("path")) == descriptor.get("workspace", descriptor["path"])
@@ -700,9 +893,15 @@ def inspect_outputs(out, steps, *, root=None, input_bindings=None):
                     if state == "MODIFIED" and any(
                             tree_identity(path) == successor.get("identity") for successor in successors):
                         state = "RETAINED"
-            except (KeyError, TypeError, ValueError, OSError):
+                    if state == "MODIFIED" and preserved_successor(
+                            root, out, steps, index, path, input_bindings=input_bindings):
+                        state = "RETAINED"
+            except (KeyError, TypeError, ValueError, OSError) as error:
                 state = "UNKNOWN"
-            rows.append({"step": step["id"], "output": name, "status": state})
+                error_detail = str(error)
+            rows.append({"step": step["id"], "output": name, "status": state,
+                         "materialStatus": material_state, "custodyStatus": custody_state,
+                         **({"error": error_detail} if error_detail is not None else {})})
     states = {row["status"] for row in rows}
     status = next((state for state in ("UNKNOWN", "MODIFIED", "MISSING") if state in states), "AVAILABLE")
     if status == "AVAILABLE" and "RETAINED" in states:
@@ -716,9 +915,10 @@ def inspect_run(out, *, input_bindings=None):
     if receipt.get("schema") != "evidence-recipe-run.v1":
         raise ValueError("recipe run receipt required")
     workspace_root = None
-    if receipt.get("workspacePolicy") == "in-place":
-        workspace_root = next((parent for parent in out.resolve().parents
-                               if (parent / "evidence").is_dir() and (parent / ".data").is_dir()), None)
+    if receipt.get("workspacePolicy") == "in-place" or any(
+            "origin" in output for step in receipt["steps"] for output in step.get("outputs", {}).values()):
+        from gambit_smp.artifact_storage import repository_root
+        workspace_root = repository_root(out)
     try:
         from gambit_smp.historical_inputs import match
         stable = match(receipt["inputs"], input_bindings or {})
@@ -757,9 +957,11 @@ def inspect_run(out, *, input_bindings=None):
 
 
 def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=False, engine=None, deadline=None, journal=None,
-        budget_reservation=None):
+        budget_reservation=None, resume_prefix=None):
     from gambit_smp import host_environment
     recipe, steps = load(root, path)
+    from gambit_smp.research_kernel import require_incremental_builds
+    require_incremental_builds(recipe, steps)
     progress_mode = recipe.get("timeoutPolicy", {}).get("mode") == "progress"
     engine_identity = None
     if recipe["schema"] == "evidence-recipe.v2":
@@ -784,6 +986,8 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                "runtimeAdmitted": False, "releaseAdmitted": False, "executionAuthorized": False}
     receipt["executionConfig"] = {"allowNative": allow_native, "gcc": str(gcc) if gcc is not None else None}
     receipt["workspacePolicy"] = recipe.get("workspacePolicy", "isolated")
+    if journal is not None:
+        receipt["journal"] = journal
     if "timeoutPolicy" in recipe:
         receipt["timeoutPolicy"] = recipe["timeoutPolicy"]
     if "continuationRequest" in recipe:
@@ -829,6 +1033,10 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                   "toolInputs": dict(tools),
                   "dependencies": {name: journal_steps.get(name) for name in result["dependsOn"]},
                   "runtimeAdmitted": False, "releaseAdmitted": False, "sourceRefinementAdmitted": False}
+        from gambit_smp.step_checkpoint import support_inventory
+        record["supportInventory"] = support_inventory(root, header, result, tools, inputs)
+        if record["supportInventory"] is None:
+            raise ValueError("source-bound declaration inventory required before stage publication")
         saved = retain_run_record(root, out / (result["id"] + ".observation.json"),
                                   journal["scope"], record, inputs)
         journal_steps[result["id"]] = saved
@@ -841,7 +1049,8 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
             if not allow_native or gcc is None:
                 raise ValueError(AUTHORIZATION_ERROR)
             from gambit_smp.native_capabilities import host_tools, implementation_files
-            native_tools, environment = host_tools(gcc, steps, environment)
+            native_tools, environment = host_tools(gcc, steps, environment,
+                **({"configure_bindings": engine_identity["hostTools"]} if engine_identity is not None else {}))
             paths.extend(native_tools.values())
             receipt["tools"].update({name: str(value) for name, value in native_tools.items()})
             inputs.update(fingerprints(implementation_files(steps)))
@@ -850,12 +1059,40 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
         input_plan, tool_plan = FingerprintPlan(inputs), FingerprintPlan(tools)
         (out / "tools.json").write_text(json.dumps(tools, sort_keys=True, indent=2) + "\n")
         receipt["toolInputs"] = {"path": "tools.json", "sha256": digest(out / "tools.json"), "count": len(tools)}
+        if journal is not None:
+            # These byte observations completed; checkpoint reuse is still checked below.
+            retain_input_validation(root, out, journal, inputs, tools)
         if receipt["hostEnvironment"] is not None and receipt["hostEnvironment"]["available"] is not True:
             raise ValueError(host_environment.ERROR)
-        if prior is not None:
+        retained = {}
+        if prior is not None and journal is not None:
+            from gambit_smp.reasoning_history import read_execution_checkpoint
+            from gambit_smp.step_checkpoint import recovered_resumption, content_id
+            prefix = read_execution_checkpoint(root, prior.parent)
+            if prefix["records"]:
+                state = recovered_resumption(root, prior.parent)
+                if resume_prefix is not None and state["resumption"]["prefixIdentity"] != resume_prefix:
+                    raise ValueError("resumption prefix changed before consumption")
+                eligible = set(state["resumption"]["relations"]["consumable"])
+                same_executor = prefix['records'][0]['payload'].get('engineId') == engine_identity['engineId']
+                # Old output bytes remain evidence, but a corrected adapter
+                # cannot silently reuse the old adapter's execution result.
+                # Explicit completed-runtime transport revalidates compiled
+                # payloads separately; history and expenditure are retained.
+                if not same_executor:eligible = set()
+                retained = {entry["payload"]["step"]["id"]: entry["payload"]["step"]
+                            for entry in prefix["records"]
+                            if entry["payload"].get("schema") == "research-step-observation.v1"
+                            and (entry["payload"]["step"]["id"], content_id(entry["payload"]["step"])) in eligible}
+                receipt["checkpointConsumption"] = {"run": str(prior.parent.relative_to(root)),
+                    "prefixIdentity": state["resumption"]["prefixIdentity"], "reusedSteps": [],
+                    'sameExecutor': same_executor}
+        if prior is not None and resume_prefix is None:
             previous = read_json(prior / "receipt.json")
-            if previous.get("schema") != "evidence-recipe-run.v1" or previous.get("recipe") != recipe["id"]:
+            migration = checked_build_migration(root, path, recipe, previous) if previous.get('recipe') != recipe['id'] else None
+            if previous.get("schema") != "evidence-recipe-run.v1" or (previous.get("recipe") != recipe["id"] and migration is None):
                 raise ValueError("prior observation must identify this recipe")
+            if migration is not None:receipt['buildMigration'] = migration
             previous_tools = prior_tool_observation(prior, previous)
             delta = {name: sha for name, sha in inputs.items() if previous["inputs"].get(name) != sha}
             tool_delta = ({name: sha for name, sha in tools.items() if previous_tools.get(name) != sha}
@@ -892,7 +1129,27 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                       "dependsOn": step["dependsOn"],
                       "arguments": step["arguments"]}
             receipt["steps"].append(result)
-            if step["capability"] != "evidence.evaluate" and any(outcomes[dependency] != "PASS" for dependency in step["dependsOn"]):
+            previous = retained.get(step["id"])
+            if previous is not None and any(previous.get(key) != step.get(key)
+                    for key in ("capability", "arguments", "dependsOn", "budgetSeconds")):
+                previous = None
+            if previous is not None and all(dependency in receipt["checkpointConsumption"]["reusedSteps"]
+                                             for dependency in step["dependsOn"]):
+                from gambit_smp.step_checkpoint import content_id
+                if not (input_plan.matches() and tool_plan.matches()):
+                    raise ValueError("input changed before checkpoint consumption")
+                origin = {"run": str(prior.parent.relative_to(root)), "step": step["id"], "receipt": content_id(previous)}
+                carried = {key: value for key, value in previous.items() if key not in {
+                    *result, "outputs", "commands", "artifacts", "journal", "stageSeconds", "executionLaunched", "reused"}}
+                result.update(carried)
+                result.update(outcome="PASS", outputs={name: dict(value, origin=dict(origin, output=name))
+                    for name, value in previous.get("outputs", {}).items()},
+                    reused=origin, originStageSeconds=previous.get("stageSeconds"), executionLaunched=False,
+                    originCommands=previous.get("commands", []), originArtifacts=previous.get("artifacts", {}))
+                for descriptor in result["outputs"].values():
+                    artifact_path(out, descriptor, root=root)
+                receipt["checkpointConsumption"]["reusedSteps"].append(step["id"])
+            elif step["capability"] != "evidence.evaluate" and any(outcomes[dependency] != "PASS" for dependency in step["dependsOn"]):
                 result["outcome"] = "BLOCKED"
             elif not (input_plan.matches() and tool_plan.matches()):
                 result.update(outcome="STALE", reason="input changed before capability execution")
@@ -906,6 +1163,7 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                                                min(deadline, time.monotonic() + step["budgetSeconds"]),
                                                outcomes, receipt, receipt["tools"], workspace_scope=workspace_scope)
                     context.planned_steps = tuple(steps)
+                    validation_before = context.leased_tree_checks.costs()
                     try:
                         result.update(capability.executor(step["arguments"], context))
                         context.remaining()
@@ -925,6 +1183,9 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                         result.update(outcome="DENY", reason=str(error), errorType=type(error).__name__)
                         (directory / "capability-error.log").write_text(traceback.format_exc())
                     finally:
+                        validation_after = context.leased_tree_checks.costs()
+                        result['treeValidationCost'] = {key: validation_after[key] - value
+                                                       for key, value in validation_before.items()}
                         if any(row.get("processGroupQuiescent") is False for row in context.commands):
                             from gambit_smp.artifact_storage import quarantine_workspace
                             for workspace in context.leased_workspaces:
@@ -949,12 +1210,21 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
                     result.update(outcome="TIMEOUT", reason="whole recipe budget exhausted")
                 else:
                     actual_budget = min(step["budgetSeconds"], remaining)
-                    meta = {}
-                    code, log, timeout, seconds = execute(argv, root, actual_budget, env=environment, metadata=meta)
-                    (directory / "raw.log").write_text(log)
+                    context = ExecutionContext(root, out, directory, environment,
+                                               time.monotonic() + actual_budget,
+                                               outcomes, receipt, receipt['tools'], workspace_scope=workspace_scope)
+                    try:
+                        code, log, timeout, seconds = context.run('raw', argv, root, actual_budget)
+                    finally:
+                        context.workspace_leases.close()
+                    result.update(context.commands[-1], commands=context.commands)
                     result.update(argv=argv, cwd=str(root), effectiveBudgetSeconds=actual_budget,
-                                  exit=code, timeout=timeout, seconds=seconds, **meta)
+                                  exit=code, timeout=timeout, seconds=seconds)
                     result["outcome"] = "TIMEOUT" if timeout else "FAIL" if code != 0 else "PASS"
+                    if result['outcome'] == 'PASS' and any(
+                            row.get('parentReaped') is not True or row.get('processGroupQuiescent') is not True
+                            for row in context.commands):
+                        result.update(outcome='DENY', reason='checker process teardown not established')
                     if result["outcome"] == "PASS":
                         try:
                             result.update(capability.admit(step["arguments"], directory, root, recipe["inputs"]))
@@ -974,18 +1244,8 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
     finally:
         workspace_scope.close()
     finalization_started = time.monotonic()
-    try:
-        stable = ((input_plan or FingerprintPlan(inputs)).matches()
-                  and (tool_plan or FingerprintPlan(tools)).matches())
-        for step in receipt["steps"]:
-            stable = stable and fingerprints(Path(name) for name in step.get("observedInputs", {})) == step.get("observedInputs", {})
-            for name, sha in step.get("artifacts", {}).items():
-                stable = stable and digest(relative(out, name)) == sha
-        # In-place successors supersede sealed intermediate inventories, not evidence.
-        availability = inspect_outputs(out, receipt["steps"], root=root)
-        stable = stable and availability["status"] in {"AVAILABLE", "RETAINED"}
-    except (OSError, ValueError):
-        stable = False
+    receipt["finalization"] = finalization_observation(root, out, receipt["steps"], inputs, tools)
+    stable = receipt["finalization"]["stable"]
     receipt["inputsStable"] = stable
     receipt["finalizationCheckSeconds"] = time.monotonic() - finalization_started
     passed = len(receipt["steps"]) == len(steps) and all(step["outcome"] == "PASS" for step in receipt["steps"])
@@ -995,6 +1255,38 @@ def run(root, path, out, quint, node, prior=None, *, gcc=None, allow_native=Fals
     receipt["outcome"] = "STALE" if not stable else "PASS" if passed and "error" not in receipt else "DENY"
     (out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
+
+
+def finalization_observation(root, out, steps, inputs, tools):
+    """Record each failed predicate; the acceptance conjunction stays unchanged."""
+    failures = []
+    def check(kind, name, expected):
+        try:
+            actual = digest(Path(name))
+            if actual != expected:
+                failures.append(dict(kind=kind, path=str(name), expected=expected, actual=actual))
+        except (OSError, ValueError) as error:
+            failures.append(dict(kind=kind, path=str(name), error=str(error)))
+    for kind, bindings in (("input", inputs), ("tool", tools)):
+        for name, expected in bindings.items():
+            check(kind, name, expected)
+    for step in steps:
+        for name, expected in step.get("observedInputs", {}).items():
+            check("observed-input", name, expected)
+        for name, expected in step.get("artifacts", {}).items():
+            try:
+                path = relative(out, name)
+            except ValueError as error:
+                failures.append(dict(kind="artifact", path=str(name), error=str(error)))
+            else:
+                check("artifact", path, expected)
+    try:
+        availability = inspect_outputs(out, steps, root=root)
+        if availability["status"] not in {"AVAILABLE", "RETAINED"}:
+            failures.append(dict(kind="output-availability", observation=availability))
+    except (OSError, ValueError) as error:
+        failures.append(dict(kind="output-availability", error=str(error)))
+    return dict(stable=not failures, failures=failures)
 
 
 def main():
@@ -1034,5 +1326,9 @@ def main():
         parser.error(str(error))
 
 
+from gambit_smp.task_entry import managed_entry as _managed_entry
+main = _managed_entry('recipes')(main)
+
 if __name__ == "__main__":
-    raise SystemExit(main())
+    from gambit_smp.task_entry import module_main
+    raise SystemExit(module_main('recipes', main))

@@ -1,0 +1,125 @@
+---
+name: Gambit Modern C SMP
+'on':
+  pull_request:
+    paths:
+    - include/**
+    - lib/**
+    - gsc/**
+    - gsi/**
+    - tests/**
+    - configure*
+    - makefile.in
+    - ".github/workflows/smp.yml"
+  push:
+    branches:
+    - modern-c
+  workflow_dispatch: {}
+permissions:
+  contents: read
+env:
+  HOMEBREW_NO_AUTO_UPDATE: '1'
+jobs:
+  smp:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - name: Install the declared native tools
+      run: |
+        brew install gcc autoconf automake texinfo coreutils
+        command -v gcc-16
+    - id: seed
+      name: Build the initial Gambit interpreter using existing Make targets
+      run: |
+        mkdir -p .smp-ci/seed
+        export CC="$(greadlink -f "$(command -v gcc-16)")"
+        export PATH="$(dirname "$CC"):/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/opt/homebrew/opt/texinfo/bin"
+        unset SDKROOT LIBRARY_PATH CPATH GAMBOPT
+        export CFLAGS=-pipe
+        workers=$(sysctl -n hw.logicalcpu)
+        workers=$((workers > 1 ? workers - 1 : 1))
+        gtimeout 150s ./configure --enable-march= --enable-single-host=0 --enable-multiple-vms --enable-smp --enable-c-opt=-O1 --enable-c-opt-rts=yes --enable-gcc-opts --enable-inline-jumps --enable-dynamic-clib --enable-trust-c-tco --enable-multiple-threaded-vms > .smp-ci/seed/configure.output 2>&1
+        gtimeout 10s make dummy-gsc-boot > .smp-ci/seed/seed-compiler.output 2>&1
+        gtimeout --kill-after=2s 600s make -j"$workers" GAMBOPT="p$workers" core > .smp-ci/seed/build.output 2>&1
+    - id: bootstrap
+      name: Gambit owns complete two-pass bootstrap validation
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.bootstrap.two-pass
+        GAMBIT_SMP_OUT: ".smp-ci/bootstrap"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_gc_root_task_publication_claim_arena
+      name: 'SMP: gambit.smp.gc.root-task.publication-claim-arena'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.gc.root-task.publication-claim-arena
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.gc.root-task.publication-claim-arena"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_runtime_roles_storage_layout
+      name: 'SMP: gambit.smp.runtime.roles.storage-layout'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.runtime.roles.storage-layout
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.runtime.roles.storage-layout"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_control_continuation_map_multishot
+      name: 'SMP: gambit.smp.control.continuation.map-multishot'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.control.continuation.map-multishot
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.control.continuation.map-multishot"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_gc_frame_roots_single_processor
+      name: 'SMP: gambit.smp.gc.frame-roots.single-processor'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.gc.frame-roots.single-processor
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.gc.frame-roots.single-processor"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_gc_frame_roots_host_processors
+      name: 'SMP: gambit.smp.gc.frame-roots.host-processors'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.gc.frame-roots.host-processors
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.gc.frame-roots.host-processors"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_gc_shared_roots_cyclic_aliases
+      name: 'SMP: gambit.smp.gc.shared-roots.cyclic-aliases'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.gc.shared-roots.cyclic-aliases
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.gc.shared-roots.cyclic-aliases"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_scheduler_mailbox_ordered_shared_values
+      name: 'SMP: gambit.smp.scheduler.mailbox.ordered-shared-values'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.scheduler.mailbox.ordered-shared-values
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.scheduler.mailbox.ordered-shared-values"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_control_dynamic_wind_multishot_gc
+      name: 'SMP: gambit.smp.control.dynamic-wind.multishot-gc'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.control.dynamic-wind.multishot-gc
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.control.dynamic-wind.multishot-gc"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - id: gambit_smp_memory_modules_make_invalidation
+      name: 'SMP: gambit.smp.memory.modules.make-invalidation'
+      if: "${{ !cancelled() && steps.bootstrap.outcome == 'success' }}"
+      env:
+        GAMBIT_SMP_CASE: gambit.smp.memory.modules.make-invalidation
+        GAMBIT_SMP_OUT: ".smp-ci/gambit.smp.memory.modules.make-invalidation"
+      run: gsi/gsi -:p1,~~lib=lib,~~bin=bin,~~include=include tests/smp/suite.scm
+    - uses: actions/upload-artifact@v4
+      if: "${{ always() }}"
+      with:
+        name: gambit-smp-${{ runner.os }}-${{ runner.arch }}-${{ github.run_attempt
+          }}
+        path: |
+          .smp-ci/**/*.json
+          .smp-ci/**/*.output
+        include-hidden-files: true
+        if-no-files-found: warn

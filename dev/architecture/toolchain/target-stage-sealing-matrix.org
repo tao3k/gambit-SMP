@@ -1,0 +1,73 @@
+#+TITLE: Target Writers, Stage Sealing and Handoff Net Benefit Matrix
+#+SETUPFILE: ../../modeling/org/setup.org
+#+PROPERTY: header-args :eval never
+
+* RESEARCH Native SysML projection
+:PROPERTIES:
+:CUSTOM_ID: target-sealing-matrix
+:AUTHORITY: TargetStageSealing
+:STATUS: source-platform-refinement-open
+:END:
+
+Syntactic writer census is not alias/callback closure. All seven admission gates remain open.
+
+** Writer
+
+| key | anchor | writes | owner | closure |
+|---+---+---+---+---|
+| target-registry | _back.scm:171-266,388-509; _t-c-1.scm:225-279 | Target vector fields, targets-alist, target and target.* dispatch globals | Immutable descriptor template + per-context selected-target instance | C begin! rewrites registered target; shallow sharing of target-get result is unsafe |
+| primitive-overlays | _prims.scm:6806-6809; _t-c-2.scm:2870-2875 | Specializer/expander/simplifier and primitive inline metadata | Per-semantic-profile frozen base only after closure proof; mutable overlays per context | setup-prims plus target callbacks mutate procedure metadata; function pointer equality is not immutability |
+| c-interface | _t-c-1.scm:337-346; _front.scm:435-449 | Clears c-intf decls/procs/inits/objs after extracting their values | Exclusive consumed input OR immutable snapshot + private emission copy | Field clearing does not prove extracted nested values are unaliased; nested graph census remains open |
+| module-heap | _t-c-1.scm:428-483 | Interning tables, ordered tables, queues, resource records, labels, FP/sharing/name caches | EmissionWorkspace for one module attempt | begin/end reset globals but interior stores must be traced; normal end is not exceptional cleanup proof |
+| procedure-emission | _t-c-2.scm:26-93,239-269,347-419 | Per-procedure code, labels, resources, frames, allocation reserves and debug accumulator | ProcedureWorkspace nested in one EmissionWorkspace | Table/cell/queue aliases can retain emission data after top-level reset |
+| representation | _t-c-2.scm:1424-1975,2521-2525 | Representation graph/current block, FP cache and tuning flags | Profile configuration separated from per-procedure analysis graph | Some representation hooks are commented out; syntactic store inventory is not execution reachability |
+| source-output | _t-c-1.scm:1083-1108,1393-1397,2280-2288 | Output port, line counters, filenames, macro-definition/source tracking | Attempt-owned diagnostic/source sink plus caller-owned port lease | Normal close-output-port is not a cleanup guarantee on every exception path |
+| link-selection | _back.scm:604-714; _t-c-1.scm:1271-1397 | Linker target begin/end, output state and module/link metadata | Native/link context with same semantic cohort rules | compile-only caller census excludes link consumers; both must migrate before retiring globals |
+
+** Fidelity
+
+| key | anchor | mustPreserve | counterexample | admission |
+|---+---+---+---+---|
+| declarations | driver.ss:702-704,787-797; compile.ss:401-426 | Ordered declarations, annotation scope, section kind and phi-specific inlining policy | Flattening declaration scopes or dropping positive-phase inlining-limit changes compiler behavior | Encode declaration tree/scopes, not a set of options; compare to generated-file reader observation |
+| lexical-identity | base.ss:185-224; compile.ss:832-854,1150-1202 | Binding equality/distinction, namespace/phi, substitutions, quote-syntax lifts and initializer references | Canonicalizing distinct gensyms by spelling or stripping timestamp can collapse identities | Explicit injective binder/mark reconstruction and timestamp policy; no generic byte-equality claim |
+| source-origin | driver.ss:33-36,787-797; _front.scm:215-239; iter/macros.ss:45-57 | Baseline generated-file locations and reader/wrap/expand observations; original-source map separately labeled | sourcify-deep with one source is not automatically equivalent to read-source of emitted UTF-8/LF file | Baseline generated-view map required; richer original-origin diagnostics are an explicit enhancement |
+| exceptions | base.ss:97-99,340-346; driver.ss:963-978 | Phase-tagged diagnostics, nonzero subprocess status contract, output delivery and cleanup custody | Rethrowing a Gambit internal exception changes the current invoke nonzero-status compile-error surface | Compatibility adapter for existing observations; raw exception identity/continuation transport remains restricted |
+
+** Seal
+
+| key | inputGraph | sealCondition | consumer | cost |
+|---+---+---+---+---|
+| normalized | Normalized nodes + environment + C-interface + module metadata | No external mutable aliases, OR exclusive rooted region transfer; include origins and target semantic profile | GVM lowering under same semantic identity | Graph traversal, relocation and roots/retained memory |
+| gvm | Procedures/basic blocks/operands/constants + frame/module specs + C-interface | Frozen snapshot with alias-preserving relocation; mutable target metadata and workspaces excluded | One private emitter workspace per backend/attempt | Snapshot bytes, rehydration and private primitive/target overlays |
+| exclusive-consume | Live current GVM/C-interface graph with owner-only access | Atomic admission closure and one consumer transfer; no retained cached alias | Current destructive emitter only under exclusive ownership | Avoids freeze copy but prevents reusable shared-stage credential |
+| result-manifest | Generated C bytes/descriptors + source/diagnostic projections + native requirements | Complete output group, current epoch/profile, known success and closed writer admission | Gerbil scheduler/native tool service | Digest, atomic commit and diagnostic materialization |
+
+** Gain
+
+| key | avoided | added | condition |
+|---+---+---+---|
+| context-parallelism | Global target/primitive/emission serialization after complete ownership migration | Private workspace and overlay memory, scheduling, possible IPC | Removed span exceeds added span; target registry/primitive sharing must be proven safe |
+| gvm-reuse | Repeated parse/normalize/lower for admitted equal inputs | Freeze traversal + retained snapshot + private emission materialization | For k uses: (k-1)*frontWork > freezeCost + k*extraMaterialization + validation; cold single-use can lose |
+| structured-handoff | Repeated Scheme file write/read and avoidable process boundary work | Identity/origin/declaration codec + observation-compatible error adaptation | Removed serialization/startup exceeds codec + root custody cost; no gain from merely changing representation |
+| exclusive-handoff | Unnecessary copying in a single-consumer noncached pipeline | Single-consumer authority and lifetime checks | Useful independent of reusable caching; must not count it again as shared snapshot savings |
+
+** Refinement
+
+| key | qntScope | leanScope | evidenceGap |
+|---+---+---+---|
+| writer-freeze | closeAdmission;settleWriter;sealSnapshot | sealNeedsZero;lateWriterDenied | Complete actual alias/writer reachability beyond syntactic inventory remains open |
+| private-emission | materialize;consumePrivate;transferExclusive | snapshotNotConsumed;exclusiveDisjoint | Current c-intf consumption must refine a private graph or exclusive transfer |
+| fidelity-projection | publish;changeOrigin | projectionDistinct;declarationOrder | Real declaration/identity/source codec and diagnostics equivalence unproven |
+| failure-custody | unknownOutcome;settleOutcome;releaseContext | unknownNotSuccess;reusePositive | Native exit and callback/borrow/root closure are assumptions, not derived from the model |
+
+** Gate
+
+| key | qualified | condition |
+|---+---+---|
+| writer-closure | False | All stores, setter expansions, alias mutations and callbacks mapped to owners; inventory is only syntactic |
+| graph-seal | False | No surviving mutable aliases; roots and identity/relocation complete; transfer excludes cached sharing |
+| declaration-fidelity | False | Scope/order/section/phi and semantic options preserve real reader/parse observations |
+| identity-fidelity | False | Binding/mark/gensym/quote equality and distinction preserved across module instances |
+| origin-fidelity | False | Generated reader locations preserved; richer original mapping not silently substituted |
+| outcome-fidelity | False | Existing compile-error/status surface and cleanup order preserved; unknown completion retains custody |
+| source-platform | False | Model-to-Scheme/C memory and runtime proof plus actual work/span/memory evidence remains open |

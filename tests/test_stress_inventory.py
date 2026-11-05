@@ -8,6 +8,7 @@ import unittest
 from gambit_smp.framework import ROOT
 from gambit_smp.suite_primitives import selected_files
 from gambit_smp.native_capabilities import run_suite_groups
+from tests.support import task_fixture
 
 
 class StressInventoryTests(unittest.TestCase):
@@ -33,19 +34,20 @@ class StressInventoryTests(unittest.TestCase):
         ], selected_files(root, ["."], inventory="stress"))
 
     def test_actual_runner_receives_stress_switch_only_for_stress(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+        with task_fixture('stress-inventory') as (root, cache):
             runtime, copied = root / "runtime", root / "copied"
-            runtime.mkdir()
+            for name in ('gsi', 'gsc', 'lib', 'include', 'bin'):
+                (runtime / name).mkdir(parents=True)
             copied.mkdir()
             for inventory in ("unit", "stress"):
-                output = root / inventory
-                output.mkdir()
+                output = cache / 'runs' / inventory
+                output.mkdir(parents=True)
                 argv = []
                 def run(name, command, cwd, cap):
                     argv.extend(command)
                     return 0, "PASSED ALL 1 UNIT TESTS\n", False, 0.1
-                ctx = SimpleNamespace(directory=output, deadline=time.monotonic() + 10, run=run)
+                ctx = SimpleNamespace(root=root, directory=output,
+                    deadline=time.monotonic() + 10, run=run, env={}, tools={}, commands=[])
                 rows = run_suite_groups(ctx, runtime, copied,
                     {"mode": "gsi", "regime": "whole-parallel", "inventory": inventory},
                     [Path("fixture_stress.scm" if inventory == "stress" else "fixture.scm")], 1, "p2")

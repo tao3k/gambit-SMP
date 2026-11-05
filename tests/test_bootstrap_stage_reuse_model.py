@@ -27,17 +27,17 @@ class BootstrapStageReuseModelTests(unittest.TestCase):
         self.assertFalse(receipt["runtimeAdmitted"])
 
     def test_failed_launch_drift_attempt_remains_nonadmitted(self):
-        path = ROOT / "evidence/model-results/research/bootstrap-stage-reuse/launch-drift-attempt/archive.json"
+        path = ROOT / "tests/fixtures/bootstrap-stage-reuse/launch-drift-attempt.json"
         archive = json.loads(path.read_text())
         self.assertTrue(archive["archiveOnly"])
         self.assertFalse(archive["runtimeAdmitted"])
 
     def test_charged_consumption_composes_actual_budget_model(self):
         manifest_name = "evidence/research/continuation-retained-seed-bootstrap/charged-consumption-contract.json"
-        receipt_name = "evidence/model-results/research/bootstrap-stage-reuse/charged-consumption/receipt.json"
+        receipt_name = "tests/fixtures/bootstrap-stage-reuse/charged-consumption/receipt.json"
         manifest = json.loads((ROOT / manifest_name).read_text())
         receipt = json.loads((ROOT / receipt_name).read_text())
-        frozen = ROOT / "evidence/source-results/fixture-history/step-checkpoint-before-history-ancestry.py"
+        frozen = ROOT / "tests/fixtures/bootstrap-stage-reuse/step-checkpoint-before-history-ancestry.py"
         self.assertEqual(digest(frozen), manifest["contextInputs"]["src/gambit_smp/step_checkpoint.py"])
         # Replay the original context as data; never execute archived Python.
         with tempfile.TemporaryDirectory() as directory:

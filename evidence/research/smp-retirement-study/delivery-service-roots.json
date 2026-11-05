@@ -1,0 +1,172 @@
+{
+  "schema": "delivery-service-roots.v1",
+  "sourceLock": "evidence/research/processor-interrupt-collective-wait/procedural-suffix.lock.json",
+  "sourceLockSha256": "622bfae6f5ebc928992a2269bde6c17087529955a9315e5b358e8f06f9c09f5d",
+  "sourceEvidence": "evidence/research/smp-retirement-study/prepared-signal-native-commit.json",
+  "sourceEvidenceSha256": "d98d7cfa79d8eb24ec8887795ebf4437c7b60527345ff854c3a351c0243dffd7",
+  "sourceExcerpts": {
+    "lib/_thread.scm": {
+      "path": ".cache/tasks/repair-9-12/processes/audit/runs/ae318b67840c43229f1121df652dfd82/outputs/activation-current-lock-source/candidate/lib/_thread.scm",
+      "sha256": "b75071034a3795b493dc0ce779d91bbfc8fc3cb9c40eae7f0874bee2de9b7cac",
+      "excerpts": [
+        {
+          "first": 2774,
+          "last": 2806,
+          "text": "(define-prim (##wait! devices timeout)\n\n  (##declare (not interrupts-enabled))\n\n  (let ((processor (macro-current-processor)))\n\n    (macro-lock-current-vm!)\n    (macro-processor-deq-insert-at-tail! (macro-current-vm) processor)\n    (macro-unlock-current-vm!)\n\n    (let ((code (##os-condvar-select! devices timeout)))\n\n      (macro-lock-current-vm!)\n      (macro-processor-deq-remove! processor)\n      (macro-unlock-current-vm!)\n\n      code)))\n\n(define-prim (##wait-abort! processor)\n\n  (##declare (not interrupts-enabled))\n\n  (macro-lock-current-vm!)\n  (macro-processor-deq-remove! processor)\n  (macro-unlock-current-vm!)\n\n  (##wait-abort-no-remove! processor))\n\n(define-prim (##wait-abort-no-remove! processor)\n\n  (##declare (not interrupts-enabled))\n\n  (##device-select-abort! (macro-processor-id processor)))"
+        },
+        {
+          "first": 2869,
+          "last": 2899,
+          "text": "(define-prim (##thread-check-devices! timeout)\n\n  (##declare (not interrupts-enabled))\n\n  ;; Assumes that exclusive access to the processor has been acquired.\n\n  ;;(##c-code \"printf(\\\"P%d ##wait! in ##thread-check-devices!\\\\n\\\",___INT(___ARG1));\" (##current-processor-id));;TODO: remove\n\n  (let ((code (##wait! (macro-current-processor) timeout))) ;; wait for IO\n\n    ;; For each device, check if the IO operation is now possible.\n\n    (let loop ((condvar (macro-btq-deq-next (macro-current-processor))))\n      (if (##eq? condvar (macro-current-processor))\n          code\n          (let ((next (macro-btq-deq-next condvar)))\n\n            ;; Wakeup waiting threads when IO becomes possible on a\n            ;; device.\n            ;;(##c-code \"printf(\\\"(macro-btq-owner condvar)=%d\\\\n\\\",___INT(___ARG1));\" (macro-btq-owner condvar));;TODO: remove\n            (if (##fxodd? (macro-btq-owner condvar)) ;; IO now possible?\n                (begin\n                  ;;(##c-code \"printf(\\\"P%d calling ##device-condvar-broadcast-no-reschedule!\\\\n\\\",___INT(___ARG1));\" (##current-processor-id));;TODO: remove\n                  ;;TODO: remove possibility of deadlock!\n                  (macro-unlock-current-processor!)\n                  (##device-condvar-broadcast-no-reschedule! condvar)\n                  (macro-lock-current-processor!))\n                ;;(##c-code \"printf(\\\"P%d NOT calling ##device-condvar-broadcast-no-reschedule!\\\\n\\\",___INT(___ARG1));\" (##current-processor-id))\n                );;TODO: remove\n\n            (loop next))))))"
+        },
+        {
+          "first": 2906,
+          "last": 2929,
+          "text": "(define-prim (##thread-heartbeat!)\n\n  (##declare (not interrupts-enabled))\n\n  ;; acquire low-level lock of the processor\n  (macro-lock-current-processor!)\n\n  (let ((code (##thread-poll-devices!)))\n\n    (##thread-check-timeouts!)\n\n    (macro-unlock-current-processor!)\n\n    (##thread-intr-service-unlocked!)\n\n    (if (and (##fx< code 0)\n             (##not (##fx= code ##err-code-EINTR)))\n\n        ;; there was an error that cannot be handled, so force the\n        ;; primordial thread to wakeup and raise a \"scheduler\n        ;; error\" exception\n\n        ;;TODO: find a better way to report a scheduler error\n        (##thread-report-scheduler-error! code))"
+        },
+        {
+          "first": 2971,
+          "last": 2988,
+          "text": "(define-prim (##thread-resume-execution!)\n\n  (##declare (not interrupts-enabled))\n\n  ;; Consume pending migration on its owner before running interrupt handlers.\n  ;; A handler can itself yield or migrate; an old resume action must not\n  ;; clear the state installed by that newer handoff.\n  (let* ((thread (macro-current-thread))\n         (target (macro-thread-migration-target thread)))\n    (if target\n        (begin\n          (if (##not (##eq? target (macro-current-processor)))\n              (##error \"migration resumed on a non-target processor\"))\n          (macro-thread-migration-target-set! thread #f))))\n\n  (let ((resume-thunk (macro-thread-resume-thunk (macro-current-thread))))\n    (##thread-intr-drain!)\n    (resume-thunk)))"
+        },
+        {
+          "first": 2995,
+          "last": 3053,
+          "text": "(define-prim (##thread-schedule!)\n\n  (##declare (not interrupts-enabled))\n\n  ;; acquire low-level lock of processor\n  (macro-lock-current-processor!)\n\n  (##thread-schedule-with-acquired-processor!))\n\n(define-prim (##thread-schedule-with-acquired-processor!)\n\n  (##declare (not interrupts-enabled))\n\n  ;; Assumes that exclusive access to the processor has been acquired.\n\n  ;; Try extracting the thread at the head of this processor's run queue.\n\n  (macro-if-btq-next\n   (macro-current-processor)\n   next-thread\n\n   (begin\n\n     ;; There is at least one thread on the run queue of this\n     ;; processor, and next-thread is the one with highest priority\n     ;; and next in line. However, because this thread must be locked\n     ;; before it can be removed from the run queue, and it is\n     ;; possible that some other processor has locked it since the\n     ;; moment it was observed at the head of the run queue (to\n     ;; terminate it, interrupt it, or do some other operation on it),\n     ;; we must attempt to lock it but without blocking, otherwise\n     ;; this could lead to a deadlock due to a cross locking of two\n     ;; locks in opposite orders (i.e. processor followed by thread\n     ;; and thread followed by processor). If the thread can't be\n     ;; locked, the processor's lock is released and the thread\n     ;; scheduling is retried. This leaves a window for completing\n     ;; the operation of the other processor.\n\n     (cond ((##not (macro-trylock-thread! next-thread))\n\n            ;; The thread is currently locked by some other processor\n            ;; to perform an operation on the thread.  The processor's\n            ;; low-level lock must be released to allow other\n            ;; processor to complete its operation on the thread.\n\n            ;; release low-level lock of processor\n            (macro-unlock-current-processor!)\n\n            ;; Try again... next-thread may or may not be in the run\n            ;; queue, and if it is it might no longer be at the head\n            ;; (if its priority has changed).\n\n            ;; Reacquiring an uncontended processor lock is not a sync\n            ;; checkpoint. The thread owner may be awaiting our GC cohort.\n            (if (##c-code\n                  \"___RESULT = ___ps->intr_flag[___INTR_SYNC_OP] != ___FIX(0) ? ___TRU : ___FAL;\")\n                (##sync-op-interrupt!))\n\n            (##thread-schedule!))"
+        },
+        {
+          "first": 3227,
+          "last": 3268,
+          "text": "                     (macro-unlock-current-processor!)\n\n                     (macro-update-current-time!)\n                     (##wait! #f\n                      (##f64vector\n                       (##fl+ (macro-current-time\n                               (macro-thread-floats\n                                (macro-current-processor)))\n                              0.05)))\n                     (##thread-intr-service-unlocked!)\n                     (##service-interrupts!) ;;TODO:remove\n                     (##thread-schedule!))\n\n                   (begin\n\n                     ;; Wait for the next timeout or for a device\n                     ;; to become ready.\n\n                     ;;(##c-code \"printf(\\\"check-devices!\\\\n\\\");\");;TODO: remove\n\n                     (let ((code\n                            (##thread-check-devices!\n                             (if (##eq? next-sleeper\n                                        (macro-current-processor))\n                                 #t ;; no sleeper -> use infinite timeout\n                                 (macro-thread-floats next-sleeper)))))\n\n                       ;; ##thread-check-devices! only returns\n                       ;; after a device becomes ready or the\n                       ;; timeout is reached or an interrupt is\n                       ;; received or an error is detected.\n\n                       (##thread-check-timeouts!)\n\n                       ;; release low-level lock of processor\n                       (macro-unlock-current-processor!)\n\n                       (##thread-intr-service-unlocked!)\n                       (##service-interrupts!) ;;TODO:remove\n\n                       (cond ((##not (##fx< code 0)) ;; no error?\n                              (##thread-schedule!))"
+        }
+      ]
+    },
+    "lib/os_io.c": {
+      "path": ".cache/tasks/repair-9-12/processes/audit/runs/ae318b67840c43229f1121df652dfd82/outputs/activation-current-lock-source/candidate/lib/os_io.c",
+      "sha256": "c032d4b4381ec3fab84ad4e5e46b1fbee8fb7ead74ca6ca109b952432cc242f2",
+      "excerpts": [
+        {
+          "first": 828,
+          "last": 860,
+          "text": "void ___device_select_add_relative_timeout\n   ___P((___device_select_state *state,\n         int i,\n         ___F64 seconds),\n        (state,\n         i,\n         seconds)\n___device_select_state *state;\nint i;\n___F64 seconds;)\n{\n  if (seconds < state->relative_timeout)\n    state->relative_timeout = seconds;\n}\n\n\nvoid ___device_select_add_timeout\n   ___P((___device_select_state *state,\n         int i,\n         ___time timeout),\n        (state,\n         i,\n         timeout)\n___device_select_state *state;\nint i;\n___time timeout;)\n{\n  if (___time_less (timeout, state->timeout))\n    state->timeout = timeout;\n}\n\n\n#ifdef USE_select"
+        },
+        {
+          "first": 1538,
+          "last": 1564,
+          "text": "void ___device_select_abort\n   ___P((___processor_state ___ps),\n        (___ps)\n___processor_state ___ps;)\n{\n#ifdef USE_ASYNC_DEVICE_SELECT_ABORT\n\n  /* Cleanup drains registry readers; direct users must be joined by owner. */\n  if (!__atomic_load_n (&___ps->os.select_abort_ready, __ATOMIC_ACQUIRE))\n    return;\n\n#ifdef USE_POSIX\n\n  static char buf[] = { 0 };\n\n  write (___ps->os.select_abort.writing_fd, buf, 1); /* ignore error */\n\n#endif\n\n#ifdef USE_WIN32\n\n  SetEvent (___ps->os.select_abort); /* ignore error */\n\n#endif\n\n#endif\n}"
+        },
+        {
+          "first": 11703,
+          "last": 11794,
+          "text": "___SCMOBJ ___os_condvar_select\n   ___P((___SCMOBJ devices,\n         ___SCMOBJ timeout),\n        (devices,\n         timeout)\n___SCMOBJ devices;\n___SCMOBJ timeout;)\n{\n  ___SCMOBJ e;\n  ___time to;\n\n  if (timeout == ___FAL)\n    to = ___time_mod.time_neg_infinity;\n  else if (timeout == ___TRU)\n    to = ___time_mod.time_pos_infinity;\n  else\n    ___time_from_seconds (&to, ___F64VECTORREF(timeout,___FIX(0)));\n\n  if (___FALSEP(devices))\n    {\n      e = ___device_select (NULL, 0, 0, 0, to);\n    }\n  else\n    {\n      ___device *devs[MAX_CONDVARS];\n      ___SCMOBJ condvars[MAX_CONDVARS];\n      ___SCMOBJ condvar;\n      int event_pos = 0;\n      int write_pos = 0;\n      int read_pos = 0;\n      int i;\n      int j;\n\n      condvar = ___BTQ_DEQ_NEXT_FIELD(devices);\n\n      while (condvar != devices)\n        {\n          ___SCMOBJ owner = ___BTQ_OWNER_FIELD(condvar);\n          if (read_pos < MAX_CONDVARS-1)\n            {\n              ___BTQ_OWNER_FIELD(condvar) = owner & ~___FIX(1);\n              switch (___INT(owner)>>1)\n                {\n                case FOR_READING:\n                  condvars[read_pos++] = condvar;\n                  break;\n                case FOR_WRITING:\n                  condvars[read_pos++] = condvars[write_pos];\n                  condvars[write_pos++] = condvar;\n                  break;\n                case FOR_EVENT:\n                  condvars[read_pos++] = condvars[write_pos];\n                  condvars[write_pos++] = condvars[event_pos];\n                  condvars[event_pos++] = condvar;\n                  break;\n                }\n            }\n          else\n            {\n              ___BTQ_OWNER_FIELD(condvar) = owner | ___FIX(1);\n              to = ___time_mod.time_neg_infinity;\n            }\n          condvar = ___BTQ_DEQ_NEXT_FIELD(condvar);\n        }\n\n      for (i=0; i<read_pos; i++)\n        {\n          devs[i] = ___CAST(___device*,\n                            ___FOREIGN_PTR_FIELD(___CONDVAR_NAME_FIELD(condvars[i])));\n        }\n\n      ___PRIMITIVEUNLOCK(devices,___FIX(___OBJ_LOCK1),___FIX(___OBJ_LOCK2))\n\n      e = ___device_select (devs,\n                            read_pos - write_pos,\n                            write_pos - event_pos,\n                            event_pos,\n                            to);\n\n      ___PRIMITIVELOCK(devices,___FIX(___OBJ_LOCK1),___FIX(___OBJ_LOCK2))\n\n      for (i=0; i<read_pos; i++)\n        {\n          if (devs[i] == NULL)\n            {\n              condvar = condvars[i];\n              ___BTQ_OWNER_FIELD(condvar) |= ___FIX(1);\n            }\n        }\n    }\n\n  return e;"
+        }
+      ]
+    },
+    "lib/_kernel.scm": {
+      "path": ".cache/tasks/repair-9-12/processes/audit/runs/ae318b67840c43229f1121df652dfd82/outputs/activation-current-lock-source/candidate/lib/_kernel.scm",
+      "sha256": "60592a8bacc7d8f199cb2a516f8272fe5916a40c25bb480e38d2cae995d63ca8",
+      "excerpts": [
+        {
+          "first": 4558,
+          "last": 4593,
+          "text": "(define-prim (##os-condvar-select! devices timeout)\n  (##declare (not interrupts-enabled))\n  (##c-code #<<end-of-code\n\n   ___SCMOBJ result;\n\n#if defined(__APPLE__) && defined(__MACH__) && defined(__GNUC__) && !defined(__clang__)\n   if (___R0 == ___ABSENT)\n     {\n       char *msgs[] = { \"FFI-RA-ENTRY-ABSENT\", 0 };\n       ___fatal_error (msgs);\n     }\n#endif\n\n   ___FRAME_STORE_RA(___R0)\n   ___W_ALL\n\n   result = ___os_condvar_select (___ARG1, ___ARG2);\n\n   ___R_ALL\n   ___SET_R0(___FRAME_FETCH_RA)\n\n#if defined(__APPLE__) && defined(__MACH__) && defined(__GNUC__) && !defined(__clang__)\n   if (___R0 == ___ABSENT)\n     {\n       char *msgs[] = { \"FFI-RA-RETURN-ABSENT\", 0 };\n       ___fatal_error (msgs);\n     }\n#endif\n\n   ___RESULT = result;\n\nend-of-code\n\n   devices\n   timeout))"
+        }
+      ]
+    },
+    "include/gambit.h.in": {
+      "path": ".cache/tasks/repair-9-12/processes/audit/runs/ae318b67840c43229f1121df652dfd82/outputs/activation-current-lock-source/candidate/include/gambit.h.in",
+      "sha256": "3010497837c30ab07d9cf5a64d71c8fe276f6cc976c19a52a567fdb5663545b6",
+      "excerpts": [
+        {
+          "first": 8571,
+          "last": 8608,
+          "text": "#define ___POLL(n)                    \\\nif (___EXPECT_FALSE(___POLL_TRIGGER)) \\\n{___ps->temp1=___LBL(n); \\\n___ps->stack_check_only=0; \\\n___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit) \\\n}\n\n#endif\n\n/* Stack growth inside interrupt-disabled code. This does not sample\n   stack_trip and does not request interrupt service. */\n#define ___CHECK_STACK(n) \\\nif (___EXPECT_FALSE(___fp < ___ps->stack_limit)) \\\n{___ps->temp1=___LBL(n); \\\n___ps->stack_check_only=1; \\\n___JUMPEXTPRM(___NOTHING,___ps->handler_stack_limit) \\\n}\n\n#define ___TASK_PUSH(i)\n#define ___TASK_POP(n)\n\n#ifdef ___DEBUG_HEAP_LIMIT\n\n#define ___CHECK_HEAP(n,m)                    \\\nif (___EXPECT_FALSE(___hp>___ps->heap_limit)) \\\n{___ps->temp1=___LBL(n); \\\n___ps->check_heap_location.file=__FILE__; \\\n___ps->check_heap_location.line=__LINE__; \\\n___JUMPEXTPRM(___NOTHING,___ps->handler_heap_limit) \\\n}\n\n#else\n\n#define ___CHECK_HEAP(n,m)                    \\\nif (___EXPECT_FALSE(___hp>___ps->heap_limit)) \\\n{___ps->temp1=___LBL(n); \\\n___JUMPEXTPRM(___NOTHING,___ps->handler_heap_limit) \\\n}"
+        }
+      ]
+    },
+    "gsc/_t-c-2.scm": {
+      "path": ".cache/tasks/repair-9-12/processes/audit/runs/ae318b67840c43229f1121df652dfd82/outputs/activation-current-lock-source/candidate/gsc/_t-c-2.scm",
+      "sha256": "301a58eea156a943af517d71a87d1e46d356e31363e649f0e2a44045dd5f26e4",
+      "excerpts": [
+        {
+          "first": 4201,
+          "last": 4245,
+          "text": "(targ-op\n  \"##c-code\"\n  (lambda (prim)\n    (proc-obj-inlinable?-set! prim (lambda (env) #t))\n    (proc-obj-inline-set!\n      prim\n      (lambda (opnds loc sn)\n        (targ-use-all-res)\n        (let ((n (length opnds)))\n          (if (= n 0)\n            (compiler-error\n              \"\\\"##c-code\\\" needs at least one argument\")\n            (let ((code (car opnds))\n                  (args (map (lambda (opnd) (targ-opnd opnd))\n                             (cdr opnds))))\n              (if (and (obj? code)\n                       (string? (obj-val code)))\n                (let loop ((i (- n 1))\n                           (rev-args (reverse args))\n                           (lst1 (list \"{ \" c-id-prefix \"SCMOBJ \"\n                                       c-id-prefix \"RESULT;\"\n                                       #\\newline\n                                       (obj-val code)\n                                       #\\newline))\n                           (lst2 (list #\\newline\n                                       \"}\")))\n                  (if (null? rev-args)\n                    (begin\n                      (targ-emit (cons 'append lst1))\n                      (if loc\n                        (targ-emit (targ-loc loc '(\"RESULT\"))))\n                      (targ-emit (cons 'append (reverse lst2))))\n                    (let ((arg (car rev-args)))\n                      (loop (- i 1)\n                            (cdr rev-args)\n                            (append\n                              (list \"#define \" c-id-prefix \"ARG\" i \" \" arg\n                                    #\\newline)\n                              lst1)\n                            (append\n                              (list #\\newline\n                                    i \"ARG\" c-id-prefix \"#undef \")\n                              lst2)))))\n                (compiler-error\n                  \"Argument 1 of \\\"##c-code\\\" must be a string constant\")))))))))"
+        }
+      ]
+    },
+    "lib/mem.c": {
+      "path": ".cache/tasks/repair-9-12/processes/audit/runs/ae318b67840c43229f1121df652dfd82/outputs/activation-current-lock-source/candidate/lib/mem.c",
+      "sha256": "db470aadb0a1b6af71935ac06ec52a9f1e28802b9fa196a076293d2972991c8f",
+      "excerpts": [
+        {
+          "first": 7786,
+          "last": 7799,
+          "text": "___HIDDEN void mark_processor_scmobj\n   ___P((___PSDNC),\n        (___PSVNC)\n___PSDKR)\n{\n  ___PSGET\n\n#ifdef ENABLE_CONSISTENCY_CHECKS\n  reference_location = IN_PROCESSOR_SCMOBJ;\n#endif\n\n  mark_array (___PSP\n              ___BODY0_AS(___PROCESSOR_SCMOBJ(___ps),___tSUBTYPED),\n              ___PROCESSOR_SIZE);"
+        },
+        {
+          "first": 8122,
+          "last": 8136,
+          "text": "  mark_rc (___PSPNC); /* rc_head is per processor */\n\n  mark_global_variables (___PSPNC);\n\n  mark_continuation (___PSPNC);\n\n  mark_registers (___PSPNC);\n\n  mark_saved (___PSPNC);\n\n  mark_type_cache (___PSPNC);\n\n  mark_processor_scmobj (___PSPNC);\n\n  /* Complete root-phase frame copying before another processor scans it. */"
+        }
+      ]
+    }
+  },
+  "model": "models/gambit/delivery_service_roots.qnt",
+  "modelSha256": "b6404022aeac53e1b47ed3021a8eefe10d134b043634b4f9842a5be66f4717d0",
+  "verificationReceipt": ".cache/tasks/repair-9-12/processes/audit/runs/2389cea949e24b4ba5b2a5a606787fc1/outputs/delivery-service-roots/receipt.json",
+  "verificationReceiptSha256": "09750487a01ceff4679edef8c05a2c6c7c9a19154ea773086075fc0c1e288f52",
+  "controls": 15,
+  "positive": 3,
+  "safetyMutants": 9,
+  "temporalMutants": 1,
+  "completionWitnesses": 2,
+  "runtimeModified": false,
+  "nativeRuns": 0,
+  "runtimeAdmitted": false,
+  "actualGeneratedBridgeCertificate": null,
+  "sourceRefinementAdmitted": false,
+  "qualificationCount": "8/12",
+  "selectedServiceOwner": "canonical target queue / admitted destination runnable scheduler, before OS notification",
+  "correctedPriorClaim": "SMP bare idle already has 50ms return; device/no-sleeper remains infinite",
+  "progressAssumptions": [
+    "per-action weak fairness",
+    "finite backend return including EINTR",
+    "managed active GC participant",
+    "admitted instance survives or atomic rooted handoff",
+    "finite competing lock/priority obstruction",
+    "finite supported callback/thunk"
+  ],
+  "protectedInputs": {
+    "tests/run_current_checkpoint_qualification.py": "8c2fd5accc077b70d774111c961484fc59e5ad1394613ccc977c2eb899570729",
+    "models/gambit/native/lifecycle_join_recovery_probe.scm": "ac54793d89baf690dd1013ff93f245dcf95925b7f5b28a8bc4bfa07934dcb4ed",
+    "docs/smp-threaded-vm-milestone.md": "d88437db423d547b48d15366f169f3db7723a74a2d014fc60e88653560b26f54",
+    "evidence/research/processor-interrupt-collective-wait/handler-quiet-join-recovery.recipe.json": "54e8d451c7509dedd4f39d27d9ec408a37dee42bca5fc38d8cdd479bf1a16f06",
+    "evidence/research/processor-interrupt-collective-wait/current-checkpoint-qualification-review.md": "7fce63583a66ff570f9083ef371c896dd0e9a94dc96bd4ec9404032111734d82",
+    ".cache/tasks/repair-9-12/lifecycle-join-recovery-1/receipt.json": "9034a0b33159f81b30c2af0305fe2bedb04e1c4be155c53df99ecc82aafc02f4",
+    ".cache/tasks/repair-9-12/lifecycle-join-recovery-1/run/receipt.json": "266ac688e904c0de81cc19607c73c97752f446c2184249e5146621aac17efe2d",
+    ".cache/tasks/repair-9-12/lifecycle-join-recovery-1/run/evaluation-owner/receipt.json": "3e3f933d71035198affd8359bc75fc2d2081ec322fbfb3430e0a0fdc819dca54",
+    ".cache/tasks/repair-9-12/lifecycle-join-recovery-2/receipt.json": "d9a90c3da3ff126ca96522c6281997d460bb1c61c9f5fa6a670b8b85dd162d18",
+    ".cache/tasks/repair-9-12/lifecycle-join-recovery-2/run/receipt.json": "a74fd2f9bd6157cb88b20fbe5900a5502bfd57cd11d652966601fff1c4a5cee4",
+    ".cache/tasks/repair-9-12/lifecycle-join-recovery-2/run/evaluation-owner/receipt.json": "3f9d5dd5d5b0d0b7b83cdfe61d187faa34632e017ccada338a7ebf6efcc44584",
+    ".cache/tasks/repair-9-12/lifecycle-boundary-current-2/receipt.json": "4b2a4052912b0781cf289bd8a0d3a2014bfda7295fa357510b71a8e117a4eef7",
+    ".cache/tasks/repair-9-12/lifecycle-boundary-current-2/run/receipt.json": "acbb12286ba6abd58374f1e636c9dd8780aa150a6034999ea981089cfe306e7d",
+    "evidence/research/processor-interrupt-collective-wait/handler-quiet-while-pending.lock.json": "e428634a03d946a8cd0ca3c9432e747136389bb6514672d477677f3b582580fb",
+    "patches/fixtures/foreign-release-claim-cumulative.patch": "bd4dfe0d86a46f88d4c869427a98e04d1902f87975e809500028c4e1e7f93c86",
+    "evidence/research/processor-interrupt-collective-wait/foreign-release-claim.lock.json": "19020458ab93e82662443ccc65114faadde56210575c7b851f9157bbcc975499",
+    "evidence/research/smp-retirement-study/foreign-release-claim-landed.json": "451b70ca7f799af28906bf6109e37aabd56b6e1ad1f4d875278e7383c73e6639",
+    "evidence/research/smp-retirement-study/gc-ffi-inventory-rerun-2026-10-23.json": "dd2a64172286012e8d931c7d0259eb86df4b4f59f669125243376dc18b40dad0",
+    ".cache/tasks/repair-9-12/gc-ffi-inventory-current-1/receipt.json": "8741b0f79165c12731a4f313a83e45de7241ea05d1babdbfff01e98c6bd1f148",
+    "evidence/research/ci/bazel-profile-gc-ffi-inventory.recipe.json": "6458737cb8eb8e44d699a12ae52f2df0020bd96e36c8c11c5ae71563cc67caf9",
+    "evidence/research/ci/bazel-profile-gc-ffi-inventory-vector-inc.recipe.json": "342172c7a201d4a1585b336ae44d7075a82ab4468f6cc4c234692febde23b941"
+  },
+  "modelPinMeaning": "aggregate live delivery/domain protection, not individual R/S/H counts",
+  "nativeOpenCertificates": [
+    "generated C per-label root/maps/reload",
+    "pure native transitive/object call graph and acquire/release",
+    "finite P reacquire and unlocked service under pending SYNC",
+    "durable queue/domain ownership before concrete producer R settlement",
+    "backend bound under actual EINTR and descriptor failures",
+    "same-B pressure and shrink controls"
+  ]
+}

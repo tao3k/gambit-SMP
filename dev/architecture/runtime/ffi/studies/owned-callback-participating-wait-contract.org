@@ -1,0 +1,319 @@
+#+TITLE: Same-Owner Callbacks and Participating Waits
+#+SETUPFILE: ../../../../modeling/org/setup.org
+#+CATEGORY: ffi
+#+PROPERTY: header-args :eval never :exports code
+#+OPTIONS: toc:3 num:t
+
+* OPEN Same-Owner Callbacks and Participating Waits :ffi:
+:PROPERTIES:
+:ID: d6445f9a-85d6-5d1e-938d-0c67cd61de44
+:CUSTOM_ID: same-owner-callbacks-and-participating-waits
+:SOURCE_PATH: docs/experimental/zig/owned-callback-participating-wait-contract.md
+:SOURCE_SHA256: 910607ef0ea652011b569dcbb5a410f960ddc8bd1e88faec4c6a8be7c387f4c4
+:MIGRATION_STATUS: content-preserved
+:EVIDENCE_CLASS: source-design-import
+:END:
+
+#+BEGIN_QUOTE
+Maintained Org source. The original Markdown is a frozen provenance snapshot.
+Import preserves historical statements; it does not refresh source evidence, execute embedded examples, or promote a gate.
+Current architecture: modern C is mandatory; C-to-Zig is a separately justified implementation evolution.
+#+END_QUOTE
+
+
+Reviewed: 2026-10-20. Design/source study only; no runtime edits, native tests,
+compiler experiments or research-engine evaluation. Refines VE01/VE02 and BW1
+in the [[file:../../execution/studies/runtime-root-participation-contract.org][core contract]]. Read the
+[[file:owned-callback-wait-evidence.org][source ledger]] and
+[[file:owned-callback-wait-matrix.org][paired cost/migration matrix]] with this design.
+
+*** 1. The Selected Boundary
+:PROPERTIES:
+:ID: 7fb278f5-01ff-595f-84ee-250a485fdd5d
+:CUSTOM_ID: 1-the-selected-boundary
+:END:
+
+An existing owned callback must preserve **the same host, processor, VM and
+live return origin**. Nested entry is a stack of activations over that owner,
+not reacquisition of a second independent right to mutate the processor.
+Admission still needs V/E/R/S/P. This study adds no foreign-thread attachment,
+cross-VM switching, detached BW2 member or new collector. Configuration and
+source reachability remain prerequisites; the template is not an installed ABI.
+
+The modernization target is one Scheme-issued callback/wait operation plan,
+one shared runtime control/root authority, and replaceable native consumers.
+C emission must stop deciding these semantics independently. Zig can consume
+the plan, but root publication, collective service, continuation handling and
+binding restoration belong to Gambit under every native language [OW01-OW13].
+
+| Cohort | Actual source path | Design disposition |
+|-
+| OC0 static exported entry | ~c-function~ emits ~MLBL(C_LBL_name)~ for c-define; SFUN selects current PSTATE and makes marker | Preserve generated label and descriptor/module lifetime; establish target representation and root needs for selected profile; no dynamic RC target assumed |
+| OC1 dynamic C closure | function conversion -> make_c_closure -> alloc_rc/current PSTATE -> header.data=proc -> trampoline -> FAL SFUN -> data_rc(c_closure_self) | Separate registration/scanner cohort, native code lifetime, invocation-local target and target architecture obligations; not automatically portable |
+| OC2 direct runtime invocation | run(thunk) -> make_sfun_stack_marker(thunk) -> call -> kill marker | Target may be managed; must be protected and reloaded before use after marker allocation |
+| OW0 no-device wait | os_condvar_select(FAL, timeout), including startup processor loop | Preserve abort/interrupt/service chain; loop's interrupts-enabled declaration is one actual service opportunity, not all callers |
+| OW1 device wait | thread-check-devices locks processor queue, calls select, then unlocks/broadcasts; C select unlocks/relocks queue around device_select | Preserve lock nesting, native arrays and movement exclusion through last use; do not insert GC while cached Scheme values remain unregistered |
+| OW2 scheduler wait | wait! publishes processor into VM wait queue, invokes select, then removes it | Wait-queue membership is not collector membership; preserve VM queue lock/order and legal later service |
+
+These are six selected source families, not six runtime-supported profiles or
+an exhaustive application-call count. OC1 source code generation is guarded:
+reviewed branches cover x86 32-bit, PPC 32-bit and SPARC variants; no arm64 branch
+exists in this closure generator. That static fact does not forbid separately
+supported static callbacks on Darwin/arm64 and does not establish the current
+configured result. Missing OC1 support cannot be counted as a speed benefit.
+
+*** 2. RC Ownership and Scanner Closure
+:PROPERTIES:
+:ID: 68d51888-a86e-56de-a935-e5d760ac2474
+:CUSTOM_ID: 2-rc-ownership-and-scanner-closure
+:END:
+
+The source establishes this chain [OW02-OW04]:
+
+~alloc_rc(ps) -> register_rc(ps) -> ps.mem.rc_head -> header.data~
+
+~strong_phase(ps), processor_id==0 -> mark_rc(ps) -> mark_array(&header.data,1)~
+
+Native refcount protects carrier allocation until release; collector visibility
+protects its managed data. Payload bytes are not recursively scanned. String
+converters also use RC but normally retain native bytes with header.data=FAL;
+these do not have the same moving-target obligation as OC1. Native RC list and
+refcount mutations still require owner serialization/lifetime, even for FAL.
+
+| RC case | Static conclusion | Required selected-cohort argument |
+|-
+| P0, same VM, managed data | Registration and inspected scanner select the same list | All initialization/mutation/removal serialized with scan; storage/code/module outlive scans and calls; reload moved value from data slot |
+| Nonzero processor, managed data | Registration selects its own list; inspected mark_rc call is P0-only | Unresolved scan-domain closure; bounded search found no rehome/all-list loop. Do not advertise a general RC root API |
+| Any processor, native bytes/FAL | Managed-data liveness does not depend on finding heap pointers in payload | Preserve RC allocation/list/release correctness; no automatic thread safety or use-after-VM-cleanup permission |
+| Cross-VM/cross-host use | RC carrier does not carry a validated runtime authority | Excluded from initial scope; list ownership alone cannot authorize another mutator |
+
+*Selected forward design:* keep processor-owned registration and explicitly
+specify one scan of each admitted processor's managed RC data during that
+processor's legal root phase. Moving mark_rc out of the P0-only block is a
+candidate algorithm change, not a proven one-line repair. It must preserve
+per-worker mark queues, collector phases, request exclusion, processor cleanup,
+slot update, and list mutation/removal discipline. This is the least new
+ownership domain for the selected same-owner scope. A VM-wide registry adds
+publication/locking/retirement work and is not required merely for amortization.
+
+Until that refinement is complete, a design may restrict managed RC use to an
+explicitly qualified P0 cohort; it must reject unknown/nonzero owner use rather
+than silently route allocation to P0. Rehoming without mutator/scan and VM
+lifetime rules hides the problem. No current native failure is inferred from
+this source mismatch, and no old cumulative repair receipt is reissued.
+
+*** 3. Protect Before Allocating the Marker
+:PROPERTIES:
+:ID: ae17f066-997b-5937-86cb-472393893a8b
+:CUSTOM_ID: 3-protect-before-allocating-the-marker
+:END:
+
+Marker allocation is a *real may-GC boundary*: make_sfun_stack_marker calls
+make_vector with nonnull ps; alloc_scmobj_still can call garbage_collect when
+VM space accounting requires it, or under the frequent-GC branch [OW05].
+The marker's still address does not stabilize a movable target. The explicit
+TODO in c_intf is therefore a source-backed obligation, with caller-specific
+reachability still unqualified. A copy of a value can become stale even when
+another root keeps the object alive and is updated.
+
+| Target form | Required handling before marker allocation | After allocation |
+|-
+| Qualified immovable label | Prove label representation, descriptor/module lifetime and selected owner | Use stable label under that proof; do not manufacture a redundant root requirement |
+| Managed direct proc/thunk | Publish target in an already scanner-visible updateable slot before any relocating effect | Reload target from that slot; populate marker; transfer reachability before withdrawing temporary protection |
+| OC1 retained target | Keep registered RC data under admitted scan/VM/storage contract; capture invocation's native carrier identity before effects | Reload data from that same carrier after GC; never reselect target from mutable global callback identity |
+| Raw Scheme-object parameters | Establish each live input slot/caller-carrier contract before the first allocating marker/converter | Reload affected values; marker rooting of target does not root every parameter |
+
+The root bootstrap must itself avoid GC or use a previously established root
+extent. ~allocate a still vector, then store the unprotected target~ repeats the
+same gap. A private RC allocation uses native allocation in this source, but
+its managed-slot discovery still needs section 2; it is not a universal solution.
+Existing mapped frames/registers/saved slots may be reused only with complete
+capacity, liveness, nested-save and scanner contracts. Blindly overwriting a
+saved register is not an accepted root API. Otherwise a native root-scope adapter
+and scanner integration are shared C/Zig work, with explicit added cost.
+
+Proposed logical entry product (not a C or Zig ABI):
+
+#+BEGIN_SRC text :eval never
+OwnedCallbackPlan {
+  owner: (runtime, vm, processor, host, return_origin),
+  target: StableLabel(descriptor) | ManagedSlot(root_identity)
+          | RetainedClosure(carrier_identity, registration_owner),
+  inputs: [live_slot_and_effect_contract],
+  root_strategy: admitted_existing_extent | designed_write_authority,
+  binding: preserve_same_owner,
+  effects: marker + converters + target + error_handlers + cleanup,
+  control: configured_return_to_C_and_continuation_protocol
+}
+#+END_SRC
+
+Scheme owns target/input meaning, live/effect plans and control obligations;
+Gambit owns runtime slot enumeration/update and actual control; common native
+layout/adapters own physical marshalling. The plan cannot certify its own
+missing scanner/bootstrap premise. Neither a Zig pointer nor C opaque handle
+is automatically an updateable GC root.
+
+*** 4. Invocation Identity and Binding Restoration
+:PROPERTIES:
+:ID: c0f23c3d-d1e9-5cd1-988f-5e2db962eda7
+:CUSTOM_ID: 4-invocation-identity-and-binding-restoration
+:END:
+
+The reviewed dynamic trampoline stores its address in *one global*
+c_closure_self (source TODO asks for TLS). Marker construction reads it *after*
+allocation [OW06]. Same owner prevents simultaneous execution on one processor;
+it does not prevent a different processor overwriting process-global state.
+TLS would distinguish hosts but would still need invocation nesting/lifetime
+and an early capture rule. The source does not establish that marker allocation
+itself invokes a callback; GC and callback effects must be classified separately.
+
+For OC1 expansion, replace implicit target reselection with an invocation-local
+carrier/context captured at the first ABI-preserving entry and retained until
+its target is installed in the marker. Platform trampoline/context production,
+code release, nested calls and any pre-capture effects need design/qualification.
+Use existing explicit-context APIs where available; do not impose a new public
+callback signature on unchanged users. On a target without dynamic code support,
+a trampoline/context provider would be a new capability with its own cost.
+
+The current source has thread_set_pstate at processor startup and main runtime
+setup. It sets real PSTATE (and optional binding to self) and thread affinity.
+GET_PSTATE optionally follows real->pstate_binding; BEGIN/END_PSTATE_BIND are
+lexical macros. The bounded vendor search found definitions but no invocation
+of those BEGIN/END macros [OW07]. Their existence does not prove nested VM
+entry is installed, nor that all nonlocal exits restore the binding.
+
+For the selected same-owner cohort, *preserve rather than switch*: once the
+host is known to be an existing runtime owner, validate effective selection
+against the entry's expected processor/VM, retain the same origin, and require
+equality on every admitted return. In profiles with binding indirection, retain
+both real and effective selectors in the reasoning record. This is not license
+to call a TLS getter on an unregistered host or to dereference an unknown owner.
+Do not call thread_set_pstate as an RAII-style scope restore: it resets binding
+and applies affinity; it is an initialization operation in these call sites.
+
+If an existing admitted adapter legitimately changes a binding, it needs a
+stacked previous-binding record and restoration **inside the same native control
+containment** on success/error/nonlocal exit. Cross-VM switching stays excluded.
+A lexical END macro or Zig defer can be bypassed by configured longjmp. In
+same-owner no-switch mode the main restoration duty is to prevent changes and
+restore activation-local state, not to invent a VM transition. The existing
+call frame restoration of fp/R0 is separate from TLS or VM binding restoration.
+
+*** 5. Callback State and Control Program
+:PROPERTIES:
+:ID: 3aa1b262-1b52-5a7f-8ba7-5ec5c84dea93
+:CUSTOM_ID: 5-callback-state-and-control-program
+:END:
+
+| State | Obligations and permitted transition |
+|-
+| CS00 owned | Existing live owner established; reject unknown host/VM/profile |
+| CS01 captured | Invocation target/carrier and previous activation state fixed; classify all input effects |
+| CS02 rooted | Every live movable target/input in admitted updateable storage; publication precedes GC |
+| CS03 marker-ready | Allocate marker, reload target, initialize fields before next allocation; no use of uninitialized marker on failure |
+| CS04 converting | Preserve ordered conversions and resource scopes; each may-GC/callback path follows its own root/control law |
+| CS05 called | call constructs return frame, enters configured host/trampoline; same owner and origin remain live |
+| CS06 returning | Match marker/origin; wrong-processor, repeated or outer-destination return retains existing semantics |
+| CS07 result | Root/convert result and error-handler arguments; handlers and cleanup can reenter; target retention alone is insufficient |
+| CS08 invalidated | Invalidate marker once on the selected closing path; release its still reference only after last admitted use |
+| CS09 withdrawn | Remove temporary roots after last scanner/activation use, then release native backing |
+| CS10 restored | Restore prior activation/binding if changed under an admitted rule; preserve outer nesting and fp/R0/catcher protocol |
+| CS11 delivered | Return native result or propagate the correct Scheme error/continuation destination |
+
+Failure edges close only resources actually acquired. Marker allocation failure
+never kills an undefined marker. Nonlocal transfers that target an outer C
+activation may bypass the local call; every crossed scope needs legal cleanup
+and origin restoration. Converting all escapes to an ordinary error can change
+Scheme continuation semantics and is not adopted. Existing marker validity,
+processor check, matching unwind and error-handler reentry are retained [OW08].
+
+For Zig consumers, use a C runtime shell for effectful managed entry until a
+legal mixed-control protocol exists. All code potentially crossed by the
+configured nonlocal transfer, including cleanup and binding restoration, must
+remain inside its supported control region. An outer catcher above a Zig frame
+is insufficient. Zig-owned resources stay outside that region or are transferred
+to an admitted explicit cleanup owner; defer is only an ordinary-return aid.
+This retained shell is charged to Zig and modern C alike where required.
+
+*** 6. Participating Wait: Service at a Legal Cut
+:PROPERTIES:
+:ID: 6d7757b5-ba42-565c-8a48-0e06ac9e91c9
+:CUSTOM_ID: 6-participating-wait-service-at-a-legal-cut
+:END:
+
+The reviewed source supports this *conditional chain*, not a finite latency
+bound [OW09-OW12]:
+
+#+BEGIN_SRC text :eval never
+collective request -> INTR_SYNC_OP + stack trip -> select_abort
+  -> device_select returns -> queue relock/readiness updates
+  -> R_ALL + RA reload -> allowed Scheme interrupt checkpoint
+  -> interrupt-vector[0] -> sync-op wrapper publishes roots/RA
+  -> service_sync_op -> collective loop -> execute GC/resize
+#+END_SRC
+
+W_ALL already exists at the select wrapper. Reuse it; no duplicate-store saving
+is earned. Collector membership persists while waiting. VM wait-queue insertion
+in wait! is scheduler data, not a collector exit. The startup loop explicitly
+enables interrupts; wait! and thread-check-devices declare interrupts disabled,
+so their next permitted checkpoint must be followed through actual callers.
+A wakeup alone does not establish request acknowledgement or a pause bound.
+
+C os_condvar_select caches devices/condvars and raw device pointers, unlocks
+queue around device_select, then relocks and uses these values. Rooted values
+elsewhere do not update unregistered C array copies. The selected BW1 design
+must prove no relocation/control effect inside that cached interval, or redesign
+it with complete root/reload and device-custody support before admitting one.
+Current ticket-lock macros spin and do not directly call service_sync_op.
+Do not fix progress by injecting collector service into that lock or device
+virtual method while stale arrays/lock-order obligations are unresolved.
+
+The selected select/poll add_fd helpers only set fd-set bits or poll entries;
+they do not perform fdset resize or collective service. The reviewed pipe
+constructor performs capacity admission through fdset_resize, whose insufficient-
+capacity branch enters on_all_processors [OW14]. Keep device construction as a
+separate potentially collective effect. This narrows the inspected wait path;
+it does not certify every virtual method or pending collective interaction.
+
+A legal service cut requires: all live Scheme values materialized in scanner
+storage; no stale native aliases surviving; safe queue/device/VM lock state;
+valid same-owner return binding; and entry into the actual collective protocol.
+GC from another processor may request collection during the wait; that does
+not mean it can complete a moving phase before this member cooperates. Full
+closure still needs OS abort setup/errors, pending-wakeup races, virtual prepare/
+check methods, fdset resize, signals, queue-lock holders and all return paths.
+No no-GC/no-callback guarantee is inferred from the absence of a direct call in
+the top-level select body. OW1 is therefore not fully qualified by this reading.
+
+OCaml 5 is useful as a protocol comparison: roots, execution lock, registration
+and pending actions have distinct contracts, and named-value code discards an
+address across a wait and reloads from a rooted value. Gambit retains its own
+collective participation and continuation semantics [OO01-OO04]; translating
+release/acquire names would not implement that protocol.
+
+[[file:../diagrams/owned-callback-roots.svg][Owned callback and root transfer]]
+
+[[file:../../../../research/diagrams/participating-wait-service.svg][Participating wait and legal service cut]]
+
+*** 7. Unresolved Boundaries
+:PROPERTIES:
+:ID: bd18534b-3ca2-5db2-b24c-17c330be1e62
+:CUSTOM_ID: 7-unresolved-boundaries
+:END:
+
+OU01 actual macro/profile and application cohort; OU02 nonzero managed RC scan,
+mutation/removal and processor teardown; OU03 pre-marker bootstrap and complete
+input/converter/error roots; OU04 OC1 invocation capture, platform code/lifetime;
+OU05 legal control/binding closure for every exit; OU06 virtual-device/lock/OS/
+checkpoint progress and movement cut; OU07 disjoint private support retirement
+and justified C-versus-Zig cost intervals. Theory gaps stay open without using
+native tests as substitutes. Future native safety/progress qualification is a
+separate gate; no gate, implementation or measured benefit is issued here.
+
+*** 8. Nonzero RC and Marker Minimum
+:PROPERTIES:
+:ID: 1232e844-a246-580f-9f12-2e1351e50cb8
+:CUSTOM_ID: 8-nonzero-rc-and-marker-minimum
+:END:
+
+The [[file:rc-marker-minimal-contract.org][RC/marker refinement]], [[file:rc-marker-caller-evidence.org][actual caller ledger]] and [[file:rc-marker-maintenance-matrix.org][minimum-change/maintenance matrix]] distinguish baseline from existing candidate per-processor RC scan/transfer and saved-target repairs. The selected minimum reuses a short saved0 window under explicit reservation/effect/all-exit conditions, including direct run; it does not start with a new registry. Tcl positive-still tracing and successful versus pending retirement expose different root-custodian cases. Source-composition/cost gates remain open; no implementation or native qualification follows.

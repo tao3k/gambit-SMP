@@ -1,0 +1,46 @@
+{
+  "schema": "evidence-recipe.v2",
+  "workspacePolicy": "in-place",
+  "id": "exit-drain-lock-order-notify-trajectory",
+  "scope": "Parse, typecheck, and run the lock-order trajectories plus the GC-notification branch tests and the timer-constant inequality. No Gambit materialization, no native gsi, and no admission. A passing test is not the collector barrier and not original TFIB acceptance.",
+  "timeoutPolicy": {"mode": "progress", "overheadSeconds": 30},
+  "inputs": [
+    "models/gambit/exit_drain_mutex_lock_order.qnt",
+    "evidence/research/execution/entry.json",
+    "evidence/dsl/execution.ss"
+  ],
+  "steps": [
+    {"id": "parse", "capability": "quint.parse", "dependsOn": [], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/exit_drain_mutex_lock_order.qnt"}},
+    {"id": "typecheck", "capability": "quint.typecheck", "dependsOn": ["parse"], "budgetSeconds": 15,
+     "arguments": {"source": "models/gambit/exit_drain_mutex_lock_order.qnt", "parsed": "parse"}},
+    {"id": "trajectories", "capability": "quint.test", "dependsOn": ["parse", "typecheck"], "budgetSeconds": 20,
+     "arguments": {
+       "source": "models/gambit/exit_drain_mutex_lock_order.qnt",
+       "parsed": "parse",
+       "main": "exit_drain_mutex_lock_order",
+       "seed": "0x1510",
+       "maxSamples": 1,
+       "expectedTests": [
+         "candidateEscapeTest",
+         "delayLoopOutsideLockOrderTest",
+         "entryOnlyStillCyclesTest",
+         "fixedTfibJoinWithoutMutexTest",
+         "gcNotifyCurrentThreadSkipsMutexTest",
+         "gcNotifyNoCurrentThreadUsesResultMutexTest",
+         "logicalOwnershipTest",
+         "originalCycleTest",
+         "peerFirstTest",
+         "probeNotTfibTest",
+         "slowEscapeTest",
+         "targetFirstTest",
+         "tfibJoinWithoutMutexTest",
+         "timerConstantsOutsideDelayTest"
+       ]
+     }},
+    {"id": "verdict", "capability": "evidence.evaluate", "dependsOn": ["parse", "typecheck", "trajectories"], "budgetSeconds": 10,
+     "arguments": {"dsl": "evidence/research/execution/entry.json",
+                   "queries": {"checked": "checked_step", "missing": "missing_step"},
+                   "expected": {"missing": []}, "recordedQueries": ["checked"]}}
+  ]
+}
